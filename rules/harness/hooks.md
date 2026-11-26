@@ -5,92 +5,80 @@ paths:
 ---
 # Hooks System
 
-Hooks run as `$HOME/.claude/bin/.hookd <Event> [--<module>|--all|--async]` (the older `hook <Event>` form still works).
-`make compile` builds this hooks-only binary beside `claude-code` with one shared stamp in `bin/.build-stamp`.
-Non-hook verbs or a stamp mismatch after a partial install hand over to `bin/claude-code`, preserving behavior.
-The safety scanner treats `.hookd` exactly like `claude-code`.
+`$HOME/.claude/bin/.hookd <Event> [--<module>|--all|--async]` runs hooks; `claude-code hook <Event>` also works.
+`make compile` builds both with `bin/.build-stamp`; non-hook verbs or stamp mismatch hand over to claude-code.
+Safety treats both binaries alike.
 
-**`internal/settings/hookspec.go` is the only place a hook is declared** (one `Spec` per invocation).
-Handlers live in `internal/hooks/`. To add, remove or retime
-one, edit both and run `make install` for projections; an existing Claude `settings.json` needs a hand edit
-(`settings-management.md`). `claude-code agents sync` re-renders each agent's native hook and config files;
-`agents sync --check` exits 1 when one is stale.
+Declare hooks only in `internal/settings/hookspec.go` (one Spec per invocation); handlers live in internal/hooks.
+Change both, install projections, hand-edit existing Claude settings (`settings-management.md`).
+`claude-code agents sync` renders native hooks/configs; `agents sync --check` detects drift.
 
 ## Groups and the dispatcher
 
-`settings.Registry` lists the groups in run order; `codex` is agent-only, never in Claude settings.
+`settings.Registry` defines run order; codex is agent-only.
 
-| Group | Does |
+| Group | Purpose |
 | --- | --- |
-| `safety` | Bash safety gate (block / ask / warn tiers) |
-| `rtk` | Routes noisy command output through rtk (Claude, codex, opencode); Claude rewrites in place, except in auto mode, where the rtk form comes back as a note (a changed input voids the classifier's verdict) |
-| `docs` | Markdown placement; plan template, dated plan copies, plan-task ticks |
-| `dispatch` | Concurrency cap, subagent model fill, memory recall on spawn and every `agents ask` |
-| `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
-| `memory` | Focus and recall at start/prompt; steward handoff and update at Stop/SessionEnd/PreCompact |
-| `format` | Formats this session's still-dirty edited files |
-| `review` | Advisory `review-simplicity` finding after each edit; R28 `review-handback` and `review-decide` |
-| `worktree` | Creates/removes under `~/worktrees/<repo>/`; ledger, claims, notices |
-| `lane` | Land on completion: a finished leaf's lane lands detached, or waits in the land queue |
-| `codex` | Codex only: child-agent routing and its log |
+| safety | Bash safety gate |
+| rtk | Command-output rewriting; `rules/standards/rtk.md` |
+| docs | Placement, plan template/copies/ticks |
+| dispatch | Spawn model, slots, recall |
+| paths | Windows/WSL prompt paths |
+| memory | Focus/recall, handoff/update |
+| format | Format this session's dirty edits |
+| review | Advisory edit findings and R28 hand-back/decision handling |
+| worktree | Create/remove, ledger, claims, notices |
+| lane | Detached landing or queue |
+| codex | Child routing and log |
 
-- **One synchronous entry per event** (`hook <Event>`, the union of its groups' matchers) reads the payload once, runs
-  each group within its budget, recovers panics and merges results. `--<module>` runs one module; `--all` runs every
-  module on the event except agent-only groups, applying agent applicability.
-- **`safety` has its own process** (`hook PreToolUse --safety-scan`), so a hung group never delays or skips a block.
-- **Async entry** (`hook PostToolUse --async`) runs the Bash side of `docs-plan-tick` and `worktree-claim`: the tool
-  returns at once and the note reaches the model a turn later. A `settings.json` without that entry keeps them
-  synchronous; a headless `claude -p` that exits first kills the run.
-- **No per-group switch**: every declared group runs. Dev override, one launch only: `HARNESS_HOOK_SKIP=<module>[,…]`
-  or `all` in the hook's own env (`all` spares `safety-scan` unless named); output notes each
-  skip. Fix a misfiring module narrowly; delete an unwanted one (spec and handler), never skip it from the vault.
+- One synchronous event entry reads once, budgets groups, recovers panics and merges results.
+  Module flags select one; all selects non-agent-only groups with applicability.
+- Safety runs separately so other groups cannot delay a block.
+- Async PostToolUse runs Bash plan ticks/claims after tool return; notes arrive later.
+  Keep the sync Bash matcher for dispatch hooks; install the async entry per settings-management.
+- No per-group switch: declared groups run. One-launch debug override: `HARNESS_HOOK_SKIP=<module>[,…]` or all
+  in hook env; all spares safety-scan unless named. Fix narrowly or delete spec/handler; never skip via vault.
 
-**Telemetry**: each module run appends one row to `state/harness/hooks/telemetry-YYYYMMDD.jsonl` (14 days, capped):
-event, module, outcome, ms, 8-char session id, tool, and when a decision fired a `rule` and a `verdict` (`block`,
-`ask`, `rewrite`, `held`, `refused`, `passed`); never command text, a path, a brief or a credential.
-A day file at its 16 MiB cap stops recording and leaves `telemetry-YYYYMMDD.dropped`; later rows that day are missing.
-`claude-code doctor` reports seven days of fires, denies, budget overruns and p95 duration per module.
+Telemetry records event/module/outcome/duration/session-id prefix/tool/rule/verdict, never command/path/brief/secrets.
+Day files in `state/harness/hooks/` retain 14 days, cap at 16 MiB and mark dropped rows.
+Doctor reports seven-day fires, denies, overruns and p95; a dropped tail is not evidence of inactivity.
 
 ## Applicability by agent
 
-`settings.SpecsFor(agent, surface)` answers "which hooks run where". Surfaces: `native` (the agent's own hook file:
-Claude settings, `~/.codex/hooks.json`, `~/.copilot/hooks`, `~/.gemini/config/hooks.json`), `hosted` (the harness
-runs the module around a headless `opencode run`), `plugin` (opencode in-process). Codex, copilot and agy have no ask
-decision, so an ask denies there; their other hooks are advisory unless noted.
+`settings.SpecsFor(agent, surface)` is authoritative: native hook files, hosted headless runs, in-process plugins.
+Codex/Copilot/agy lack ask, so ask becomes deny; other hooks are advisory unless marked blocking.
 
-| Agent · surface | Modules | Mode |
-| --- | --- | --- |
-| claude · native | every group that isn't agent-only; each harness launch's `--settings` adds `web` and `safety-claude-edit` | **block** (`safety-scan` asks on an interpreter script that may write a protected path; a subagent's `CLAUDE.md` write blocks); post/prompt hooks inject context |
-| codex · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`, `rtk-rewrite`, `codex-*`; PostToolUse `worktree-claim` (`apply_patch` too); SessionStart `memory-start`; Stop `memory-update`; SessionEnd `memory-end` (3s cap) | **block** |
-| copilot · native | `safety-scan`, `docs-placement`, `worktree-claim-check`, `paths-resolve`, `memory-recall`; PostToolUse `worktree-claim`; sessionStart `memory-start`; Stop `memory-update`, `format-stop`; SessionEnd `memory-end` | PreToolUse **block** |
-| gemini (agy) · native | `safety-scan`, `docs-placement`, `worktree-claim-check` (no `rtk-rewrite`: agy judges its own rules on the rewritten text); PostToolUse `docs-plan-mirror`, `docs-plan-tick`, `review-simplicity`, `worktree-claim`; Stop `docs-plan-reminder`, `memory-update`, `format-stop`; SessionStart `memory-start` | PreToolUse **block**; SessionStart injects a system step; Stop block = `continue`; PostToolUse output is `{}`, so its notes never reach the model |
-| opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory**; `--pure` loads no plugin, so it is refused while a PreToolUse gate is bound; Stop and SessionEnd run only after a watched tool call |
-| opencode · plugin | `safety-scan`, `docs-placement`, `worktree-claim-check`; then `rtk-rewrite` once the guards allow; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the rewrite sets `args.command`; the claim is a detached, non-blocking spawn per edit |
+- **Claude/native:** non-agent-only groups plus launch-settings web and safety-claude-edit; blocking pretools,
+  context-injecting post/prompt hooks.
+- **Codex/native:** safety, docs placement, claims/checks, paths, recall, rtk, codex routing, memory start/update/end.
+  Pretools block; apply_patch claims too.
+- **Copilot/native:** safety, docs placement, claims/checks, paths, recall, memory start/update/end and format-stop.
+  Pretools block.
+- **Gemini/agy/native:** safety, docs placement and claims/checks block; no rtk rewrite.
+  Plan mirror/tick, simplicity, memory start/update and format/reminder also run.
+  SessionStart injects a system step; Stop block means continue; PostToolUse notes do not reach the model.
+- **OpenCode/hosted:** docs/paths/memory/format/review advisory; safety/placement run through the plugin.
+  Pure mode is refused while a pretool gate is bound; Stop/SessionEnd require an observed tool call.
+- **OpenCode/plugin:** safety/placement/claim-check block, then rtk rewrite; claims run detached after edits.
 
-**Pi · plugin** (`pi`): only `safety-scan`, run by the guard extension, which registers the only
-tools Pi has and sends each raw call to `claude-code hook PreToolUse --pi-guard`. That entry ignores every
-`HARNESS_HOOK_*` variable (a skip, a changed agent), normalizes the path as Pi does, builds a Claude-shaped payload
-from canonical fields only with `"harness_agent":"pi"`, and runs the module. Pi has no ask, so an ask is a block. Reply:
-one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
-that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
-Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini.
-Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-tools`, and the guard's seven tools are
-the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked (the guard compares
-real paths, so a run dir reached through a symlink still matches its own tools). The guard fails
-closed: one that fails to load leaves Pi no tools, it refuses any Pi but the pinned one, and each dispatch checks a
-load nonce. `safety-scan` judges bash. Pi tool to hook tool name:
+**Pi · plugin:** only safety-scan, through the guard's seven tools and `hook PreToolUse --pi-guard`.
+It ignores `HARNESS_HOOK_*`, normalizes Pi paths and uses canonical payload fields with agent pi.
+Only an allow response with its path runs; ask, malformed replies or errors block.
+No permission prompts/sandbox; no built-in tools. Guard load failure leaves no tools, pinned Pi version and per-dispatch
+load nonce are required, and package-added tools block; realpath matching handles symlinked run dirs.
+Bash alone reaches safety-scan; docs-placement and claim-check are not Pi modules.
 
-| Pi tool | `bash` | `edit` | `write` | `read` | `grep` | `find` | `ls` |
+| Pi | bash | edit | write | read | grep | find | ls |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Hook tool name | `Bash` | `Edit` | `Write` | `Read` | `Grep` | `Glob` | `Read` |
+| Hook | Bash | Edit | Write | Read | Grep | Glob | Read |
 
-The path is normalized as Pi would: a leading `@`, `~` and Unicode spaces; `file://` and other forms the harness
-cannot reproduce are blocked. Both the typed and the on-disk spelling are judged. Full description:
-`/Users/edotau/.claude/rules/harness/agent.md` (Pi bullets).
+Normalize leading @, tilde and Unicode spaces; refuse file URLs/unreproducible forms.
+Judge typed and on-disk spellings. Details: `rules/harness/agent.md` → pi.
 
 ## Event → hook matrix
 
-Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-details.md` under the hook's heading.
+Safety policy follows; mechanism details for named hooks are in
+`skills/subagent-workflows/references/hook-details.md`.
 
 `safety-scan` has five rules and applies them to every agent, leaves included. Rules 1 to 3 and 5 check
 each Bash call:
@@ -130,103 +118,104 @@ Claude asks; an agent without ask gets a block. A leaf gets no exception from an
 Commands are matched as invocations, not as data text. Blocks name the allowed route and the owner's `!`;
 `claude-code doctor --audit` logs no command text.
 
-| Hook | Event | What it does |
-| --- | --- | --- |
-| `safety-scan` ¶ | PreToolUse (Bash; Claude Write\|Edit\|MultiEdit via `--settings`) | Block a footer or a deny-rule match; ask on an interpreter script that may write a protected path (kept, needs owner); block a subagent's `CLAUDE.md` write (main session only); an edit adding a lint suppression asks in the main session, denies in agents; a whole-suite test run blocks in agents and linked worktrees, narrowed runs by test name pass |
-| `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command; Claude in place with no permission decision, except in auto mode, where the hook only adds the rtk form as a note (a changed input voids the auto classifier's verdict and forces a re-issue); codex (as `allow` + `updatedInput`) and opencode via `rtk hook <agent>`, never under Pi code mode, only when every Bash PreToolUse gate the agent runs allows both forms; vetoes, any rtk failure or timeout, and (codex, opencode) env-altered commands pass (fails open, not a `Blocks` gate); exact bytes: `rtk bypass <cmd>` |
-| `bash-timeout` | PreToolUse (Bash; Claude only) | Sets the Bash `timeout` of a foreground `agents ask`, `agents wait` or `agents result -f` to its `--timeout` + 10 s (600000 ms when none, and the host ceiling); never blocks, asks or lowers a larger timeout; a `wait --timeout` over 590 s keeps the 600000 ms cap, so shorten it |
-| `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note; redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
-| `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Retypes (`pi`/`code-mode` → `coworker`; code-mode retype, auto-fix never a deny: a `coworker` type whose brief header line `Codemode: off` → `claude`, a `claude` type whose `Agent:` names pi or code-mode without `Codemode: off` → `coworker`; the header is the whole line `Codemode: on\|only\|off`, no `--codemode` form), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput` |
-| dispatch slots | within `dispatch-effort` | Each spawn is recorded as an in-flight slot (24 per available account, machine-wide `24 × accounts` clamped to **4 × CPUs**, as the `doctor` `in-flight` count); a spawn past the count is never blocked, only left unrecorded (owner, 2026-11-26: no gates beyond the allowed set). Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type>`); a wrong label is rewritten, never denied; an auto ask's label is a peek |
-| `dispatch-failure` · `dispatch-workflow` · `dispatch-stop` ¶ | PostToolUseFailure · PostToolUse (Workflow\|Bash) · SubagentStop | Retire the spawn's slots; `dispatch-stop` never holds a leaf's stop: a job still running is a `stopped with dispatch <id> still running` note; for an external-type leaf with no receipt, attaches finished jobs or passes with a relay note |
-| `dispatch-handback` ¶ | PreToolUse (SubagentHandback) | `dispatch-stop`'s leaf note on the hand-back: waits ≤13 s for a running job, attaches each finished result with its receipt, else notes the job still runs (never holds or refuses; no Bash poll or command limits); on a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), runs its allowlisted `verify:` plus the scoped gate on its owned dirty files within the budget and puts `verify <id>: …` lines on top of the message (never holds it) |
-| `docs-plan-mirror` | PostToolUse (Write\|Edit) | Mirrors the undated draft to a dated, repo-tagged file from the first write (slug: `Suggested slug:`, else the H1), under a shared lock |
-| `docs-plan-save` | PostToolUse (ExitPlanMode) | Files approved text at the mirror destination, adds a missing checklist, verifies, removes the draft |
-| `docs-plan-tick` / `docs-plan-reminder` ¶ | PostToolUse (Bash, async) / Stop | The main session's verified commit on main starts one detached `plan tick --verify` per plan for the tasks its `Task:` trailers name; it ticks each whose `verify:` and scoped gate pass on that sha in a scratch checkout and posts a notice; red stays open with the failing command and tail (coverage never ticks), noting `owns:` files left out (trailer, main and lane rules: `worktree-git.md` rule 3); a `plan task --done` call or a fast-forward that ticks adds one `plans: N tasks ready, M slots free: <plan> <id>: <command>` context line (`plans.ReadyNotice`, never a block); before it, automatic fill (`plans.Autofill`; vault `HARNESS_AUTOFILL=off` stops it) claims each ready task with a brief while a slot is free and sends it as one detached `agents ask --batch` set only by `--overlay` at the sonnet tier (batch id `autofill-…`), one `plans: autofill sent\|held\|stopped` line each; `docs-plan-reminder` only hosts the Stop watchdog |
-| `memory-update` ¶ | Stop | Never blocks. At ≥`HARNESS_CONTEXT_STEWARD_PCT` (default 75; `0` mutes the handoff) the detached update also writes `handoffs/YYYY-MM-DD-session-<id8>.md`, once per crossing; a failed spawn prints a NOT-saved note naming `claude-code memory update`; 3 spawns in all |
-| `format-stop` | Stop | Formats this session's still-dirty edited files under its cwd (≤50, newest first): repo `make format\|fmt` per file, else the pyproject chain, else gofmt/ruff/prettier/shfmt; fixes `.md` through `mdsmith fix`, `plans/` and `memory/` included; a missing formatter is one note per tool per session, never a failure |
-| `review-simplicity` | PostToolUse (Write\|Edit) | Advisory: feeds back ≤8 comment, complexity, smell and Markdown findings the edit introduced |
-| `review-handback` (and `review-notified`, on a task-notification prompt) | PostToolUse (Agent\|Task\|TaskOutput) | Never blocks: parses only the last `UNFIXED:` line of a leaf report: a list adds `Fix these now` context with the items, `none` adds nothing, no line adds a read-it note (R28) |
-| `review-grep-exit` | PostToolUseFailure (Bash) | Never blocks: a Bash call that failed with exit 1 whose last pipeline stage is `grep`, `rg` or `git grep` (rtk-prefixed too) gets one note: no matches, do not re-run, add `\|\| true` to count checks |
-| `review-decide` | Stop | Main session only: blocks once (not when `stop_hook_active`) on an unanswered AskUserQuestion mentioning fix, finding or review, or a fixed ask such as "want me to fix" outside quotes (R28) |
-| `memory-start` ¶ | SessionStart | Injects the bank's focus, a `memory search` pointer and a `plans open:` line (≤5 plans under 7 days old with open tasks); repairs `projects/<slug>/memory`; on `clear`/`compact` adds the compaction record and handoffs (9,500-character cap) |
-| `paths-resolve` | UserPromptSubmit | Reports existing paths in the prompt; translates Windows ⇄ `/mnt/…` on WSL |
-| `memory-recall` | UserPromptSubmit | Injects up to 2 bank bodies plus 3 pointers within 900 chars; skipped under 4 prompt terms; a hit must match 2-3 of them; logs hits to `state/harness/memory/access/<name>.log` |
-| `codex-agent-route` · `codex-routing-result` · `codex-routing-start` · `codex-subagent-start` | codex agent events | Codex-only routing hooks; never in Claude settings |
-| `memory-compact` ¶ | PreCompact | Never blocks: updates memory for uncovered edits, waits ≤75 s for a fresh steward handoff (budget 90 s = settings timeout), writes a fact-only `handoffs/YYYY-MM-DD-compact-<id8>.md`; failures are stderr lines |
-| `memory-end` | SessionEnd | After enough edits spawns `claude-code memory update`; the detached `memory watch` (`memory-bank.md`) |
-| `secrets-out` ¶ | PostToolUse (Bash) | Claude only, never blocks: masks vault credential values in stdout/stderr at the same length (`updatedToolOutput`), so model and transcript see the mask; output under 12 bytes skips the vault; 2 s budget |
-| `secrets-end` ¶ | SessionEnd | Claude only: a detached job masks the ended session's transcript, `subagents/` and `tool-results/` files in place at the same size once unmodified 30 s |
-| `web-tavily` | PostToolUse (WebFetch\|WebSearch) | Claude only, from every launch's `--settings` (`LaunchSettings`), never `settings.json`; never blocks: replaces the result with Tavily's extract or search (`allowed_domains`/`blocked_domains` kept) in the tool's own shape; skips a search on a Databricks profile (the proxy searched via Tavily); no `TAVILY_API_KEY` is a no-op, any error keeps the built-in result; 25 s |
-| `worktree-create` / `worktree-remove` | WorktreeCreate / WorktreeRemove | Create at `~/worktrees/<repo>/<name>` (honors `worktree.baseRef`, seeds `.venv`/`.env`, opens ledger `memory/worktrees/<name>.md`); remove refuses a dirty tree and `branch -d`s only a merged branch |
-| `worktree-clean-end` | SessionEnd | Never blocks: removes the repo's merged, clean, idle lanes that did work (cherry-picked, or a branch with its own commits; fresh lanes stay), one stderr line each |
-| `worktree-busy` ¶ | UserPromptSubmit | Applies vault env `HARNESS_WORKTREE` (`worktree-git.md` → Worktrees); drains this session's notices (≤5), reports each finished post-merge audit once (`audit of <sha> passed\|FAILED`) and shared-checkout divergence |
-| `worktree-fixnow` | Stop (and inside `worktree-busy` and the git notice) | Main interactive Claude session only (no `agent_id`, dispatch env or `sdk-*` entrypoint): an open (unclaimed, not done, no autofix branch) failure of `worktree.DirectiveKinds` (audit, lane_gate, bench, proxy_down, proxy_5xx, contract; the closed list a new kind joins) from this checkout is a directive, `fix now: <kind> <subject>: <summary>; claim: claude-code failures claim <id>`, returned at Stop as a continuation and mid-turn as context; a main session never also gets the open entry's plain line. Owner present (a typed prompt within vault env `HARNESS_FIXNOW_IDLE`, a Go duration, default `10m`; `worktree-busy` stamps it, task notifications do not count): investigate, give options with a recommendation, wait. Idle: apply the recommended fix, log found/done/rejected to `~/.claude/memory/reports/<date>-autofix-<kind>-<subject>.md`, raise it at the owner's next message. Deleting owner data or adding a restriction waits for him in both modes. One session holds a delivery for 10 min, once per session; after 2 unclaimed deliveries the next prompt gets the plain notice once and `doctor` shows a `failure directives` row; claimed or done: nothing. Blocks no tool. Stop joins every block's reason, so `review-decide` and this one both reach the model; a session's own `/goal` Stop hook is a separate hook whose answer Claude Code delivers beside this one |
-| stuck-leaf watchdog ¶ | within `worktree-busy` and `docs-plan-reminder`, main Claude session only | ≤1/min, one line per stale job and reason: dead while its record runs, past `HARNESS_WATCH_AGE` (10m, scaled by `Tier:`) and silent past `HARNESS_WATCH_SILENCE` (5m), running after its relay finished, or finished 5m uncollected; a dead job with a session id is resumed once, never restarted or cancelled; while healthy jobs run, one `running: Task <id>\|Job <id> (agent, age); …` line (≤4, ≤200 chars); vault env `HARNESS_WATCH=off\|false\|0` disables, `dry` only names the resume |
-| `worktree-claim` ¶ | PostToolUse (Write\|Edit\|MultiEdit; Bash async) | Never blocks: appends written or staged paths still dirty to `state/harness/hooks/claims/<pid>-<session>.jsonl`; synchronous on Codex, Copilot and Gemini (no async entry; about 10 ms per call) |
-| `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes an edit of a dirty file another live session or sibling leaf claims; never refuses staging or committing it; `HARNESS_WORKTREE=lanes` extends it to tracked-file edits in the live checkout (`worktree-git.md` → Worktrees); infra errors allow with a warning |
-| `lane-land` | SubagentStop · UserPromptSubmit | Never blocks or asks (R27). A stopped leaf's lane (its `meta.json` `worktreePath`, else the one lane its claims sit in; a background `agents ask` job that wrote files in a lane starts the same worker at its end) goes to a detached worker, which waits for the leaf to finish and the job to exit: ahead, `UNFIXED: none`, not busy and touching no `internal/hooks/safety/`, `hookspec.go` or `settings*.json` → `worktree land <lane> --resolve-agent pi` (lands uncommitted on the live checkout, no approval); the hook holds `serial.lock` only around the lane inspection, gates run concurrently (≤4) and promotes are serialized by the land lock; a moved target is re-integrated inside `land` (≤3 rounds, no hook sleep), a move during a conflict resolution re-runs `land` at once, a busy land lock is retried ≤3 times, then a `notice (lane-land)`; anything else (unfixed, no UNFIXED line, busy, restriction, conflict, gate) is one entry in `state/harness/worktree/land-queue.json`, shown as a `land queue:` line with its next command once per session (≤5), then one count line when the queue changes, and by `worktree list` until a land or the lane's removal drops it |
+- **safety-scan — PreToolUse:** enforces the five rules above.
+- **rtk-rewrite — Bash PreToolUse:** `rules/standards/rtk.md`; rewrite only when all gates allow both forms.
+  Fail open on veto/error/timeout; Codex/OpenCode env-altered calls pass. Pi code mode bypasses it.
+- **bash-timeout — Claude Bash PreToolUse:** raise foreground ask/wait/result-follow timeout to job timeout +10s,
+  capped at 600000ms; never lower a larger setting or block. Long waits need shorter polling.
+- **docs-placement — write/edit/Bash PreToolUse:** `docs-placement.md`; ordinary leaf Bash blocks become notes,
+  but Plan-agent placement still blocks. First plans need template headings.
+- **dispatch-effort — Agent/Task/Workflow PreToolUse:** retype pi/code-mode to coworker; Codemode:off selects Claude,
+  on/only may select coworker. Header must occupy a whole line, not a command flag.
+  Pin unpinned models/effort by TaskTier, correct labels, claim slots and add recall in one updatedInput.
+- **dispatch cap / slots:** 24 per available account, machine-wide, capped at 4 × CPUs.
+  Excess spawns are unrecorded, never blocked. Description is resolved `<model>: <task>`;
+  `agents label <type>` computes it; auto labels peek.
+- **dispatch-failure / dispatch-workflow / dispatch-stop — failure/post/stop:** retire slots, attach finished receipts
+  or note running/missing external dispatches; never hold a leaf stop.
+- **dispatch-handback — SubagentHandback PreToolUse:** wait at most 13s, attach finished receipts or a running note;
+  never refuse or impose Bash poll limits. Named plan tasks get their allowlisted verify/scoped owned-file gate
+  within the budget, with results attached.
+- **docs-plan-mirror — Write/Edit post:** dated repo-tagged mirror from first write, slug from Suggested slug or H1,
+  under a shared lock.
+- **docs-plan-save — ExitPlanMode post:** file approved text, add missing checklist, verify and remove draft.
+- **docs-plan-tick / docs-plan-reminder — Bash post async / Stop:** commit ticking follows
+  `worktree-git.md` rule 3. Verify in scratch; red stays open; coverage never ticks.
+  Ready tasks get context, never a block. Autofill claims ready briefs while slots remain and sends one detached
+  ask batch through overlay at sonnet tier (R35); `HARNESS_AUTOFILL=off` stops it. Reminder hosts the Stop watchdog.
+- **memory-update — Stop:** never blocks; detached update plus handoff at `HARNESS_CONTEXT_STEWARD_PCT` (default 75,
+  zero mutes), once per threshold crossing, at most three spawns; failed spawn names manual memory update.
+- **format-stop — Stop:** session's dirty cwd edits, newest 50; repo format/fmt per file, pyproject chain,
+  then gofmt/ruff/prettier/shfmt. Markdown uses mdsmith including plans/memory; missing tools only note once.
+- **review-simplicity — Write/Edit post:** at most eight introduced comment/complexity/smell/Markdown findings.
+- **review-handback / review-notified — Agent result / task notification:** last UNFIXED line drives fix-now context;
+  none is quiet; absent line asks main to read. Never blocks.
+- **review-grep-exit — Bash failure:** explain no-match exit 1 and count-check handling; never block.
+- **review-decide — Stop:** main-only, once, on an unanswered fix/review question or unquoted fixed ask;
+  stop_hook_active prevents loops (R28).
+- **memory-start / memory-recall / memory-compact / memory-end:** lifecycle: `memory-bank.md` → Who writes what.
+  Recall uses up to two bodies/three pointers in 900 chars, at least four prompt terms and two–three matching terms.
+  Start lists up to five recent open plans; compact waits at most 75s for steward within its 90s budget.
+- **paths-resolve — prompt:** report existing paths; translate Windows/WSL.
+- **codex-agent-route / codex-routing-result / codex-routing-start / codex-subagent-start:** Codex only.
+- **secrets-out / secrets-end — Bash post / SessionEnd:** Claude-only, never block; mask vault credentials
+  at equal byte length in output and ended transcripts/subagents/tool results; ended files wait 30s unmodified.
+- **web-tavily — web post:** Claude launch settings only, never persisted; preserve domain filters.
+  Databricks search already ran in proxy. Missing TAVILY_API_KEY/errors keep original results; 25s budget.
+- **worktree-create / worktree-remove:** create under worktrees with baseRef, env seeds and ledger;
+  remove only clean trees and merged branches.
+- **worktree-clean-end — SessionEnd:** remove merged clean idle lanes that did work; keep fresh lanes, never block.
+- **worktree-busy — prompt:** drain notices and report audits/divergence once; no peer-session notice.
+- **worktree-fixnow — Stop/prompt/git notice:** main interactive only; unclaimed current-checkout failures are
+  directives. Owner present within `HARNESS_FIXNOW_IDLE` (default 10m, typed prompts only): investigate,
+  recommend and wait. Idle: fix, log found/done/rejected in memory reports, raise at next owner message.
+  Deleting owner data or adding restrictions always waits. Never blocks tools; Stop combines block reasons.
+- **stuck-leaf watchdog — busy/reminder:** main-only, at most once/minute; detect dead, overdue/silent,
+  post-relay running or uncollected jobs. `HARNESS_WATCH_AGE` defaults 10m scaled by tier;
+  `HARNESS_WATCH_SILENCE` defaults 5m. Resume a dead job with session id once, never restart/cancel it.
+  `HARNESS_WATCH=off|false|0` disables; dry only names the resume. Healthy jobs get bounded progress context.
+- **worktree-claim — edit/post Bash async:** record dirty written/staged paths in hook claims; never block.
+  Codex/Copilot/Gemini run synchronously.
+- **worktree-claim-check — edit/Bash pre:** note peer-held dirty edits; never refuse staging/commits.
+  WORKTREE_MODE=lanes also notes tracked live-checkout edits; infra failures allow with warning.
+- **lane-land — leaf stop / background job end (carried too) / prompt:** a detached worker judges the lane once the
+  leaf or job finishes and queues it: ready (finished, `UNFIXED: none`, no safety/hookspec/settings path) or held
+  with its reason. It never touches the live checkout; every prompt lists queued lanes with their
+  `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `worktree-git.md` → Worktrees.
 
-**`dispatch-effort` and a spawn mod.** A mod that rewrites at `agent.spawn` calls `hook PreToolUse --dispatch-effort`
-with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker
-(`state/harness/hooks/spawn-mod-ready/<session>`, keyed to the session's process, ignored after 7 days) and prints
-`{}`; `"query"` plus the Agent fields and `transcript_path` prints one object of the changed `description`, `prompt`,
-`subagentType` and `model`, claiming nothing (no recall).
-With the marker, PreToolUse skips the pin and label (the mod's query computes them once)
-and emits only the recall note; denials are unchanged, and a `pi`/`code-mode` → `coworker` retype stays a hook
-`updatedInput` (the host validates the type before `agent.spawn`). The mod is `mods/dispatch-spawn`
-(`claude plugin test mods/dispatch-spawn`), loaded with `slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS`
-(`internal/assets/settings/template.json`; `doctor` row `mods` flags a
-settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites
-as before.
+**dispatch-effort and spawn mod:** `harness_spawn:ready` plus session id marks readiness; query computes changed
+description/prompt/type/model without claims or recall. With the marker, pretools only emit recall, while required
+type rewrites remain pretool (host validates types before spawn). Marker expires after seven days.
+`mods/dispatch-spawn` loads with slash-usage via CLAUDE_CODE_PLUGIN_DIRS; doctor reports missing setup.
+Without the mod, including headless/other CLIs, hooks rewrite normally.
 
 ## Authoring a gate
 
-Prose is the instruction; the hook is the guarantee. Every gate:
+1. Trigger on checkable transcript/file facts, never self-report.
+2. Name instructions and the evidence artifact in the block.
+3. Release only on evidence (mtime, receipt, exit).
+4. Cap Stop gates with visible fail-open. Input gates reject and allow retries.
+   Infra fails open except workflow route-preview errors; Blocks hooks fail closed on panic, timeout or bad payload.
 
-1. **Triggers on a checkable condition** — transcript facts or file state, never self-report.
-2. **Blocks with instructions and the evidence contract** — what artifact proves compliance.
-3. **Releases only on evidence** — mtimes, receipts, exit codes.
-4. **Caps and fails open** — a Stop gate that can trap a session needs a cap and a visible fail-open; a deny-one-call
-   gate (`docs-placement`) rejects the input and the model retries. Infra errors fail open, except workflow stage
-   route-preview errors; a `Blocks` hook that panics, times out (0.5 s before the host's) or gets an empty or
-   unparsable payload blocks.
-
-Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script reading payloads
-from a data file (quoted payloads in the probe command trip the guard) and tally allow, ask and block. Permission
-guardrails live in `settings.json`'s `permissions` block (`internal/assets/settings/template.json`; `ask` beats
-`allow`).
+Test block, evidence-release and cap paths. Live probes read payloads from data files, not quoted command text;
+tally allow/ask/block. Permission rules live in settings; ask beats allow.
 
 ## Hook performance and contract
 
-Rules for every new or changed hook. Measure with `claude-code doctor` (p95 per module) before and after.
+Measure doctor p95 before/after. Automated hook work changes cost only (R27).
 
-1. **Loosen only** — a hook never adds a permission error or restriction; allowing more, or new non-blocking output, is
-   fine. A new `Blocks` hook needs the owner's yes (R13). A blocked leaf is flag-first: a hook loosens only for a
-   recurring false positive (`skills/subagent-workflows/SKILL.md` → Error handling).
-2. **Auto-fix first** — correct a deterministic problem (`updatedInput`, a fixer, a CLI apply); deny or exit 2 only when
-   code cannot decide.
-3. **Narrowest matcher** — `hookspec.go` `Matcher` is the filter; `*` spawns a process per event.
-4. **Rarest event** — a per-edit or per-prompt hook runs thousands of times a day; SessionStart and SessionEnd run once.
-5. **Budget and cap** — every Spec sets `Budget` (default 5 s); a module that waits on I/O takes
-   `core.HookContext(name)` and caps each wait below it, degrading, never blocking.
-6. **Per-prompt cost** — UserPromptSubmit modules run concurrently, so the slowest sets the wait; move slow work to a
-   detached job whose note lands next turn.
-7. **Cache by content key** — a result that depends only on a file, commit or prompt hash is cached under
-   `state/harness/` with that key; never cache a decision across sessions.
-8. **Independent modules** — handlers run concurrently and merge in declaration order; one never reads another's
-   side effects. Order a dependency inside one module.
-9. **Stdout is the result, stderr the log** — `core.Result` is the only stdout writer; a stray print breaks the host's
-   parse. A block is exit 2 with the reason on stderr (agy: a JSON deny).
-10. **Idempotent** — a hook may run twice (retry, resume, parallel session); appends are keyed by session id.
-11. **No secrets in reach** — read a credential through `vault` verbs, never the inherited env; never log command text,
-    a path, a brief or a credential.
-12. **Fail open on infra, closed only for `Blocks`** — see "Authoring a gate" item 4.
+1. Loosen only; new Blocks hooks need owner approval (R13). Flag blocked leaves first; loosen for recurring false
+   positives only (`skills/subagent-workflows/SKILL.md` → Error handling).
+2. Auto-fix deterministic problems; deny only when code cannot decide.
+3. Use narrow matchers and rare events; wildcard/per-edit/per-prompt processes cost every call.
+4. Set Spec Budget (default 5s); use `core.HookContext(name)` and shorter I/O waits, degrading on expiry.
+5. Prompt modules run concurrently; detach slow work and deliver notes later.
+6. Cache content-derived results by file/commit/prompt hash under state; never cache decisions across sessions.
+7. Independent handlers merge in declaration order; keep dependencies inside one module.
+8. Only core.Result writes stdout; logs go to stderr. Follow host block encoding.
+9. Be idempotent on retry/resume/concurrency; key appends by session.
+10. Read credentials via vault verbs, never inherited env; log no command/path/brief/secret.
+11. Failure policy: Authoring a gate, item 4.
 
-Debugging a slow hook:
-
-- `claude-code doctor` ranks modules by p95 and overruns; raw rows: `state/harness/hooks/telemetry-YYYYMMDD.jsonl`.
-- Replay one module with a saved payload: `claude-code hook PreToolUse --safety-scan < payload.json`; read the exit
-  code and stdout separately (`set -o pipefail`).
-- Run a suspect module off for one launch with `HARNESS_HOOK_SKIP=<module>`; fix or delete it, never leave it skipped.
-- A `.dropped` marker beside a day file means rows after the cap are missing: do not read that tail as quiet.
+Debug with doctor, telemetry and a saved-payload single-module replay; read status/output separately.
+Use the one-launch override above only to diagnose, then fix/delete the module.

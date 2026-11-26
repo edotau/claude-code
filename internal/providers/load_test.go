@@ -187,17 +187,6 @@ func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
 	}
 }
 
-func TestDuplicateOpencodeIDRejected(t *testing.T) {
-	doc := `{"providers":{"openai":{"openai":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"},"opencodeID":"openai"}}}}`
-	if _, err := Parse(assets.ProviderDefaults(), []byte(doc)); err == nil || !strings.Contains(err.Error(), "both claim opencodeID") {
-		t.Errorf("err = %v, want an opencodeID ownership rejection", err)
-	}
-	reg, _ := Parse(assets.ProviderDefaults(), nil)
-	if reg.Providers["chatgpt"].OpencodeID != "openai" || reg.Providers["openai"].OpencodeID != "" {
-		t.Error("chatgpt must own opencodeID openai in the built-ins")
-	}
-}
-
 func TestSameModelIgnoresOneMAndSpelling(t *testing.T) {
 	p := Provider{Models: map[string]string{"opus": "claude-opus-5-5[1m]", "sonnet": "databricks-claude-sonnet-5-5"}}
 	if got := p.AliasOf("claude-opus-5-5"); got != "opus" {

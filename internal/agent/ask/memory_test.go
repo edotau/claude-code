@@ -279,7 +279,6 @@ func TestMemoryRunOptionsSchemaTurnsToolsOff(t *testing.T) {
 }
 
 func TestAnswerJobFallsBackOnceOnInvalidBatch(t *testing.T) {
-	t.Setenv("HARNESS_KEYRING", "off")
 	calls := 0
 	old := memory.CodeModeRun
 	memory.CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
@@ -321,7 +320,6 @@ func TestSchemaRejectedSendsAFatalAnswerToTheFallback(t *testing.T) {
 			t.Errorf("%s: schemaRejected = %v, want nil", name, got)
 		}
 	}
-	t.Setenv("HARNESS_KEYRING", "off")
 	calls := 0
 	old, oldCopy := memory.CodeModeRun, memory.StoreCopy
 	memory.CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {

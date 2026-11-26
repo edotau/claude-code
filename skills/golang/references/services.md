@@ -1,147 +1,70 @@
 # Go Services: HTTP, SQL, gRPC
 
-Related: [performance.md](performance.md), [errors-testing.md](errors-testing.md) (`httptest`).
+Cancellation: [performance.md](performance.md#context-rules); owned test servers:
+[errors-testing.md](errors-testing.md#http).
 
 ## net/http servers
 
-- Go 1.22 `ServeMux`: `"GET /items/{id}"` + `r.PathValue("id")`, `{rest...}` tail, `{$}` exact `/`. `GET` serves
-  `HEAD`; wrong method → automatic 405 + `Allow`. Ambiguous overlaps panic at `Handle`: register in `main`.
-- Label metrics/logs with `r.Pattern` (1.23), never `r.URL.Path`.
-- Never `http.ListenAndServe` or a zero `http.Server`: every timeout is off.
-
-| Field | Bounds | Typical |
-| --- | --- | --- |
-| `ReadHeaderTimeout` | Headers (Slowloris; gosec G112) | 5s |
-| `ReadTimeout` | Whole request incl. body | 15–30s |
-| `WriteTimeout` | Header read → response written; caps handler time | 30s; 0 for streaming |
-| `IdleTimeout` | Keep-alive gap | 60–120s |
-
-- Long/streaming handlers: keep server timeouts tight, lift per request with
-  `http.NewResponseController(w).SetWriteDeadline(...)`.
-- Cap bodies: `http.MaxBytesReader(w, r.Body, n)`; `json.Decoder` with `DisallowUnknownFields` where strict, reject
-  trailing data (`dec.More()`).
+- `ServeMux` GET patterns also serve HEAD; ambiguous overlaps panic during registration. Label metrics with
+  `r.Pattern`, not the raw path. Prefer stdlib routing; chi when needed, avoid fasthttp frameworks.
+- A zero `http.Server` has no timeouts. Set header/body/write/idle budgets; streaming needs a per-request write
+  deadline via `ResponseController`, not a global timeout increase.
+- Bound bodies with `MaxBytesReader`; strict JSON can reject unknown fields. Reject trailing JSON by decoding again
+  and requiring EOF; `Decoder.More` checks array/object membership, not end of the document.
 
 ### Graceful shutdown
 
-```go
-ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-defer stop()
-srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second,
-    BaseContext: func(net.Listener) context.Context { return ctx }}
-errc := make(chan error, 1)
-go func() { errc <- srv.ListenAndServe() }()
-select {
-case err := <-errc:
-    return err // bind failure
-case <-ctx.Done():
-}
-shutCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-defer cancel()
-return srv.Shutdown(shutCtx) // wait here: ListenAndServe returns ErrServerClosed at once
-```
-
-- `Shutdown` skips hijacked conns (websockets): close them via `RegisterOnShutdown`; on timeout call `srv.Close()`.
-- Behind a load balancer: fail readiness, wait one probe interval, then shut down HTTP → workers → DB/gRPC.
+Wait for `Shutdown` itself: `ListenAndServe` returns `ErrServerClosed` before shutdown finishes. Use a fresh bounded
+context. Hijacked connections are not awaited; arrange their shutdown through `RegisterOnShutdown` and track them.
+On timeout fall back to `Close`. Behind a load balancer, fail readiness and allow a probe interval before stopping
+HTTP, then workers and DB/gRPC.
 
 ### Middleware
 
-- Outermost first: recover → request ID/trace → logging/metrics → auth → per-route timeout → handler.
-- A wrapping `ResponseWriter` needs `Unwrap() http.ResponseWriter`, or `ResponseController` silently breaks.
-- Own panic recovery so you return a 500 with context; re-panic `http.ErrAbortHandler`.
+Recovery → request ID/trace → metrics/logging → auth → route timeout → handler. A wrapping `ResponseWriter` exposes
+`Unwrap() http.ResponseWriter` for `ResponseController`. Recovery re-panics `http.ErrAbortHandler`.
 
 ### http.Client
 
-- One shared client per upstream; a client or `Transport` per request defeats pooling and leaks sockets.
-- `http.DefaultClient` has no timeout: set `Client.Timeout` and use `NewRequestWithContext`.
-- Clone `http.DefaultTransport`; raise `MaxIdleConnsPerHost` (default 2) for a hot upstream.
-- 4xx/5xx is `err == nil`: check `resp.StatusCode`.
+Reuse a client/transport per upstream; clone `DefaultTransport` and size idle connections for concurrency (default
+per-host idle limit is 2). Set the overall and per-call budgets deliberately. HTTP error statuses do not set `err`;
+check status, consume to EOF when practical for connection reuse, and close the response body.
 
 ## database/sql
 
-- `sql.Open` doesn't connect: `PingContext` at startup. One `*sql.DB` per database, for life.
-
-| Setter | Default | Rule |
-| --- | --- | --- |
-| `SetMaxOpenConns` | unlimited | Always set; replicas × value ≤ server `max_connections` |
-| `SetMaxIdleConns` | 2 | ≈ MaxOpen under steady load |
-| `SetConnMaxLifetime` | forever | Below any LB/proxy idle cut-off |
-| `SetConnMaxIdleTime` | forever | 1–5 min to shed bursts |
-
-- Use only `*Context` methods; the plain forms outlive the caller and hold a connection.
-- Placeholders for values; dynamic identifiers only from an allowlist.
-- `defer rows.Close()` after the error check; return `rows.Err()` after the loop.
-- Map `sql.ErrNoRows` with `errors.Is` to a domain `ErrNotFound`; translate driver errors (`*pgconn.PgError`) with
-  `errors.As` in the repository so callers never import the driver.
+`sql.Open` is lazy: `PingContext` checks startup connectivity. One pool per database; cap open connections across
+replicas against server capacity, then set idle/lifetime limits for the proxy and load. Use context-aware calls;
+close rows and check `rows.Err`. Translate driver errors in the repository so callers do not depend on the driver.
 
 ### Transactions
 
-- One `withTx(ctx, db, opts, fn)`: `BeginTx`, `defer tx.Rollback()` (ignores `ErrTxDone`), `fn(tx)`, `Commit`.
-- Inside `fn` use only `tx`: a stray `db.` call takes a second connection and can deadlock a small pool.
-- Read-modify-write: `SELECT ... FOR UPDATE` (`SKIP LOCKED` for queues), or serializable + retry the whole `withTx`
-  on `40001`/`40P01`.
-- A tx is one connection; keep it short, no network calls while holding locks.
+Use the existing transaction helper for begin, deferred rollback and commit (`ErrTxDone` after commit is expected).
+Inside a transaction, a stray `db` call needs another connection and can deadlock a small pool. Keep locks short;
+no network calls while holding them. Serialization/deadlock retries repeat the whole transaction, not one statement.
 
 ### NULLs
 
-| Option | Use when |
-| --- | --- |
-| `sql.Null[T]` (1.22) | Explicit validity in domain code |
-| `*T` | Must round-trip to JSON `null` |
-| `COALESCE(col, '')` | NULL and zero mean the same |
-
-Scanning NULL into a plain `string`/`int64` is a runtime error.
+Scanning NULL into a plain string/int fails. Use `sql.Null[T]` for explicit validity, a pointer for JSON null, and
+`COALESCE` only when NULL and zero mean the same thing.
 
 ### Query layer
 
-| Choice | Pick when |
-| --- | --- |
-| `database/sql` + driver | Few queries, zero deps |
-| sqlc (default) | SQL-first, many queries; typed Go checked against the schema |
-| `pgxpool` | Postgres-only features (COPY, LISTEN/NOTIFY, arrays) |
-| sqlx | Struct scanning over `database/sql` |
-| GORM / ent | Rarely: hidden queries, N+1 by default |
-
-Migrations: an external tool (golang-migrate, Atlas, goose); never self-migrate at startup.
+Few queries need only `database/sql`; SQL-first code with many queries defaults to sqlc. Use pgxpool for Postgres
+features or sqlx for struct scanning; avoid an ORM hiding queries unless justified. Migrations use an external tool,
+not application startup.
 
 ## gRPC
 
-- `grpc.NewClient` once per target, share the `*ClientConn`; headless services: `dns:///host:port` + `round_robin`.
-- Embed `pb.UnimplementedXServer` by value; handlers decode → domain → map errors to status.
-- Re-map downstream statuses at your boundary; `Internal` messages reach callers: log detail, return generic.
-- 4 MB receive cap (`MaxRecvMsgSize`): stream instead of raising it.
-- Register `grpc_health_v1`; reflection off in production; `GracefulStop` with a timeout falling back to `Stop`.
-- Interceptors: `ChainUnaryInterceptor(a, b, c)`, `a` outermost: recovery → tracing → logging → auth → validation.
-  Register the stream twins too, or streams skip auth.
-- Every call carries a deadline; pass the handler `ctx` downstream, never `context.Background()` mid-chain.
-
-### Status codes
-
-| Code | Client should |
-| --- | --- |
-| `InvalidArgument` / `OutOfRange` | Fix the request; never retry |
-| `NotFound` / `AlreadyExists` | Act on it |
-| `FailedPrecondition` | Change state first |
-| `Aborted` | Retry the read-modify-write |
-| `Unauthenticated` / `PermissionDenied` | Re-auth / give up |
-| `ResourceExhausted` | Back off |
-| `Unavailable` | Retry with backoff (the one safe auto-retry) |
-| `DeadlineExceeded` | Retry only if idempotent |
-| `Internal` / `Unknown` | Alert |
-
-- Return `status.Error(codes.X, msg)`: a plain `error` becomes `Unknown`. Details via `WithDetails`; clients read
-  `status.FromError(err).Details()`.
+- Reuse `grpc.NewClient` per target; DNS resolution plus round-robin handles headless service endpoints.
+- Embed `UnimplementedXServer` by value. Map domain/downstream errors at the boundary: `Internal` text reaches clients,
+  while a plain Go error becomes `Unknown`. Log details and send a safe status message.
+- Prefer streaming to lifting the default 4 MB receive limit. Register health, keep production reflection off, and
+  bound `GracefulStop` with fallback to `Stop`.
+- Unary interceptors do not cover streams: register stream counterparts for recovery, tracing, logging, auth and
+  validation. Carry deadlines downstream; retry only when the operation and status permit it.
 
 ### Streaming
 
-| Side | Ends the stream by | Forgetting leaks |
-| --- | --- | --- |
-| Server | Returning (`nil` → `OK`) | n/a |
-| Client, server-stream | `Recv` until `io.EOF` | Stream until ctx ends |
-| Client, client-stream | `CloseAndRecv` | Server waits forever |
-| Client, bidi | `CloseSend`, drain `Recv`, `defer cancel()` | Same |
-
-- `Send` blocks on a slow peer: select on `stream.Context().Done()` in producer loops.
-
-## Libraries
-
-- `ServeMux` covers routing since 1.22; chi is the one router worth a dep; avoid fasthttp frameworks (fiber).
+A client receiving a stream drains to EOF; client-streaming ends with `CloseAndRecv`; bidirectional streams close
+the send side, drain receive and cancel on exit. `Send` can block behind a slow peer: make producer loops observe
+the stream context so cancellation releases them.

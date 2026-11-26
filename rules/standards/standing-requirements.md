@@ -1,48 +1,109 @@
 # Standing Requirements
 
-A new standing requirement from the owner is written here, or in the rule that already owns its topic, before the code
-that enforces it. When a hook or verb enforces it, the row shrinks to a pointer and "Enforced by" names the tool.
-A row is deleted only when the tool makes the prose redundant.
+Record owner requirements here or in the owning rule before implementing them. Once enforced, shorten to a pointer
+naming the enforcer; remove prose only when enforcement makes it redundant.
 
-| Requirement | Rule | Enforced by |
-| --- | --- | --- |
-| R1 Plan ticks | Tick on main when the commit names the task with `worktree commit --task` and its `verify:` plus the scoped gate pass on that sha; coverage alone prints a candidate once; the plan updates by itself, with no step by the session: a verified commit ticks its task when an active plan holds one (a verified lane commit marks the line `<!-- lane <w>: <sha> -->` until the main commit that lands it ticks it), and a commit that names no open task of an active plan changes nothing and is not an error (an unknown `--task` id is a note) (owner, 2026-11-26: "the plan update needs to happen automatically either through a hook and/or a rule ... when the code is verified and committed to tick the plan (given that an active plan for that task exists, if not then ignore and continue") | `docs-plan-tick` hook, `worktree commit`, `plan tick --verify` |
-| R2 Dead tasks | Strike, never delete or leave open: `plan task <id> --reason <r> --evidence <c>`; a decision that makes a plan stop applying to a task strikes that task, citing the decision, so the plan shows its progress: a `DECISION:` line ending `strikes: <plan-slug> <id> (<reason>)` strikes that exact id once the turn's Stop records it, never by matching words (owner, 2026-11-26: "any decision we make such that the plan doesn apply to that task anymore apply a stike through the task so we know the progress") | `plan task` verb, `docs-plan-tick` hook |
-| R2 Unknown state | Strike with a comment; move to the backlog plan (do now) or techdebt | prose |
-| R3 Techdebt | Lives in `~/.claude/memory/techdebt/<area>.md`, one file per area | prose (until memory knows it) |
-| R4 Plans audit | Before `memory update` and in `dream`: audit plans under 7 days old | `memory update` after unlock (deterministic audit); `dream` plan phase, re-checked in Go |
-| R4 Boilerplate | Plan before today: tick process steps if built on `origin/main`, strike if all build tasks struck, else report | `plan tick --audit` |
-| R5 Verify returns | CLAUDE.md guideline 3, plus re-run one claim before a commit; package tests run at sign-off (R32) | prose |
-| R5 Cheap authors | Haiku, Kimi, fell-back relay: full read plus higher-tier, other-family review | prose |
-| R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family; count the resolved model's family, not the CLI (a Pi-first leaf counts as its model's family): a rotated leaf counts as the other-family third only when its model is not Claude; R5 review still applies; real work rotates through every external agent by vendor strength, GPT legs default to the sol model (by alias); model by job: `skills/subagent-workflows/SKILL.md` → Leaf types | prose |
-| R7 Databricks | Prefer overlay `provider` databricks with `profile` `<p>` (`--overlay '{"provider":"databricks","profile":"<p>"}'`), rotating dev, qa, prod | `agents ask` overlay `provider` |
-| R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
-| R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask` |
-| R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
-| R11 make | `quality.md`; a leaf runs `rtk make lint`, `agents diff --check`, and the reserved targets (audit, install, fmt, build, verify, bootstrap, adopt) or a fixing `lint-<kind>` in the harness tree | prose |
-| R12 Dispatch timeout | Every ask or submit to a subagent or leaf has a 15 minute limit, unless the parent passes an override (overlay `timeout`, 30 minutes at most) because it knows ahead of time the task takes longer ("ahead of time" means the plan's task line names the longer limit before dispatch, never a mid-run extension); a task that needs more than 30 minutes is too large for one subagent and goes back to planning to be split (owner, 2026-11-26). When the limit passes, the parent takes over and completes the task from what the leaf left; it is never retried or re-sent (R34). Past the 10m Bash cap a job runs `--background` and is collected with `agents wait` (owner, 2026-11-26: "all subagents set timeouts to 15ms", read as 15 minutes; "unless override was passed by parent ... 15mins time limit after that parent agent takes cover to complete (no retries)") | `DefaultToolsTimeout` |
-| R13 Guard walls | `safety-scan` has four rules: a `settings.json` deny rule blocks, an AI-attribution footer in a commit, merge, tag or PR blocks, CLAUDE.md: main session only, so any subagent's write to a `CLAUDE.md` blocks and is handed back, and a lint or type-check suppression added by an edit tool (main session: ask, a rare exception; agents: deny) (owner, 2026-11-24; `hooks.md`) | `safety-scan`, for every agent |
-| R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
-| R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only; `--secret` main session only, leaves get credentials at launch | credential verbs redact; hooks `secrets-out` (Bash output) and `secrets-end` (ended transcripts) |
-| R15 Plan tests | Default, not absolute: new feature: basic tests that it works, a couple of seconds to run at most; no long tests before it has been used a while; more tests are suggestions `dream` lists | plan template, `internal/assets/brief/brief.tmpl`, dream Phase 5c |
-| R16 Test time | Keep cutting test run time, never by running tests in parallel; a leaf runs only a test it wrote or repairs, by exact function (`rtk go test -run '^TestX$' ./internal/<pkg>`), never `./...`, and package tests run once in the sign-off driver (R32); the whole suite runs once before a push; aim as work continues: each package under 20 s solo; `internal/memory` speed (code and tests) is standing work, assertions unchanged | prose |
-| R17 Security reviews | A review of secrets, guard, ssh, sync or exfiltration code goes to Gemini first: GPT's vendor filter refuses such briefs mid-run; a brief sent to GPT asks for robustness and data loss, not attacks | prose |
-| R18 Plan first | Multi-part work starts as a dated plan (`docs/templates/plan.md`) before any lane or dispatch | prose |
-| R19 Mac first | A harness change is built and live-checked on the Mac: that check is the required one. WSL is a periodic sync (session end, or a change that is Linux- or WSL-specific), never a step that blocks a push | prose |
-| R20 Databricks arm | The arm is a per-dispatch flag (no stored default): most leaves run Pi first (claude in-context if Pi refuses) or carried on overlay `provider` databricks with `profile` `<p>` round-robined dev/qa/prod, unless the owner names another route; an unflagged agent (Copilot mostly) keeps its pin unless an explicit `COWORKER_OVERLAY` says otherwise | prose |
-| R21 Live before tests | After code is written, no test is written or run until development is live-checked from several workspaces (main in `~/.claude`, another repo, `/tmp`; a subagent; each external agent); tests then wait for the owner's yes | prose |
-| R22 Performance | Performance work makes the same work faster (allocations, independent concurrency, caching, fewer spawns), never skips or removes a check; profile, implement, measure before/after with numbers; every feature gets this look; what to speed up comes from real use, not a rotation: a post-commit bench regression on a touched package (an inconclusive, loaded run gets its rerun command, not a leaf), a `claude-code doctor` hook p95 over budget, or a slow step in dispatch records each gets a profile-and-fix leaf (R26); on a hook package it changes cost only (R27) | prose; post-commit bench, `doctor` p95 |
-| R23 Continuous ship | Stable code ships continuously: build and touched-package tests green, push main, Mac install + live check; WSL per R19; a verified lane lands on local (uncommitted, the owner commits) without asking unless its diff adds a restriction (block, deny, refusal, narrower sandbox), which waits for the owner's yes; `CLAUDE.md` hard rule 5 | prose |
-| R24 Fast tier | A low-complexity leaf (a build or gate run, a predetermined edit, a rename or move; a Pi-first leaf too) carries `Tier: fast` and overlay `model` `auto`, so it rotates the fast pool; not codex on Databricks (no fast model there); judgment work stays standard or deep; R5 review still applies | prose; `fastTask` classes an untyped brief |
-| R25 Fix as found | Anything that comes up mid-task (a bug, an editor or lint finding, dead code, a stale doc line) is cleaned up right away in the same session, without asking and without parking it in a list, within the owner's named priority (a find outside it that does not block it goes in one short list for the owner, not a new wave); only an owner-judgment item (deleting parked work, a new wall, a behaviour change) goes to the report, with a recommendation; `quality.md` → Completion | prose |
-| R26 Self-validation | The harness is validated by its own use on real code: dispatches, reviews, audits and queries on this codebase are the recursive self-improvement loop, and what they find is fixed through the harness (R25); no standing token-spending test or bench loops (`review bench --loop` only as one change's validation, on its packages, with the owner's yes) | prose |
-| R27 Hook policy | Automated hook work (bench-triggered perf leaves, autofix, golang and perf dispatch briefs, any automated pass) on hook, guard and permission packages changes cost, not policy: faster code, fewer allocations, fewer spawns, never what a hook allows or blocks; a guard or permission question asks what more can be allowed safely; tightening needs the owner's explicit ask | prose |
-| R28 Review loop | One shared review at the end: finished code is collected on a single branch (the collector) with no review per lane, and that merged diff gets the other-family review (owner, 2026-11-26: "one shared review at the end lets get the finished code onto a single branch or worktree"); every finding fixed without asking, review again until one comes back with no finding; a reviewer may fix what it finds itself, in the collector, instead of only reporting it, and then lists what it changed (owner, 2026-11-26: "allow reviews to make edits themselves to speed things up"); the author or the main session still reads that diff; three rounds in a row each finding a new HIGH in one area stop the loop: bring the pattern and a design recommendation to the owner; merge on no CRITICAL/HIGH; findings are fixed, not reported; `quality.md` → Completion | `agents ask` brief |
-| R29 Broken tests | A test that fails in the collector is evaluated by the main session, which asks one question first: did the subagent do the task right? A minor cause (a stale fixture or expected string, a pinned hash, a missing table row, two lanes meeting) is fixed by the main session itself in the collector, because that is faster; a real defect goes back to the lane that made it, or to a new subagent, with the failure output, and that leaf repairs it, running only that test by exact name; after any repair the main session reruns every package the repair or the failing lanes touched, not only the named tests; never delete or skip a test (owner, 2026-11-26: "minor things causing test failure main just takes care of it because its faster, otherwise pass back or fan out new subagent"); `quality.md` → Completion | prose |
-| R30 No agent policy | No dispatched agent (claude, codex, copilot, gemini, opencode, pi) or memory job carries a permission policy: no `--permissions`, no inherited or per-agent rules; only `safety-scan` applies (`settings.json` deny rules, the AI-attribution block); see `rules/harness/agent.md` → Dispatch behavior | `safety-scan` |
-| R31 Land on completion | A finished lane lands on local (uncommitted) or is queued for the main session; `worktree-git.md` → Worktrees | `lane-land` hook |
-| R33 Peer coordination | When a live session or leaf holds files, a plan or an area this task needs, message it at once (`ListAgents`, `SendMessage`) instead of waiting: say what you plan, ask what it holds, what collides and when it lands; record the answer in the plan and re-plan around it (free files first, reorder tasks, run read-only work meanwhile); ask again when its estimate has passed; offer a review of its work and send it your diff for areas it owns; never idle on a peer's unfinished work, never edit a file it says it holds (owner, 2026-11-25) | prose |
-| R34 Main takes over | A dispatched task that ends over budget (time limit, token cap, output or context limit) is never re-sent: the main session finishes it from the files the leaf left, or restarts that one task. After 2 failed attempts of one task, or when dispatch itself is down (the proxy is out, asks fail to start), the main session stops dispatching and continues the remaining work in its own thread until dispatch is healthy again; this is the one case that overrides "anything bigger than a one-line edit goes to a leaf" (owner, 2026-11-26) | prose (plan 2026-11-26-harness-finish 10.1, 10.2) |
-| R35 Hook model cap | The automatic-fill hook (plan harness-finish 11.3), which dispatches the next ready task by itself, sends every task at the sonnet tier, the equivalent tier of another family, or lower (never above), hardcoded in the hook (`sonnet`), whatever the plan line asks; a task that needs more is announced to the main session instead. Other hook-started dispatches (memory jobs, bench leaves and the bench verdict) keep their models (owner, 2026-11-26: "hooks should never need something higher than a sonnet", "or equivalent tiers", "equivalent or lower", then "Only the automatic-fill hook", "set locally hardcoded if needed --model sonnet or whatever") | prose (plan 2026-11-26-harness-finish 11.3, 11.5) |
-| R36 Two schemas | Run configuration has exactly two input schemas: the launch overlay (built from `settings.json`, the vault's keys and configs) and the dispatch overlay (`--overlay {}`); endpoint, provider and profile always travel as one unit; a child's configuration is a copy of its parent's overlay changed by one function, never a reference and never an ambient variable. Adding a third schema, a wrapper key (such as `route`), a combined form (such as `profile:provider`), or a flag or env variable that carries configuration outside the overlay needs the owner's yes (owner, 2026-11-26; plan `2026-11-26-overlay-one-standard`) | prose until the plan's Phase 3 validator |
-| R32 Dispatch workflow | One lane per task; `worktree land` is the one sign-off gate and a leaf runs no gate chain; one shared review of the collector at the end (R28); tests only at sign-off (a leaf runs only a test it wrote or repairs); Pi or an external agent does work and fixes, a Claude subagent verifies and commits in the lane, the main session lands; in a contract (plan 2026-11-24-typed-pi-dispatch, phases 10-12: the `agents ask --brief` `contract` key) the Opus owner runs the fan-out; `skills/subagent-workflows/SKILL.md` → Dispatch workflow | `worktree land` gate (points 2, 4), `lane-land` hook (landing), prose |
+- **R1 Plan ticks:** verified commits automatically tick named active-plan tasks on main after their `verify:`
+  and scoped gate pass on that sha. Lane commits mark pending landing; coverage only suggests once.
+  No matching open task changes nothing; an unknown task is a note, not an error.
+  Enforced by `docs-plan-tick`, `worktree commit --task`, `plan tick --verify`.
+- **R2 Dead tasks:** strike tasks invalidated by a decision, citing it; never delete or leave them open.
+  `plan task <id> --reason <r> --evidence <c>`, or a recorded `DECISION:` ending
+  `strikes: <plan-slug> <id> (<reason>)`, targets that exact id, never matching words.
+  Enforced by `plan task` and `docs-plan-tick`.
+- **R2 Unknown state:** strike with a comment; move to the backlog plan (do now) or techdebt.
+- **R3 Techdebt:** one `~/.claude/memory/techdebt/<area>.md` per area.
+- **R4 Plans audit:** audit plans under 7 days old around memory update and in dream.
+  Enforced after update unlock and by dream's plan phase with Go rechecks.
+- **R4 Boilerplate:** for plans before today, tick process steps if built on origin/main; strike if all build tasks
+  are struck; otherwise report. Enforced by `plan tick --audit`.
+- **R5 Verify returns:** follow CLAUDE.md dispatch guidance; rerun one claim before committing. Package tests: R32.
+- **R5 Cheap authors:** fully read Haiku, Kimi and fallback-relay work; get higher-tier, other-family review.
+- **R6 Model mix:** Sonnet authors; waves of 3+ put a third on other families. Count resolved model, not CLI:
+  Pi-first/rotated leaves count only when their model is non-Claude. Reviewer is another family; R5 still applies.
+  Rotate real work through every external agent by strength; GPT defaults to sol by alias.
+  Job mapping: `skills/subagent-workflows/SKILL.md` → Leaf types.
+- **R7 Databricks:** prefer overlay provider databricks with profile, rotating dev/qa/prod.
+  Enforced through `agents ask` overlay `provider`.
+- **R8 Typed model:** no silent swaps; unserved models fail with nearest ids; reports name the model.
+  Enforced by `unservedError`; retry policy remains prose.
+- **R9 Memory recall:** every brief carries recall. Enforced by `dispatch-effort` and ask's `withRecall`.
+- **R10 File-blocked:** when 2+ tasks wait on one file, propose a lane; `worktree-git.md`.
+- **R11 make:** leaf targets/checks follow `quality.md`: lint, scoped diff checks, audit/install/fmt/build/verify/
+  bootstrap/adopt and fixing `lint-<kind>` in the harness tree.
+- **R12 Dispatch timeout:** every ask/submit gets 15 minutes. A parent may set overlay timeout up to 30 minutes
+  only when the plan task states it before dispatch; never extend mid-run. Split tasks needing more.
+  At timeout the parent finishes the existing work, never retries/resends (R34).
+  Past Bash's 10-minute cap, use background jobs and `agents wait`. Enforced by `DefaultToolsTimeout`.
+- **R13 Guard walls:** every agent's `safety-scan` blocks settings deny matches and AI attribution in commits,
+  merges, tags or PRs. CLAUDE.md writes are main-session-only; leaves hand back the edit.
+  Added lint/type suppressions ask in main (rare exception), deny in agents. Details: `hooks.md`.
+- **R13 New walls:** new restrictions need the owner's yes; show permission additions as a table first.
+- **R14 Transcripts:** never print secrets in sessions, reports or briefs; byte counts only.
+  `--secret` is main-only; leaves receive credentials at launch.
+  Enforced by credential redaction and `secrets-out`/`secrets-end`.
+- **R15 Plan tests:** default to basic feature tests taking a couple of seconds; defer long tests until use warrants
+  them. Dream lists further suggestions. Enforced in plan/brief templates and dream Phase 5c.
+- **R16 Test time:** reduce runtime without parallel tests or changed assertions. Leaves run only tests they wrote
+  or repair, by exact function, never the suite. Packages run once at sign-off; the full suite once, at most twice, at landing.
+  Aim below 20 seconds per package solo; memory code/test speed is standing work.
+- **R17 Security reviews:** secrets/guard/SSH/sync/exfiltration reviews go to Gemini first.
+  GPT briefs ask about robustness and data loss, not attacks, to avoid vendor-filter refusals.
+- **R18 Plan first:** multi-part work starts with a dated `docs/templates/plan.md` plan before lanes or dispatch.
+- **R19 Mac first:** build and live-check harness changes on Mac. WSL sync is periodic (session end or
+  Linux/WSL-specific changes), never a push blocker.
+- **R20 Databricks arm:** per-dispatch, never stored. Most leaves run Pi first (Claude in-context if refused)
+  or carried Databricks asks rotating dev/qa/prod, unless the owner specifies another route.
+  Unflagged agents keep their pins unless explicit `COWORKER_OVERLAY` overrides.
+- **R21 Live before tests:** after coding, live-check main, another repo, /tmp, a subagent and each external agent;
+  writing new tests then waits for the owner's yes (the landing suite run needs none).
+- **R22 Performance:** make the same work faster, removing no checks; profile and measure before/after for every
+  feature. Real-use triggers get profile/fix leaves: touched-package bench regression, doctor hook p95 over budget,
+  slow dispatch steps. Inconclusive loaded benchmarks get a rerun command, not a leaf.
+  Enforced in part by post-commit bench and doctor; hook changes affect cost only (R27).
+- **R23 Continuous ship:** green build/touched tests → push main → Mac install/live check; WSL follows R19.
+  Verified lanes land locally uncommitted without asking; the owner commits. Added restrictions wait for approval.
+  Authorization boundary: CLAUDE.md and `worktree-git.md`.
+- **R24 Fast tier:** builds/gates, predetermined edits, renames/moves (including Pi-first) use `Tier: fast`
+  and overlay `model:auto` to rotate the fast pool; exclude Codex on Databricks (no fast model).
+  Judgment stays standard/deep; R5 applies. `fastTask` classifies untyped briefs.
+- **R25 Fix as found:** fix bugs, diagnostics, dead code and stale docs now within the owner's priority; no asks
+  or parked findings. Nonblocking out-of-scope finds go in one short list, not a new wave.
+  Report only owner judgments (deleting parked work, new walls, behavior changes) with recommendations.
+  See `quality.md` → Completion.
+- **R26 Self-validation:** use the harness for real dispatches/reviews/audits/queries and fix what it finds through
+  the harness (R25). No standing token-spending loops; `review bench --loop` needs owner approval for one change's
+  packages.
+- **R27 Hook policy:** automated work on hooks, guards and permissions changes cost only, never allow/block policy.
+  Seek what more can safely be allowed; tightening needs the owner's explicit request.
+- **R28 Review loop:** collect finished lanes on one branch; no lane reviews. One shared other-family review
+  lists every finding; fix all without asking and repeat until none. Reviewers may edit the collector and list
+  edits; author/main still reads their diff. Three consecutive rounds finding a new HIGH in one area stop the loop:
+  bring the pattern and a design recommendation to the owner. Merge only with no CRITICAL/HIGH; fix remaining
+  findings, never park them. Enforced in `agents ask` briefs; `quality.md` → Completion.
+- **R29 Broken tests:** main first checks whether the implementation meets the task. Fix minor fixtures, expectations,
+  hashes, rows or lane interactions directly; send real defects with failures to the author/new repair leaf.
+  That leaf runs the repaired test by exact name; main then reruns all packages touched by repair/failing lanes.
+  Never delete or skip tests. See `quality.md` → Completion.
+- **R30 No agent policy:** dispatched agents and memory jobs carry no `--permissions`, inherited or per-agent policy;
+  only `safety-scan` applies. See `agent.md` → Dispatch behavior.
+- **R31 Land on completion:** finished lanes land locally uncommitted or queue for main.
+  Enforced by `lane-land`; `worktree-git.md` → Worktrees.
+- **R33 Peer coordination:** message holders of needed files/plans/areas immediately (`ListAgents`, `SendMessage`):
+  state your work, ask holdings/collisions/landing time, record answers in the plan and work free/read-only areas.
+  Ask again after their estimate; offer review and send your diff for their areas.
+  Never idle on peers or edit files they hold.
+- **R34 Main takes over:** never resend budget-ended tasks (time/tokens/output/context); finish their files in main,
+  or restart that task there. After two failed attempts, or broken dispatch, main does remaining work until dispatch
+  recovers. This overrides the rule sending work larger than one line to leaves.
+- **R35 Hook model cap:** only automatic fill is capped at hardcoded sonnet, an equivalent tier or lower,
+  regardless of the plan. Announce tasks needing more to main; other hook dispatches keep their models.
+- **R36 Two schemas:** launch overlay (settings/vault/configs) and dispatch overlay (`--overlay {}`) only.
+  Endpoint/provider/profile travel together. Derive a child by one function copying/changing the parent overlay,
+  never a reference or ambient variable. Third schemas, wrapper keys, combined forms or external config flags/env
+  need owner approval.
+- **R32 Dispatch workflow:** one lane per task; `worktree land` is the sign-off gate, never a leaf gate chain.
+  Tests at sign-off except a leaf's written/repaired test; one collector review (R28).
+  Pi/external agents implement/fix; Claude verifies/commits in lane; main lands.
+  The Opus owner fans out `agents ask --brief` contracts.
+  Enforced by land/lane-land; `skills/subagent-workflows/SKILL.md` → Dispatch workflow.

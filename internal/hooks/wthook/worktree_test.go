@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -245,132 +242,6 @@ func canonHome(t *testing.T, home string) string {
 	return c
 }
 
-// TestWorktreeBusyMode: off|false|0 is silent even with a peer; unset reports a changed peer set once.
-func TestWorktreeBusyMode(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cwd := t.TempDir()
-	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
-		t.Fatal(err)
-	}
-	peers := []worktree.Proc{{PID: 4242, Comm: "claude"}}
-	old := worktree.PeerScan
-	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
-	defer func() { worktree.PeerScan = old }()
-	busyScanTTL = 0 // every prompt scans
-	t.Cleanup(func() { busyScanTTL = time.Minute })
-	in := &core.Input{SessionID: "s1", CWD: cwd}
-
-	for _, v := range []string{"off", "false", "0", "OFF"} {
-		t.Setenv(worktreeModeEnv, v)
-		if got := Busy(in).Context; got != "" {
-			t.Fatalf("%s must be silent with a peer present, got %q", v, got)
-		}
-	}
-	t.Setenv(worktreeModeEnv, "")
-	if got := Busy(in).Context; !strings.Contains(got, "claude pid 4242") {
-		t.Fatalf("unset busy: %q", got)
-	}
-	if got := Busy(in).Context; got != "" {
-		t.Fatalf("same peers must dedupe, got %q", got)
-	}
-	peers = []worktree.Proc{{PID: 4242, Comm: "claude"}, {PID: 77, Comm: "codex"}}
-	if got := Busy(in).Context; got == "" {
-		t.Fatal("changed peer set must re-report")
-	}
-	peers = nil
-	if got := Busy(in).Context; got != "" {
-		t.Fatalf("no peers: %q", got)
-	}
-}
-
-// TestBusyLineNamesPeerFiles: a peer's dirty claimed files and recorded session name reach the line; none, no list.
-func TestBusyLineNamesPeerFiles(t *testing.T) {
-	repo := claimFixture(t)
-	t.Setenv(worktreeModeEnv, "")
-	old := worktree.PeerScan
-	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
-		return []worktree.Proc{{PID: liveOwner, Comm: "claude"}}, nil
-	}
-	t.Cleanup(func() { worktree.PeerScan = old })
-	in := &core.Input{SessionID: "s1", CWD: repo}
-	line, _ := busyLine(in, newRun(context.Background(), in))
-	if strings.Contains(line, " and holds ") || !strings.Contains(line, "find its name with ListAgents") {
-		t.Fatalf("no claim data: %q", line)
-	}
-	sessions := filepath.Join(paths.ConfigDir(), "sessions")
-	if err := os.MkdirAll(sessions, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sessions, strconv.Itoa(liveOwner)+".json"), []byte(`{"name":"claude-9"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	claimEdit(t, repo, liveOwner, "S1", "b.txt")
-	claimEdit(t, repo, liveOwner, "S1", "a.txt")
-	in = &core.Input{SessionID: "s2", CWD: repo}
-	line, _ = busyLine(in, newRun(context.Background(), in))
-	for _, want := range []string{"claude-9 pid 100", "holds a.txt, b.txt;", "message claude-9 (SendMessage)", "re-plan around its answer"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("line missing %q: %q", want, line)
-		}
-	}
-}
-
-// TestWorktreeBusyStateFileIs0600: the busy-peer state file is private to the owner.
-func TestWorktreeBusyStateFileIs0600(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(worktreeModeEnv, "")
-	cwd := t.TempDir()
-	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
-		t.Fatal(err)
-	}
-	old := worktree.PeerScan
-	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
-		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
-	}
-	defer func() { worktree.PeerScan = old }()
-	Busy(&core.Input{SessionID: "s1", CWD: cwd})
-	files, _ := filepath.Glob(filepath.Join(paths.StateDir(), "worktree-busy", "*"))
-	if len(files) != 1 {
-		t.Fatalf("want one state file, got %v", files)
-	}
-	st, err := os.Stat(files[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v; want 0600", st.Mode().Perm())
-	}
-}
-
-// TestBusyLineAbandonsHungScan: a process scan that never returns must not outlive the hook deadline.
-func TestBusyLineAbandonsHungScan(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	cwd := t.TempDir()
-	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
-		t.Fatal(err)
-	}
-	release := make(chan struct{})
-	old := worktree.PeerScan
-	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { <-release; return nil, nil }
-	t.Cleanup(func() { close(release); worktree.PeerScan = old })
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	done := make(chan string, 1)
-	go func() {
-		in := &core.Input{SessionID: "s1", CWD: cwd}
-		line, _ := busyLine(in, newRun(ctx, in))
-		done <- line
-	}()
-	select {
-	case got := <-done:
-		if got != "" {
-			t.Fatalf("busyLine = %q; want \"\" once the deadline passes", got)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("busyLine still blocked on the hung scan 3s after a 200ms deadline")
-	}
-}
-
 // TestDivergedAtTellsSiblingCommitsFromRewrite: two new commits on one base are no rewrite; an amended pushed one is.
 func TestDivergedAtTellsSiblingCommitsFromRewrite(t *testing.T) {
 	for _, tc := range []struct {
@@ -582,49 +453,6 @@ func TestDivergenceInfraErrorWarnsAndAllows(t *testing.T) {
 	got := Busy(&core.Input{SessionID: "sB", CWD: work})
 	if got.Context != "" || got.Decision != core.Allow || !strings.Contains(got.Stderr, "could not check branch divergence") {
 		t.Fatalf("no git = %+v, want allow + warning", got)
-	}
-}
-
-// TestBusyScansPeersOnce: a diverged checkout with a peer needs the peer set twice per prompt; the scan runs once.
-func TestBusyScansPeersOnce(t *testing.T) {
-	work := divergedClone(t)
-	t.Setenv(worktreeModeEnv, "")
-	scans, stub := 0, worktree.PeerScan
-	worktree.PeerScan = func(top string, nested []string) ([]worktree.Proc, error) { scans++; return stub(top, nested) }
-	got := Busy(&core.Input{SessionID: "sB", CWD: work})
-	if scans != 1 || !strings.Contains(got.Context, "claude pid 4242") || !strings.Contains(got.Context, "diverged") {
-		t.Fatalf("scans = %d, context %q; want one scan feeding both the busy and the divergence line", scans, got.Context)
-	}
-}
-
-// TestBusyReportsScanAndStateErrors: a peer-scan or state-write error warns on stderr and the prompt still proceeds.
-func TestBusyReportsScanAndStateErrors(t *testing.T) {
-	for _, failure := range []string{"scan peers", "write peer state"} {
-		t.Run(failure, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			t.Setenv(worktreeModeEnv, "")
-			cwd := hosttest.Repo(t)
-			orig := worktree.PeerScan
-			worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
-				if failure == "scan peers" {
-					return nil, errors.New("scan unavailable")
-				}
-				return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
-			}
-			t.Cleanup(func() { worktree.PeerScan = orig })
-			if failure == "write peer state" { // a directory where the state file goes fails the atomic rename
-				if err := os.MkdirAll(filepath.Join(paths.StateDir(), "worktree-busy", "s1"), 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			got := Busy(&core.Input{SessionID: "s1", CWD: cwd})
-			if !strings.Contains(got.Stderr, "worktree-busy: WARNING") || !strings.Contains(got.Stderr, failure) {
-				t.Fatalf("missing %s warning: %+v", failure, got)
-			}
-			if got.Decision != core.Allow || failure == "write peer state" && !strings.Contains(got.Context, "claude pid 4242") {
-				t.Fatalf("diagnostic must fail open and preserve the peer notice: %+v", got)
-			}
-		})
 	}
 }
 

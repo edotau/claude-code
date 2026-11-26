@@ -16,7 +16,7 @@ import (
 // browserFlags declares `network browser`'s flags on fs.
 func browserFlags(fs *flag.FlagSet) (open *string, setup *bool, name *string, dryRun *bool, format *string) {
 	open = fs.String("open", "", "open an http(s) URL or file: VS Code's client, this desktop, else print")
-	setup = fs.Bool("setup", false, "repair what the harness owns for one browser and open its extension page")
+	setup = fs.Bool("setup", false, "act on the fix for one browser: WSL CDP + MCP setup, or open its extension install page; else print the fix")
 	name = fs.String("browser", "default", "chrome|edge|brave|arc|vivaldi|chromium|default (with --setup)")
 	dryRun = fs.Bool("dry-run", false, "describe the actions without running them (with --setup)")
 	format = helptext.FormatFlag(fs)
@@ -35,9 +35,15 @@ func Flags() []helptext.Flag {
 // Cmd lists every installed browser's control paths and the system default; --setup repairs one.
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network browser", helptext.Page{Usage: "claude-code network browser [flags]",
-		About: "List every installed browser's control paths and the system default; --setup\n" +
-			"repairs what the harness owns for one and opens its extension page; --open\n" +
-			"opens a URL where you sit ($BROWSER=~/.claude/bin/browser runs it)."})
+		About: "List every installed browser's control paths and the system default. A row whose\n" +
+			"extension or host is not ready gets an indented `fix:` line with the exact next step\n" +
+			"(JSON: a `fix` field). Columns: host (native-messaging host: ready|no-host|unsupported),\n" +
+			"extension (the Claude extension: ready|disabled|no-extension|no-host|not-installed|unsupported),\n" +
+			"cdp (DevTools Protocol, used on WSL: available|ready|not-installed|unsupported).\n" +
+			"--setup acts where it can: on WSL it starts the Windows browser with CDP and registers the\n" +
+			"chrome-devtools MCP; elsewhere it opens the extension install page in the named browser\n" +
+			"(Linux: gtk-launch, the browser's binary, else xdg-open) or prints the fix. --open opens a\n" +
+			"URL where you sit ($BROWSER=~/.claude/bin/browser runs it)."})
 	open, setup, name, dryRun, format := browserFlags(fs)
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -175,9 +181,14 @@ func renderBrowserLine(w io.Writer, b browser) error {
 	if b.Default {
 		mark = "  (default)"
 	}
-	if _, err := fmt.Fprintf(w, "%-10s installed=%-5v host=%-13s extension=%-13s cdp=%-13s webdriver=%-13s gui=%-13s%s\n",
-		b.Name, b.Installed, b.Host, b.Paths.Extension, b.Paths.CDP, b.Paths.WebDriver, b.Paths.GUI, mark); err != nil {
+	if _, err := fmt.Fprintf(w, "%-10s installed=%-5v host=%-13s extension=%-13s cdp=%-13s%s\n",
+		b.Name, b.Installed, b.Host, b.Paths.Extension, b.Paths.CDP, mark); err != nil {
 		return err
+	}
+	if b.Fix != "" {
+		if _, err := fmt.Fprintf(w, "  fix: %s\n", b.Fix); err != nil {
+			return err
+		}
 	}
 	for _, p := range b.Profiles {
 		if _, err := fmt.Fprintf(w, "  profile %-12s extension=%s\n", p.Name, p.Extension); err != nil {

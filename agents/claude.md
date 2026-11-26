@@ -5,7 +5,7 @@ description: |
   terminal leaf that does the task itself or dispatches a step through claude-code agents ask (Pi included).
 color: blue
 tools: [Read, Write, Edit, Grep, Glob, Bash]
-maxTurns: 150
+maxTurns: 250
 ---
 
 # claude
@@ -19,7 +19,7 @@ terminal leaf; the main session owns orchestration. Dispatch and brief fields: `
 
 No Agent or `Workflow` tool: do the whole task in-context (read, change, verify, report); too big, say so in the
 report. Exceptions are CLI calls: `claude-code agents ask` for a brief's `Agent:` or a step your task needs another
-agent for ([Work here or dispatch](#work-here-or-dispatch)), a saved Workflow it names
+agent for (see `Work here or dispatch` below), a saved Workflow it names
 (`Workflow:`, headless: `skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf). Handed a lane
 plan: `skills/subagent-workflows/references/lane-orchestrator.md`.
 
@@ -73,7 +73,7 @@ A live session (`ask --live`, `agents send <id>`) and `--host`:
 | Design/plan | `Plan` agent (`agents/Plan.md`); trivial/single-file work skips the plan, say so and implement directly |
 | Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`) |
-| A task wholly another agent's | the main session's direct ask, carried except Pi ([Work here or dispatch](#work-here-or-dispatch)); a named agent is binding, size is the manager's call |
+| A task wholly another agent's | the main session's direct ask, carried except Pi (see **Work here or dispatch** below); a named agent is binding, size is the manager's call |
 | Wide codebase sweep | a carried `gemini` ask (`claude-code agents ask --carry --background --overlay '{"agent":"gemini","tools":true}' --dirs <d> - < BRIEF`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
@@ -91,7 +91,7 @@ diff" request runs Simplify detect-only (report the findings) → Review.
   (`sonnet: running go test`).
 - Write the forced notes at the action point: `TASK:` before a behavior-changing edit, `ISSUE:` after a defect fix
   (`skills/problem-solving/references/notes.md`).
-- Named `Agent:` other than claude: [Work here or dispatch](#work-here-or-dispatch).
+- Named `Agent:` other than claude: see `Work here or dispatch` below.
 - A brief naming a skill: read `skills/<name>/SKILL.md` and its `references/` first.
 - Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`); Read a file before you Write or Edit it.
 - Wait on a dispatch with `claude-code agents result -f <id>` or `agents wait <id>`, never a `sleep` loop.

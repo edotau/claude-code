@@ -380,7 +380,6 @@ func TestContractBudgetMarksLimitAndDeadline(t *testing.T) {
 // An answered run whose contract then fails on its limit ends as a contract budget failure that keeps the answer.
 func TestContractBudgetAfterAnswerKeepsResult(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_KEYRING", "off")
 	err := contractBudget(contract.Contract{ID: "k", Failed: contract.ReasonLimit}, nil)
 	if retry.BudgetOf(err) != retry.BudgetContract || !answeredBeforeContractEnd(err) {
 		t.Fatalf("answered run lost its contract end: %v", err)

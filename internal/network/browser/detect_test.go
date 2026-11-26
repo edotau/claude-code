@@ -289,53 +289,8 @@ func TestDetect_NotInstalled(t *testing.T) {
 	if b.Host != stateNotInstalled {
 		t.Fatalf("Host = %q, want not-installed", b.Host)
 	}
-	if b.Paths != (controlPaths{Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled,
-		GUI: stateNotInstalled}) {
+	if b.Paths != (controlPaths{Extension: stateNotInstalled, CDP: stateNotInstalled}) {
 		t.Fatalf("Paths = %+v, want all not-installed", b.Paths)
-	}
-}
-
-// guiProbeKey is the osascript probe guiState issues, keyed the same way fakeRun.run joins its args.
-const guiProbeKey = `osascript -e tell application "System Events" to get name of first process`
-
-type fakeExecErr string
-
-func (e fakeExecErr) Error() string { return string(e) }
-
-func TestGUIState_AssistiveAccessErrorIsDisabled(t *testing.T) {
-	f := &fakeRun{answers: map[string]fakeAnswer{
-		guiProbeKey: {err: fakeExecErr("execution error: Not authorized to send Apple events (-1719)")},
-	}}
-	env := newTestEnv(t, f)
-	if got := guiState(env); got != stateDisabled {
-		t.Errorf("guiState = %q, want %q on an assistive-access error", got, stateDisabled)
-	}
-}
-
-func TestGUIState_OtherErrorStaysAvailable(t *testing.T) {
-	f := &fakeRun{answers: map[string]fakeAnswer{
-		guiProbeKey: {err: fakeExecErr("osascript: command not found")},
-	}}
-	env := newTestEnv(t, f)
-	if got := guiState(env); got != stateAvailable {
-		t.Errorf("guiState = %q, want %q when the failure is not the specific assistive-access error", got, stateAvailable)
-	}
-}
-
-func TestGUIState_NoErrorIsAvailable(t *testing.T) {
-	f := &fakeRun{}
-	env := newTestEnv(t, f)
-	if got := guiState(env); got != stateAvailable {
-		t.Errorf("guiState = %q, want %q on a clean probe", got, stateAvailable)
-	}
-}
-
-func TestGUIState_NonDarwinIsUnsupported(t *testing.T) {
-	f := &fakeRun{}
-	env := newTestEnv(t, f)
-	env.GOOS = "linux"
-	if got := guiState(env); got != stateUnsupported {
-		t.Errorf("guiState = %q, want %q off darwin", got, stateUnsupported)
 	}
 }
 
@@ -349,8 +304,7 @@ func TestDetect_UnsupportedGOOS(t *testing.T) {
 	if b.Host != stateUnsupported {
 		t.Fatalf("Host = %q, want unsupported on an unhandled GOOS", b.Host)
 	}
-	if b.Paths != (controlPaths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported,
-		GUI: stateUnsupported}) {
+	if b.Paths != (controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}) {
 		t.Fatalf("Paths = %+v, want all unsupported", b.Paths)
 	}
 }
@@ -387,25 +341,4 @@ func findBrowser(t *testing.T, report Report, name string) browser {
 	}
 	t.Fatalf("no browser named %q in report: %+v", name, report)
 	return browser{}
-}
-
-// TestDetect_GUIProbeRunsOncePerDetect: three installed browsers share one osascript probe; uninstalled ones skip it.
-func TestDetect_GUIProbeRunsOncePerDetect(t *testing.T) {
-	f := &fakeRun{}
-	for _, name := range []string{"chrome", "safari", "firefox"} {
-		markInstalled(f, specMust(t, name))
-	}
-	report := Detect(newTestEnv(t, f))
-	probes := 0
-	for _, c := range f.calls {
-		if c == guiProbeKey {
-			probes++
-		}
-	}
-	if probes != 1 {
-		t.Errorf("osascript probes = %d, want 1 for 3 installed browsers", probes)
-	}
-	if b := findBrowser(t, report, "safari"); b.Paths.GUI != stateAvailable {
-		t.Errorf("safari GUI = %q, want available from the shared probe", b.Paths.GUI)
-	}
 }

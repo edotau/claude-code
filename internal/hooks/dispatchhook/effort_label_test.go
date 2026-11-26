@@ -203,12 +203,12 @@ func TestLabelNamesOnlyTheModelThatRuns(t *testing.T) {
 	}
 	run := newDispatchRun(nil)
 	run.profile = "dev"
-	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") || !strings.Contains(n, "databricks-claude-opus-5-5") {
-		t.Errorf("fableNote on dev = %q, want the refusal and the Opus id", n)
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "first-party Anthropic") {
+		t.Errorf("fableNote on dev = %q, want the Anthropic route named", n)
 	}
 	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-sonnet-5-5")
 	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); strings.Contains(n, "sonnet") {
-		t.Errorf("fableNote with a Sonnet all-slot pin = %q, want the Opus id", n)
+		t.Errorf("fableNote with a Sonnet all-slot pin = %q, want no Sonnet id", n)
 	}
 	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-opus-5-5"); n != "" {
 		t.Errorf("fableNote for Opus = %q, want none", n)
@@ -323,8 +323,8 @@ func TestInheritedFableSessionLabelsOpusOnDatabricks(t *testing.T) {
 		t.Errorf("inherit Plan on a Fable session = %q, want databricks-claude-opus-5-5", got)
 	}
 	run.profile = "dev"
-	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "serves no Fable") {
-		t.Errorf("a typed Fable label lost its refusal note: %q", n)
+	if n := run.fableNote(agentpkg.ModelRoute{}, "databricks-claude-fable-5-2"); !strings.Contains(n, "first-party Anthropic") {
+		t.Errorf("a typed Fable label lost its route note: %q", n)
 	}
 }
 

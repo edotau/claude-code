@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -105,16 +103,8 @@ func closeRemoved(main, path, head string, branchDeleted bool, stderr io.Writer)
 	}
 }
 
-// worktreeModeEnv selects the mode: off|false|0 never asks; lanes enforces lanes; else asks (session start, new peer).
-const worktreeModeEnv = "HARNESS_WORKTREE"
-
-func worktreeModeOff() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(worktreeModeEnv))) {
-	case "off", "false", "0":
-		return true
-	}
-	return false
-}
+// worktreeModeEnv is the vault's worktree mode; only `lanes` changes this hook package's behaviour.
+const worktreeModeEnv = "WORKTREE_MODE"
 
 // worktreeLanes is lanes mode: nothing tracked is edited in the live checkout, work goes to a lane.
 func worktreeLanes() bool {
@@ -126,20 +116,14 @@ func Busy(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-busy")
 	defer cancel()
 	run := newRun(ctx, in)
-	busy, busyWarn := "", ""
-	err := notePrompt(ctx, in) // before the notices, so this prompt counts the owner present
-	if !worktreeModeOff() {
-		var berr error
-		busy, berr = busyLine(in, run)
-		err = cmp.Or(berr, err)
-	}
-	if err != nil {
+	busyWarn := ""
+	if err := notePrompt(ctx, in); err != nil { // before the notices, so this prompt counts the owner present
 		busyWarn = fmt.Sprintf("worktree-busy: WARNING — %v", err)
 	}
 	notes, warn := noticeContext(ctx, in, run)
 	audits := strings.Join(worktree.AuditReports(), "\n")
 	// notes lead with fix-now directives, already recorded as delivered, so unbounded peer and audit text goes after
-	return core.Result{Context: core.JoinContext(notes, busy, audits), Stderr: core.JoinContext(busyWarn, warn)}
+	return core.Result{Context: core.JoinContext(notes, audits), Stderr: core.JoinContext(busyWarn, warn)}
 }
 
 // checkoutInfo is CheckoutPeersInfo's result.
@@ -153,7 +137,6 @@ type hookRun struct {
 	dir      string
 	checkout func() checkoutInfo
 	peers    func() ([]worktree.Proc, error)
-	dirty    func() (map[string]bool, error)
 }
 
 func newRun(ctx context.Context, in *core.Input) *hookRun {
@@ -169,102 +152,11 @@ func newRun(ctx context.Context, in *core.Input) *hookRun {
 		c := r.checkout()
 		return worktree.PeersOf(ctx, c.top, c.nested)
 	})
-	r.dirty = sync.OnceValues(func() (map[string]bool, error) {
-		_, d, err := worktree.ReadDirty(ctx, r.checkout().top)
-		return d, err
-	})
 	return r
 }
 
 // busyScanTTL is how long the state file's mtime vouches for the last peer scan (about 300 ms of git and lsof).
 var busyScanTTL = time.Minute
-
-// busyLine returns the peer notice and any process-scan or dedupe-state error.
-func busyLine(in *core.Input, run *hookRun) (string, error) {
-	file := seenFile(in.SessionID)
-	if st, err := os.Stat(file); err == nil && st.Mode().IsRegular() && time.Since(st.ModTime()) < busyScanTTL {
-		return "", nil
-	}
-	c := run.checkout()
-	top, branch := c.top, c.branch
-	if top == "" {
-		return "", nil
-	}
-	peers, err := run.peers()
-	if err != nil {
-		return "", fmt.Errorf("scan peers in %s: %w", top, err)
-	}
-	ids := make([]string, 0, len(peers))
-	for _, p := range peers {
-		ids = append(ids, strconv.Itoa(p.PID))
-	}
-	sort.Strings(ids)
-	first, err := notePeers(in.SessionID, strings.Join(ids, ","))
-	if !first || len(peers) == 0 {
-		return "", err
-	}
-	p := assets.BusyPeer{Comm: peers[0].Comm, PID: peers[0].PID, Branch: branch, Lanes: worktreeLanes(), Name: peerName(peers[0].PID)}
-	p.Files = peerFiles(run, top, peers[0].PID)
-	return assets.HookBusyPeer(p), err
-}
-
-// peerName is the peer's Claude Code session name (<config>/sessions/<pid>.json), "" when unrecorded.
-func peerName(pid int) string {
-	b, err := os.ReadFile(filepath.Join(paths.ConfigDir(), "sessions", strconv.Itoa(pid)+".json"))
-	if err != nil {
-		return ""
-	}
-	var s struct {
-		Name string `json:"name"`
-	}
-	if json.Unmarshal(b, &s) != nil {
-		return ""
-	}
-	return s.Name
-}
-
-// peerFiles lists up to claimShown sorted paths pid's claims hold that are still dirty in top, then "+N more".
-func peerFiles(run *hookRun, top string, pid int) string {
-	held := map[string]bool{}
-	_ = worktree.ScanClaims(claimAlive, func(p int, _ string, c worktree.Claim) {
-		if p == pid {
-			held[c.Path] = true
-		}
-	})
-	if len(held) == 0 {
-		return ""
-	}
-	dirty, err := run.dirty()
-	if err != nil {
-		return ""
-	}
-	var rel []string
-	for p := range held {
-		if r, err := filepath.Rel(top, p); dirty[p] && err == nil {
-			rel = append(rel, r)
-		}
-	}
-	sort.Strings(rel)
-	more := len(rel) - min(len(rel), claimShown)
-	out := strings.Join(rel[:len(rel)-more], ", ")
-	if more > 0 {
-		out += " +" + strconv.Itoa(more) + " more"
-	}
-	return out
-}
-
-// notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.
-func notePeers(session, ids string) (bool, error) {
-	first, err := core.SeenAdd(seenKind, session, "peers\t"+ids)
-	if err == nil && !first {
-		now := time.Now()
-		err = os.Chtimes(seenFile(session), now, now)
-	}
-	if err != nil {
-		err = fmt.Errorf("write peer state %s: %w", seenFile(session), err)
-	}
-	return first, err
-}
 
 // gitAnyCmd pre-screens a Bash command for any git invocation: the moment a drained notice matters most.
 var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgit\b`) })

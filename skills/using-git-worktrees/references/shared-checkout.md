@@ -1,8 +1,6 @@
 # Shared-Checkout Coordination
 
-Policy lives in [Git and Worktrees](../../../rules/standards/worktree-git.md); the
-[skill's enforcement table](../SKILL.md#hook-enforcement-vs-policy) distinguishes the checks.
-Use [the lane protocol](../SKILL.md#the-lane-protocol) for isolated streams.
+Policy: [Git and Worktrees](../../../rules/standards/worktree-git.md#worktrees).
 
 ## Claims are warnings, not isolation
 
@@ -10,20 +8,18 @@ Use [the lane protocol](../SKILL.md#the-lane-protocol) for isolated streams.
 commits determine whether a claim still matters. Bash formatters and external editors are not comprehensively
 tracked before staging: inspect the diff even when no claim warning appeared.
 
-Peer-file enforcement is in the [skill table](../SKILL.md#hook-enforcement-vs-policy); interactive hunk staging
-is exempt. A named-file commit takes the whole working-tree file, not just your hunks. Check both the file diff
-and staged content; leave peer hunks to their owner.
+Claim checks advise, never block staging or commits. A named-file commit takes the whole working-tree file,
+not just your hunks. Check the file diff and staged content; leave peer hunks to their owner.
 
-Inspect peer sessions with `claude-code agents tree`, dirty paths with `git status --short`, and the selected files
-with `git diff HEAD -- <paths>` before committing. An isolated snapshot check avoids a false green from peers'
+Inspect peer sessions with `claude-code agents tree`, dirty paths with `rtk git status --short`, and the selected files
+with `rtk git diff HEAD -- <paths>` before committing. An isolated snapshot check avoids a false green from peers'
 uncommitted dependencies (verification procedure: the standard's LAST-MILE).
 
 ## Notices and queues
 
-Conflict notices go to the session recorded in the lane ledger; `worktree-busy` / `worktree-claim-check` drain
-notices on prompts or Git commands. Dirty-target refusals identify claimants; divergence context is advisory, not
-a universal commit ban. `lane-land-queue` shows lanes that did not auto-land and their next commands. Read those
-reasons rather than assuming a finished leaf was committed or landed.
+Conflict notices go to the session recorded in the lane ledger; `worktree-busy` and `worktree-claim-check`
+drain them. Read the notices and actual diff; never infer collection or landing from a leaf's completion.
+Collection: `rules/standards/worktree-git.md` → Worktrees.
 
 ## Registry coordination is policy
 

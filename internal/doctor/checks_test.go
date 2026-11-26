@@ -571,6 +571,7 @@ func TestBrowserDoctorDetailSurfacesDetectionError(t *testing.T) {
 // The land row sums every repo's lands of the week from land-attempts.jsonl, after in-flight and report-only.
 func TestLandRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubLocalServer(t)
 	if got := landDetail(); got != "no lands (7d)" {
 		t.Fatalf("empty log: landDetail = %q", got)
 	}

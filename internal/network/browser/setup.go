@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/edotau/claude-code/internal/proc"
 )
 
 // action is one repair step Setup took (or, with Env.DryRun, planned).
@@ -34,7 +32,7 @@ func Setup(env Env, name string) (Actions, error) {
 		return Actions{}, fmt.Errorf("browser: unknown browser %q", name)
 	}
 	if s.family != familyChromium {
-		return Actions{}, fmt.Errorf("browser: %s has no extension control path — see tier 3 (safaridriver/geckodriver)",
+		return Actions{}, fmt.Errorf("browser: %s has no Claude extension; WebDriver-based control is not built",
 			s.displayName)
 	}
 	b := detectOne(env, s)
@@ -76,29 +74,28 @@ func resolveSetupName(env Env, name string) (string, error) {
 }
 
 func missingHostAction(b browser) action {
-	return action{
-		Kind: "missing-host",
-		Description: fmt.Sprintf(
-			"Claude Code owns the native-messaging host for %s; "+
-				"run `claude --chrome` (or reinstall Claude Code) to register it.",
-			b.DisplayName),
-	}
+	return action{Kind: "missing-host", Description: hostFix(b)}
 }
 
 func enableExtensionAction(b browser) action {
-	return action{
-		Kind: "enable-extension",
-		Description: fmt.Sprintf("The extension is installed but disabled in %s — enable it from its extensions page.",
-			b.DisplayName),
-	}
+	return action{Kind: "enable-extension", Description: enableFix(b)}
 }
 
-// installExtensionAction opens the Web Store page: macOS `open -b <bundle>` targets the browser, else the default.
+// installExtensionAction opens the Web Store page in the named browser: `open -b` (macOS) or openCandidates (Linux).
 func installExtensionAction(env Env, b browser) action {
-	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
+	var cands [][]string
+	if env.goos() == "darwin" {
+		cands = [][]string{{"open", "-b", b.BundleID, webStoreURL}}
+	} else if s, ok := specByName(b.Name); ok {
+		cands = openCandidates(env, s, webStoreURL)
+	}
 	where := b.DisplayName
-	if env.goos() != "darwin" {
-		cmd, where = nil, "the default browser"
+	var cmd []string
+	if len(cands) > 0 {
+		cmd = cands[0]
+		if cmd[0] == "xdg-open" {
+			where = "the default browser"
+		}
 	}
 	a := action{
 		Kind: "install-extension",
@@ -110,13 +107,7 @@ func installExtensionAction(env Env, b browser) action {
 	if env.DryRun {
 		return a
 	}
-	var out string
-	var err error
-	if cmd == nil {
-		err = proc.OpenURL(webStoreURL, proc.OpenView)
-	} else {
-		out, err = env.run(cmd[0], cmd[1:]...)
-	}
+	out, err := runCandidates(env, cands)
 	a.Executed = err == nil
 	if err != nil {
 		a.Error = strings.TrimSpace(out + " " + err.Error())

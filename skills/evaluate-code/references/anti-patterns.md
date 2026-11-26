@@ -1,50 +1,41 @@
 # Anti-patterns — the four principles as review findings
 
-Principles: `rules/standards/principles.md` (adapted from Andrej Karpathy's observations on LLM coding pitfalls); the
-detectors and this gallery are original. Severity: `../SKILL.md` → Lenses → Discipline. Verbs: `detectors.md`.
+Principles: `rules/standards/principles.md` (adapted from Andrej Karpathy); this gallery and detectors are original.
+Severity: `../SKILL.md` → Lenses → Discipline. Verbs: `detectors.md`.
 
 ## #1 Clarify Assumptions
 
-An ambiguous requirement gets one silent interpretation; the damage stays invisible until it ships.
-
-- **A1. Silent interpretation** — `claude-code plan assumptions` → `vague-action`, `unscoped-subject`. "I'll just add a
-  function to export all user data": which users, format, destination are unstated. **Fix:** surface the choices —
-  "Export the authenticated user's profile rows to CSV, PII excluded. Confirm scope?"
-- **A2. "Should work" plan step** — `claude-code plan assumptions` → `hopeful`; `claude-code plan goals` → `vague`. "3.
-  Wire the endpoint — should work with the existing auth middleware." **Fix:** "3. Wire the endpoint. verify:
-  `curl -H 'Authorization: …' /api/x` returns 200; unauthenticated returns 401."
+- **A1. Silent interpretation:** “export all user data” leaves users, format and destination unstated.
+  `claude-code plan assumptions`: `vague-action`, `unscoped-subject`. Surface choices and confirm scope.
+- **A2. “Should work” plan:** replace hope with a runnable check, e.g. authenticated request → 200, anonymous → 401.
+  `claude-code plan assumptions`: `hopeful`; `claude-code plan goals`: `vague`.
 
 ## #2 Simplicity First
 
-Speculative generality: reading cost for flexibility that never pays off. Fix lane: `skills/simplify/SKILL.md` (the
-apply-gate behind it: `rules/standards/quality.md` → Simplify).
+Flag speculative generality; fix through `skills/simplify/SKILL.md` (`rules/standards/quality.md` → Simplify).
+`claude-code review complexity` signals:
 
-- **A3. Factory for a single product** — `review complexity` → `premature-abstraction`, `class-density`
-- **A4. Error handling for impossible states** — `review complexity` → `cyclomatic-complexity`
-- **A5. 200 lines that should be 50** — `review complexity` → `function-length`, `nesting-depth`
-- **A6. Config knob nobody turns** — `review complexity` → `import-count` (often drags in a config lib)
+- **A3. Single-product factory:** `premature-abstraction`, `class-density`.
+- **A4. Impossible-state error handling:** `cyclomatic-complexity`.
+- **A5. 200 lines needing 50:** `function-length`, `nesting-depth`.
+- **A6. Unused config knob:** `import-count` (often an unnecessary config library).
 
 ## #3 Surgical Changes
 
-Drive-by edits inflate the diff, bury the real change and hurt review and `git blame`.
+`claude-code review diff` signals:
 
-- **A7. Drive-by reformat** — `review diff` → high noise ratio; a one-line fix that also reflows 80 unrelated
-  lines. **Fix:** commit the fix alone; reformat separately.
-- **A8. Quote-style swap** — `review diff` → `quote-style-swap`. **Fix:** revert it from this diff.
-- **A9. Docstring/comment churn on untouched code** — `review diff` → `docstring-addition`, `comment-only`.
-  **Fix:** its own commit.
+- **A7. Drive-by reformat:** high noise ratio; keep the fix alone, reformat separately.
+- **A8. Quote-style swap:** `quote-style-swap`; remove it from this diff.
+- **A9. Untouched-code comment churn:** `docstring-addition`, `comment-only`; use a separate commit.
 
 ## #4 Goal-Driven Execution
 
-- **A10. "Done" with no check** — `claude-code plan goals` → `none`. "Implemented the retry logic." **Fix:** "verify:
-  kill the upstream mid-request; client retries 3× then surfaces a 503; `test_retry_exhausted` covers it."
-- **A11. Plan with no final verification** — `claude-code plan goals --json` →
-  `has_final_verification: false`; units pass while the integration is broken. **Fix:** a final step that runs the
-  change on its real surface end-to-end.
-- **A12. Metric claim without a number** — `claude-code plan goals` → `vague`. "Optimized the query."
-  **Fix:** "p95 1.8s → 0.3s on the 10k-row fixture; `bench_query` asserts < 0.5s."
+`claude-code plan goals` signals:
+
+- **A10. Unchecked “done”:** `none`; name a check, e.g. kill upstream, observe three retries then 503.
+- **A11. No final verification:** `--json` → `has_final_verification: false`; run the real surface end-to-end.
+- **A12. Numberless improvement:** `vague`; measure, e.g. p95 1.8s → 0.3s on 10k rows, benchmark asserts <0.5s.
 
 ## How the lens fits the review
 
-Run the detectors first, then judge: they point at hot spots, you set severity. A clean run only means the
-mechanical violations are absent; spend attention on correctness and architecture.
+Run detectors, then judge severity. Clean output rules out mechanical violations, not correctness/architecture defects.

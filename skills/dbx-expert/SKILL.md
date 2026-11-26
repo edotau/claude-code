@@ -1,15 +1,22 @@
 ---
 name: dbx-expert
-description: How model traffic reaches Databricks in this harness and how to diagnose it. Use for "a Databricks model call failed", "401/403/404/429/503 from Databricks", "stream disconnected", "which endpoint or wire does this model use", "add or check a Databricks model", "dev qa prod profile", "serving endpoint", "why is this slow or throttled", "what does this cost". Also for running a CPU workload on a quiet Databricks cluster: "run this on the cluster", "warm up the cluster", "ssh to the driver", "databricks ssh setup", "remote benchmark or timing gate". Not for writing Databricks SDK, CLI or SQL code: use databricks-core (CLI, auth, bundles), databricks-python-sdk (SDK and APIs) or databricks-docs.
+description: Databricks in this harness - how agent model traffic reaches the dev, qa and prod workspaces through the loopback proxy and how to diagnose it ("a Databricks model call failed", 401/403/404/429/503, "stream disconnected", "which wire does this model use", add or check a model, profiles, sign-in, tokens, cost), the databricks CLI and Python SDK for workspace work (jobs, clusters, tables, bundles, SQL, Unity Catalog), and running a workload on a cluster over SSH. Use it for any Databricks task, even when the person only names a profile, a workspace, a job or a table.
 ---
 
-# Databricks serving (dbx-expert)
+# Databricks (dbx-expert)
 
 How an agent's model call reaches a Databricks workspace here, and what to run when it fails. Commands and gotchas
 live in `rules/harness/providers.md` (Databricks routes, service-principal identity); this is the task-first how-to.
-Symptoms: [references/errors.md](references/errors.md). Wires and limits: [references/wires.md](references/wires.md).
-Running a workload on a cluster (warm, SSH tunnel, ship, run, fetch):
-[references/remote-compute.md](references/remote-compute.md).
+
+| Need | Read |
+| --- | --- |
+| A model call failed (symptom to fix) | [references/errors.md](references/errors.md) |
+| Wires, endpoints and limits | [references/wires.md](references/wires.md) |
+| A workload on a cluster (warm, SSH tunnel, ship, run, fetch) | [references/remote-compute.md](references/remote-compute.md) |
+| The databricks CLI: sign in, profiles, commands, querying data | [references/cli.md](references/cli.md) |
+| Python SDK code, with runnable examples | [references/sdk.md](references/sdk.md) |
+| This machine's real hosts, cluster ids and SSH aliases (gitignored; may be absent) | `references/local/hosts.md` |
+| Anything else | <https://docs.databricks.com/llms.txt> (fetch the index, then the page) |
 
 ## The shape
 
@@ -118,9 +125,3 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
 - Put a secret in a file, a brief, a commit or a log.
 - Hand-edit generated agent configs or `settings.json` (`rules/harness/settings-management.md`).
 - Change production from a session: it is read-only; deploys go through its pipeline.
-
-## Related skills
-
-- **databricks-core**: CLI install, authentication, profiles and bundles.
-- **databricks-python-sdk**: SDK, Databricks Connect and REST API code.
-- **databricks-docs**: Databricks documentation lookup.

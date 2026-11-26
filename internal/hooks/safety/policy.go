@@ -92,16 +92,19 @@ func readPolicy() (p policy, err error) {
 		return p, fmt.Errorf("settings.json: %w", err)
 	}
 	if doc.Permissions == nil || doc.Permissions.Deny == nil {
-		return p, errors.New("settings.json: permissions.deny is missing")
+		return p, errNoDeny
 	}
 	return parsePolicy(*doc.Permissions.Deny), nil
 }
 
 var fallbackOnce sync.Once
 
+// errNoDeny is a settings.json that leaves permissions to the template, as every launch's merge fills them in.
+var errNoDeny = errors.New("settings.json: permissions.deny is missing")
+
 // noteFallback says once per process why the template permissions apply; a missing file is a normal install.
 func noteFallback(err error) {
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNoDeny) {
 		return
 	}
 	fallbackOnce.Do(func() {

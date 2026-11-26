@@ -35,11 +35,15 @@ func TestLoadFromOverlayCellAndWeights(t *testing.T) {
 			Weights: map[string]float64{"price": 0.2, "headroom": 0.8},
 		},
 	}
+	base, err := LoadFrom(nil, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
 	tb, err := LoadFrom(reg, "u")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := tb.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" || c.Effort != "high" || c.Account != "opencode·go" {
+	if c, b := tb.Rows["opencode"]["sonnet"], base.Rows["opencode"]["sonnet"]; c.Model != "opencode-go/y" || c.Effort != b.Effort || c.Account != b.Account {
 		t.Errorf("overlay cell = %+v, want model replaced, effort kept, account unchanged", c)
 	}
 	if tb.Weights["headroom"] != 0.8 {
@@ -102,6 +106,10 @@ func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	reg := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"codex": {"sonnet": {Model: "openrouter/some-model"}}}},
 	}
+	base, err := LoadFrom(nil, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
 	tb, err := LoadFrom(reg, "u")
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +118,7 @@ func TestLoadFromNonOpencodeOverrideWithSlashKeepsAccount(t *testing.T) {
 	if c.Model != "openrouter/some-model" {
 		t.Errorf("model = %q, want the override applied", c.Model)
 	}
-	if c.Account != "openai·chatgpt" {
+	if c.Account != base.Rows["codex"]["sonnet"].Account {
 		t.Errorf("account = %q, want the table's own codex account unchanged (no opencode re-derivation off-agent)", c.Account)
 	}
 }
@@ -143,7 +151,8 @@ func TestTierOfSlotNamesAndFamilies(t *testing.T) {
 	if got := tb.AliasOf("opus"); got != "opus" {
 		t.Errorf("AliasOf(opus) = %q", got)
 	}
-	if got := tb.AliasOf("claude-opus-5-5[1m]"); got != "opus" {
+	opusID, _ := models.Alias("opus")
+	if got := tb.AliasOf(opusID + "[1m]"); got != "opus" {
 		t.Errorf("AliasOf(claude id) = %q", got)
 	}
 	if got := tb.AliasOf(""); got != "" {
@@ -180,14 +189,15 @@ func TestRowsKeyedByClaudeID(t *testing.T) {
 
 // routing.cells keyed by canonical id and by the deprecated alias hit the same cell.
 func TestOverlayAcceptsCanonicalAndTierKeys(t *testing.T) {
-	for _, key := range []string{"sonnet", "claude-sonnet-5-5"} {
+	sonnetID, _ := models.Alias("sonnet")
+	for _, key := range []string{"sonnet", sonnetID} {
 		reg := &providers.Registry{Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{
 			"codex": {key: {Effort: "low"}}}}}
 		tb, err := LoadFrom(reg, "u")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tb.Rows["codex"]["sonnet"].Effort != "low" || tb.ByModel["claude-sonnet-5-5"]["codex"].Effort != "low" {
+		if tb.Rows["codex"]["sonnet"].Effort != "low" || tb.ByModel[sonnetID]["codex"].Effort != "low" {
 			t.Errorf("key %q: overlay not applied", key)
 		}
 	}
@@ -319,11 +329,6 @@ func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
 
 func TestModelRow(t *testing.T) {
 	cases := []struct{ in, alias, row, exact string }{
-		{"opus", "opus", "claude-opus-5-5", ""},
-		{"claude-sonnet-5.5", "sonnet", "claude-sonnet-5-5", ""},
-		{"databricks-claude-haiku-5-5", "haiku", "claude-haiku-5-5", ""},
-		{"gpt-6.1-sol", "", "", "gpt-6-1-sol"},
-		{"glm-5.3", "", "", "glm-5-3"},
 		// off-catalog is still an exact request, never a silent default
 		{"no-such-model", "", "", "no-such-model"},
 		{"", "", "", ""},
@@ -337,25 +342,22 @@ func TestModelRow(t *testing.T) {
 }
 
 func TestClaudeCellModelIsTheAlias(t *testing.T) {
-	if got := ClaudeCellModel("claude-opus-5-5"); got != "opus" {
-		t.Errorf("ClaudeCellModel(claude-opus-5-5) = %q, want opus (so pins resolve it)", got)
+	opusID, _ := models.Alias("opus")
+	if got := ClaudeCellModel(opusID); got != "opus" {
+		t.Errorf("ClaudeCellModel(%s) = %q, want opus (so pins resolve it)", opusID, got)
 	}
 	if got := ClaudeCellModel("claude-opus-4-1"); got != "claude-opus-4-1" {
 		t.Errorf("an alias-less row stays canonical, got %q", got)
 	}
 }
 
-// AsksModel matches a databricks- spelling of a non-catalog id; LowestAliasServing a gemini effort suffix.
+// AsksModel matches a databricks- spelling of a non-catalog id.
 func TestAsksModelWireSpellingAndGeminiEffortCell(t *testing.T) {
 	if !AsksModel("databricks-foo-9", "foo-9") {
 		t.Error("AsksModel missed the databricks- spelling of a non-catalog id")
 	}
 	if AsksModel("foo-9", "foo-8") {
 		t.Error("AsksModel matched different models")
-	}
-	tb := testTable(t)
-	if got := tb.LowestAliasServing("gemini", "gemini-3-8-flash"); got != "haiku" {
-		t.Errorf("LowestAliasServing(gemini-3-8-flash) = %q, want haiku (cell gemini-3.8-flash-low)", got)
 	}
 }
 

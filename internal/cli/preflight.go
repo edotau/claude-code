@@ -44,7 +44,7 @@ func preflightLive(ctx context.Context, reg *providers.Registry, profile string)
 			return helptext.Fail("preflight: no pong ran for %q (unknown, non-Databricks or no credential)", profile)
 		}
 	} else {
-		pongs = preflight.RunInstallStep(ctx, os.Stdout, reg, bin, time.Now())
+		pongs = preflight.RunInstallStep(ctx, os.Stdout, reg, bin, time.Now(), true)
 		if len(pongs) == 0 && pinsBroken(ctx, reg) { // a vault error skips every pong; that must not exit 0
 			return helptext.Fail("preflight: no pong ran: the pin check failed (see the fix rows above)")
 		}

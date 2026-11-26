@@ -1,4 +1,4 @@
-// Package browser finds, per installed browser, its control path (extension, CDP, WebDriver, GUI) and the OS default.
+// Package browser finds, per installed browser, its control path (extension, CDP), the next fix and the OS default.
 package browser
 
 import (
@@ -57,12 +57,10 @@ type profile struct {
 	Extension string `json:"extension"` // ready|disabled|no-extension
 }
 
-// controlPaths holds one state per control path; every browser gets all four, "unsupported" where its family can't.
+// controlPaths holds one state per control path; every browser gets both, "unsupported" where its family can't.
 type controlPaths struct {
-	Extension string `json:"extension"` // ready|no-extension|no-host|not-installed|unsupported
-	CDP       string `json:"cdp"`       // available|not-installed|unsupported
-	WebDriver string `json:"webdriver"` // available|disabled|not-installed|unsupported
-	GUI       string `json:"gui"`       // available|not-installed|unsupported
+	Extension string `json:"extension"` // ready|disabled|no-extension|no-host|not-installed|unsupported
+	CDP       string `json:"cdp"`       // available|ready|not-installed|unsupported
 }
 
 // browser is one known browser's full detection result.
@@ -76,6 +74,7 @@ type browser struct {
 	Host        string       `json:"host"`              // host manifest: ready|no-host|unsupported|not-installed
 	Profiles    []profile    `json:"profiles,omitempty"`
 	Paths       controlPaths `json:"paths"`
+	Fix         string       `json:"fix,omitempty"` // the exact next step while the extension/host is not ready
 }
 
 // Report is the full `network browser` result.
@@ -91,7 +90,8 @@ type Env struct {
 	Home       string
 	AppSupport string // macOS: ~/Library/Application Support; Linux: ~/.config
 	Run        func(name string, args ...string) (string, error)
-	ProbeRun   func(name string, args ...string) (string, error) // short-bounded GUI probe; nil falls back to Run
+	ProbeRun   func(name string, args ...string) (string, error) // short-bounded probe; nil falls back to Run
+	Launch     func(name string, args ...string) error           // start a program detached (a browser must not block Setup)
 	Now        func() time.Time
 	GOOS       string
 	DryRun     bool
@@ -101,7 +101,6 @@ type Env struct {
 	Sleep      func(time.Duration) // wait seam for the CDP start poll
 	ClaudeBin  string              // the real claude binary for `claude mcp add` (never our shim)
 	HasNPX     bool                // npx is on PATH: chrome-devtools-mcp runs through it
-	gui        func() string       // Detect's memoized guiState, so N browsers share one osascript probe
 	cdpListen  func() string       // Detect's memoized cdpListener, so N browsers share one PowerShell probe
 }
 
@@ -144,22 +143,6 @@ func (e Env) run(name string, args ...string) (string, error) {
 	return e.Run(name, args...)
 }
 
-// probeRun calls e.ProbeRun when set, else e.run.
-func (e Env) probeRun(name string, args ...string) (string, error) {
-	if e.ProbeRun != nil {
-		return e.ProbeRun(name, args...)
-	}
-	return e.run(name, args...)
-}
-
-// guiState is Detect's memoized probe when set, else a fresh one (detectOne called outside Detect).
-func (e Env) guiState() string {
-	if e.gui != nil {
-		return e.gui()
-	}
-	return guiState(e)
-}
-
 // supportDir is spec's Application-Support-relative directory for goos ("" when unsupported there).
 func (s spec) supportDir(goos string) string {
 	if goos == "darwin" {
@@ -195,6 +178,7 @@ func NewEnv() Env {
 		AppSupport: appSupportRoot(home, envGOOS),
 		Run:        runReal,
 		ProbeRun:   runProbe,
+		Launch:     proc.StartDetached,
 		Now:        time.Now,
 		GOOS:       envGOOS,
 		WSL:        envGOOS == "linux" && onWSL(),
@@ -229,12 +213,20 @@ func runReal(name string, args ...string) (string, error) {
 	return runCommand(commandTimeout, name, args...)
 }
 
-// guiProbeTimeout bounds the System Events probe: it answers in ~0.1s, and a hung one must not stall detection.
-var guiProbeTimeout = 5 * time.Second
+// probeTimeout bounds the PowerShell listener probe: a hung one must not stall detection.
+var probeTimeout = 5 * time.Second
 
-// runProbe is runReal under guiProbeTimeout.
+// runProbe is runReal under probeTimeout.
 func runProbe(name string, args ...string) (string, error) {
-	return runCommand(guiProbeTimeout, name, args...)
+	return runCommand(probeTimeout, name, args...)
+}
+
+// probeRun calls e.ProbeRun when set, else e.run.
+func (e Env) probeRun(name string, args ...string) (string, error) {
+	if e.ProbeRun != nil {
+		return e.ProbeRun(name, args...)
+	}
+	return e.run(name, args...)
 }
 
 func runCommand(timeout time.Duration, name string, args ...string) (string, error) {

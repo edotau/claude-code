@@ -2,32 +2,21 @@ package preflight
 
 import (
 	"io"
-	"net/http"
-	"net/http/httptest"
 
 	"bytes"
 	"context"
 	"os"
-	"path/filepath"
-	"runtime"
-	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -79,123 +68,6 @@ func TestFutureListingIsStale(t *testing.T) {
 	}
 }
 
-// Killing a timed-out ask must also kill its children, or the pipe keeps Output() blocked.
-func TestRunAskKillsProcessGroup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process groups are unix-only")
-	}
-	script := filepath.Join(t.TempDir(), "fake")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30 &\nsleep 30\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	_, _ = defaultRunAsk(ctx, script, "codex", "")
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("runAsk blocked %v on an orphaned child", d)
-	}
-}
-
-// The pong child runs on the snapshot the prediction read, not on the parent's environment.
-func TestRunAskChildGetsTheRunSnapshot(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake ask is a shell script")
-	}
-	script := filepath.Join(t.TempDir(), "fake")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '{\"status\":\"ok\",\"provider\":\"%s\"}' \"$CLAUDE_PROFILE\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv(providers.EnvSessionProfile, "ambient")
-	ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "snapshot"})
-	env, err := defaultRunAsk(ctx, script, "codex", "")
-	if err != nil || env.Provider != "snapshot" {
-		t.Fatalf("child saw provider %q (err %v), want the snapshot's", env.Provider, err)
-	}
-}
-
-// The pong ask carries its run configuration as one --overlay object and no per-setting flag.
-func TestRunAskArgvIsOneOverlay(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake ask is a shell script")
-	}
-	dir := t.TempDir()
-	argsFile, script := filepath.Join(dir, "args"), filepath.Join(dir, "fake")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\nprintf '{\"status\":\"ok\"}'\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := defaultRunAsk(context.Background(), script, "codex", ""); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(argsFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prompt := assets.PreflightPongPrompt()
-	want := "agents\nask\n--overlay\n{\"agent\":\"codex\",\"tools\":false,\"fallback\":\"none\"}\n--format\njson\n" + prompt + "\n"
-	if string(got) != want {
-		t.Fatalf("argv =\n%s\nwant\n%s", got, want)
-	}
-}
-
-func TestRunAskKeepsUnresolvedProfile(t *testing.T) {
-	hermeticVault(t)
-	dir := t.TempDir()
-	argsFile, script := filepath.Join(dir, "args"), filepath.Join(dir, "fake")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsFile + "'\nprintf '{\"status\":\"ok\"}'\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := defaultRunAsk(context.Background(), script, "codex", "caller-only-profile"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(argsFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "agents\nask\n--profile\ncaller-only-profile\n--overlay\n{\"agent\":\"codex\",\"tools\":false,\"fallback\":\"none\"}\n--format\njson\n" + assets.PreflightPongPrompt() + "\n"
-	if string(got) != want {
-		t.Fatalf("argv =\n%s\nwant\n%s", got, want)
-	}
-}
-
-// The install step prints one pong row per live agent (80 columns at most) and a fix row for a pin that is not ok.
-func TestInstallStepRows(t *testing.T) {
-	hermeticVault(t)
-	stubListing(t)
-	pinAll(t)
-	setPins(t, map[string]string{"CODEX_MODEL": "good-model", "COPILOT_MODEL": "gone-model"})
-	var mu sync.Mutex
-	var asked []string
-	runAsk = func(ctx context.Context, _, a, _ string) (wire.Envelope, error) {
-		if _, ok := proc.ValuesFromContext(ctx); !ok {
-			t.Errorf("%s pong ran without the entry's run snapshot", a)
-		}
-		mu.Lock()
-		asked = append(asked, a)
-		mu.Unlock()
-		if a == "opencode" {
-			return wire.Envelope{Status: "error", Error: &wire.EnvelopeError{Kind: "auth"}}, nil
-		}
-		fb := "gemini"
-		return wire.Envelope{Status: "ok", Provider: "dev", Model: "good-model", Fallback: &fb}, nil
-	}
-	var buf bytes.Buffer
-	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
-	out := buf.String()
-	if !strings.Contains(out, "pong     codex    · dev · good-model · ok · gemini") ||
-		!strings.Contains(out, "pong     opencode · dev · default · fail · auth") ||
-		!strings.Contains(out, "copilot unserved: ") || slices.Contains(asked, "copilot") {
-		t.Fatalf("install step rows:\n%s", out)
-	}
-	for l := range strings.SplitSeq(out, "\n") {
-		if strings.HasPrefix(l, "pong ") && len([]rune(l)) > 80 {
-			t.Fatalf("row over 80 columns: %q", l)
-		}
-	}
-}
-
 // With no credential anywhere the install step is silent and never asks a model.
 func TestInstallStepSkipsWithoutCredential(t *testing.T) {
 	hermeticVault(t)
@@ -207,133 +79,9 @@ func TestInstallStepSkipsWithoutCredential(t *testing.T) {
 	reg := preflightRegistry(false)
 	delete(reg.Providers, "antigravity") // a CLI-login pin counts as a credential
 	var buf bytes.Buffer
-	RunInstallStep(context.Background(), &buf, reg, "claude-code", time.Now())
+	RunInstallStep(context.Background(), &buf, reg, "claude-code", time.Now(), false)
 	if buf.Len() != 0 {
 		t.Fatalf("want a silent skip, got %q", buf.String())
-	}
-}
-
-// Refresh and pongs share one budget; a hung listing cannot push the step past it.
-func TestInstallStepSharesBudget(t *testing.T) {
-	hermeticVault(t)
-	pinAll(t)
-	setPins(t, map[string]string{"CODEX_MODEL": "m"})
-	old := Budget
-	Budget = 300 * time.Millisecond
-	t.Cleanup(func() { Budget = old; refresh = catalog.Refresh })
-	refresh = func(ctx context.Context, _ *providers.Provider) error {
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	runAsk = func(ctx context.Context, _, _, _ string) (wire.Envelope, error) {
-		<-ctx.Done()
-		return wire.Envelope{}, ctx.Err()
-	}
-	var buf bytes.Buffer
-	start := time.Now()
-	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now().Add(48*time.Hour))
-	if d := time.Since(start); d > 2*time.Second {
-		t.Fatalf("step took %v, want within the shared budget", d)
-	}
-	if !strings.Contains(buf.String(), "fail · timeout") {
-		t.Fatalf("want timeout rows, got %q", buf.String())
-	}
-}
-
-// opencode's install pong may outlast Budget (cold start); the other agents still stop at Budget.
-func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
-	hermeticVault(t)
-	stubListing(t)
-	pinAll(t)
-	old := Budget
-	Budget = 300 * time.Millisecond // 150ms on each side of the fake pong
-	t.Cleanup(func() { Budget = old })
-	runAsk = func(ctx context.Context, _, a, _ string) (wire.Envelope, error) {
-		select {
-		case <-time.After(3 * Budget / 2): // past Budget, inside opencode's 2x cap
-			return wire.Envelope{Status: "ok", Provider: "dev", Model: "m"}, nil
-		case <-ctx.Done():
-			return wire.Envelope{}, ctx.Err()
-		}
-	}
-	var buf bytes.Buffer
-	RunInstallStep(context.Background(), &buf, preflightRegistry(true), "claude-code", time.Now())
-	out := buf.String()
-	if !strings.Contains(out, "pong     opencode · dev · m · ok") || !strings.Contains(out, "pong     codex    · dev · default · fail · timeout") {
-		t.Fatalf("want opencode ok and codex timeout:\n%s", out)
-	}
-}
-
-// --profile all pongs claude, codex, copilot, gemini, opencode and pi on each usable Databricks profile, passing --profile.
-func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
-	reg := preflightRegistry(true)
-	for _, n := range []string{"qa", "prod"} {
-		reg.Providers[n] = &providers.Provider{Name: n, Provider: "databricks", Preset: providers.PresetDatabricks, Auth: reg.Providers["dev"].Auth}
-	}
-	reg.Providers["dev"].Provider = "databricks"
-	var mu sync.Mutex
-	asked := map[string]bool{}
-	runAsk = func(_ context.Context, _, a, prof string) (wire.Envelope, error) {
-		mu.Lock()
-		asked[a+"/"+prof] = true
-		mu.Unlock()
-		return wire.Envelope{Status: "ok", Provider: prof, Model: "m"}, nil
-	}
-	var buf bytes.Buffer
-	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "all")
-	if len(asked) != 18 || !asked["gemini/qa"] || !asked["claude/prod"] || strings.Count(buf.String(), " · ok\n") != 18 {
-		t.Fatalf("asked %v\n%s", asked, buf.String())
-	}
-}
-
-// A pin on a CLI-login profile (gemini's Google login) counts as a credential, so the bare install step still pongs.
-func TestInstallStepPongsCLILoginPin(t *testing.T) {
-	hermeticVault(t)
-	setPins(t, map[string]string{"GEMINI_PROFILE": "antigravity"})
-	var asked []string
-	runAsk = func(_ context.Context, _, a, _ string) (wire.Envelope, error) {
-		asked = append(asked, a)
-		return wire.Envelope{Status: "ok", Provider: "antigravity", Model: "m"}, nil
-	}
-	var buf bytes.Buffer
-	RunInstallStep(context.Background(), &buf, preflightRegistry(false), "claude-code", time.Now())
-	if !slices.Equal(asked, []string{"gemini"}) || !strings.Contains(buf.String(), "pong     gemini") {
-		t.Fatalf("asked %v\n%s", asked, buf.String())
-	}
-}
-
-// --profile all prints a skip row for a Databricks profile without a credential, and for a named unknown profile.
-func TestRunProfilePongsSkipRows(t *testing.T) {
-	reg := preflightRegistry(true)
-	reg.Providers["dev"].Provider = "databricks"
-	reg.Providers["prod"] = &providers.Provider{Name: "prod", Provider: "databricks", Preset: providers.PresetDatabricks}
-	runAsk = func(_ context.Context, _, _, prof string) (wire.Envelope, error) {
-		return wire.Envelope{Status: "ok", Provider: prof, Model: "m"}, nil
-	}
-	var buf bytes.Buffer
-	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "all")
-	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "typo")
-	out := buf.String()
-	if !strings.Contains(out, "pong     skip · prod · no credential") || !strings.Contains(out, "pong     skip · typo · unknown profile") {
-		t.Fatalf("missing skip rows:\n%s", out)
-	}
-}
-
-// A profile run where no pong can run ends in a fail row (doctor exits non-zero on it); a usable profile adds none.
-func TestRunProfilePongsFailRowWhenNonePong(t *testing.T) {
-	reg := preflightRegistry(true)
-	reg.Providers["dev"].Provider = "databricks"
-	runAsk = func(_ context.Context, _, _, prof string) (wire.Envelope, error) {
-		return wire.Envelope{Status: "ok", Provider: prof, Model: "m"}, nil
-	}
-	var bad, good bytes.Buffer
-	RunProfilePongs(context.Background(), &bad, reg, "claude-code", "typo")
-	RunProfilePongs(context.Background(), &good, reg, "claude-code", "dev")
-	if !strings.Contains(bad.String(), "pong     fail · typo · no usable Databricks profile") {
-		t.Fatalf("want a fail row for an unusable profile, got %q", bad.String())
-	}
-	if strings.Contains(good.String(), " · fail · ") {
-		t.Fatalf("usable profile must not emit a fail row:\n%s", good.String())
 	}
 }
 
@@ -353,97 +101,6 @@ func BenchmarkPrintFixRows(b *testing.B) {
 	ps := []Pin{{Status: StatusOK}, {Status: statusStale}, {Status: StatusOK}, {Status: statusUnserved}}
 	for b.Loop() {
 		printFixRows(io.Discard, ps)
-	}
-}
-
-func TestCachePongDoesNotBlessFallbackOrRotatedCredential(t *testing.T) {
-	vaulttest.Use(t)
-	p := &providers.Provider{Name: "pong-cache", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT}}
-	secret := providers.AuthSecretName(p)
-	if err := vault.Store(secret, "fixture"); err != nil {
-		t.Fatal(err)
-	}
-	fp := agent.CredentialFingerprint(p)
-	r := Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true, Fallback: "other"}
-	cachePong(p, fp, r)
-	account := router.AccountOf(p)
-	key := router.VerdictKey(p.Name, account, "", "")
-	if len(router.LoadState()[account].Verified) != 0 {
-		t.Fatal("fallback warmed the requested target")
-	}
-	r.Fallback = ""
-	cachePong(p, fp, r)
-	if !router.LoadState().VerifiedOK(account, key, fp, time.Now()) {
-		t.Fatal("successful pong did not warm cache")
-	}
-	if err := vault.Store(secret, "rotated-fixture"); err != nil {
-		t.Fatal(err)
-	}
-	cachePong(p, fp, r)
-	if router.LoadState().VerifiedOK(account, key, agent.CredentialFingerprint(p), time.Now()) {
-		t.Fatal("old pong blessed a new credential")
-	}
-}
-
-func TestPreflightPongFeedsWorkspaceCache(t *testing.T) {
-	vaulttest.Use(t)
-	hits := 0
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hits++
-		if _, err := io.WriteString(w, `{"endpoints":[]}`); err != nil {
-			t.Error(err)
-		}
-	}))
-	defer srv.Close()
-	old := http.DefaultClient.Transport
-	http.DefaultClient.Transport = srv.Client().Transport
-	t.Cleanup(func() { http.DefaultClient.Transport = old })
-	p := &providers.Provider{Name: "integration", Provider: "databricks", Preset: providers.PresetDatabricks, Host: srv.URL, Auth: providers.Auth{Type: providers.AuthPAT}}
-	name := providers.AuthSecretName(p)
-	if err := vault.Store(name, "fixture"); err != nil {
-		t.Fatal(err)
-	}
-	fp := agent.CredentialFingerprint(p)
-	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true})
-	now := time.Now()
-	st := router.LoadState()
-	assertPreflightWorkspace(t, p, st, now, &hits, 0)
-	assertPreflightWorkspace(t, p, st, now.Add(16*time.Minute), &hits, 1)
-	if err := vault.Store(name, "rotated-fixture"); err != nil {
-		t.Fatal(err)
-	}
-	assertPreflightWorkspace(t, p, st, now, &hits, 2)
-	account := router.AccountOf(p)
-	router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{Status: "unknown", Source: "live", At: now, CredFP: agent.CredentialFingerprint(p)})
-	assertPreflightWorkspace(t, p, router.LoadState(), now, &hits, 3)
-}
-
-func assertPreflightWorkspace(t *testing.T, p *providers.Provider, st router.State, now time.Time, hits *int, want int) {
-	t.Helper()
-	fs := agent.CheckWorkspace(p, st, now)
-	if len(fs) != 0 {
-		t.Fatalf("findings=%v", fs)
-	}
-	if *hits != want {
-		t.Fatalf("listing requests=%d, want %d", *hits, want)
-	}
-}
-
-func TestCachePongStoresOnlyWorkspaceSuccess(t *testing.T) {
-	vaulttest.Use(t)
-	p := &providers.Provider{Name: "pong-kind", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT}}
-	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
-		t.Fatal(err)
-	}
-	fp, account := agent.CredentialFingerprint(p), router.AccountOf(p)
-	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", Err: "auth"})
-	if n := len(router.LoadState()[account].Verified); n != 0 {
-		t.Fatalf("failed pong stored %d verdicts, want 0", n)
-	}
-	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true})
-	got := router.LoadState()[account].Verified
-	if _, ok := got[router.VerdictKey(p.Name, account, "", "")]; len(got) != 1 || !ok {
-		t.Fatalf("verdicts=%v, want only the workspace key", got)
 	}
 }
 

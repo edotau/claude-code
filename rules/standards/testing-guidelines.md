@@ -11,7 +11,9 @@ paths:
 
 # Testing Guidelines
 
-Order, always: **run it live → pin what you observed** (gate order: `quality.md` → Verification Order).
+Order, always: **run it live → pin what you observed** (gate order: `quality.md` → Verification Order). Fewer tests
+that guard real breakage beat many that need repair: "we fall into the trap of always spending more time on test
+repairs for tests that we didnt need in the first place" (owner).
 
 ## Live first, then tests
 
@@ -22,102 +24,102 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
   command; the before/after output is the evidence.
 - **Repairing existing tests** the change breaks is not new testing; the implementer or a repair leaf does it.
 - **No real input:** say so, ask for exactly what is needed, and mark anything written as unverified.
-- **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code.
-
-### TEST
-
-A repair executor owns only the named existing test files; the brief supplies failures and intended behavior.
-
-1. Run touched-package tests, never the full suite, and capture actual failures; do not infer them from a diff.
-2. Group failures by cause, not file, and classify each group with evidence:
-   - **Test wrong:** the contract deliberately changed; update the expectation while keeping the test's intent.
-   - **Code wrong:** the asserted contract was not meant to change; report the regression, do not edit the test.
-   - **Vacuous:** a passing test no longer exercises its moved/renamed subject; explicitly report the lost guard.
-3. Before changing an assertion, write a `TASK:` note (`skills/problem-solving/references/notes.md`) comparing the
-   assertion, intended contract and observed behavior: repair only when behavior matches the contract and the
-   assertion does not. If uncertain, name the missing evidence and return it to the caller.
-4. Repair only test-wrong groups; check every moved/renamed subject still has a real assertion.
-5. Re-run the scoped tests and report before/after counts from actual output, with the evidence and verdict per group.
-
-Never change product code to green a repair, delete a test to clear a failure, or invent a framework when none exists.
-Recommend a justified deletion instead; report a missing suite or failed dispatch to the caller.
-
-## Scope — logic, not a coverage number
-
-Default per feature: basic tests that it works (a couple of seconds to run at most) before it has been used a while;
-corner cases and per-bug regression tests are proposals (unneeded tests cost repair time); a change that needs more up
-front (a security boundary, a data-loss path) says why in the hand-back. Renames, moves and deletions need none; a
-refactor that breaks only tests means rewriting them against behavior, not keeping fixtures for states the code can no
-longer produce. When `review-simplicity` flags a test, cut or split it rather than raising the limit.
-See `rules/standards/quality.md` for size caps.
-
-## A test must guard
-
-- **One solution for every system** — no test or seam that covers a single OS; one body states each system's
-  expectation, and a machine difference is a design defect (a runtime skip stays per `go.md` → Tests).
-
-- **Teeth, proven** — call the code under test, never an inline copy of its logic. A new test must fail with the
-  guarded behavior removed: flip it, watch it fail, restore the source exactly, and report that you did. A test that
-  still passes is deleted.
-- **Shapes and edges, not values** — build the defect's worst case (empty, one element, the boundary, malformed,
-  concurrent, present-but-empty); derive expected values from the fixture and drive parsers with real bytes. Never pin
-  a config value, a help string or a generated file's bytes. Equivalence tests assert the fast path actually ran (a
-  call count, a cache key) against a deterministic oracle.
-- **Mock only real boundaries** (network, model calls, clock, external CLIs, process scans), at the consumer; run
-  everything else against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`). More than two mocks is a missing
-  seam; in Go the seam is a package var, swapped and restored with `t.Cleanup`.
-- **Never a real file we use** — a test reads and writes only what it made: a fixture under `testdata/`, a file it
-  wrote in `t.TempDir()`, or a mock struct defined in the test. It never opens, lists, stats or deletes the live
-  memory store, vault, `state/`, settings, plans, a user cache (`GOCACHE`, `Library/Caches`) or any other path the
-  harness or the owner uses, not even read-only: the result then depends on the machine and a slip deletes real data
-  (owner, 2026-11-25). A check that must run over real data is a verb's preflight or a `doctor` row, not a test.
-- **Never a real network call** — no test dials a real host, a real service on this machine (the proxy daemon, the
-  local model on 10100, Jev, Tailscale, ssh) or DNS. Network, proxy, server and remote code is validated live and by
-  hand (Live first, above); its unit and regression tests run on mocks: an in-process `httptest` server or a stubbed
-  transport or dialer the test owns, with the remote's replies written in the test (owner, 2026-11-25).
-- **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
-  after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
-  `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
-- **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
-  feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
-  decide; judge proposals by speed first, then teeth, then no overlap. The implementer writes its feature's basic tests.
-- **No credential-shaped value in a test, at all** — no test holds or builds a token, key or secret that starts with
-  a vendor prefix (`dapi`, `dose`, `ghp_`, `github_pat_`, `sk-`, `tskey-`, `AKIA`, `xox`, `eyJ` …) or matches its
-  length and alphabet: not as a literal, and not assembled at runtime from parts either. Such tests are not allowed
-  for the foreseeable future (owner, 2026-11-25): a scanner flagged a fake as an exposed secret and blocked every
-  push, and the owner denies every request to allow one. A test that needs a credential's shape to pass is rewritten
-  to test something else or removed; where a value must merely be secret-like, use plain gibberish with no prefix (a
-  random mash of letters). Code that recognises a vendor's token shape is checked live, not by a test. Hosts are
-  made-up names
-  (`devhost`) on documentation addresses (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, 2001:db8::/32), never a real
-  host name, login, tailnet name or address.
-- **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash or
-  500 on bad input is a finding.
-- **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB
-  contract, auth, permissions or PII.
 
 ## Several worktrees: collapse, then test once
 
-When more than one worktree is finished, never gate and land each by itself (owner, 2026-11-25; any codebase, not
-only this one):
+Here n counts lanes in a parallel wave.
+Tree selection, commits, collection, landing and cleanup: `worktree-git.md` → Worktrees.
 
-1. Merge them into each other one by one (cherry-pick or merge each lane's commits into one collector lane),
-   resolving conflicts as they come, until one worktree is left.
-2. While collapsing, never run the whole suite (`go test ./...`). Check that it compiles (`go build ./...`,
-   `go vet <pkgs>`) and, when one thing needs proof, run that test alone
-   (`rtk go test -run '^TestX$' ./internal/<pkg>`).
-3. Run the whole suite once, on the last worktree, right before it lands on local
-   (`claude-code worktree land --verify 'go test ./...' <lane>`), then land.
+Before hand-back, a subagent validates only its owned work, cheaply:
 
-A test or benchmark that needs more computing than a normal run (a maximum-CPU capacity benchmark, a long soak, a
-timing gate that must not share cores) gets its own compute, preferably on another computer: a podman pod, a
-Kubernetes job, a Databricks cluster (`skills/dbx-expert`) or another machine over ssh. It never runs on the machine
-the sessions are working on, where it slows every other gate and its own numbers mean nothing (owner, 2026-11-25).
+- `rtk go build ./...`.
+- `go vet <its packages>`.
+- `claude-code agents diff --check --path <its files>`.
+- Only a test it wrote or repaired, by exact name: `rtk go test -run '^TestX$' ./internal/<pkg>`.
 
-A single finished worktree with no finished sibling lands at once, as before (`worktree-git.md` → Worktrees).
+Subagents, including test-repair leaves, never run a package suite or the full suite. `safety-scan` denies direct
+whole-suite runs to every agent and in every linked worktree. Only the main session's landing verification below
+runs the collector's suite.
 
-## When a test fails
+Heavy runs (capacity benchmark, long soak, timing gate) run on their own machine: a podman pod, Databricks cluster
+or another host over ssh. Never run them where sessions work, in either case below.
 
-The test is guilty until its expectation traces to the spec, the request or observed behavior — say which. Rerun a
-red seen under parallel load solo before calling it a regression. Never weaken an assertion, skip a test or edit a
-migration to go green; after 3 fix attempts on one test, report it.
+### n = 1
+
+The collector is the only worktree, with no sibling lanes. Once its work is complete, the main session gets one
+other-family review of the completed diff (R28); the reviewer may fix findings. After fixes, the main session alone
+runs the full suite in the collector through `claude-code worktree land --verify 'go test ./...' <collector>`:
+once, at most twice if repairs need a rerun. This is the sign-off run, not an extra suite before or after landing.
+A single finished collector does not wait for another wave.
+
+### n > 1
+
+Each lane subagent runs only the cheap checks and exact-name test above before handing back. As each lane is
+collected, there is no per-lane review and no collector test run. Do not run package suites between arrivals.
+
+Only after every lane of the wave is in the collector does the main session get one other-family review of the
+merged diff (R28); the reviewer may fix findings. After fixes, the main session alone runs the n = 1 landing
+verification in the collector: one full-suite run, at most two for the entire wave, never per lane. No subagent
+runs that verification.
+
+## What gets a test, and what never does
+
+- **Gets one:** behaviour whose break would do damage: a parser, a merge that could lose data, a security boundary,
+  a routing decision. One basic test per feature, seconds at most, calling the real code (never a copy of its logic)
+  and failing when that behaviour is removed; a test that still passes then is deleted. Corner cases and per-bug
+  regressions are proposed in the hand-back (the case, what it guards, its runtime), not written.
+- **Never gets one** (owner, 2026-11-26); check it live instead:
+  - **Configuration and preference:** where a setting lives, a value the owner picked, a layout.
+  - **Copies of an asset:** golden files, hash pins, copied template, help or notice text. Editing a config, template
+    or text file never forces a test edit.
+  - **Plumbing:** settings merges, config fills, notices.
+  - **Renames, moves and deletions.** A refactor that breaks only tests rewrites them against behaviour.
+- **A leaf or workflow test stage** writes only repairs of tests its edits broke, plus the feature's basic test.
+
+## A test must guard
+
+- **Shapes and edges, not values** — Build the defect's worst case: empty, one element, boundary, malformed,
+  concurrent, present-but-empty. Derive expected values from fixtures; feed parsers real bytes.
+- **Equivalence** — Assert the fast path actually ran (call count or cache key) against a deterministic oracle.
+- **Hermetic boundaries** — Never reach the internet or machine services (proxy, Magnitude's local model, Jev,
+  Tailscale, `ssh`), or spawn a real agent CLI. Mock only real boundaries (network, model calls, clock, external
+  CLIs, process scans) at the consumer. Use an in-process `httptest` server or test-owned stub transport, dialer or
+  binary, with replies defined in the test. If the code has no seam and the test is not worth one, delete the test.
+- **Network enforcement** — Keep `internal/nonet` refusing DNS in every Go test binary; audit loopback by running
+  the suite once under a sandbox (macOS `sandbox-exec` blocking remote network and those service ports).
+- **Owned data only** — Read and write only test-created data: `testdata/` fixtures, files in `t.TempDir()` or
+  structs in the test. Never access the live memory store, vault, `state/`, settings, plans or a user cache, even
+  read-only. Put real-data checks in a verb's preflight or a `doctor` row.
+- **Minimal seams** — Run nonmocked code against a hermetic config dir (`t.TempDir()`, `CLAUDE_CONFIG_DIR`).
+  Treat more than two mocks as a missing seam; in Go, use a package var swapped and restored with `t.Cleanup`.
+- **Fast** — Keep each test to milliseconds and added package time to at most 0.5 s. Never sleep, run a daemon or
+  spawn a binary, including the test binary; shrink timeouts through package vars.
+- **Every system** — Use no single-OS test or seam; state each system's expectation in one body. Keep runtime skips
+  per `go.md` → Tests.
+- **No credential shapes** — Use plain gibberish; never use values starting with vendor prefixes (`dapi`, `dose`,
+  `ghp_`, `github_pat_`, `sk-`, `tskey-`, `AKIA`, `xox`, `eyJ`, …) or matching a vendor credential's length and
+  alphabet, even assembled at runtime. Check token-shape code live.
+- **Documentation hosts** — Use made-up hostnames (`devhost`) on documentation addresses (`192.0.2.0/24`,
+  `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`).
+- **Boundary errors first** — Test error paths first at boundaries; assert required fields are present and sensitive
+  fields absent.
+- **Stop and ask** — Ask rather than guess when behaviour is indeterminable or changes touch API or DB contracts,
+  auth, permissions or PII.
+
+## TEST
+
+### When a test fails
+
+When a test fails, it is guilty until its expectation traces to the spec, the request or observed behaviour; say
+which. A repair leaf owns only the named test files; the brief gives the failures and the intended behaviour.
+
+1. Use the captured failures; a repair leaf reruns only the test it repairs, by exact name. Re-run a red seen under
+   parallel load alone before calling it a regression. Suite scope: Several worktrees: collapse, then test once.
+2. Classify each failure with evidence: **test wrong** (the contract changed on purpose: update the expectation, keep
+   the intent), **code wrong** (report the regression, leave the test) or **vacuous** (it no longer exercises its
+   subject: report the lost guard).
+3. Repair only test-wrong failures, re-run, and report before and after counts from real output; after 3 attempts on
+   one test, report it instead.
+
+Never change product code to green a repair, weaken an assertion, skip or delete a test to clear a failure, edit a
+migration to go green, or invent a framework.

@@ -5,29 +5,16 @@ paths:
 ---
 # Python Coding Style
 
-> This file extends [standards/quality.md](../../standards/quality.md) with Python specific content.
+Extends [quality.md](../../standards/quality.md).
 
-- Tooling is **ruff** alone (`ruff check --fix`, `ruff format`, 120 columns); type annotations on every function
-  signature; prefer `@dataclass(frozen=True)` or `typing.NamedTuple`.
-- Comments follow the cap in `quality.md`; delete commented-out code (git is the archive). Logger and exception
-  message strings are code: tests assert their text, so a comment trim never edits them.
-- A docstring is a one-line description, then `Args:`, then `Return:`, nothing else; the cap does not apply to that
-  shape, and no `Args:` entry is dropped to fit it. Never add `Raises:`: what a function raises is the caller's
-  contract and goes stale per docstring.
-- Compressing a gotcha keeps the constraint and drops the story (no dates, no history).
+- Use ruff (`ruff check --fix`, `ruff format`, 120 columns); annotate every function signature.
+  Prefer `@dataclass(frozen=True)` or `typing.NamedTuple`.
+- Follow the comment cap; delete commented-out code. Keep gotcha constraints, drop their history.
+  Logger and exception strings are code, not comments to trim.
+- Docstrings: one-line description, then `Args:` and `Return:`, nothing else. This shape is exempt from the cap;
+  keep every argument entry. Never add `Raises:`.
 
 ## Naming — No Leading Underscore
 
-Never prefix functions, constants, module-level names or variables with `_`; the import system cannot enforce it, so
-control exports with `__all__`. If a real name collision with a public API seems to demand one, ask the user before
-writing the name.
-
-```python
-# WRONG
-_HOST_FALLBACK = ""
-def _mask_env_keys(keys): ...
-
-# RIGHT
-HOST_FALLBACK = ""
-def mask_env_keys(keys): ...
-```
+Never prefix functions, constants, module-level names or variables with `_`; control exports with `__all__`.
+Ask before using a leading underscore to resolve a public API name collision.

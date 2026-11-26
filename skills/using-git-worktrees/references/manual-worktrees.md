@@ -11,14 +11,14 @@ Choose the project's documented directory; prefer an external sibling such as `~
 A project-local `.worktrees` alternative must be ignored first (`git check-ignore -q .worktrees`); an external
 parent needs no ignore rule. Do not copy the main tree's local permission overrides blindly.
 
-From the parent checkout root, after choosing an unused slug:
+From the collector for a sibling lane, or the local working branch for the collector, choose an unused slug:
 
 ```bash
 slug=add-auth-endpoint
 parent=$PWD
 repo=$(basename "$parent")
 wt="$HOME/worktrees/$repo/$slug"
-git worktree add -b "wt/$slug" "$wt" HEAD && cd "$wt"
+rtk git worktree add -b "wt/$slug" "$wt" HEAD && cd "$wt"
 ```
 
 Git refuses an existing branch with `-b` or a branch already checked out elsewhere.
@@ -29,7 +29,7 @@ Grant a sandbox the worktree root rather than only a source subdirectory so `.gi
 Reuse dependencies only when compatible. A plain `.venv` symlink can still import the **primary** checkout's
 editable source; the harness overlay avoids that when it can. For manual lanes, check imports resolve to lane
 source or create a lane-local environment. Copy `.env` only to an absent, ignored destination; never commit secrets.
-Run the touched area's baseline checks before edits and distinguish existing failures from regressions.
+Check scope: `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
 
 ## Parallel dev servers
 
@@ -44,16 +44,16 @@ Use the values captured at creation (re-set them to the actual paths/name if the
 ```bash
 : "${parent:?set primary checkout root}" "${wt:?set worktree path}" "${slug:?set lane slug}"
 cd "$parent" &&
-git -C "$wt" status --porcelain &&
-git branch --merged HEAD --list "wt/$slug"
+rtk bypass git -C "$wt" status --porcelain &&
+rtk git branch --merged HEAD --list "wt/$slug"
 ```
 
 Read both outputs and check running processes before removal. Empty branch output means it is not merged;
 confirm integration before continuing:
 
 ```bash
-git worktree remove "$wt" && git branch -d "wt/$slug"
-git worktree prune --dry-run
+rtk git worktree remove "$wt" && rtk git branch -d "wt/$slug"
+rtk git worktree prune --dry-run
 ```
 
 An empty status alone is not proof the work was integrated. Git normally refuses dirty removal and `branch -d`

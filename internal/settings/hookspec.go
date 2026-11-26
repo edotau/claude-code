@@ -199,7 +199,7 @@ var Registry = []Group{
 		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
 		{Name: "worktree-create", Raw: true, FailExit: true, Event: EventWorktreeCreate, Budget: 60 * sec},
 		{Name: "worktree-remove", Raw: true, FailExit: true, Event: EventWorktreeRemove, Budget: 30 * sec},
-		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
+		// Each prompt: drained notices, audits and divergence; no peer-session notice.
 		{Name: "worktree-busy", Raw: true, Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// An open failure the main session is due returns as a fix-now directive so the turn continues; blocks no tool.
 		{Name: "worktree-fixnow", Event: EventStop, Budget: 5 * sec},

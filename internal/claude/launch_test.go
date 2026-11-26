@@ -973,7 +973,7 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 	}
 }
 
-// Each served alias is remapped and ANTHROPIC_MODEL is always set; Fable never takes another family's id on Databricks.
+// Each served alias is remapped and ANTHROPIC_MODEL is always set; Fable on Databricks is Claude Code's own Fable id.
 func TestSessionModelEnvPerProfile(t *testing.T) {
 	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
@@ -992,7 +992,7 @@ func TestSessionModelEnvPerProfile(t *testing.T) {
 		return plan.Set
 	}
 	for profile, want := range map[string][]string{
-		"dbx": {"OPUS", "SONNET", "HAIKU"}, "gw": {"OPUS", "FABLE"},
+		"dbx": {"OPUS", "SONNET", "HAIKU", "FABLE"}, "gw": {"OPUS", "FABLE"},
 	} {
 		got := rows(profile)
 		for _, slot := range []string{"FABLE", "OPUS", "SONNET", "HAIKU"} {
@@ -1010,7 +1010,7 @@ func TestSessionModelEnvPerProfile(t *testing.T) {
 	}
 }
 
-// A Databricks Fable launch with a non-Fable pin asks for Fable itself, so the proxy refuses it.
+// A Databricks Fable launch with a non-Fable pin sends the canonical Fable id, which the proxy routes to Anthropic.
 func TestSetMainModelFableOnDatabricksKeepsFable(t *testing.T) {
 	dbx := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, Host: "https://x.cloud.databricks.com"}
 	sel := providers.Selection{Provider: dbx, Aliases: map[string]providers.Target{
@@ -1019,8 +1019,8 @@ func TestSetMainModelFableOnDatabricksKeepsFable(t *testing.T) {
 	if err := setMainModel(&plan, sel, dbx, models.Fable); err != nil {
 		t.Fatal(err)
 	}
-	if got := plan.Set["ANTHROPIC_MODEL"]; got != models.Fable {
-		t.Errorf("ANTHROPIC_MODEL = %q, want %q", got, models.Fable)
+	if got := plan.Set["ANTHROPIC_MODEL"]; got != "claude-fable-5-2" {
+		t.Errorf("ANTHROPIC_MODEL = %q, want claude-fable-5-2", got)
 	}
 }
 
@@ -1033,14 +1033,14 @@ func mustRegistry(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// The /model picker lists exactly the aliases the launch profile serves, by its ids; no Fable on Databricks.
+// The /model picker lists the profile's served aliases by its ids; Databricks also shows Fable, labelled Anthropic.
 func TestClaudeLaunchModelPickerIsTheProfilesLineup(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{
 	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}},
 	"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example/anthropic","auth":{"type":"none"},
 	"models":{"opus":"claude-opus-4-6","fable":"claude-fable-5-2"}}}}}`)
 	for profile, want := range map[string][]string{
-		"dev": {"Opus", "Sonnet", "Haiku"}, "gw": {"Fable", "Opus"},
+		"dev": {"Opus", "Sonnet", "Haiku", "Fable (Anthropic)"}, "gw": {"Fable", "Opus"},
 	} {
 		p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: profile}, nil)
 		if err != nil {
@@ -1058,7 +1058,7 @@ func TestClaudeLaunchModelPickerIsTheProfilesLineup(t *testing.T) {
 		var labels []string
 		for _, o := range doc.ModelPicker.Options {
 			labels = append(labels, o.Label)
-			if o.Model != p.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(o.Label)+"_MODEL"] {
+			if o.Model != p.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(strings.Fields(o.Label)[0])+"_MODEL"] {
 				t.Errorf("%s: row %s model %q is not the remap id", profile, o.Label, o.Model)
 			}
 		}

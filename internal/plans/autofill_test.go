@@ -29,7 +29,6 @@ type autofillSpawned struct {
 // autofillFixture writes one ready task (leaf, brief text; "" brief = needs a brief) and fakes spawn, health and spend.
 func autofillFixture(t *testing.T, leaf, brief string, health DispatchState) (AutofillInput, *[]autofillSpawned) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(AutofillEnv, "")

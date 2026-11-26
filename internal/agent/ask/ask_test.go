@@ -886,9 +886,6 @@ func TestMain(m *testing.M) {
 	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
-	if err := os.Setenv("HARNESS_KEYRING", "off"); err != nil {
-		panic(err)
-	}
 	scan := worktree.ProcessScan
 	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	code := m.Run()

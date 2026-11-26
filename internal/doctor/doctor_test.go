@@ -3,6 +3,8 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -135,6 +137,7 @@ func TestDoctorAuditUsageErrors(t *testing.T) {
 
 func TestDoctorPlainIncludesVaultRows(t *testing.T) {
 	vaulttest.UseFreshKey(t)
+	stubLocalServer(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
 	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
@@ -407,4 +410,19 @@ func TestDoctorAgentHealthy(t *testing.T) {
 			t.Errorf("claude rows lack %q: %q", want, text)
 		}
 	}
+}
+
+// stubLocalServer points the last-resort row at a test-owned server, never 127.0.0.1:10100.
+func stubLocalServer(t *testing.T) {
+	t.Helper()
+	vaulttest.Use(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.8-27b:gguf:q6"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"providers":{"magnitude":{"local":{"protocol":"openai","base_url":"`+srv.URL+`/inference/v1",`+
+			`"routes":{"anthropic":"`+srv.URL+`/inference/anthropic"},"concurrency":1,`+
+			`"options":{"last_resort":true},"auth":{"type":"key","command":"echo local"},`+
+			`"models":{"sonnet":"qwen3.8-27b:gguf:q6"}}}}}`)
 }

@@ -160,16 +160,11 @@ shell's own env is invisible to the hook).
 
 ## worktree-claim-check
 
-Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
-(owner pid alive) or sibling leaf (transcript fresh) and not committed or seen clean since; asks on a `git add`/`commit`
-that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude` (a leaf's Bash block becomes
-allow + note); a sibling leaf counts until it
-ends, is interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a
-file under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git`
-command also gets the drained notices and divergence line. Under vault env `HARNESS_WORKTREE=lanes` it also asks (a
-leaf: blocks) on an edit, stage (`add -p` included), `git apply`/`am` or `git mv` of a tracked file in the live
-checkout (dry runs pass), naming `claude-code worktree create <slug>`, and leaves a lane alone; in any other repo's
-primary checkout it only asks, once per session per repo (other agents get a note)
+Notes dirty files claimed by live sessions or sibling leaves; never refuses an edit, stage or commit for a claim.
+`WORKTREE_MODE=lanes` adds advisory tracked-file notices in the live checkout and once per session in other primary
+checkouts. Dead owners' claims are removed; process start tokens distinguish pid reuse. Git calls also receive
+drained notices and divergence context. Implementation: `internal/hooks/wthook/claimcheck.go`.
+Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
 
 ## worktree-claim
 
@@ -245,10 +240,8 @@ means no Bash call has read the finished job (`dispatch-workflow` marks it). The
 
 ## worktree-busy
 
-Vault env `HARNESS_WORKTREE`: unset asks when a peer joins the checkout (not this session's own tree, a linked
-worktree, or an `agy --hub` daemon); `off`/`false`/`0` is silent. Never creates a worktree; no yes means keep working
-in place. It also drains this session's notices (`state/harness/notices/`, ≤5) and, in a shared checkout diverged from
-its upstream, adds one line per HEAD/upstream pair, whatever the mode
+Prints no peer-session notice (owner, 2026-11-26). It drains this session's notices (`state/harness/notices/`, ≤5)
+and, in a shared checkout diverged from its upstream, adds one line per HEAD/upstream pair.
 
 ## pi-guard
 

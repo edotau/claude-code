@@ -3,78 +3,54 @@ paths:
   - "internal/**/*.go"
   - "cmd/claude-code/**"
 ---
-
 # Go in the claude-code harness
 
-This repo's Go conventions (module `github.com/edotau/claude-code`). They win over the general `golang` skill;
-`standards/` still holds.
+These conventions for `github.com/edotau/claude-code` override the general golang skill; `standards/` still applies.
 
 ## Layout and placement
 
-- `cmd/claude-code/main.go` wires and exits; all logic lives under `internal/<area>/`.
-- `internal/cli` is the command table, menu and dispatcher. A verb is a `cmd<Verb>` function in `internal/cli/`
-  (usually in `<verb>.go` with `<verb>_test.go`; small verbs share their area's file) or a table entry into the area
-  package; the CLI file holds flags and output only (table-wired: `databricks`, `doctor`, `network`, `usage`,
-  `setup`).
-- Placement by importer count: a package more than one area imports stays top-level (`internal/router`,
-  `internal/tokenledger`); one area's helper nests under it (`internal/agent/pack`); a provider's code stays under
-  that provider (`internal/databricks/oauth`). External SDKs are boxed one package each.
-- A verb's package path mirrors the verb path: `internal/<verb>/<command>` exists only when `claude-code <verb>
-  <command>` does (`internal/network/remote`). A helper other areas import is top-level, never under a verb's package
-  (`internal/httpx`, `internal/egress`).
-- **The layout is the memory (owner, 2026-11-25):** one name per concept on every surface, so each gives the others:
-  command path ↔ package path, settings section ↔ Go type ↔ table ↔ `vault ls` section ↔ `configure` page, package ↔
-  its `memory/techdebt/<area>.md` ↔ the `area` of memory entries about it. Code goes where its name says; when name and
-  place disagree, fix one of them, never record the mismatch in memory. Mirroring is a guide, not absolute.
-- A new scratch or temp writer targets `state/harness/<area>/` (or the git dir), never a repo root; a `.gitignore`
-  entry is not the fix.
-- No DI container, cobra or viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
+- `cmd/claude-code/main.go` wires and exits; logic lives in `internal/<area>/`.
+- `internal/cli` owns the command table, menu, dispatch, flags and output. A verb is `cmd<Verb>` in its area's
+  CLI file or a table entry into its package; small verbs share a file.
+- A package imported by multiple areas stays top-level; one area's helper nests under it; provider code stays
+  under its provider. Box each external SDK in one package.
+- Package paths mirror verbs: `internal/<verb>/<command>` exists only for that command.
+  Shared helpers stay top-level (`internal/httpx`, `internal/egress`).
+- **Layout is memory:** one concept has one name across command/package, settings/type/table/vault/configure,
+  and package/techdebt/memory area. Fix a name/place mismatch instead of recording it in memory; mirroring is a guide.
+- Scratch writers use `state/harness/<area>/` or the git dir, never a repo root; ignoring the file is not a fix.
+- No DI container, cobra or viper: wire explicitly in `Run`; parse config in the area's package.
 
 ## CLI and TUI text
 
-**One line of ≤ 80 characters, label column included.** On a terminal, help and TUI menu rows never wrap: a wider row
-clips (`...` in help, `…` in menus). Piped help keeps the full text and may wrap only with a hanging indent starting at
-the description column. Arrow-key menu rows (`internal/cli/menu`) stay single-line.
+Terminal help and TUI rows stay on one line, ≤80 characters including the label; clip wider rows
+(`...` in help, `…` in menus). Piped help keeps full text, wrapping only at a hanging description indent.
 
-- Lead with what the item does; drop filler ("this will", "allows you to") and `·`-chained clauses; name the one fact
-  the user needs to choose (the key it writes, the command it runs).
-- One width test per menu table, driving the real renderer.
-- `-h` text is only a `helptext.Page` (`helptext.NewFlagSet` + `helptext.Parse`); FLAGS rows come from the FlagSet.
+- Lead with the action and the fact needed to choose; cut filler and chained clauses.
+- One width test per menu table, using the real renderer.
+- Help uses `helptext.Page`, `helptext.NewFlagSet` and `helptext.Parse`; FLAGS rows come from the FlagSet.
 
 ## Tests
 
-- **One test file per source file:** tests for `foo.go` live in `foo_test.go` beside it (benchmarks, fuzz, examples
-  too), ordered as their subjects appear. Regression tests go in `foo_regression_test.go` only once there are 2 or
-  more. Layout (every `*_test.go` strips to an existing `.go`, internal `package foo` only, no build tags) is enforced
-  by `claude-code review simplify --fail`; the one exception is `internal/memory/jobscope_test.go` (import cycle).
-  `TestMain` goes in the main source's test file. A source file with 0–1 tests and no distinct role merges into the
-  sibling it serves.
-- **Internal tests:** fix an import cycle in production code (export a `SwapX`/`StubX` seam, or move what the importer
-  needs into its own package). A package whose tests need registry rows from importers registers fixture rows in
-  `TestMain` and fails when one is missing.
-- **No binaries in the tree:** `go test -c`, `-cpuprofile` and `-memprofile` write `<pkg>.test` and the profile into
-  the current directory; pass `-o` and the profile paths under the scratch directory, never the repo.
-- **Portability:** seams, mocks and speed are in `rules/standards/testing-guidelines.md` → A test must guard. Skip
-  at runtime (`runtime.GOOS == "windows"` → `t.Skip`) and use
-  calls that compile everywhere, so `GOOS=windows go vet ./...` stays green. A test that waits out a production
-  timeout makes it a package `var` and shrinks it, with bounds that scale with it.
+- `foo.go` has one `foo_test.go`, including benchmarks, fuzz and examples, ordered by subject.
+  Use `foo_regression_test.go` only for 2+ regressions. Every test file maps to an existing source, uses internal
+  `package foo` and has no build tags; only `internal/memory/jobscope_test.go` is exempt (import cycle).
+  `TestMain` goes in the main source's test file. Merge a source with 0–1 tests and no distinct role into its sibling.
+- Fix test import cycles in production code with a `SwapX`/`StubX` seam or a shared package.
+  Register importer fixture rows in `TestMain`; missing rows fail.
+- Put `go test -c`, CPU/memory profiles and the test binary under scratch paths, using `-o`; never in the repo.
+- Use portable calls and runtime OS skips so Windows vet compiles. Shrink production timeouts through package vars
+  with proportional bounds. Seams, mocks and speed: `rules/standards/testing-guidelines.md` → A test must guard.
 
 ## Style and lint
 
-- The comment cap (`rules/standards/quality.md` → Comments) applies to godoc too; a `Deprecated:` paragraph is exempt;
-  a package narrative goes to `README.md`/`docs/`, never `doc.go` prose.
-- `.golangci.yml` uses `linters.default: none` plus an explicit `enable` list (`modernize` included); its
-  one threshold is `gocognit` `min-complexity: 30`, and the `quality.md` size, import and nesting caps are enforced by
-  `claude-code review simplify --fail`, not golangci.
-- Process-wide state (`os.Setenv`, `os.Unsetenv`, `os.Clearenv`, `os.Chdir`) goes through `internal/proc`; `forbidigo`
-  fails a direct call outside it, `internal/hosttest` and tests; per-run values travel on the context
-  (`proc.WithValues`, `agent.RunValues`).
-- `make lint` and `agents diff --check` do not run gopls checks such as `writestring` (golang skill →
-  `references/style.md` → Strings); only the editor shows those.
-- **Dependency APIs:** check a third-party API against its source (`go doc <pkg>.<Sym>`, or the module cache at
-  `$(go env GOMODCACHE)`), never from memory.
-- Verify per `quality.md` → Verification Order (`go test` is run by a main session only (targeted when verifying a
-  hand-back, the full suite once in the collector); a leaf never runs it;
-  `agents diff --check --path <files>`, `rtk make audit` at wrap-up); prove other platforms with
-  `GOOS=linux rtk go build ./...`
-  / `GOOS=windows go vet ./...`.
+- Godoc follows `rules/standards/quality.md` → Comments; `Deprecated:` paragraphs are exempt.
+  Package narrative belongs in README/docs, not `doc.go`.
+- `.golangci.yml`: `linters.default: none`, explicit enables including `modernize`, `gocognit` threshold 30.
+  `claude-code review simplify --fail` enforces quality caps and test-file layout.
+- Process-global env/cwd changes go through `internal/proc`; direct calls are allowed only there, in
+  `internal/hosttest` and tests. Per-run values use `proc.WithValues`/`agent.RunValues`.
+- CLI lint does not include gopls checks such as `writestring`; also check editor diagnostics.
+- Verify dependency APIs with `go doc <pkg>.<Sym>` or the module cache, never memory.
+- Follow `quality.md` → Verification Order and `standing-requirements.md` R16/R32 for test scope.
+  Check portability with `GOOS=linux rtk go build ./...` and `GOOS=windows go vet ./...`.

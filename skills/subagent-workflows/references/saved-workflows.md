@@ -1,111 +1,72 @@
 # Saved Workflows (`workflows/*.js`)
 
-Run one only when the user asks; the default dispatch is a `claude` leaf per task (`../SKILL.md` → Tests). Each is a
-deterministic template of master-workflow phases, run by path (`Workflow({scriptPath: "~/.claude/workflows/<name>.js",
-args})`; a by-name call is accepted but `dispatch-effort` rewrites it to an inline `script` read from
-`workflows/<name>.js`; a `scriptPath` script with an unpinned `agent()` or a wrong-case pin is fixed and sent inline
-too, the file unchanged) or nested via `workflow(name, args)` (one level). Control flow is code, never a model
-decision; agents work in the shared tree.
+Run one only when the user asks. Use `Workflow({scriptPath: "~/.claude/workflows/<name>.js", args})`;
+nested `workflow(name, args)` is limited to one level. Control flow belongs to the script.
+Tree selection: `rules/standards/worktree-git.md` → Worktrees.
+Validation: `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
 
-| Workflow | Shape | Key args (`steps` = `{agent?, model?, effort?, profile?, provider?}`, checked and route-previewed by the `dispatch-effort` hook before the run; args `profile?`, `provider?`) |
+| Workflow | Purpose | Primary args |
 | --- | --- | --- |
-| `code-looper` | the gate: detect (or `gate`/`gates`) → fix in scope → re-run, ≤3 per call (whole task ≤5); `stageLoop` takes `exit` and `residual` from the observed check exit code, never a fixer's claim, and the detect leaf doubles as the check; exits `green\|red\|stalled\|capped\|error` (`red` = check-only, `maxIterations: 0`, still failing; `error` = the gate cannot run); returns `exit`, `gate`, `gateSource`, `iterations`, `iterationsUsed`, observed `filesChanged`, `residual [{file, line, text}]`, `gateRuns`, `exitCode`, `history`, `gates` (`lines` only with `measure:true`), no `status` | `{scope\|files, gate?\|gates?, known? [{file, line?, text}], trust? (known replaces the first check), maxIterations?, iterationsUsed? (pass it into the next call), fixesPerIteration?, parallel?, measure?, claudeState?, rules?, steps: {detect, fix}}` |
-| `code-analyzer` | scoped auditors → proximity merge (±10 lines or same symbol) → refute → dependency scan + wave plan → fix + test repair per package, wave by wave (hotspot files last) → gate (in-script `stageLoop`, check-confirmed, no nested workflow) → re-audit (≤rounds); `kind: consolidate` swaps the lenses for duplicates, dead code, legacy and stale tests; the range audit entry, no polish; exits `dry\|no-fix\|partition\|incomplete\|stalled\|blocked\|nothing-changed\|capped\|review\|error`, and `outcome` `green\|review\|red\|error` is the one success word (`red` = a package whose fix is not done or whose last gate is not green); returns the shared code-workers shape (no `polish`/`files`) with `confirmed` whole ({file, line, symbol, package, title, scenario, evidence, severity}), refuted, rounds; `fix:false, partition` also returns `plan` (parses with `agents ask --waves`), `planPath` and `findingsPath` (memory reports; one json block per package) | `{range\|paths\|packages\|findings, fix?, partition?, cap?, hotspots?, minFix?, rounds?, dimensions?, focus?, tests?, gate?, maxIterations?, prior?, chunkChars?, refuteBatch?, kind?, lineBudget?, maxAgents?, steps: {scope, audit, refute, fix, test, gate, depscan, record}}` |
-| `code-evaluator` | the judge: trap scenarios with vs without a skill, then judges score each run; a setup leaf copies `base/pristine/<id>` to each missing `base/runs/<id>-<cond><seed>`; standalone, or routed from `code-engineer` `skill`; changes no code; exits `green` (every run scored) `\|review` (a run failed) `\|error` (bad arg, no `pristine/`); returns `exit`, `runs`, `cells` {scenario, condition, attempted, n, failed, mean}, `deltas` (per scenario, method minus control mean; `null` when a side has no scored run), `coworkers` | `{base, skill, scenarios?, seeds?, conditions?, steps: {run, judge}}` |
-| `code-workers` | per-package repair, streaming, no barrier: find (`kind: consolidate`: duplicate, dead, legacy and stale-test lenses, merge-and-delete fixes) → rederive (each finding carries `kind`: `bug` needs a derived failing scenario, a cost — `perf\|runtime\|complexity\|test-quality` — needs the cost cited in code and a behavior-keeping fix; a finder/rederiver severity split across the fix line gets one blind tie-breaker; median of three) → fix → test repair → gate (`gate` = one command for every package, e.g. `npm test` for JS/TS, default `go build ./... && go vet ./<pkg>/... && go test ./<pkg>/...`; a red gate gets fixer iterations, `maxIterations` default 2, 0 = check only); then ONE polish over the merged diff after the stream: Dedupe (2+ packages fixed), Simplify, Review, and Fix-all (every finding, lows included) → test repair → re-Gate per package with findings, plus one gate over polished packages no Fix-all re-gated (`polish:false`, or under 150k budget tokens, skips it; a red re-gate, unfinished fix-all or MEDIUM+ finding outside the fixed packages is red); `polish:false` also hands findings cited outside its packages back in `foreign` instead of repairing them, and exported-signature or cross-package needs back in `seams`; `profile` / `provider` override routing; with neither given, external Databricks stages spread by least busy workspace at dispatch; explicit `profiles` under `provider: databricks` round-robin only when no `profile` is given; `known [{file, line?, symbol?, symptom, scenario?, evidence?, kind?, severity?}]` treats a named bug as confirmed, keeps its citation whole in the fixer prompt, and skips Find and Rederive for its package (`fast:false` disables); exits `green\|red\|review\|error`; returns `fixed` (every attempted package: status, attempted count, observed landed files, so a partial fix whose edits landed is listed and gated), `red`, `residual` (last-gate failures by dir), `polish`, `files`, `foreign`, `seams` | `{cwd, packages\|paths, slice?, fix?, minFix?, focus?, known?, fast?, maxIterations?, gate?, polish?, kind?, lineBudget?, profiles?, steps: {find, rederive, fix, test, gate, dedupe, simplify, review}}` |
-| `code-engineer` | wrapper: size the job (TRIVIAL/LOW/MEDIUM/HIGH/EPIC) then route: `skill` alone → `code-evaluator` (returns `runs`, `cells`); a bare `range`, an audit or a package list with no task → `code-analyzer` with no fixes, its confirmed findings handed whole to `code-workers` as `known` (`scan:false` skips; with a task, paths or packages a range's changed Go files become paths); a fix task goes straight to `code-workers`, one child (`polish:false`) per top-level dir in waves of `cap` (default 16, max 24) with one serial Seam step after each wave applying the `seams` the children reported, and findings a child cites outside its group repaired once by code-engineer; `plan: <file>` → one background runner leaf (`steps.runner`) runs `claude-code agents ask --waves` and is awaited in 10-minute `agents wait` rounds (`waitRounds`, default 6, then `incomplete` with the runner id; `dryPlan` launches nothing), the dirs of a wave whose gate failed go to `code-looper`, polish only with `polish:true`; EPIC drafts a plan; `profile` / `provider` override routing; with neither given, external Databricks stages spread by least busy workspace at dispatch; explicit `profiles` round-robin as in code-workers; MEDIUM adds intel, a feature adds an implementer and basic tests; a LOW/MEDIUM fix task skips Find and Rederive via `known` unless `fast:false`; `gate` + `gateScope` (dirs disjoint from the groups) adds one `code-looper` child beside them (none under `fix:false`), and the shared gate is re-checked once, check-only, after every child and the polish; `gate` without `gateScope` is every package's gate instead; `code-looper` also loops over dirs whose gate stayed red, touched dirs no green gate covers, and every touched dir when 2+ children ran (`loop:false` skips); then polish once over the merged diff (`polish:false` or under 150k budget tokens skips): Dedupe (2+ packages), Simplify, Review, Fix-all + test repair + gate per package with findings, no second child run; a final Record agent files the report and decisions (`record:false` skips); exits `green\|red\|review\|plan\|error` (red = any touched or gated dir whose last gate is not green), or a child's `blocked\|stalled\|incomplete\|capped` kept as-is; returns `files` (sorted repo-relative files the implementer, fixers, gate fixers and polish changed), `polish`, `verdict` (≤8 lines) and `reportPath` (the full report, `lines`, `proposedTests`, `over` and `gates` only with `record:false` or in the saved report) | `{cwd, task\|packages\|paths\|range\|skill\|plan, kind? (feature\|refactor\|fix\|audit\|consolidate; wins over sizing and the task-verb guess; feature/refactor get an implementer, incomplete when it changes no file, review when it reports no live run), tier?, fix?, minFix?, focus?, fast?, polish?, gate?, gateScope?, base?, scenarios?, seeds?, conditions?, label?, record?, scan?, loop?, scripts?, dimensions? (code-analyzer lenses), lineBudget?, cap?, profiles?, dryPlan?, waitRounds?, overlay?, steps: {size, intel, impl, plan, runner, dedupe, simplify, review, record, child}}` |
+| `code-looper` | Repair a bounded failing check. | `scope\|files`, `gate\|gates`, `known`, `maxIterations` |
+| `code-analyzer` | Audit, refute and partition a range. | `range\|paths\|packages`, `fix`, `partition` |
+| `code-evaluator` | Compare skill/route conditions on the same scenarios. | `base`, `skill`, `scenarios`, `seeds` |
+| `code-workers` | Find, rederive and repair scoped findings. | `packages\|paths`, `known`, `slice`, `fix` |
+| `code-engineer` | Size and route a task; collect its report. | `task\|packages\|paths\|range\|skill\|plan`, `tier` |
 
-Chains (each workflow stands alone; the artifact between steps is the whole hand-off, and `code-engineer` wraps all):
+Read the selected script's `meta.whenToUse` and argument parser for its full schema; do not copy schemas into briefs.
+Current repair scripts still contain package suites and child polish/review stages. Those defaults do not implement
+the collector pipeline; use compatible scoped checks and keep final sign-off with main. Do not treat script
+defaults as an exception to the validation rule.
 
-| Chain | Artifact between steps |
-| --- | --- |
-| `code-analyzer` {fix:false} → `code-workers` {known} → `code-looper` {scope: `red` dirs} | `confirmed` whole (line, symbol, scenario, evidence); `red` dirs and `files` |
-| `code-analyzer` {fix:false, partition} → `claude-code agents ask --waves <planPath>` → `code-looper` | `plan` and `findingsPath`; the dirs of a failed wave |
-| `code-evaluator` → `code-engineer` {skill} | `cells`, `deltas` |
-
-- A stage runs on `agent` = `claude` (in-context on the session profile, `model` = `haiku|sonnet|opus|fable`, or routed
-  with `profile`/`provider` via an attachment brief on a `claude` leaf). Any other agent (`codex|copilot|gemini|
-  opencode|pi`) is not a workflow stage — `stepOf` throws at script start; run it from the main session with
-  `claude-code agents ask --carry --overlay '{"agent":"<who>"}'`. A routed `claude` stage runs:
-
-  ```bash
-  claude-code agents ask --overlay '{"agent":"claude","provider":"<provider>","profile":"<p>","model":"<m>","effort":"<e>","fallback":"agents","tools":true}' --format json --attach <file>
-  ```
-
-  Omit `provider` and `profile` together when no route is supplied, omit `model` when unset, and merge any other route
-  keys into the same overlay. A provider-only input uses `profile: auto`; a profile-only input stays in the overlay
-  as `"profile":"<p>"` and takes its provider from the inherited overlay (`COWORKER_OVERLAY`);
-  with none it stops naming `provider`.
-  It reports `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result).
-  `profile`/`provider` (run args or per stage) and an optional `model` become overlay keys; after a 429/quota/auth
-  failure, overlay `fallback: agents`
-  applies ([cost-routing.md](cost-routing.md) → Fallback). Parser: `stepOf`, verbatim in `code-analyzer`, `code-looper`,
-  `code-evaluator`, `code-workers` and
-  `code-engineer` (enforced by `workflow lint`).
-- Stages: the `// ── stages:` block (`stageDetect`, `stageLoop`, `stageFix`, `stageRepair`, `stagePolish`), verbatim in
-  `code-analyzer`, `code-looper`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
-  in-script, so a workflow nests one level only. Shell prompts carry a `cd <cwd> &&` prefix (a subagent's cwd does not
-  persist between calls; copilot allows a cd inside its roots).
-- Edit `internal/assets/workflows/{blocks,prompts}/`, rebuild; `workflow sync` projects marked blocks;
-  `workflow lint` checks drift.
-- Measured, not reported: after every editing stage (fix, shrink, test, implementer, seam, Dedupe, Simplify; a gate's
-  fix iterations only under code-looper `measure:true`) a local haiku leaf runs `claude-code agents diff --base HEAD
-  --path <p> --format json` (`stSnap`), and the script subtracts the snapshot before it (`stDelta`): test lines are
-  `_test.go`, `.test.js`/`.test.ts`, `tests/` or `testdata/` paths. The result's `lines` holds every stage row,
-  `byPkg` and `total` (production vs test); the report ends with the table. An agent's own `deltaLines` is never used.
-- `lineBudget` (`code-engineer`, `code-workers`, `code-analyzer`): `shrink` = production net ≤ 0 per package,
-  `neutral` = ≤ +20, `free` = no limit; the default follows `kind` (`refactor` neutral, `consolidate` shrink, else
-  free). An over-budget fix (or implementer) gets ONE shrink-or-justify pass; still over, the package lands in `over`
-  and a green run exits `review`. Files are never auto-reverted. Dedupe and Simplify are always held to measured
-  net ≤ 0 and report `partial` with the number otherwise.
-- `kind: consolidate`: the find stage looks for duplicates, dead code, legacy paths and stale or redundant tests (not
-  bugs); the fix stage merges and deletes, with behaviour, messages and exit codes unchanged.
-- Test stage (`testing-guidelines.md` → A test must guard): repair the tests the edits broke; `kind: feature` adds basic
-  tests for the feature (in `code-engineer`, after the implementer); every other test is returned in `proposedTests`
-  (`{pkg, case, reason, runtime}`) and listed in the report for the owner to approve. Any test written must run in
-  milliseconds: no sleep, real network, vault, daemon or spawned binary.
-- Exit from gates: every `stageLoop` result lands in `gates` in completion order (children's included); a run is green
-  only when the last gate covering each touched or gated dir is green (`stGateRed`). A Test stage's status or a
-  fixer's own green never decides it.
-- Arguments: an unknown top-level arg, an unknown `steps` stage (`steps.child` included) or an unknown stage field is
-  refused at launch with an error naming it. `profile` reaches every child and every external stage's
-  route; with overlay `fallback: agents` a failed lead route can fall back
-  to the agent's pin or other agents (`ran on` shows it).
-- Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway --agent claude`), the scripts step
-  their own Claude pins down one alias (opus→sonnet→haiku), fail-open. `code-looper` takes `claudeState`
-  (`ok|low|exhausted|unknown`) from its caller or reads it itself; `code-analyzer` runs its gate in-script and passes
-  none.
+- Pass complete findings between stages: file, line, symbol, symptom, scenario and evidence. `known` skips duplicate
+  discovery; `fast:false` restores it. A blind re-deriver sees the claim, not the finder's reasoning.
+- `code-analyzer` with `fix:false, partition:true` returns a plan for `agents ask --waves`.
+  `code-engineer` can accept that plan directly; its runner lifecycle is in the script.
+- Routing uses `steps` per-stage overrides and run-wide `profile`/`provider`; schema and inheritance:
+  `rules/harness/agent.md` → Overlay. Inspect `stepOf` for accepted stage agents.
+- `stepOf` and the stage blocks come from `internal/assets/workflows/blocks/`; prompts come from
+  `internal/assets/workflows/prompts/`. Rebuild, then `claude-code workflow sync` projects marked blocks.
+- By-name calls and scripts with missing/wrong-case pins may be rewritten inline by `dispatch-effort`;
+  the source file stays unchanged. A routed stage reports the work model or BLOCKED; never infer it from its wrapper.
+- Stage measurements use `agents diff --base HEAD --path <p> --format json` snapshots, not the agent's line claims.
+  Keep production/test deltas per stage, package and total in the report.
+- `lineBudget`: `shrink` is production net ≤ 0; `neutral` ≤ +20; `free` is unlimited. Defaults follow `kind`.
+  One shrink-or-justify pass follows excess; persistent excess is reported, never auto-reverted.
+  Dedupe and Simplify keep net ≤ 0 or report partial with the measured excess.
+- `kind: consolidate` merges duplicates and removes dead paths while preserving behavior, messages and exit codes.
+- Test selection and proposals: `rules/standards/testing-guidelines.md` → What gets a test, and what never does.
+- Only observed checks establish a green result. A fixer's claim or Test stage status does not establish completion.
+  Compare confirmed and fixed findings; keep foreign findings and cross-package seams for their owner.
+- Scripts validate unknown args, stages and stage fields at launch. Check explicit model choices against any
+  quota-driven pin adjustment before running; preserve owner choices per `../SKILL.md` → Rules.
 
 ## Authoring
 
-- Scripts stay in `workflows/` (the only place by-name runs resolve; the documented call is `scriptPath`);
-  `claude-code workflow lint` fails when a script is missing from the table above or a row names no script, or does not
-  compile with node (no node prints `parse check skipped`).
-- Every `agent()` call pins `model:` (an `agentType:` alone does not count) and `effort:`; `meta` is a pure literal and
-  no top-level `throw`; plain JavaScript only.
+- Keep scripts in `workflows/`; every script needs a row above and every row a script.
+- Pin `model` and `effort` on every `agent()`; `agentType` alone is not a pin.
+- Keep `meta` a pure literal, use plain JavaScript and `ERR(...)` for bad arguments, not a top-level throw.
+- Embed the marked `stepOf` and stage blocks verbatim; `workflow sync` updates them.
+- Run `claude-code workflow lint` for table drift, pins, blocks and Node parse checks.
+- Start with a small `slice`; report measured results and update the table and `whenToUse`.
 
 ## Run from a leaf
 
-A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it:
+A leaf has no `Workflow` tool. Only when its brief names one, ask a headless Claude session to run it:
 
 ```bash
-claude-code agents ask --overlay '{"agent":"claude","timeout":"20m","tools":true}' \
-  "Run Workflow({scriptPath: \"~/.claude/workflows/<name>.js\", args: {…}}) and print the result"
+claude-code agents ask --background --overlay '{"agent":"claude","tools":true}' \
+  'Run Workflow({scriptPath: "~/.claude/workflows/<name>.js", args: {…}}) and print the result'
 ```
 
-`--background` past ~3 minutes; from a scratch cwd pass the script inline (`Workflow({script: <contents>})`). Put the
-job id on the `Ran on:` line and report the result as a claim, not as the leaf's own verification.
-
-Feedback candidates: `claude-code memory feedback show <id>` prints the `code-engineer` call for one (a small
-prose change is a one-line edit instead). The main session runs it only after the owner approves, then closes the
-record with `memory feedback close <id> <sha|file:line>`; no launcher or sixth workflow exists.
+From scratch cwd, pass script contents inline. Waiting, receipts and budget-ended work:
+`../SKILL.md` → External relay contract. Report the workflow's result as a claim.
+`memory feedback show <id>` prints a candidate call; main runs it after owner approval, then records completion
+with `memory feedback close <id> <sha|file:line>`.
 
 ## Fan-in and run rules
 
-- **Output is a claim:** diff it against the brief's file list (revert or park outside edits), rerun the gate of its
-  last-touched package, compare confirmed findings to fixed ones (a gap = dropped findings, rerun). A red run caused
-  only by a `blocked` stage (classifier down) is not a code failure; a stage refusing a change because behavior would
-  differ is right — accept the partial landing.
-- **While it runs:** package-scoped gates only (a repo-wide check trips on peers' WIP), main shell at the repo root,
-  never let it edit the `workflows/*.js` it runs from (fix afterwards with a leaf), rename a condition in its runbook
-  (`eval.md`) and fixture dirs in the same pass.
+- Inspect owned-file changes and compare confirmed findings with fixes; report dropped work and dispatch failures.
+  Ownership and recovery: `../SKILL.md` → Fan-in and Error handling.
+- Keep the main shell at the repo root. Do not edit the workflow scripts while they are running.
+- Rename an evaluation condition in its runbook and fixture directories together.
+- Collection and final sign-off follow the two rules linked at the top; workflow status does not replace them.

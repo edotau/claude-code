@@ -54,7 +54,6 @@ func checkOnlyProbeCalls(t *testing.T, f *fakeRun, s spec) {
 	t.Helper()
 	allowed := map[string]bool{
 		"mdfind kMDItemCFBundleIdentifier == '" + s.darwinBundleID + "'": true,
-		guiProbeKey: true,
 	}
 	for _, c := range f.calls {
 		if !allowed[c] {
@@ -165,6 +164,6 @@ func TestSetup_NonChromiumFamilyErrors(t *testing.T) {
 
 	_, err := Setup(env, "safari")
 	if err == nil {
-		t.Fatal("Setup() error = nil, want an error for a non-Chromium browser (tier 3)")
+		t.Fatal("Setup() error = nil, want an error for a non-Chromium browser ")
 	}
 }

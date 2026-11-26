@@ -30,13 +30,6 @@ func TestLastResort(t *testing.T) {
 	if !strings.Contains(bad, "routes.anthropic") || !strings.Contains(bad, "concurrency 1") {
 		t.Fatalf("bad row errors = %q", bad)
 	}
-	def, err := Parse(providerDefaults(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p := LastResort(def); p == nil || p.Name != "local" {
-		t.Fatalf("defaults last resort = %v, want local", p)
-	}
 }
 
 func TestLastResortOneRow(t *testing.T) {

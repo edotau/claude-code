@@ -300,7 +300,7 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	return label, strings.TrimSpace(note + "\n" + run.fableNote(r, label) + "\n" + googleQuotaNote(ctx, r))
 }
 
-// fableNote warns that the proxy refuses a Fable label on a Databricks route (R8); the call is unchanged.
+// fableNote says a Fable label on a Databricks route goes to first-party Anthropic; the call is unchanged.
 func (r *dispatchRun) fableNote(route agentpkg.ModelRoute, label string) string {
 	if c, _, ok := models.Resolve(label); !ok || models.FamilyOf(c) != models.Fable || (route.Agent != "" && r.profile == "") {
 		return "" // an external agent's own route is not the session's
@@ -317,11 +317,11 @@ func (r *dispatchRun) fableNote(route agentpkg.ModelRoute, label string) string 
 	if p == nil || p.SpellingRule() != "databricks-serving" {
 		return ""
 	}
-	return fmt.Sprintf("dispatch-effort: label %s: profile %s serves no Fable, the proxy refuses this call; use model opus (%s).",
-		label, name, opusPin(reg, p))
+	return fmt.Sprintf("dispatch-effort: label %s: profile %s serves no Fable; the proxy sends this call to first-party "+
+		"Anthropic, billed there.", label, name)
 }
 
-// opusPin is the profile's Opus id as the proxy's refusal names it: the session pin, else the wire spelling.
+// opusPin is the profile's Opus id: the session pin, else the wire spelling.
 func opusPin(reg *providers.Registry, p *providers.Provider) string {
 	if sel, err := providers.Select(reg, p.Name); err == nil {
 		if c, _, ok := models.Resolve(sel.ClientModel(models.Opus)); ok && models.FamilyOf(c) == models.Opus {

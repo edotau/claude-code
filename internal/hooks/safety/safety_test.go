@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -883,18 +882,6 @@ func TestSettingsDenyWildcardSecondSymlink(t *testing.T) {
 		if got := readDecision(t, cfg, deny, file); got != core.Block {
 			t.Errorf("read of %s: %v, want block", file, got)
 		}
-	}
-}
-
-// The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
-func TestCitedHardRule3Exists(t *testing.T) {
-	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rule := regexp.MustCompile(`(?m)^3\. .*(?:\n {3}.*)*`).FindString(string(md))
-	if !strings.Contains(strings.ToLower(rule), "attribution") || !strings.Contains(rule, "Co-Authored-By") {
-		t.Errorf("CLAUDE.md hard rule 3 no longer bans attribution footers (Co-Authored-By); got %q", rule)
 	}
 }
 

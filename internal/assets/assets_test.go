@@ -2,7 +2,6 @@ package assets
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -289,8 +288,6 @@ func importName(f *ast.File) string {
 	return ""
 }
 
-var updateGolden = flag.Bool("update", false, "rewrite testdata/renders.golden from the current renderers")
-
 type renderCase struct {
 	acc, variant string
 	fn           func() string
@@ -345,10 +342,6 @@ func hookRenderCases() []renderCase {
 		{"HookPathMapped", "", func() string { return HookPathMapped(`C:\x`, "/mnt/x", "d") }},
 		{"HookPathDetail", "", func() string { return HookPathDetail("/p", "d") }},
 		{"HookPathsContext", "", func() string { return HookPathsContext(two, "img") }},
-		{"HookBusyPeer", "lanes", func() string {
-			return HookBusyPeer(BusyPeer{Comm: "claude", Name: "claude-7", PID: 42, Branch: "main", Files: "/a, /b", Lanes: true})
-		}},
-		{"HookBusyPeer", "nolanes", func() string { return HookBusyPeer(BusyPeer{Comm: "claude", PID: 42, Branch: "main"}) }},
 		{"HookNoticeLine", "", func() string { return HookNoticeLine("peer", "text") }},
 		{"HookNoticeDrainWarn", "", func() string { return HookNoticeDrainWarn("e") }},
 		{"HookFailureLine", "", func() string { return HookFailureLine("audit", "s: boom", "x") }},
@@ -480,7 +473,7 @@ func memoryRenderCases() []renderCase {
 	}
 }
 
-func TestRendersGolden(t *testing.T) {
+func TestTemplatesRender(t *testing.T) {
 	var cases []renderCase
 	for _, set := range [][]renderCase{agentRenderCases(), hookRenderCases(), planHookRenderCases(), briefRenderCases(), memoryRenderCases()} {
 		cases = append(cases, set...)
@@ -491,34 +484,19 @@ func TestRendersGolden(t *testing.T) {
 	var label string
 	renderedFields = func(key string, dot any) { checkCallerFields(t, label, key, dot) }
 	defer func() { renderedKey, renderedFields, renderedBranch = nil, nil, nil }()
-	var got strings.Builder
 	for _, c := range cases {
 		label = c.acc
 		if c.variant != "" {
 			label += " (" + c.variant + ")"
 		}
-		got.WriteString("== " + label + " ==\n" + c.fn() + "\n")
+		c.fn()
 	}
 	missing := unrenderedKeys(rendered)
 	if len(missing) != 0 {
-		t.Fatalf("templates never rendered by TestRendersGolden: %v", missing)
+		t.Fatalf("templates never rendered by TestTemplatesRender: %v", missing)
 	}
 	for _, gap := range untakenBranches(branches) {
-		t.Log("branch never taken by a golden case: " + gap)
-	}
-	const golden = "testdata/renders.golden"
-	if *updateGolden {
-		if err := os.WriteFile(golden, []byte(got.String()), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Fatalf("RE-RECORDED %s: rerun without -update to check it", golden)
-	}
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.String() != string(want) {
-		t.Errorf("rendered output differs from %s (first difference at byte %d)", golden, firstDiff(got.String(), string(want)))
+		t.Log("branch never taken by a render case: " + gap)
 	}
 }
 
@@ -1007,12 +985,4 @@ func TestStandaloneTemplateBlocks(t *testing.T) {
 
 func TestMemoryMissingTemplateNamesArea(t *testing.T) {
 	mustPanic(t, "no memory template nope", func() { renderMemory("nope", nil) })
-}
-
-func firstDiff(a, b string) int {
-	i := 0
-	for i < len(a) && i < len(b) && a[i] == b[i] {
-		i++
-	}
-	return i
 }

@@ -7,155 +7,92 @@ paths:
 ---
 # Command Reference
 
-Moved from the README: install options, setup, agent and utility commands, the status line and the tree layout.
+Use `claude-code <verb> -h` for flags; this file maps tasks to their owning commands and rules.
 
 ## Install options
 
-- `rtk make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
-  (`CHECK=1` runs `configure --check` instead).
-- `claude-code install --dry-run` previews, listing the host tools it would install; an existing `settings.json` is
-  kept as yours and only checked for validity.
-- `rtk make install` installs any missing agent CLI and Tailscale, never updating one already present
-  (`claude-code install --tools --missing`). `TOOLS=1` installs or updates them all and runs `claude-code doctor`
-  (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
-  installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
-  `bin/<agent>`. Confirm with `<agent> --version`, the doctor
-  `<agent> route:` line, or `claude-code agents ask --overlay '{"agent":"<agent>"}' "Reply with exactly: ok"`.
-- The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through `go install`,
-  `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl are
-  report-only, and `DEV_TOOLS=1` (default) also `go install`s three pinned linters (`DEV_TOOLS=0` skips). `claude-code
-  doctor` prints a `dep <name>` row per tool with the command that installs it, and a failed install never fails `make
-  install`.
-- `bin/<agent>` is the real, unrouted CLI, except `bin/claude`: the harness launcher (`claude-code claude --launcher`),
-  which applies the session profile's overlay and the embedded autoMode rules; native claude is `~/.local/bin/claude`.
-  A failed plan on a pinned provider route exits non-zero (fail closed); only the plain Anthropic passthrough falls back
-  to native claude, without the harness settings.
-  Routed launches go through `claude-code <agent>`.
-
-Exit codes: 0 ok, 1 runtime, 2 usage, 3 auth (`helptext.Error`); `--format json` on a verb with no envelope
-prints `{error, kind, exit_code, hints}` to stderr, secrets redacted.
+- `rtk make bootstrap`: install Go without sudo, harness, completion, then configure; `CHECK=1` checks instead.
+- `claude-code install --dry-run`: preview tools. Existing settings remain owner-managed and are only validated.
+- `rtk make install`: install missing agent CLIs/Tailscale; `TOOLS=1` updates all, `TOOLS=copilot,codex` selects,
+  then doctor runs. `claude-code install --tools=<name>` does the tool work without doctor.
+- Vendor installers scrub credentials, install under `~/.local/bin` and link `bin/<agent>`; verify version or route.
+  Host-tool policy: `settings-management.md`; git/go/make/curl are report-only.
+  `DEV_TOOLS=1` installs pinned gate tools by default; zero skips them.
+- `bin/<agent>` is the unrouted CLI except `bin/claude`, the `claude-code claude --launcher` wrapper;
+  native Claude is `~/.local/bin/claude`. Routed launches use `claude-code <agent>`.
+  The wrapper applies the session profile overlay and embedded autoMode rules. A failed pinned route fails closed;
+  only plain Anthropic passthrough may fall back to native Claude without harness settings.
 
 ## Setup
 
-```bash
-claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings
-                                      # (secrets, routing, environment, seed agents); Submit seals keys
-claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
-claude-code configure codex           # codex effort, verbosity, config_route (vault)
-claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure provider <p> options.warehouse_id=<id> options.prices='{"<model>":{"input":0,...}}'
-                                      # a Databricks profile's cost keys (USD per million tokens)
-claude-code configure routing weights.price=0.4 weights.latency=0.2
-                                      # price, headroom, latency (default 0.4/0.4/0.2); headroom fills to 1
-claude-code configure routing spendCap.sessionUSD=<usd> spendCap.dayUSD=<usd>
-                                      # metered proxy cap, off until set; empty value clears. At cap,
-                                      # keep unmetered subscription/cli rows; 402 if none remains. See
-                                      # rules/harness/providers-reference.md → Spend cap
-claude-code configure restore [--agent a|all]   # reset settings.json to the template (backup first) + agent configs
-claude-code configure revert [--agent a,b]        # restore agent CLI configs from backup
-```
-
-- `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
-- **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
-  `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
-- Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
-- From a worktree, reset only that checkout:
-  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure restore --out "$PWD/settings.json"`
-  (`--out` never renders agent CLI configs, and `--out` with `--agents` is refused).
-
-- `~/.claude` already exists: clone into `~/.claude.stage`, then `rtk make -C ~/.claude.stage adopt` (backs up
-  collisions, then bootstraps). `install --setup nuke [--apply] [--keep-memory]` archives untracked content and
-  removes it, leaving credential-shaped untracked or ignored files (`.env`, `*.pem`, `*.key`) in place;
-  `install --setup workspace init|link|status` scopes a project's own `.claude/`.
+- `claude-code configure` reuses env, vault and CLI logins and asks only for missing values.
+  Pages: provider, models, agents, github, remote, codex, routing, databricks; `--check` reports missing values.
+- `configure codex`: effort, verbosity and config_route in the vault.
+- `configure provider <p> options.warehouse_id=<id> options.prices='<json>'`: Databricks costs in USD/million tokens.
+- `configure routing weights.price=0.4 weights.latency=0.2`: headroom fills to 1 (defaults 0.4/0.4/0.2).
+- `configure routing spendCap.sessionUSD=<usd> spendCap.dayUSD=<usd>`: off until set; empty clears.
+  At cap, unmetered subscription/CLI rows remain; no remaining route fails. See `providers-reference.md` → Spend cap.
+- Claude subscription keeps Remote Control; API keys pay per token. For headless Max, configure mints
+  `claude setup-token` into vault `CLAUDE_CODE_OAUTH_TOKEN`.
+- `configure restore [--agent a|all]` resets from templates with backups; `configure revert [--agent a,b]`
+  restores CLI config backups. Configs merge, never replace, with five backups each (`agent.md`).
+  Worktree-only resets: `settings-management.md` → Worktree render.
+- Existing `~/.claude`: clone to `~/.claude.stage`, then `rtk make -C ~/.claude.stage adopt` backs up collisions
+  and bootstraps. `install --setup nuke [--apply] [--keep-memory]` archives/removes untracked content,
+  leaving credential-shaped files (`.env`, `*.pem`, `*.key`). `install --setup workspace init|link|status`
+  scopes a project's `.claude/`.
 
 ## Agents
 
-```bash
-claude-code agents list                                # agents and availability
-claude-code agents ask --overlay '{"agent":"codex"}' "Review this branch."    # one-shot; --format json, overlay tools and effort
-claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
-claude-code agents ask --overlay cfg.json --brief task.json --dry-run   # resolved route and argv; no model call
-claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
-claude-code agents wait <id> --progress              # stderr line per change: step, tools, last text; Pi: compacting 12s, retrying 4s
-claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
-claude-code agents serve --start [--cap N] | --status | --restart | --stop   # queue --background jobs per pool
-                                                 # make install restarts a running daemon, never starts one
-claude-code agents ask --overlay '{"agent":"pi"}' "<q>"   # Pi on Databricks
-claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
-claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
-claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
-claude-code claude review --base main --overlay '{"cloud":true}'   # cloud ultrareview; sends the diff to Anthropic
-claude-code codex cloud exec "<task>" --env <id> --overlay '{"cloud":true}'   # Codex Cloud; status|list|diff|apply
-claude-code agents ask --overlay '{"agent":"gemini","tools":true}' --dirs internal "<task>"  # one 1M-context sweep via agy
-claude-code agents ask --overlay '{"agent":"codex","provider":"databricks","profile":"auto","remote":"auto","tools":true}' "<task>"
-                                                       # per-call config
-claude-code usage --days 7                             # subagent token usage
-claude-code usage --cost --days 7                      # adds an `est.` cost per profile and model
-claude-code usage --context                          # where one session's context went, by source
-```
+Dispatch syntax and lifecycle: `skills/subagent-workflows/references/agent-verbs.md` and `cost-routing.md`.
+Authoring and cloud opt-in: `rules/workflows/agents.md`.
 
-`serve` admits a background `--carry` once before its child starts; foreground carry and Pi takeover are not gated.
-
-For `agents ask`, tools are on unless the overlay sets `tools:false` or `noTools:true` (per agent:
-`rules/harness/agent.md`).
-`agents sync` renders under `state/projections/<agent>/`, installs into
-`~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
-and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
-claude.ai `skills/synced/**` is linked for no agent; opencode reads it from `~/.claude/skills` natively. Envelope
-fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in-session fan-out:
-`rules/workflows/master-workflow.md`.
+- `claude-code agents list`: CLI availability; `agents ask --overlay cfg.json --brief task.json --dry-run`:
+  resolved route/argv without a model call. Tools default on unless overlay `tools:false` or `noTools:true`.
+- `agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]`: pool dispatch.
+  `agents serve --start [--cap N]`, `--status`, `--restart`, `--stop`: background queue.
+  Install restarts a running daemon, never starts one. Serve admits background carry once before its child;
+  foreground carry and Pi takeover are not gated.
+- `claude-code opencode catalog list|add|remove|import|reset|check|sync`: shared Databricks model menu.
+- `claude-code usage --days 7`: tokens; `--cost`: estimated profile/model cost; `--context`: session sources.
+- `agents sync` renders under `state/projections/<agent>/`, installs into agent homes and links skills into
+  `~/.agents/skills` plus Gemini/Copilot skill dirs. Never put AGENTS.md at this root.
+  No agent gets links to `skills/synced/**`; OpenCode reads it natively.
+  Envelope/instruction behavior: `agent.md`; fan-out: `rules/workflows/master-workflow.md`.
 
 ## Status line
 
-`claude-code configure theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
-`twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
-minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
-`"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
-`context`, `limits`, `total` (`1.23M`, `+` while dispatches run), `git`, `velocity`. Config:
-`~/.claude/state/statusline/config.json`.
+`claude-code configure theme statusline [--style <name>]`: gradient, powerline, capsule, minimal, dashboard, twoline.
+It shows provider/profile, model, context, git and weekly/token limits.
+`~/.claude/state/statusline/config.json` controls `segments`: false disables a key.
+Default off: proxy, duration, session. Other keys: path, model, provider, context, limits, total, git, velocity.
 
 ## Layout
 
-`bin/.hookd` is the hooks-only binary beside `bin/claude-code`; `bin/.build-stamp` records their shared build stamp.
-`CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/certs/` (CA bundle, `paths.CertsDir`),
-`state/harness/<owner>/` (versioned per the `internal/schemas` registry; formats migrate on read, `doctor` reports
-`formats`), `state/harness/backups/` (every plaintext backup, via `paths.Backup`). Outside `state/` on purpose: the
-bench lock in `/tmp/claude-code-bench-<uid>` (machine-wide across config roots), verify trees in
-`$TMPDIR/claude-code-verify` (outside the module), `~/.claude/run/clip.sock` (the SSH `RemoteForward` target), `bin/`,
-`plans/`,
-`memory/`, `settings.json` and vendor homes.
-`docs/templates/` indexes every embedded (`//go:embed`) template.
-`container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
-root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
-`mods/slash-usage/`, `mods/dispatch-spawn/` and `mods/codemode/` (`/codemode on|off|status`) are TypeScript
-plugins, built with `tsc -p mods/<name>`.
-`mods/agents-band/` is kept in the tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS`
-(then `/reload-plugins`) to try it: a band of live leaves, each expandable to the files it holds and its
-latest note, plus the free dirty files (`agents tree --files`; plain rows on an older binary).
+- `bin/.hookd` and `bin/claude-code` share `bin/.build-stamp`; see `hooks.md`.
+- `state/vault.db`: untracked secrets; `state/certs/`: CA bundles; `state/harness/<owner>/`: schema-versioned state
+  migrated on read; `state/harness/backups/`: plaintext backups via `paths.Backup`. Doctor reports formats.
+- Outside state: machine-wide `/tmp/claude-code-bench-<uid>` lock, `$TMPDIR/claude-code-verify` trees,
+  `~/.claude/run/clip.sock`, bin, plans, memory, settings and vendor homes.
+- `docs/templates/` indexes embedded templates. `container/` holds the Ubuntu podman image
+  (`make image|image-audit|image-shell`); rootless Linux installs Tailscale static binaries without starting its daemon.
+- TypeScript mods: slash-usage, dispatch-spawn, codemode (`/codemode on|off|status`); build with `tsc -p mods/<name>`.
+  agents-band is unloaded by default; add its path to `CLAUDE_CODE_PLUGIN_DIRS`, then `/reload-plugins`.
+  It shows leaf claims/notes and free dirty files (`agents tree --files`).
 
 ## Other commands
 
-| To… | Run |
-| --- | --- |
-| Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
-| Bash tab completion | `claude-code completion --install` |
-| OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --overlay '{"effort":"high"}'` |
-| Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|gate\|commit\|merge <n>\|clean <n>\|clean-all` |
-| Subagent status and dispatches | `claude-code agents tree [--watch\|--detail]` · `agents cancel --lost [--dry-run]` |
-| What an agent changed, including pre-dirty files touched outside --path with --verify, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
-| Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
-| Try memory on a copy | `claude-code memory sandbox` |
-| Sync memory with peers (off by default) | `claude-code vault set env NETWORK_MEMORY on` to opt in · `claude-code memory sync [--host <peer>]` |
-| List or resolve memory sync conflicts | `claude-code memory conflicts [--resolve ID --keep ...]` |
-| Run an agent on another tailnet box | `claude-code agents ask --overlay '{"agent":"<a>","host":"<h>"}' "<task>"` · `network remote --host <h> --list --status` |
-| Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
-| Tailnet status | `claude-code tailscale` (modes below) |
-| Read Databricks metadata (a GET, no `curl`) | `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user\|sp]` |
-| Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Housekeeping | `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` (removes; `DRY_RUN=1` previews) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure history snapshot\|log\|diff` · `doctor --mcp` |
-| Theme, VS Code | `claude-code configure theme [--palettes\|--reset] [<palette>]` · `configure theme apply` · `configure vscode [--check\|--dry-run]` |
-
-`claude-code tailscale` accepts one mode at a time: `--machines`, `--connect`, `--token [--secret|--save]`,
-`--exit-node on|off|approve`, `--subnet <cidr>[,…]|approve|off`, or `--route <peer>|off`.
-`--token` needs your own terminal, browser re-auth, and vault credentials (`TAILSCALE_OAUTH_CLIENT_ID` and
-`TAILSCALE_OAUTH_CLIENT_SECRET`, or `TAILSCALE_API_KEY`). `make install` adds Tailscale if missing.
+- Completion: `claude-code completion --install`.
+- OpenCode effort: TUI `ctrl+t`, `opencode run --variant high`, or ask overlay `effort`.
+- Worktrees: `skills/using-git-worktrees/SKILL.md`; diff/find/status: the agent-verbs reference above.
+- Memory sandbox, sync and conflicts: `rules/workflows/memory-bank.md` → Verbs.
+- Remote execution, browser, web, MCP and cleanup: `network.md`.
+- Databricks metadata: `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user|sp]`.
+- Workflow scripts: `claude-code workflow lint`, `workflow skeleton <pattern>`.
+- Housekeeping: `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` removes; preview first as needed.
+  `doctor --audit [--days 7]`, `configure history snapshot|log|diff`.
+- Theme/editor: `configure theme [--palettes|--reset] [<palette>]`, `configure theme apply`,
+  `configure vscode [--check|--dry-run]`.
+- `claude-code tailscale`: one of `--machines`, `--connect`, `--token [--secret|--save]`,
+  `--exit-node on|off|approve`, `--subnet <cidr>[,…]|approve|off`, `--route <peer>|off`.
+  Token retrieval needs the owner's terminal, browser re-auth and vault OAuth client credentials or API key.

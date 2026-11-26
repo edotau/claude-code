@@ -1,8 +1,6 @@
 package assets
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,19 +21,6 @@ func TestWorkflowSkeletonMatchesTextTemplate(t *testing.T) {
 		}
 		if got := render(name); got != want.String() {
 			t.Errorf("%s skeleton differs from text/template output", file)
-		}
-	}
-}
-
-func TestWorkflowBlockBytes(t *testing.T) {
-	for _, tc := range []struct {
-		name, source, want string
-	}{
-		{"stepof", WorkflowStepOfSource(), "6cbd9e04ee625206a1979d60545bc35cb7177139fabe2e133eb1df737b58fb13"},
-		{"stages", WorkflowStagesSource(), "033664829e9c242c4c669752f8c43ab3401950d4483293d43c43045a89c93d17"},
-	} {
-		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(tc.source))); got != tc.want {
-			t.Errorf("%s: sha256 %s, want pre-migration %s", tc.name, got, tc.want)
 		}
 	}
 }

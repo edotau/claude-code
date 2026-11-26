@@ -15,7 +15,6 @@ import (
 // fixNowEnv is a main interactive session with a fresh failure log; it returns the session's checkout.
 func fixNowEnv(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv(proc.DispatchIDEnv, "")
 	t.Setenv(proc.DispatchDepthEnv, "")
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")

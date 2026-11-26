@@ -9,43 +9,25 @@ paths:
 ---
 # Providers, Models, Credentials
 
-| To… | Run |
-| --- | --- |
-| Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets` |
-| See providers and credential state | `claude-code vault ls providers [<name>]` |
-| Set a credential | `claude-code vault set secrets NAME` (bare on a terminal = guided dialog), or a provider's `auth.command` |
-| Inspect or edit the vault | `claude-code vault [ls]\|get\|rm\|import\|export\|rotate-secret` (`get` redacts; `--secret` prints, main session only); env and overlays: `claude-code configure` |
-| Switch the session profile | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>` |
-| Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
-| List what a provider serves | `claude-code models --live [--profile <p>]` |
-| Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` · standing: `--serve --scope <team>@<id>` |
+Common commands, provider schema and credentials: `providers-reference.md` → Providers, Credentials.
 
 - Transcript cleanup: `claude-code doctor --secrets --fix` masks idle Claude and harness transcript stores in place at
   the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.
   `--secrets` scans transcripts modified within seven days (`--days N` changes the window, `--days 0` covers all
   ages) and prints each store's counts and older-file skips; `--since N` limits git commits only.
-- Secrets: CLAUDE.md hard rule 2; `vault ls providers` shows the source, never the value. Credential verbs
-  (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) print `<redacted: N bytes>`
-  (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
-  (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are
-  `internal/assets/providers/defaults.json`; a vault overlay row replaces one by name.
+- Secrets: CLAUDE.md hard rule 2; credential source order and safe inspection: `providers-reference.md` → Credentials.
 - Agent settings live in the vault, one record per agent (`vault` AGENT table); an external agent's shell
   `<AGENT>_MODEL` outranks the record's `model`, and `--model` beats both; `switch` and `<agent> profile` write the
   record (no last-used profile exists).
-- Agents run on their pins (gemini on Google); per-call routes use the overlay: the one key catalogue is
-  `agent.md` → Overlay (Key, Type, Schema acceptance, Child inheritance, Tighten); precedence and fallback below. A
-  standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
-  (`claude-code vault set env COWORKER_OVERLAY <value>` / `vault rm env COWORKER_OVERLAY`). Brief fields:
-  `skills/subagent-workflows/SKILL.md`.
-- The proxy replaces itself: the shared daemon and standing scopes spawn from `bin/claude-code` when installed (never a
-  lane or `/tmp` build), `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
-  replaces a stale daemon (`proxy.json` `exe` sha256 differs from the installed binary, the one staleness test, also
-  doctor's) at its first poll with no request in flight; in-flight streams drain (up to 2 min, then are cut) while the
-  replacement serves; `--stop` waits as long. The respawn gap is ~55 ms (max ~110 ms, connection refused; clients
-  retry); a down proxy is restarted the same way. Plain `--restart` stays.
-- Proxy teams: a dispatch's kind picks its team, and the team picks the proxy it runs through (the shared daemon, a
-  wave's or batch's phase proxy, or a standing scoped process). Schema and defaults: `providers-reference.md` → Proxy
-  teams; the route walk: `agent.md` → Proxy routes.
+- Per-call routes and the standing top-level dispatch default: `agent.md` → Overlay.
+- The shared daemon and standing scopes spawn from installed `bin/claude-code`, never a lane or `/tmp` build.
+  `make install` runs `gateway proxy --restart --if-changed`; the status line and doctor compare `proxy.json`'s
+  executable SHA-256 with the installed binary. The first idle poll replaces a stale or down daemon; streams drain
+  for up to 2 minutes while the replacement serves. `--stop` waits as long; plain `--restart` remains available.
+- Proxy team schema: `providers-reference.md` → Proxy teams and scopes; selection: `agent.md` → Proxy routes.
+
+## Session tokens
+
 - Session tokens are signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (one year; the
   process is the real limit) under a key derived from the router secret and the config dir, so every daemon of the
   config accepts them; a token cannot be revoked: it ends when its process exits, at expiry, or when the router secret
@@ -65,13 +47,11 @@ paths:
 - **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`),
   `COWORKER_OVERLAY`, waves, coworker specs, `configure` menus and agent
   records all normalise into one overlay whose route is one unit, taken whole from one source;
-  launch, preflight, labels and `ran on` read only it. Print it:
-  (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
-  `claude-code gateway resolve <agent> --model m [--provider P] [--profile p] [--overlay '{...}']
-  [--all-profiles [--live]] --format json`. A typed model the workspace's fresh listing lacks is refused (exit 2,
-  nearest ids named) under any `--fallback`; with no fresh listing it says `unverified`.
-  A typed id the catalog lacks on a row with no listing or snapshot (own-login, custom) adds the note `unverified: <id>
-  is not in the catalog and <row> has no listing`: exit 0, never a refusal.
+  launch, preflight, labels and `ran on` read that overlay. Inspect the resolved first hop and model with
+  `claude-code gateway resolve <agent> [--model m] [--provider P] [--profile p] [--overlay '{...}']
+  [--all-profiles [--live]] --format json`. A typed model absent from a fresh listing is refused under any fallback,
+  with nearest ids named. Without a fresh listing it is unverified; an unknown id on an own-login or custom row
+  without a listing or snapshot is noted, not refused.
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
   every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude rotates
   no rows (its `auto` runs the brief's tier model on its one profile), so it has none here.
@@ -88,7 +68,6 @@ paths:
   `{"provider":"databricks","profile":"auto"}` or a pool pin picks the pool before these (first valid workspace in
   vault order dev, prod, qa; least-busy under `auto`); a pin on the agent's own sign-in row (copilot's GitHub row,
   gemini's Google row) skips the session.
-- `<login>/auto` is refused before launch with that login's typed ids named.
 - **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);
   first-party Anthropic bare; GitHub, ChatGPT and agy dotted.
   Claude 5+ is 1M by default; `[1m]` only for opus/sonnet 4.x.
@@ -108,16 +87,11 @@ Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id:
   `model` and record model outrank the bucket.
 - A GPT family name (`sol`, `astra`, `terra`, `luna`) is the highest numeric version the row's listing serves READY
   (`6.1` = `6-1` < `6.2` < `7`); no listing or member falls back to today's id. A concrete id stays exactly that id.
-- Model `auto` is the harness pick, never a wire id: a listed model named auto is ignored.
-- Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); a typed
-  unlisted or runtime-gone model is refused (exit 2) under any `--fallback`; a GitHub login's typed model is checked
-  against its Copilot catalog snapshot.
-- `opus` architecture and max-reasoning research; `sonnet` planning, review, orchestration, exploration (an untyped
-  `claude` leaf, or one asked `auto`, gets sonnet for a standard-tier brief, haiku for fast, opus for deep; `auto`
-  rotates models only, so the row stays the one its route names, the model following the tier as that row spells
-  it); `haiku`
-  high-frequency cheap
-  leaves; `gemini` sweeps beyond a session window (1M tokens).
+- Model `auto`, rotation, tier fallback and refusal recovery: `agent.md` → Model precedence.
+- Bare endpoint names gain the Databricks prefix only when served; runtime-gone models are refused under any
+  fallback. A GitHub login's typed model is checked against its Copilot catalog snapshot.
+- Use `opus` for architecture and max-reasoning research, `sonnet` for planning, review, orchestration and exploration,
+  `haiku` for frequent cheap leaves, and `gemini` for sweeps beyond a session window (1M tokens).
 
 ## Served-aware Databricks routing
 
@@ -128,9 +102,7 @@ Preflight reuses credential-bound successes in router state for 15 minutes (fail
 30 seconds and never block a launch); a token must cover the run timeout plus 2 minutes after keepalive or a
 service-principal mint, unless one of those just renewed it (then a note, not a refusal).
 Off, cold or stale reads as the static menu for ordinary picks; routing never touches the network.
-Asked auto uses the served listing (a GitHub login: its Copilot catalog snapshot) alone for its pool: cold or stale
-runs the row's tier model with a note; a fresh empty pool or unwritable pick state errors without launching
-(details: `agent.md` → Model precedence).
+Auto pools and cold, stale or empty listings: `agent.md` → Model precedence.
 
 - **Listing facts:** the cache also keeps each endpoint's `api_types`, `model_class` and the context and output limits
   parsed from its description. A fresh listing's `api_types` decide "serves Responses" for codex and `ResponsesServable`
@@ -144,9 +116,8 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   order is the control. A pinned or explicit model that is not READY is never swapped: its candidate is skipped
   (`<m> is not served on <p>` in `gateway` skips).
 - **Live rescue:** a codex `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once on the next READY
-  Responses model; an exact `--model` never retries. Auto picks also recover from model or capability refusals,
-  sharing at most 3 re-picks per ask, never after streamed text or tools. Preflight refuses an unlisted name
-  (a cold listing skips the check with a note).
+  Responses model; an exact `--model` never retries. Auto recovery: `agent.md` → Model precedence.
+  Preflight refuses an unlisted name; a cold listing skips the check with a note.
 - An OpenCode own-plan usage limit fails in seconds as `quota`, holding `opencode·go` until its reported reset.
 
 ## Databricks routes (key rule)
@@ -157,22 +128,9 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   refused): claude `<workspace>/serving-endpoints/anthropic`, codex `/responses`; copilot and opencode pick per model
   (Claude `/anthropic`, Responses-only GPTs `/responses`, the rest `/chat/completions`). Probe a route with a real
   `claude-code agents ask`, not `curl`.
-- The `--verify` and `databricks check` probes send a streamed request and need the wire's terminator (a cut stream
-  is `broken`, never auto-dropped); `claude-code databricks api <path>` is the read-only GET of allow-listed metadata
-  paths (serving-endpoints, sql, scim Me, unity-catalog) with a Databricks profile's token, not `curl`. Detail:
-  `providers-reference.md` → Probe verdicts, The `databricks api` verb.
-- A model the proxy sees answered `400 This endpoint <id> is deprecated` or
-  `403 ... available only via Unity Gateway` is dropped at once, with its reason and
-  date, and sends no extra call. The `--model auto` pool honours the drop list. A model Databricks later re-enables
-  stays dropped until `claude-code models discover --undrop <id> --apply`.
-- Cost: `claude-code usage --cost` is an estimate (local ledger tokens times the profile's price table), never an
-  invoice. System tables are dropped (no billed report). Keys and grants: `providers-reference.md` →
-  Cost keys.
-- pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
-  Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at
-  launch to the proxy session token; no token is on disk. Pinned Pi packages (`packages` in the Pi record) add
-  extension code that runs inside Pi with the user's privileges and is not judged by the guard; they never change a
-  route. Rules and risk: `/Users/edotau/.claude/rules/harness/agent.md` → pi packages.
+- Probe verdicts, dropped models, read-only metadata and cost: `providers-reference.md` → Providers,
+  Databricks read-only API and cost. Verify routes with a real dispatch; a listing alone proves no inference access.
+- Pi wires, session-token handling and package risk: `agent.md` → pi, pi packages.
 - gemini (agy) speaks chat/completions through the proxy's `openai` passthrough, so on a Databricks profile it runs
   any chat model the workspace serves when one is typed with `--model` (or `--model auto`); with no model or a tier
   alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,
@@ -205,10 +163,9 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   No credential path opens a browser except `databricks login` on a row with no stored SP secret (or `--as user`, or
   `--remote`) and an interactive prompt; on an `sp` row, or an `auto` row with a stored SP secret, `login` mints the
   SP.
-- A dead user login (`needs_login`) is remembered in `state/harness/cache/login-state/<profile>.json` (state and times
-  only) and reported: `doctor` and `databricks check --all` say the SP covers, the status line shows
-  `login:<profile>`, a proxy 401 names `claude-code --remote <host> databricks login --profile <p>`. It is not
-  re-probed on a timer; sealing a login (including `vault set`/`import` of a record with `refresh`) clears it.
+- A dead user login (`needs_login`) is stored as state and times in
+  `state/harness/cache/login-state/<profile>.json`; doctor, `databricks check --all`, the status line and proxy errors
+  report it. No timer re-probes it. Sealing a login, including `vault set`/`import` with `refresh`, clears it.
 - While the proxy runs it refreshes tokens of profiles used in the last 24 h once under 15 minutes remain, under the
   per-profile lock. A rotated refresh token is carried until sealed (failure audits `seal_failed`); a stale one never
   replaces a newer vault copy.
@@ -228,7 +185,7 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   reply. Model traffic uses the proxy's cool-down instead (`Retry-After`, 30 s default, 5 minutes at most).
 - **One re-mint per rejection:** a 401/403 refresh adopts a token a peer minted after the rejected one instead of
   minting again (in-process under the flight lock; across processes via the sealed vault copy).
-- Doctor's credential rows end with `source=vault`, `source=env <NAME>` or `source=command`.
+- Credential sources: `providers-reference.md` → Credentials.
 - Login gotcha: `--remote <host> databricks login` always signs the user in (a paired SP does not mint) and seals the
   token here; `--host` forwards the callback port. A browser login with none of `--remote`, `--no-browser` or
   `--paste` takes the first `CLAUDE_REMOTE_HOST` entry as `<host>` (not on that host itself). Flags:

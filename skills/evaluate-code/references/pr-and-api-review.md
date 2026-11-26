@@ -1,95 +1,45 @@
 # PR & contract review — blast radius and breaking changes
 
-Two judgment passes detectors can't make: **what else could this break** (blast radius) and **does it break a
-published contract** (breaking changes). Examples are Django/DRF, a data warehouse and React; substitute your stack.
-GitHub PRs: `claude-code worktree pr diff <id>`. Full treatment for a PR over ~200 lines or touching a shared module,
-serializer, migration or shared table; scope first:
-
-```bash
-BASE=$(git merge-base HEAD main)
-rtk git diff "$BASE"...HEAD --stat        # what moved, how much
-git diff "$BASE"...HEAD --name-only       # bare file list for the passes below
-```
+For PRs over ~200 lines or changes to shared modules, serializers, migrations or shared tables, run both passes.
+Scope with `rtk git diff "$(git merge-base HEAD main)"...HEAD --stat`; GitHub: `claude-code worktree pr diff <id>`.
+Examples use Django/DRF, warehouse tables and React; adapt to the stack.
 
 ## Pass 1 — Blast radius
 
-For each changed file ask who depends on it; a 5-line edit to a shared helper can break every importer.
+For each changed file, use `git grep -n` to find importers, serializer/view consumers, hooks, table/dataset readers.
+The most exposed surface sets the review bar:
 
-```bash
-git grep -nE 'from mypkg.pipelines import|import mypkg.pipelines' -- '*.py'     # Python importers
-git grep -n '"example.com/mymod/internal/pipelines"' -- '*.go'                  # Go importers
-git grep -nE 'MySerializer|MyViewSet' -- 'src/*.py'                              # DRF consumers
-git grep -nE "from ['\"].*useBindingData['\"]" -- 'src/*.ts' 'src/*.tsx'         # React/TS importers
-git grep -nE 'schema.my_table|/data/my_dataset' -- '*.py' '*.sql'                # data readers
-```
-
-The most exposed file sets the review bar:
-
-| Blast radius | Surface |
-| --- | --- |
-| CRITICAL | public API contract, DB model/migration, auth/token plumbing, a table other jobs read, a shared pipeline stage |
-| HIGH | a module imported by 3+ others, shared settings/env var, a job other jobs depend on |
-| MEDIUM | single-module internal change, a utility used in one place |
-| LOW | a leaf React component, a test, docs |
+- **CRITICAL:** public API, DB model/migration, auth/token plumbing, externally read table, shared pipeline stage.
+- **HIGH:** module with 3+ importers, shared settings/env, job other jobs depend on.
+- **MEDIUM:** single-module internal change or single-use utility.
+- **LOW:** leaf React component, tests, docs.
 
 ## Pass 2 — Breaking-change detection
 
-A contract is anything a consumer you don't control relies on (REST response shape, DB column, env var, table
-schema). Adding is usually safe; removing, renaming, tightening or retyping usually isn't.
+A contract is anything an uncontrolled consumer relies on: response shape, column, env variable, table schema.
+Additions are usually safe; removals, renames, tightening and type changes need versioning, migration or coordination.
 
-| Safe (non-breaking) | Breaking (needs version bump / migration / coordination) |
+| Usually safe | Breaking |
 | --- | --- |
-| Add an *optional* request field | Make an existing field required, or add a required one |
-| Add a field to a response | Remove or rename a response field |
-| Add a new endpoint / route | Remove or rename an endpoint, change its URL |
-| Relax a required field to optional | Change a field's type (str → int, scalar → list) |
-| Add a new enum value *clients tolerate* | Change/remove an enum value; change an HTTP status code |
-| Add a *nullable* DB column | Drop a column, add a `NOT NULL` without default, narrow a type |
-| Add a table column | Drop/rename a table column, change its type, move a dataset path |
+| Optional request field | New required field or optional → required |
+| Response field/endpoint addition | Field/endpoint removal, rename or URL change |
+| Required → optional | Type change (str → int, scalar → list) |
+| Enum addition clients tolerate | Changed/removed enum or HTTP status |
+| Nullable DB column | Dropped column, NOT NULL without default, narrowed type |
+| Table column addition | Dropped/renamed/retyped column or moved dataset |
 
-**DRF / REST** — grep the diff's removed lines:
+**REST:** inspect removed routes and serializer fields, `read_only`/`required` changes and changed status codes.
+Keep the existing error envelope/statuses: 400 bad request, 401 unauthenticated, 403 forbidden, 404 missing,
+409 conflict, 422 validation, 429 rate-limited. Paginate every list endpoint; unbounded lists are latent breakage.
 
-```bash
-git diff "$BASE"...HEAD | grep -E '^-[^-].*(router\.register|path\(|re_path\()'     # removed/renamed routes
-git diff "$BASE"...HEAD | grep -E '^-[^-].*(= serializers\.|fields = |read_only|required=)'  # serializer churn
-git diff "$BASE"...HEAD | grep -E '^[-+].*(HTTP_[0-9]{3}|status=[0-9]{3}|Response\(.*status)'  # status-code changes
-```
+**Migrations:** inspect `RemoveField`, `AlterField`, `DeleteModel`, `RunSQL`, `AddField` with `null=False`.
+Destructive ops need two phases: additive change with dual read/write, then drop the old shape in a later release.
+New NOT NULL columns need a default or data migration. Confirm reversibility or document rollback.
 
-Keep the API's existing error envelope and status codes (`400` bad request, `401` unauthenticated, `403` forbidden,
-`404` missing, `409` conflict, `422` validation, `429` rate-limited). Paginate every list endpoint; an unbounded
-list is a latent breaking change.
-
-**Django migrations** — find the risky operations in the diff:
-
-```bash
-git diff "$BASE"...HEAD | grep -nE 'RemoveField|AlterField|DeleteModel|RunSQL|AddField.*null=False'
-```
-
-- Destructive ops (`RemoveField`, `DeleteModel`, type narrowing) need a two-phase plan: ship the additive change
-  with dual-write/read first, drop the old shape in a later release.
-- A new `NOT NULL` column needs a `default` or a data migration, or it fails on existing rows.
-- Confirm the migration is reversible, or the rollback story is documented.
-
-**Config / env vars** — a new var missing from the deploy config breaks the deploy; a removed one may still be set
-on running instances. Flag both:
-`rtk git diff "$BASE"...HEAD | grep -E "^[-+].*(os\.environ|getenv|env\()"`.
-
-**Data table schema** — a dropped/renamed/retyped column breaks every downstream job and dashboard: find readers
-(Pass 1), require the two-phase rollout.
+**Config/env:** flag new variables missing from deployment config and removed variables still set on running instances.
+**Data schema:** find all downstream jobs/dashboards before dropping, renaming or retyping; require two-phase rollout.
 
 ## Output
 
-Lead with blast radius and breaking changes; the most exposed surface sets the verdict (linter owns style). A PR too
-large to review: ask for a split first.
-
-```text
-Blast radius : HIGH — serializers/order.py renders 4 views, 1 React consumer
-Breaking     : 1 — `total_cents` renamed to `total` in OrderSerializer (clients break)
-Migrations   : 0006 adds NOT NULL `currency` with no default — fails on existing rows
-
-MUST FIX
-  1. OrderSerializer field rename is a breaking response change — keep the old field read-only/deprecated, or version it.
-  2. Migration 0006: add default= or a data migration.
-SHOULD FIX
-  3. New GET /orders list response is unpaginated — add PageNumberPagination.
-```
+Lead with blast radius, breaking changes and migrations, then must-fix/should-fix items with concrete fixes.
+The most exposed surface sets the verdict; the linter owns style. If too large to review, ask for a split first.

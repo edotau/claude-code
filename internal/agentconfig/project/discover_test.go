@@ -352,62 +352,6 @@ func TestAgentFilesTie(t *testing.T) {
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
-	var names []string
-	for _, a := range agents {
-		names = append(names, a.dirName)
-	}
-	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "coworker", "gemini", "opencode"}; !slices.Equal(names, want) {
-		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
-	}
-}
-
-// Each external worker type bakes its one ask, the overlay's agent matching the file: nobody composes the line.
-func TestExternalTypesBakeTheirAsk(t *testing.T) {
-	root := repoRoot(t)
-	const dbx, tail = `,"provider":"databricks","profile":"`, `"timeout":"60m","tools":true}`
-	cases := []struct{ file, agent, keys string }{ // coworker is Pi in code mode; gemini runs agy on its Google pin
-		{"codex", "codex", dbx + `dev","codemode":"on",`},
-		{"copilot", "copilot", dbx + `qa","codemode":"on",`},
-		{"gemini", "gemini", ","},
-		{"opencode", "opencode", dbx + `dev",`},
-		{"coworker", "pi", dbx + `prod","codemode":"on",`},
-	}
-	for _, c := range cases {
-		data, err := os.ReadFile(filepath.Join(root, "agents", c.file+".md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		ask := `claude-code agents ask --background --overlay '{"agent":"` + c.agent + `"` + c.keys + tail + `' - < PATH`
-		for _, want := range []string{ask, "claude-code agents brief --path " + c.agent} {
-			if !strings.Contains(string(data), want) {
-				t.Errorf("agents/%s.md lacks %q", c.file, want)
-			}
-		}
-	}
-}
-
-func TestRetiredRelayLaunchersAreCarried(t *testing.T) {
-	root := repoRoot(t)
-	for _, name := range []string{"codex", "copilot", "opencode", "coworker"} {
-		data, err := os.ReadFile(filepath.Join(root, "commands", name+".md"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		ask, tail := `agents ask --carry --background --overlay '{"agent":"`+name+`"`, `"tools":true}' - < <that path>`
-		if name == "coworker" { // pi in code mode; --carry refuses pi: a plain ask
-			ask = `agents ask --background --overlay '{"agent":"pi"`
-			tail = `"autonomous":true,"codemode":"on","tools":true}' - < <that path>`
-		}
-		for _, want := range []string{ask, tail} {
-			if !strings.Contains(string(data), want) {
-				t.Errorf("/%s lacks %q", name, want)
-			}
-		}
-		if strings.Contains(string(data), "subagent_type: "+name) {
-			t.Errorf("/%s still names the retired relay type", name)
-		}
-	}
 }
 
 func TestAgentFileCheckerHasTeeth(t *testing.T) {

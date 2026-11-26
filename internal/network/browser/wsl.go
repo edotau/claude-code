@@ -64,9 +64,7 @@ func winExePath(env Env, name string) string {
 func detectWindows(env Env, s spec, b *browser) {
 	b.Installed = true
 	b.Host = stateUnsupportedWSL
-	b.Paths = controlPaths{
-		Extension: stateUnsupportedWSL, WebDriver: stateUnsupported, GUI: stateUnsupported, CDP: stateUnsupported,
-	}
+	b.Paths = controlPaths{Extension: stateUnsupportedWSL, CDP: stateUnsupported}
 	if s.family != familyChromium {
 		return
 	}

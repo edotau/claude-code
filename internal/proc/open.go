@@ -134,8 +134,11 @@ const maxScript = 4 << 10
 
 func sshSession() bool { return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" }
 
-func startDetached(name, url string) error {
-	cmd := exec.CommandContext(context.Background(), name, url)
+func startDetached(name, url string) error { return StartDetached(name, url) }
+
+// StartDetached starts name with args and returns without waiting; the program outlives this call.
+func StartDetached(name string, args ...string) error {
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	if err := cmd.Start(); err != nil { // the opener outlives this call
 		return err
 	}

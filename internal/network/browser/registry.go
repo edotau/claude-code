@@ -17,9 +17,10 @@ type spec struct {
 	darwinBundleID   string // matched case-insensitively against LSHandlerRoleAll and mdfind
 	darwinSupportDir string // relative to ~/Library/Application Support
 
-	linuxBinary      string // "command -v" target; "" = not supported on Linux
-	linuxConfigDir   string // relative to ~/.config
-	linuxDesktopFile string // matched against `xdg-settings get default-web-browser`
+	linuxBinary      string   // "command -v" target; "" = not supported on Linux
+	linuxConfigDir   string   // relative to ~/.config
+	linuxDesktopFile string   // matched against `xdg-settings get default-web-browser`; gtk-launch's target
+	linuxDesktopAlts []string // other desktop ids distros ship for the same browser
 }
 
 // knownBrowsers is every browser this package can detect, in the order Detect reports them.
@@ -28,6 +29,7 @@ var knownBrowsers = []spec{
 		name: "chrome", displayName: "Google Chrome", family: familyChromium,
 		darwinBundleID: "com.google.Chrome", darwinSupportDir: "Google/Chrome",
 		linuxBinary: "google-chrome", linuxConfigDir: "google-chrome", linuxDesktopFile: "google-chrome.desktop",
+		linuxDesktopAlts: []string{"google-chrome-stable.desktop"},
 	},
 	{
 		name: "edge", displayName: "Microsoft Edge", family: familyChromium,
@@ -54,6 +56,7 @@ var knownBrowsers = []spec{
 		name: "chromium", displayName: "Chromium", family: familyChromium,
 		darwinBundleID: "org.chromium.Chromium", darwinSupportDir: "Chromium",
 		linuxBinary: "chromium", linuxConfigDir: "chromium", linuxDesktopFile: "chromium.desktop",
+		linuxDesktopAlts: []string{"chromium-browser.desktop"},
 	},
 	{
 		name: "safari", displayName: "Safari", family: familySafari,
@@ -64,6 +67,7 @@ var knownBrowsers = []spec{
 		name: "firefox", displayName: "Firefox", family: familyFirefox,
 		darwinBundleID: "org.mozilla.firefox",
 		linuxBinary:    "firefox", linuxDesktopFile: "firefox.desktop",
+		linuxDesktopAlts: []string{"org.mozilla.firefox.desktop", "firefox_firefox.desktop"},
 	},
 }
 
@@ -88,16 +92,21 @@ func specByBundleID(id string) (spec, bool) {
 
 func specByDesktopFile(f string) (spec, bool) {
 	for _, s := range knownBrowsers {
-		if s.linuxDesktopFile != "" && strings.EqualFold(s.linuxDesktopFile, f) {
-			return s, true
+		if s.linuxDesktopFile == "" {
+			continue
+		}
+		for _, d := range append([]string{s.linuxDesktopFile}, s.linuxDesktopAlts...) {
+			if strings.EqualFold(d, f) {
+				return s, true
+			}
 		}
 	}
 	return spec{}, false
 }
 
-// errDefaultUnsupported marks a system default with no extension/cdp path (Safari or Firefox, tier 3).
+// errDefaultUnsupported marks a system default with no Claude extension or CDP path (Safari or Firefox).
 var errDefaultUnsupported = errors.New(
-	"browser: system default has no extension/cdp control path (tier 3: safaridriver/geckodriver)")
+	"browser: system default has no Claude extension (WebDriver-based control is not built)")
 
 // Default resolves the https handler to a known browser; the browser is filled even when the error says unsupported.
 func Default(env Env) (browser, error) {
@@ -142,11 +151,17 @@ func defaultDarwin(env Env) (browser, error) {
 	return browser{}, errors.New("browser: no https LSHandler found")
 }
 
-// defaultLinux reads `xdg-settings get default-web-browser` (a .desktop file name).
+// defaultLinux reads `xdg-settings get default-web-browser`, else `xdg-mime query default x-scheme-handler/https`.
 func defaultLinux(env Env) (browser, error) {
 	out, err := env.run("xdg-settings", "get", "default-web-browser")
-	if err != nil {
-		return browser{}, fmt.Errorf("browser: xdg-settings: %w", err)
+	if err != nil || strings.TrimSpace(out) == "" {
+		var merr error
+		if out, merr = env.run("xdg-mime", "query", "default", "x-scheme-handler/https"); merr != nil || strings.TrimSpace(out) == "" {
+			if err == nil {
+				err = errors.New("empty answer")
+			}
+			return browser{}, fmt.Errorf("browser: xdg-settings: %w (xdg-mime fallback: %v)", err, orErr(merr, "empty answer"))
+		}
 	}
 	desktop := strings.TrimSpace(out)
 	s, ok := specByDesktopFile(desktop)
@@ -164,4 +179,12 @@ func resolveDefault(env Env, s spec, ok bool, raw string) (browser, error) {
 		return b, fmt.Errorf("browser: system default is %s (%s): %w", b.DisplayName, b.Family, errDefaultUnsupported)
 	}
 	return b, nil
+}
+
+// orErr is err, or a plain error saying msg when err is nil.
+func orErr(err error, msg string) error {
+	if err != nil {
+		return err
+	}
+	return errors.New(msg)
 }

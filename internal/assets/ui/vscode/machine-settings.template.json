@@ -168,7 +168,7 @@
   "terminal.integrated.cursorBlinking": true,
   "terminal.integrated.gpuAcceleration": "off",
   "terminal.integrated.macOptionClickForcesSelection": true,
-  "terminal.integrated.mouseWheelScrollSensitivity": 2,
+  "terminal.integrated.mouseWheelScrollSensitivity": 0,
   "terminal.integrated.persistentSessionScrollback": 5000,
   "terminal.integrated.showLinkHover": false,
   "workbench.startupEditor": "terminal",

@@ -478,16 +478,27 @@ func configDirEnvIsDefault() bool {
 	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
 }
 
-// servedAliases is each alias the profile serves with its client id, in alias order; Databricks serves no Fable id.
+// servedAliases is each served alias with its client id, in alias order (Databricks adds Fable via aliasClientID).
 func servedAliases(sel providers.Selection) [][2]string {
-	dbx := sel.Provider.SpellingRule() == "databricks-serving"
 	var out [][2]string
 	for _, alias := range models.AliasNames {
-		if m := sel.ClientModel(alias); m != "" && (!dbx || alias != models.Fable && models.FamilyOf(m) != models.Fable) {
+		if m := aliasClientID(sel, alias); m != "" {
 			out = append(out, [2]string{alias, m})
 		}
 	}
 	return out
+}
+
+// aliasClientID is alias's id; Databricks' Fable is the canonical id the proxy retargets to Anthropic.
+func aliasClientID(sel providers.Selection, alias string) string {
+	if alias == models.Fable && sel.Provider.SpellingRule() == "databricks-serving" {
+		if m := sel.ClientModel(alias); models.FamilyOf(m) == models.Fable {
+			return m
+		}
+		id, _ := models.Alias(models.Fable)
+		return id
+	}
+	return sel.ClientModel(alias)
 }
 
 // setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per served alias; an unserved one stays unmapped.
@@ -516,14 +527,13 @@ func setAutoModeModel(plan *agent.Plan, sel providers.Selection) {
 func modelPicker(sel providers.Selection) map[string]any {
 	var rows []map[string]string
 	for _, a := range servedAliases(sel) {
-		rows = append(rows, map[string]string{"model": a[1], "label": strings.ToUpper(a[0][:1]) + a[0][1:]})
+		label := strings.ToUpper(a[0][:1]) + a[0][1:]
+		if a[0] == models.Fable && sel.Provider.SpellingRule() == "databricks-serving" {
+			label += " (Anthropic)"
+		}
+		rows = append(rows, map[string]string{"model": a[1], "label": label})
 	}
 	return map[string]any{"options": rows, "replaceBuiltInOptions": true}
-}
-
-// fableSlotMismatch: the Fable slot must never hold another family's id (Databricks serves no Fable).
-func fableSlotMismatch(alias, id string) bool {
-	return alias == models.Fable && models.FamilyOf(id) != models.Fable
 }
 
 func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) {
@@ -540,15 +550,11 @@ func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) 
 
 // setMainModel sets ANTHROPIC_MODEL from alias's model (a settings.json /model never leaks in) and the thinking knobs.
 func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provider, alias string) error {
-	opus := sel.ClientModel(alias)
+	opus := aliasClientID(sel, alias)
 	if opus == "" {
 		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, alias, alias)
 	}
-	if p.SpellingRule() == "databricks-serving" && fableSlotMismatch(alias, opus) {
-		plan.Set["ANTHROPIC_MODEL"] = alias // Claude Code's own Fable id reaches the proxy's Fable refusal
-	} else {
-		plan.Set["ANTHROPIC_MODEL"] = opus
-	}
+	plan.Set["ANTHROPIC_MODEL"] = opus
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
 		plan.Set["MAX_THINKING_TOKENS"] = maxTok
 		if disable != "" {
@@ -723,8 +729,26 @@ func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args 
 		doc["apiKeyHelper"] = helper
 	}
 	doc["modelPicker"] = modelPicker(sel)
+	if ms := launchModelSettings(sel, p); len(ms) > 0 {
+		doc["modelSettings"] = ms
+	}
 	plan.Argv = []string{"--settings", path}
 	return putLaunchDoc(plan, path, doc)
+}
+
+// launchModelSettings keys models.ModelSettings by the exact Claude ids sent; Claude Code's match skips Databricks ids.
+func launchModelSettings(sel providers.Selection, p *providers.Provider) map[string]models.ModelSetting {
+	out := map[string]models.ModelSetting{}
+	for _, ms := range models.ModelSettings {
+		for _, alias := range ms.Models {
+			id := aliasClientID(sel, alias)
+			if !strings.Contains(id, "claude") {
+				continue // unserved, or another vendor's model: modelSettings applies to Claude models only
+			}
+			out[id] = ms
+		}
+	}
+	return out
 }
 
 // passthroughOAuth: Remote Control refuses the setup-token interactively; headless prefers the long-lived token.

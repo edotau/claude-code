@@ -2,7 +2,7 @@
 
 Each model rides one wire. The harness picks it from the cached workspace listing, not from a call.
 Listing: `GET /api/2.0/serving-endpoints` (one endpoint: `/<name>`). Per endpoint it keeps `id`, `task`, `ready`,
-`api_types`, `model_class`, `context` and `output` (`/Users/edotau/.claude/internal/router/served.go`).
+`api_types`, `model_class`, `context` and `output` (`~/.claude/internal/router/served.go`).
 
 | Wire | Proxy path under `http://127.0.0.1:18765/p/<profile>/` | Upstream under `<workspace-host>/serving-endpoints` | Models | Decided by |
 | --- | --- | --- | --- | --- |
@@ -12,7 +12,7 @@ Listing: `GET /api/2.0/serving-endpoints` (one endpoint: `/<name>`). Per endpoin
 | gemini | `gemini/...` | `/gemini` | Gemini | agy only, native Gemini ids |
 
 - Without `api_types` the rule falls back to the family: GPT that is not chat-only counts as Responses
-  (`ResponsesServable`, `/Users/edotau/.claude/internal/providers/resolve.go`). Codex also refuses Grok.
+  (`ResponsesServable`, `~/.claude/internal/providers/resolve.go`). Codex also refuses Grok.
 - Pi sends Grok to chat: Databricks does not stream it on Responses.
 
 ## Who speaks what to the proxy
@@ -32,7 +32,7 @@ Listing: `GET /api/2.0/serving-endpoints` (one endpoint: `/<name>`). Per endpoin
   block (it needs both numbers); Pi omits `contextWindow` and `maxTokens`; Copilot does not read the listing and
   uses the catalog window with its own output cap.
 - No verb prints them. `claude-code models --live --profile <p>` lists what a profile serves; read the numbers in
-  `/Users/edotau/.claude/state/harness/preflight/served-<profile>.json` (refresh: `claude-code doctor --refresh`).
+  `~/.claude/state/harness/preflight/served-<profile>.json` (refresh: `claude-code doctor --refresh`).
 
 ## Known gotchas
 

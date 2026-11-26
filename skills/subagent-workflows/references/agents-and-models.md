@@ -32,9 +32,9 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 - Plan or brief vetting: `claude-code agents ask --overlay '{"agent":"codex"}'` with
   `skills/evaluate-code/references/task-review.md`.
   Skill or plugin audit: `claude-code agents ask --overlay '{"agent":"codex"}'` with
-  `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate run: `claude-code agents ask --overlay
-  '{"agent":"codex","tools":true}'` with the chain of `skills/problem-solving/references/verify.md`, scoped to the
-  touched packages; never a gate it did not run. Handing a session over: `claude-code codex transfer`.
+  `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate scope:
+  `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
+  Handing a session over: `claude-code codex transfer`.
 - Account and pin: `claude-code configure agents --agent codex`, model ids from `codex debug models`; `codex profile
   <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `doctor --agent codex` checks.
 - Overlay `"tools":true` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault
@@ -48,9 +48,8 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 
 ## Copilot task guidance
 
-- Test repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
-  `rules/standards/worktree-git.md` → LAST-MILE. Run carried with overlay `"tools":true`.
-- `ask --fleet` uses Copilot's experimental SDK subagents for requested scans; verify the diff.
+- Test repair briefs name `rules/standards/testing-guidelines.md` → TEST; run carried with overlay `"tools":true`.
+- overlay `"fleet":true` uses Copilot's experimental SDK subagents for requested scans; verify the diff.
 - `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt keys and
   overlay `set` are native; no `cost_usd`. `copilot --docs` prints vendor help;
   `copilot -- <native args>` forces passthrough.
@@ -68,7 +67,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 | `copilot` | Copilot SDK for headless ask | rendered instructions plus SDK context |
 | `gemini` | Antigravity (`agy`) | `~/.gemini/GEMINI.md`, rendered by sync |
 | `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
-| `pi` | Pi (`pi`), Databricks by default (local: `cost-routing.md`), behind the guard extension; the default leaf route | none in a dispatch (`--no-context-files`) |
+| `pi` | Pi, behind the guard extension | none in a dispatch (`--no-context-files`) |
 
 Projection, per-agent behavior and Pi's packages and their risk: `rules/harness/agent.md`.
 Hook applicability: `rules/harness/hooks.md`.
@@ -80,5 +79,5 @@ package when a task depends on a boundary.
 `--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin
 (`auto`, `--remote`, `--host`: `rules/harness/network.md`); `"provider":"databricks","profile":"<p>"`
 is the same with the profile
-picked ([cost-routing.md](cost-routing.md) → Databricks and local routes). Report the actual run receipt, not a
+picked ([cost-routing.md](cost-routing.md) → Local route). Report the actual run receipt, not a
 planned model.

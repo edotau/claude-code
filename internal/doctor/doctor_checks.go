@@ -51,25 +51,49 @@ func localCheck(st router.LocalState, at time.Time, kind, surface, stage string)
 // detectBrowsers reads the host's browsers; a var so tests never wait on the real powershell.exe under WSL.
 var detectBrowsers = func() (browser.Report, error) { return browser.DetectDefault(browser.NewEnv()) }
 
-// modsLoadedDetail names template CLAUDE_CODE_PLUGIN_DIRS entries the user's settings.json env lacks.
+// modsLoadedDetail checks the template env every harness launch fills (mods, auto-compact the compact hooks rely on):
+// settings.json must not drop a template mod, and inside a Claude session each template key must reach the env.
 func modsLoadedDetail() (bool, string) {
-	want := pluginDirs(settings.Template())
+	tmpl := settings.Template()
+	want := pluginDirs(tmpl)
 	var user []byte
 	if b, err := os.ReadFile(settings.SettingsFile()); err == nil { // a missing file sets no dirs
 		user = b
 	}
-	have := pluginDirs(user)
-	var missing []string
-	for _, d := range want {
-		if !slices.Contains(have, d) {
-			missing = append(missing, d)
+	if have := pluginDirs(user); len(have) > 0 {
+		var missing []string
+		for _, d := range want {
+			if !slices.Contains(have, d) {
+				missing = append(missing, d)
+			}
+		}
+		if len(missing) > 0 {
+			return false, "settings.json env.CLAUDE_CODE_PLUGIN_DIRS lacks " + strings.Join(missing, ", ") +
+				` (set it to "` + strings.Join(want, string(filepath.ListSeparator)) + `", then /reload-plugins)`
 		}
 	}
-	if len(missing) == 0 {
-		return true, "every template mod is in CLAUDE_CODE_PLUGIN_DIRS"
+	if os.Getenv("CLAUDECODE") == "" { // outside a Claude session there is no launch env to check
+		return true, "template mods and env keys are not dropped by settings.json"
 	}
-	return false, "settings.json env.CLAUDE_CODE_PLUGIN_DIRS lacks " + strings.Join(missing, ", ") +
-		` (set it to "` + strings.Join(want, string(filepath.ListSeparator)) + `", then /reload-plugins)`
+	var unset []string
+	for _, k := range templateEnvKeys(tmpl) {
+		if _, ok := os.LookupEnv(k); !ok {
+			unset = append(unset, k)
+		}
+	}
+	if len(unset) > 0 {
+		return false, "this session lacks " + strings.Join(unset, ", ") + ": start it with the harness `claude` launcher"
+	}
+	return true, "this session has every template mod and env key"
+}
+
+// templateEnvKeys lists the template's env keys in order.
+func templateEnvKeys(doc []byte) []string {
+	var d struct {
+		Env map[string]string `json:"env"`
+	}
+	_ = json.Unmarshal(doc, &d) // the embedded template always parses
+	return slices.Sorted(maps.Keys(d.Env))
 }
 
 // pluginDirs reads env.CLAUDE_CODE_PLUGIN_DIRS from a settings document; none when it is absent or unparsable.

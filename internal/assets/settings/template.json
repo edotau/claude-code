@@ -1,7 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "claudeMdExcludes": [
+    "**/.claude/agents/claude.md"
+  ],
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage:~/.claude/mods/dispatch-spawn:~/.claude/mods/codemode",
     "RTK_SUPPRESS_HOOK_WARNING": "1"
   },
@@ -41,5 +45,13 @@
     "type": "command",
     "command": "$HOME/.claude/bin/claude-code theme statusline",
     "padding": 0
-  }
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "feedbackDrafts": "off",
+  "feedbackSurveyRate": 0,
+  "skipWorkflowUsageWarning": true,
+  "useAutoModeDuringPlan": true,
+  "outputStyle": "Concise"
 }

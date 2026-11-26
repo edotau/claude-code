@@ -17,7 +17,7 @@ import (
 func TestScienceLaunchPlanStripsHarnessEnvOnly(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Env, "HARNESS_WORKTREE", "off")
+	vaulttest.Put(t, vault.Env, "WORKTREE_MODE", "off")
 	vaulttest.Put(t, vault.Env, "MY_OWN_VAR", "1")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "claude-science"), []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -32,7 +32,7 @@ func TestScienceLaunchPlanStripsHarnessEnvOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_SSE_PORT", "CLAUDECODE",
-		"HARNESS_PROVIDER", "GEMINI_CLI_IDE_AUTH_TOKEN", "HARNESS_WORKTREE"}
+		"HARNESS_PROVIDER", "GEMINI_CLI_IDE_AUTH_TOKEN"}
 	if !slices.Equal(p.Unset, want) || !slices.Equal(p.Argv, []string{"serve", "--model", "x"}) {
 		t.Errorf("unset %q argv %q, want unset %q and argv passed through", p.Unset, p.Argv, want)
 	}

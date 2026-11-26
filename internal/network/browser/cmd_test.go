@@ -59,15 +59,13 @@ func TestRenderText_DefaultMarkerAndProfileLine(t *testing.T) {
 			{
 				Name: "chrome", DisplayName: "Google Chrome", Family: familyChromium,
 				Installed: true, Default: true, Host: stateReady,
-				Paths: controlPaths{Extension: stateReady, CDP: stateAvailable, WebDriver: stateUnsupported,
-					GUI: stateAvailable},
+				Paths:    controlPaths{Extension: stateReady, CDP: stateAvailable},
 				Profiles: []profile{{Name: "Default", Extension: stateReady}},
 			},
 			{
 				Name: "safari", DisplayName: "Safari", Family: familySafari,
 				Installed: true, Host: stateUnsupported,
-				Paths: controlPaths{Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateDisabled,
-					GUI: stateAvailable},
+				Paths: controlPaths{Extension: stateUnsupported, CDP: stateUnsupported},
 			},
 		},
 	}

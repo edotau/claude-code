@@ -17,7 +17,6 @@ const doneBase = "- [x] Phase 1.1 — base"
 // readyFixture writes one plan opening with first, whose 1.2 waits on 1.1, a prose-blocked 1.3, an owner-gated 1.4.
 func readyFixture(t *testing.T, first string) ReadyInput {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := hosttest.Repo(t)

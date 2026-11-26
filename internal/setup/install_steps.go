@@ -124,13 +124,13 @@ func installCompact(w io.Writer) error {
 	return settingsErr
 }
 
-// preflightStep refreshes stale workspace listings and prints one live pong row per pinned agent; never fails install.
+// preflightStep refreshes stale workspace listings and prints fix rows; no live pong; never fails install.
 func preflightStep(w io.Writer, bin string) {
 	reg, err := providers.Load()
 	if err != nil {
 		return // no registry: nothing to check
 	}
-	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now())
+	preflight.RunInstallStep(context.Background(), w, reg, bin, time.Now(), false)
 }
 
 func installLine(target, commit string) string {

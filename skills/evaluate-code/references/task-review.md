@@ -1,62 +1,42 @@
 # Task-brief review — vet a request before implementation
 
-A skeptical, read-only pass that refines a request into clear orders; never implements. Run by the main session,
-`Plan`, or `claude-code agents ask --overlay '{"agent":"codex"}'`: `rules/workflows/master-workflow.md` Phase 1
-(request), Phase 4 (plan, below). Verdict **READY | NEEDS CLARIFICATION** (`../SKILL.md` → Verdicts).
-
-Input: the request and CLAUDE.md, with `rtk git status --short` and `rtk git diff --stat` for scope.
+Read-only: refine the request, never implement. Run in main, `Plan`, or
+`claude-code agents ask --overlay '{"agent":"codex"}'`; `rules/workflows/master-workflow.md` phases 1 and 4.
+Input: request, CLAUDE.md, `rtk git status --short`, `rtk git diff --stat`.
+Verdicts: `../SKILL.md` → Verdicts.
 
 ## Evaluation checklist
 
-1. **Scope clarity** — target files identified? What NOT to touch? One task or several bundled?
-2. **Acceptance criteria** — how do we know it's done? Measurable bar?
-3. **Constraints** — flag violations of CLAUDE.md's hard rules and behavioral guidelines.
-4. **Security surface** — auth/tokens, user input, filesystem, external APIs? Say so in the brief.
-5. **Testing** — what runnable surface proves it live? Which spanning and regression tests (logic, not coverage:
-   `rules/standards/testing-guidelines.md`)? Existing fixtures?
-6. **Missing context** — what does the implementer lack? Prior art to reuse?
+1. **Scope:** target files, exclusions, one task or several?
+2. **Acceptance:** measurable completion check?
+3. **Constraints:** CLAUDE.md hard rules/guidelines respected?
+4. **Security:** auth/tokens, input, filesystem or external APIs? Name the surface.
+5. **Testing:** live surface, spanning/regression tests, fixtures? Follow `rules/standards/testing-guidelines.md`.
+6. **Context:** missing evidence and reusable prior art?
 
 ## Output format
 
-```markdown
-## Refined Task Brief
+Start with **READY** or **NEEDS CLARIFICATION**, then a **Refined Task Brief** containing:
 
-**Objective**: [1 sentence — clear, specific, actionable]
+- **Objective:** one actionable sentence.
+- **Scope:** files/modules and what not to touch.
+- **Constraints:** relevant CLAUDE.md requirements.
+- **Acceptance Criteria:** testable checklist, including live behavior and passing spanning/regression tests.
+- **Testing Requirements:** spanning/regression tests.
+- **Security Notes:** implications or “None identified”.
+- **Questions:** at most three, only for NEEDS CLARIFICATION.
 
-**Scope**:
-- Files: [files/modules to modify]
-- Boundary: [what NOT to touch]
-
-**Constraints** (from CLAUDE.md): [relevant constraints]
-
-**Acceptance Criteria**:
-- [ ] [specific, testable]
-- [ ] Live check on the real surface shows the behavior; the spanning/regression tests pass
-
-**Testing Requirements**: [spanning test + regression tests]
-
-**Security Notes**: [implications, or "None identified"]
-
-**Verdict**: READY / NEEDS CLARIFICATION
-
-**Questions** (if NEEDS CLARIFICATION):
-1. [specific question]   (at most 3)
-```
-
-A well-scoped request is READY at once (don't invent problems); a TRIVIAL one gets a one-line brief.
+A well-scoped request is READY; never invent problems. A TRIVIAL request gets one line.
 
 ## Plan review
 
-Check a written plan against `agents/Plan.md` → Plan rules and Phase rules, plus:
+Apply `agents/Plan.md` → Plan rules and Phase rules, then check:
 
-1. **Evidence holds** — rerun two or three Target-shape rows' commands; a row that no longer reproduces, or a
-   `Snapshot:` far behind HEAD in the files the plan touches, is an issue.
-2. **The decision is real** — the `DECISION:` line names a rejected alternative that was viable; a straw man is an
-   issue.
-3. **Phase 0 can catch a regression** — its baseline covers the commands the later phases change.
-4. **Tasks tick** — every task's `owns:` names real paths the phase edits, so `docs-plan-tick` can close it; a
-   `codex`/`copilot`/`gemini`/`opencode` task names a `claude` fallback.
-5. **A cold start works** — spec covered without scope creep, placeholder-free, each code change carries its code.
+1. **Evidence:** rerun 2–3 Target-shape commands. Flag non-reproduction or a `Snapshot:` far behind touched files' HEAD.
+2. **Decision:** `DECISION:` rejects a viable alternative, not a straw man.
+3. **Baseline:** Phase 0 covers the commands later phases change.
+4. **Tasks:** `owns:` names real edited paths for `docs-plan-tick`; external-agent tasks name a `claude` fallback.
+5. **Cold start:** spec covered, no scope creep/placeholders, each code change carries its code.
 
-Flag only what would break implementation; wording, nice-to-haves and extra sections are not issues. Output the
-verdict, then issues as `[Phase X.Y]: issue — why it matters`.
+Flag implementation blockers only, not wording, nice-to-haves or extra sections.
+Output verdict, then `[Phase X.Y]: issue — why it matters`.

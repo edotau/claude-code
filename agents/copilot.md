@@ -7,7 +7,7 @@ color: cyan
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
 effort: low
-maxTurns: 40
+maxTurns: 200
 ---
 
 # copilot

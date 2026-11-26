@@ -413,3 +413,16 @@ func FamilyName(id string) string {
 	}
 	return n
 }
+
+// ModelSetting is one Claude Code `modelSettings` entry for each alias in Models; an empty field is left unset.
+type ModelSetting struct {
+	Models            []string `json:"-"`                           // aliases sharing these values
+	EffortLevel       string   `json:"effortLevel,omitempty"`       // low|medium|high|xhigh
+	MaxEffortLevel    string   `json:"maxEffortLevel,omitempty"`    // low|medium|high|xhigh|max
+	AutoCompactWindow any      `json:"autoCompactWindow,omitempty"` // int >= 100000 or "auto"
+}
+
+// ModelSettings is the per-model Claude Code settings; launch writes them under the session's Claude model ids.
+var ModelSettings = []ModelSetting{
+	{Models: []string{Opus, Sonnet, Haiku, Fable}, EffortLevel: "medium"},
+}

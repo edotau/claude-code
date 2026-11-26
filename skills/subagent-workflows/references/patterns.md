@@ -8,30 +8,19 @@ type, then wire stages into a template from [composites.md](composites.md).
 Agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) are not used; the harness keeps leaves terminal. Plan
 ownership: `../SKILL.md` → Who holds the plan.
 
-Workflow limits (docs): 16 concurrent agents by default, 1,000 per run, no mid-run input, run a small slice first
-(`code-workers` `slice`). The dispatch cap (`rules/harness/hooks.md` → dispatch cap) claims one slot per `agent()`
-site in a script (`internal/hooks/dispatchhook/leaves.go` `Effort`).
+Concurrency: `../SKILL.md` → Concurrency. Saved-script limits and arguments: [saved-workflows.md](saved-workflows.md).
 
 ## Patterns we run
 
-| Pattern | Harness component | Roles filled by | Enforced by |
-| --- | --- | --- | --- |
-| Pipeline | `code-workers.js` per package | find, rederive, fix, test, gate = Sonnet/Haiku claude agents | `stepOf` pins, schemas |
-| Fan-out / fan-in | `code-workers.js` `pipeline(PKGS, review, repair)` · parallel leaves | `claude` leaves, disjoint files | dispatch cap, `worktree-claim-check` |
-| Expert pool | `code-engineer.js` sizing router | `haiku` sizer returns kind, packages, paths; the script picks the tier and route | tier table, `dispatch-effort` |
-| Producer-reviewer | fix, test repair, gate · rederive | implementer vs blind re-deriver | repaired tests and gate exit codes |
-| Supervisor | main session + leaves | `claude`, `Explore`; carried external asks | dispatch cap, `dispatch-stop` ran-on |
-| Hierarchical | `code-engineer.js` calling `workflow()` on `code-workers.js` | one workflow level | runtime rule: one nesting level |
+The sections below describe task shapes. Dispatch uses `../SKILL.md` → Handoff contract.
 
 ### Pipeline
 
 ```text
-package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fix -> test repair -> gate(p)
+scope: find -> merge findings -> rederive blind -> fix -> repair affected tests -> cheap checks
 ```
 
-- Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped:
-  `go build ./... && go vet './<pkg>/...' && go test './<pkg>/...'` from `claude-code worktree gate --scope <pkg>`
-  (prints it; `--run` executes it), or `args.gate`.
+- Stage implementation and current defaults: [saved-workflows.md](saved-workflows.md).
 
 ### Fan-out / fan-in
 
@@ -40,17 +29,15 @@ packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged 
 ```
 
 - code-workers streams each package to its fixer the moment its findings are confirmed; the barrier shape (all
-  reviews, then all fixes) is retired. Finders in `code-analyzer.js` remain a fan-out over (dimension x chunk) with a
+  findings, then all fixes) is retired. Finders in `code-analyzer.js` remain a fan-out over (dimension x chunk) with a
   refute step.
 - Manual form: `Agent` calls in one message with `Owns:` files; fan-in reads every diff and the seam between leaves
   (`../SKILL.md` Phase 3).
-- Failure: wording-based dedupe produced duplicate findings; code-workers merges by file +-10 lines or same symbol.
-  Loop-until-dry never converged: retired.
 
 ### Expert pool
 
 ```text
-task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers per top-level dir in waves of cap (default 16, max 24) | code-analyzer (bare range) | code-evaluator (skill) | plan draft
+task -> size -> repair | audit | evaluate | plan
 ```
 
 - Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
@@ -61,7 +48,7 @@ task -> size(TRIVIAL|LOW|MEDIUM|HIGH|EPIC) -> code-workers per top-level dir in 
 ### Producer-reviewer
 
 ```text
-fix -> test repair (new tests are proposed, never written) -> gate(p)
+fix -> test repair -> cheap checks
 finder claim -> blind re-derivation from file:line + symptom -> reproduced | dropped | unverified
 ```
 
@@ -71,7 +58,7 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 ### Supervisor
 
 ```text
-main session -> Explore x3 -> Plan -> claude || claude -> fan-in -> verify -> commit
+main -> explore -> plan -> parallel leaves -> collector -> sign-off
 ```
 
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
@@ -88,11 +75,11 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 
 ### Sequential plan and tournament
 
-- Sequential plan: per task implementer, spec review until `SPEC_COMPLIANT`, `Skill(simplify)`, quality review until
-  `SHIP` ([prompts.md](prompts.md)); stop and ask when an assumption breaks. Ticks via `docs-plan-tick`.
-- Tournament: after the owner approves worktree creation, baseline the eval, send one brief verbatim to N `claude`
-  leaves (`isolation: "worktree"`, branch `compete/<slug>/<n>`), re-measure yourself, `claude-code worktree land` the
-  winner, tag losers. A tie is not a win.
+- Sequential plan: dispatch each dependent task when its input is ready. Final review and validation:
+  `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
+- Tournament: baseline the evaluation, send the same brief to each candidate, then re-measure the results.
+  A tie is not a win. Preserve losing work for the owner's decision; integrate the winner through the collector.
+  Tree selection and cleanup: `rules/standards/worktree-git.md` → Worktrees.
 
 ### Not used
 
@@ -107,12 +94,12 @@ overrides: [saved-workflows.md](saved-workflows.md).
 
 ## Lessons from the trial
 
-- Stream per package, no barrier between review and fix.
+- Stream discovery into fixes; final review belongs to collector sign-off.
 - Record in-run, not in a hook: PostToolUse(Workflow) fires at launch.
 - Re-derive blind, and treat a failed re-derivation as unverified, never refuted.
 - A fixer that is not `done` is red even when the gate passes.
 - Route findings to the package that owns the file.
-- Scoped gates can miss integration failures; release checks: `CLAUDE.md` hard rule 5.
+- Final sign-off: `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
 - Revert a leaf's out-of-scope hunk; a leaf never "fixes" files outside its list.
 - Pin `model` and `effort` on every stage with one verbatim `stepOf`.
 - Fix every finding, LOW included, in the round; only owner-judgment items go to a report.

@@ -4,221 +4,148 @@ paths:
 ---
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/`)
 
-`~/.claude/memory/` is one local-only git repo (never pushed); `claude-code memory path` prints it. There is ONE bank
-for every workspace (any repo, scratch dir, provider or profile): five typed files at the top plus Claude Code's native
-topic files, the generated `MEMORY.md` (head, pinned, newest 20 pointers), the append-only `index.md` of its
-entries and the generated `catalog.md` router. Folders:
-`archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `feedback/`, `notes/`, `techdebt/` (no `<key>--`
-prefix; `handoffs/`, `reports/` and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new
-one). `techdebt/<area>.md` holds known debt, one file per area: searchable and in the catalog, never in prompt
-recall. `.layout` (`flat 3`) stamps the layout, and every
-`~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at SessionStart.
-The bank holds session STATE; durable facts belong
-in `rules/` or `CLAUDE.md` — point at them, never copy.
+One local-only git repo, never pushed, serves every workspace/provider/profile.
+`claude-code memory path` prints it; SessionStart repairs project memory symlinks to it.
+Keep session state here; point to durable rules/CLAUDE.md instead of copying them.
 
-`claude-code memory path [handoffs|reports|knowledge|worktrees|techdebt] [NAME]` prints the path (no NAME = store
-root); NAME loses any `<key>--`, gains `.md` when it has no extension, and in the dated folders gains today's
-date when it has none.
+Five typed files sit beside native topic files, generated MEMORY/catalog and append-only index.
+Folders: archive, handoffs, reports, knowledge, worktrees, feedback, notes, techdebt.
+No repo-key prefixes; handoff/report/worktree names are dated. Techdebt is searchable/cataloged, never prompt recall.
+Layout stamp: `.layout` (`flat 3`).
+`memory path [handoffs|reports|knowledge|worktrees|techdebt] [NAME]` strips old key prefixes, adds missing
+`.md` and dates dated-folder names; no NAME prints the root. Placement: `rules/harness/docs-placement.md`.
 
 ## Precedence
 
-`internal/memory` code, then this file (layout, contracts, caps), then the prompts in
-`internal/assets/memory/prompts/` (`claude-code memory <verb>` prints them).
-On a disagreement the earlier wins; each fact lives in one place.
+`internal/memory` code → this file's contracts/caps → `internal/assets/memory/prompts/`.
+Each fact has one home.
 
 ## Verbs
 
-`claude-code memory -h` lists the menu verbs (plumbing verbs are dispatchable but off the menu); `memory <verb> -h`
-lists flags. A verb needing judgment prints its embedded procedure for the live session or the headless `memory
-update`; the rest print none.
+Use `claude-code memory -h` and `memory <verb> -h`; off-menu plumbing remains dispatchable.
+Judgment verbs supply embedded procedures; update runs them for the live session or transcript.
 
-- Read: `search <terms>`, `search --open N <terms>` (appends top bodies), `search --id <id>`, `path`,
-  `review` (caps, staleness; `--timeline N` lists recent sessions), `feedback list [--rank]` (open candidates; `--rank`
-  prints the promotion-ranking procedure), `feedback show <id>`.
-- Write: `feedback add|approve|close` (candidate records), `remember <fact> [--type]`, `init` (prints a procedure while
-  `activeContext.md` is the template), `update`
-  (live session or `--transcript`; neither prints the procedure; `--catchup [--dry-run] [--skip ID]` saves missed
-  sessions), `report`, `fmt [--check|--own]`.
-- Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
-  (consolidation; `--dry-run` is a deterministic audit, no model).
-- Move: `promote <id> --to <target>` (ladder below), `sandbox [--empty]` (disposable config with a copied bank,
-  origin-only vault).
-  `sync [--host H]` (off unless `NETWORK_MEMORY=on`) pulls then pushes change envelopes over ssh with each peer in
-  `CLAUDE_REMOTE_HOST`, one transaction per direction; `conflicts` lists and resolves the open ones. The peer side,
-  `sync --serve export|import`, is hidden and runs over ssh. `import` and `fetch` are retired and exit 2: memory syncs
-  with `claude-code memory sync`; `shadow --rebuild` rebuilds the db from the files.
-- Export guard copies: a file changed on disk and in the db is merged by entry id when it is a log (`sessionHistory`,
-  `decisionLog`, `conventions` and their archives); only an entry both sides edited keeps a copy. Every kept copy
-  lives under `state/harness/memory/held/` at the file's store path, never in the bank, and only when neither the
-  store's git history nor the file already holds its bytes. Settle moves copies an older build left in the bank there
-  and removes held copies older than 7 days or past the newest 20 per file; `shadow --conflicts [--clear <path>]`
-  lists and removes them.
-- Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps
-  and drains the job queue.
-- Old file-hash sync left `state/harness/memory/sync.json`, `sync-<stamp>.log` and `memory-import-*.bundle` backups in
-  `state/harness/backups/`; nothing reads or deletes them.
+- Read: `search <terms>`, `search --open N <terms>`, `search --id <id>`, `path`, `review [--timeline N]`,
+  `feedback list [--rank]`, `feedback show <id>`.
+- Write: `remember <fact> [--type]`, `feedback add|approve|close`, `init`, `update [--transcript]`,
+  `update --catchup [--dry-run] [--skip ID]`, `report`, `fmt [--check|--own]`.
+- Settle: `index`, `dream [--force|--dry-run]`; dream dry-run audits without a model.
+- Move: `promote <id> --to <target>`; `sandbox [--empty]` gives a disposable bank with origin-only vault.
+- `sync [--host H]` is opt-in via `NETWORK_MEMORY=on`; it pulls/pushes change envelopes over SSH to
+  `CLAUDE_REMOTE_HOST`, one transaction per direction. `conflicts` lists/resolves conflicts;
+  hidden `sync --serve export|import` serves peers. Retired import/fetch are replaced by sync.
+- `shadow --rebuild` rebuilds the DB from files. Export merges log changes by entry id, keeping copies only for
+  entries both disk and DB edited and whose bytes are absent from history/file.
+  Copies live in `state/harness/memory/held/`, never the bank; settle relocates old copies, keeps 7 days/20 per file.
+  `shadow --conflicts [--clear <path>]` manages them.
+- Hooks start `watch` and `update --catchup`; catch-up also runs daily learning and drains queued jobs.
 
 ## Promotion ladder
 
-The one copy; each step costs more context. Each step prints the block, target and procedure and the agent edits by
-hand.
+Keep one copy. Each step prints the target, block and editing procedure.
 
-1. `promote --to rules` — for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md` (enforced), never
-   `rules/workflows/` or `CLAUDE.md`; `--to skill` — for `skills/<name>/SKILL.md` or `references/` (how-to).
-2. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on). Gated: 3+ bank entries and a hard prohibition;
-   refused outside `memory dream`'s own run (`promoteJudgment`).
+1. `promote --to rules`: standards or software/language rules only, never workflows/CLAUDE.md.
+   `--to skill`: SKILL.md or references for procedures.
+2. `promote --to claude-md`: Hard rules only; requires 3+ entries and a hard prohibition,
+   and runs only inside dream's own promotion judgment.
 
 ## Files + mutation contracts
 
-| File | Holds | Contract |
-| --- | --- | --- |
-| `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
-| `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
-| `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |
-| `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
-| `sessionHistory.md` | Newest-first summaries | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
+| File | Content and mutation |
+| --- | --- |
+| `activeContext.md` | Replace each session end: focus, questions, blockers, next steps |
+| `progress.md` | Replace each session end: What Works / In Progress / What's Next / Known Issues |
+| `decisionLog.md` | Dated decisions/rationale; append newest first, supersede never delete |
+| `conventions.md` | Append learned patterns; dream prunes |
+| `sessionHistory.md` | Append newest first; rotate overflow to `archive/sessionHistory-<yyyy-mm>.md` |
 
-Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name>.md`, knowledge
-`knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
-per session per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first,
-the generated one second. `memory index` files loose top-level notes: `feedback*.md` into
-`feedback/`, any other non-core `.md` into `notes/`.
-Typed files carry no frontmatter and no note is ever edited. `catalog.md` is the generated router (layout, knowledge,
-home rows, one line per note), rewritten whole. `index.md` keeps every entry the model writes to `MEMORY.md` and is
-append-only: Go never rewrites, truncates or reorders it, and only appends records (each line prefixed with four
-spaces, then `<!-- end of entry -->`), skipping an entry whose bytes are already stored. Reading is tolerant: other
-text is skipped and stays where it is, so a parse problem only changes what `MEMORY.md` shows.
-An entry is a list item (`-`, `*`, `+`, `1.`) or bare link at column 0 plus every line up to the next one, blank
-lines and headings included; text before the first is an entry. Its bytes are stored exactly, `\r` and BOM included;
-the newline ending its last line and blank lines at its edges are separators, not stored, and the refresh output
-counts those blank lines. Identical bytes are one entry. Generated `MEMORY.md` text runs from its begin line to
-`<!-- end of generated text <hash> -->` (the hash covers that block only; an `index.md` record's end line has none);
-the rest is input. Once the hash fails, the lines between the longest head and tail the block shares with
-`memory-md.gen` (in the memory state folder, `state/harness/memory/`; the last text installed, proven by its own end
-line) are input; without that proof every line is.
-A refresh, under the bank lock, first refuses with nothing changed when `index.md`, `MEMORY.md`, `catalog.md` or the
-kept copy `memory-md.prev` (state folder) is a symlink, not a regular file, or one file under two names. Then it
-(1) folds the kept copy `memory-md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the new text to
-a temp file and renames `MEMORY.md` to the kept copy (a rename across volumes fails: the refresh refuses,
-`MEMORY.md` unchanged); (3) appends the copy's input to `index.md`; (4) places the temp file as
-`MEMORY.md` only where none exists (`os.Link`, else an `O_EXCL` create where hard links fail), else leaves the writer's
-file to the next refresh; if placing fails it puts the moved text back the same way. Interleavings: a write by path
-before the rename is in the moved file; one after it creates a new `MEMORY.md` that the install leaves alone; a write
-through a handle opened before the rename lands in the copy, which the next step 1 folds. The one loss: a handle opened
-before a refresh's rename and written after the next moving refresh's step 1 read the copy, as that rename replaces it
-(a refresh that finds `MEMORY.md` current moves nothing). An editor saving a stale `index.md` over appended records
-loses them unless a step 1 re-appends them from the copy; the store's git history keeps every commit. If the store
-directory turns unwritable between the rename and the install, `MEMORY.md` is missing until the next refresh; its
-text is in the kept copy. Owner edits
-anywhere in `index.md` stay byte for byte; a record deleted by hand is appended again while the kept copy or pending
-`MEMORY.md` input holds it, so delete it there too.
-`MEMORY.md` shows a pinned or newest note's first entry (over 512 bytes, 4 lines or with a marker line: its built
-row); only `metadata.pinned: true` pins; a pointer into `handoffs/`, `reports/` or `knowledge/` joins the newest
-list, dated by its `YYYY-MM-DD-` name; the 10 newest unresolved entries and a count follow. An I/O error or a
-refusal fails the refresh with path-free advice; pins past the loader limit drop oldest first with unpin advice;
-each sets the next session-start line, and `claude-code memory review` gives the cause. Never hand-edit `MEMORY.md`.
-When rewriting a note, keep its existing `metadata` keys, including `pinned`.
+Typed files have no frontmatter. Preserve note metadata, including pinned.
+`memory index` files loose feedback notes under feedback and other non-core notes under notes.
+Generated catalog is rewritten whole; never hand-edit generated MEMORY.md.
+
+Index is append-only for Go: preserve owner edits and entry bytes, deduplicate identical entries, never reorder or
+truncate. Entries start at column-zero list items/bare links (leading text is an entry); preserve interior headings,
+blanks, CR/BOM, excluding edge separators. Store indented records ending `<!-- end of entry -->`.
+Tolerate unknown index text without altering it.
+
+Refresh uses the bank lock and refuses symlinks, non-regular files or aliasing among index, MEMORY, catalog and
+`state/harness/memory/memory-md.prev`. Generated blocks are hash-proven against `memory-md.gen`;
+unproven text is input. Fold the kept copy before replacing it; preserve concurrent writers by installing only
+where no file exists and restore moved text on failure. Cross-volume rename refuses without changing MEMORY.
+Exact parsing/install protocol: `internal/memory/bank_region.go`.
+Open handles written after the next moving refresh can lose input; stale index saves can lose appended records.
+Git retains commits; failed installation retains moved text in the kept copy for recovery.
+A hand-deleted index record returns while pending MEMORY input or the kept copy still holds it; remove it there too.
+
+Only `metadata.pinned: true` pins. MEMORY shows pinned/newest notes (20 newest pointers), using built rows for entries
+over 512 bytes, four lines or containing markers; dated handoff/report/knowledge pointers join newest.
+It includes 10 newest unresolved entries plus a count. Failed refreshes set session-start advice;
+`memory review` explains them. Loader overflow drops oldest pins and advises unpinning.
 
 ## Maintenance
 
-A memory cleanup applies `principles.md` → Maintenance and cleanup to native notes (`feedback/`, `notes/`): the kept
-note keeps its `name:` and every `metadata` key (`pinned` if any merged note had it) and gains the folded notes'
-extra facts. Every `[[folded-name]]`, path and link to a folded file is rewritten to it in the editable files,
-`index.md` included (hand edits there are kept); `MEMORY.md` and `catalog.md` are regenerated by
-`claude-code memory index`, run last. Sync carries the deletion of each folded file to every synced machine whose copy
-is unedited (above), so delete it once, on the machine you edit on, and set that machine as primary.
+Follow `principles.md` → Maintenance and cleanup. Fold extra facts into the kept note; retain its name and metadata,
+including pinned if any merged note was pinned. Repoint every wikilink/path/link, including editable index entries.
+Run `claude-code memory index` last to regenerate MEMORY/catalog.
+Delete folded files once on the editing machine and make it primary; sync propagates deletion to unedited peers.
 
 ## Replaced entries
 
-An entry that reverses an older one is saved with `claude-code memory remember --supersedes <old id> '<fact>'`
-(`--type project` for a decision); the legacy prose form, `Supersedes` plus the old id (or `"<title>" (<id>)`) at the
-start of a body line or sentence, still reads, case-insensitive, id optionally in backticks; fenced code and quoted
-examples do not count.
-Every settle (`update`, `dream`, `index`, `import`) then strikes the old title and adds `Replaced by <new id>
-(<date>).` under it, in `decisionLog.md`, `conventions.md` and their `archive/` files, idempotently and without moving
-a block; an unknown id or two-entry cycle is left unmarked (`memory review` reports both). A partly struck title
-(`A; ~~B~~`) stays live.
-
-Recall serves the replacing entry instead (up to 8 hops, before limiting results); an unresolved target or longer
-chain returns the original flagged unavailable. `memory search` still lists it and `memory search --id` prints the
-pointer.
+Save reversals with `claude-code memory remember --supersedes <old id> '<fact>'` (`--type project` for decisions).
+Legacy Supersedes id/title prose still reads; code fences and quoted examples do not count.
+Settle strikes old titles and adds replacement id/date in decisions, conventions and archives, without moving blocks.
+Unknown ids/cycles stay unmarked for `memory review`; partly struck titles remain live.
+Recall follows replacements up to eight hops before limiting; unresolved/long chains return the original flagged
+unavailable. Search still lists originals; search-by-id prints their pointers.
 
 ## Caps
 
-| Limit | Value | Defined by |
-| --- | --- | --- |
-| `progress.md` | 60 lines | `fileCaps` |
-| `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
-| `decisionLog.md` | 200 lines | `fileCaps` |
-| `sessionHistory.md` | 30 entries (rotates) | `sessionHistoryMaxEntries` |
-| Generated `MEMORY.md` | 120 lines / 12 KB; newest drop first, pins stay (warns) | `bankIndexMaxLines/Bytes` |
-| Pinned lines | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*` |
-| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code loader |
+| File | Limit |
+| --- | --- |
+| progress | 60 lines |
+| activeContext / conventions | 80 lines each |
+| decisionLog | 200 lines |
+| sessionHistory | 30 entries, then rotation |
+| Generated MEMORY | 120 lines / 12 KB; newest pointers drop before pins |
+| Loader / pins | 200 lines / 25 KB; oldest pins drop, refresh fails with advice |
 
-The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow;
-`activeContext.md` and `progress.md` split per section into `archive/<file>-<yyyy-mm>.md`.
+Caps live in `fileCaps`, `sessionHistoryMaxEntries`, `bankIndexMax*` and `loaderMax*`.
+Dream archives overflow; activeContext/progress split by section into monthly archive files.
 
 ## Who writes what
 
-- `memory-start` (SessionStart) — injects the catalog pointer plus Current Focus/Blockers/Next Steps and In Progress
-  from `activeContext.md` / `progress.md`, the same from any cwd, plus `MEMORY.md` when the native link is missing;
-  scaffolds a missing bank; queues the daily `memory dream` as a job (one per day, `state/harness/memory/queue/`)
-  instead of spawning it, and wakes the detached `memory update --catchup` sweep
-  (at most every 10 minutes unless a job was just queued) that saves up to 3 (`catchupMax`) missed interactive
-  sessions from the last 14 days (`catchupWindow`), skipping live ones, then runs queued jobs one at a time under
-  `catchup.lock`, with one quiet line next start.
-  Replays run `memory update --historical` (history and decisions only).
-- `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
-  `memory index` learns a bounded access boost from 30 days of same-session follow-ups.
-- `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
-  decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
-  edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
-  SessionEnd); `memory-compact` does the same before compaction.
-  After releasing the bank lock, live updates audit recent plans in the session checkout in Go and log findings;
-  historical replays skip it and audit errors never fail the update.
-  At the context-steward threshold the Stop update is the one spawned worker and also writes a handoff (a
-  `handoff-<session>` marker in `state/harness/memory/` holds the path
-  `handoffs/<date>-session-<id8>.md`, the full session id and request time, and adds the step;
-  the "bg" stamp stops a second Stop update).
-  The worker claims and timestamps the run marker once across permission retries, removes it on every exit, and
-  publishes a completion marker only after the agent succeeds and the handoff starts with its full session id.
-  Reload checks both identities and budgets the body within 9,500 context characters, reserving the path
-  and truncation notice.
-  A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
-  to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
-  If `safety-scan` refused writes and no bank file changed it reruns once; a second miss records status
-  `blocked` (no retry, no Stop block) with one quiet line.
-- `memory dream [--trigger session-start|schedule|manual]` — runs the catch-up sweep first; every run (a not-due one
-  too, reason `not due`) appends a record to `state/harness/memory/dream-results.jsonl` and logs `dream-<stamp>.log`;
-  `doctor` shows the `memory dream` row. macOS launch agent `com.edotau.claude-code.dream` runs it every 6 h
-  (`internal/setup/install_dream.go`). A failed receipt carries `class` (`auth|budget|quota|failed`) and a `fix`
-  command; `auth` and `budget` are not retried until new edits. A dispatched leaf's session is not saved by its own
-  hooks (`update_gate.go`).
-- `memory dream` — consolidates (on Claude, the logged-in user): baseline → audit → recent sessions → prune native
-  memory → refresh bank → plans audit → cross-pollinate → report; archives durable-file overflow. The plans audit
-  ticks or strikes at most 10 open tasks of week-old plans through `plan task`; Go re-checks each after the run
-  (sha on trunk touching an `owns:` file, cited evidence in the store), reopens what fails and logs every verdict to
-  `state/harness/memory/plans-audit.jsonl`. It never edits `rules/**`; its only
-  `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Each run also feeds it the week's top
-  `rtk discover` misses (command word and first flag only; skipped if rtk fails) for one rtk candidate record.
-  Native memory edits never touch a
-  `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
-  Its input is the top-level, `feedback/` and `notes/` files changed since the last dream. It also rewrites
-  `knowledge/feedback-candidates.md`: proposals for tool or rule changes, one JSON record per line of one `jsonl`
-  block, no more than two lines of prose. `memory review` validates it (unknown fields, evidence under 2 files or
-  absent from the store, a target outside the repo and store, duplicate ids, credentials) and exits non-zero on any.
-  A record may also carry `status` (`approved`, `enforced`) and `enforced_by` (a main commit sha or `file:line`); dream
-  skips those. `feedback list` lists the open ones (plain `review` too), `review --notice` counts them;
-  `feedback show <id>` prints one with its launch line, and after the owner's yes the main session runs
-  `feedback approve <id>`, then the
-  launch, then `feedback close <id> <sha|file:line>` (refused inside a memory job; the sha must be on main).
-  It also lists test proposals from recent hand-backs in `techdebt/tests.md`.
-- `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
-  line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;
-  a failed refresh fails, and `memory review` and the session-start line report it.
-  `index`, `dream`, `update`, `import` and plain `review` also refresh the session-start notice
-  (`state/harness/memory/doctor-notice-<store>`), which session start only reads.
-  Plain `memory review` adds 14 days of hook verdict counts and cap markers when available; `--notice` skips them.
-- The embedding cache (`state/harness/memory/embeddings.db`) is one per embedding model, shared by every Databricks
-  workspace: the profile only picks the endpoint. A model change re-embeds; a damaged file is set aside as `.damaged`
-  and rebuilt empty.
+- **memory-start:** same focus/blockers/next steps/in-progress from any cwd, catalog pointer, MEMORY if native link
+  is missing. Scaffold missing banks; queue daily dream; wake catch-up at most every 10 minutes unless newly queued.
+  Catch-up saves at most three missed interactive sessions from 14 days, skipping live sessions, then drains jobs
+  serially under `catchup.lock`. Historical replay saves history/decisions only.
+- **memory-recall:** searches the whole store; index learns bounded access boosts from 30 days of
+  same-session follow-ups.
+- **memory update:** writes summaries/history, current focus/progress, decisions and patterns.
+  Stop/SessionEnd run it after enough edits; first dispatch claims watch, which saves after 10 quiet minutes.
+  PreCompact also updates. Live updates audit recent plans after unlock; historical replay skips this;
+  audit failures do not fail update. Dispatched leaves are not saved by their own hooks.
+- At the steward threshold, the same Stop worker writes `handoffs/<date>-session-<id8>.md`; run/completion markers
+  prevent duplicates and validate full session identity. Reload budgets 9,500 characters, preserving path/notice.
+  Detached updates (`CLAUDE_MEMORY_DETACHED`) wait up to 16 minutes for the lock; foreground waits 5 seconds.
+  Safety refusal with no bank edits retries once, then records blocked without blocking Stop.
+- **memory-compact:** writes a fact-only `handoffs/YYYY-MM-DD-compact-<id8>.md`, one per session/day, rewritten.
+  Reload prefers a fresh model handoff, then the generated one.
+- **memory dream:** catch up first; log every run, including not-due, to dream-results.jsonl and dream logs.
+  Mac launchd schedules every six hours; doctor reports status. Receipts classify auth/budget/quota/failed;
+  auth/budget wait for new edits before retry.
+- Dream runs on Claude's logged-in user: baseline, audit, recent sessions, prune native notes, refresh bank,
+  audit plans, cross-pollinate, report; archive overflow. Audit at most 10 open tasks in week-old plans via plan task.
+  Go checks trunk sha/owned paths/cited store evidence, reopens failures and logs each verdict.
+- Dream never edits rules; CLAUDE.md only receives a block its own `promote --to claude-md` printed.
+  Never edit a RULES:BEGIN/END region without human approval. Read changed top-level/feedback/notes files only.
+  Feed one rtk candidate from the week's discover misses (command/first flag only; skip failed discovery).
+- Dream rewrites `knowledge/feedback-candidates.md`: one jsonl block, one record per line, ≤2 prose lines.
+  Review rejects unknown fields, fewer than two evidence files, missing store evidence, outside targets,
+  duplicate ids and credentials. Approved/enforced records carry status/enforced_by and are skipped.
+  After owner approval main runs `feedback approve <id>`, its launch, then `feedback close <id> <sha|file:line>`;
+  closing is refused in memory jobs and commit shas must be on main. Test proposals go to `techdebt/tests.md`.
+- **memory index:** capture model-added index entries, regenerate MEMORY/catalog, rotate history and commit the store.
+  Dry-run writes nothing. Index/dream/update/review refresh the cached session-start notice;
+  review adds 14 days of hook verdict/cap counts, while `--notice` omits them.
+- Embeddings: `state/harness/memory/embeddings.db`, shared across workspaces by model, not profile.
+  Model changes re-embed; damaged files are set aside as `.damaged` and rebuilt empty.

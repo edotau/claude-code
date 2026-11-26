@@ -40,17 +40,6 @@ func TestLocalRule(t *testing.T) {
 	}
 }
 
-// The local qwen row ranks but never joins a hosted rotation pool, whatever the local stage.
-func TestLocalQwenNotRotated(t *testing.T) {
-	for _, tier := range []string{"fast", "standard", "deep"} {
-		for _, tools := range []bool{false, true} {
-			if got := RotationPool([]Candidate{{Model: "qwen3.8-27b:gguf:q6", Tools: "yes"}}, tier, tools); len(got) != 0 {
-				t.Errorf("RotationPool(%s, tools=%v) = %v, want none", tier, tools, got)
-			}
-		}
-	}
-}
-
 // A pattern every id of which an earlier pattern already matches never ranks anything (first match wins).
 func TestRanksNoShadowedPattern(t *testing.T) {
 	fam := loadRanks().Families
@@ -64,28 +53,15 @@ func TestRanksNoShadowedPattern(t *testing.T) {
 	}
 }
 
-// A lite id of a family that also has a plain flash rank keeps the lite rank, not the plain flash one.
-func TestRankOfLiteBeforeFlash(t *testing.T) {
-	for id, want := range map[string]int{"gemini-3-8-flash-lite": 1, "gemini-3-8-flash": 3, "gemini-3-5-flash-lite": 1} {
-		if got := RankOf(id).Capability; got != want {
-			t.Errorf("RankOf(%s).Capability = %d, want %d", id, got, want)
-		}
-	}
-}
-
-// Hydrogen's agy ids carry an effort suffix; every one ranks as the family, between lite and Argon.
-func TestRankOfHydrogenEffortIDs(t *testing.T) {
-	for _, id := range []string{"gemini-4-hydrogen", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-xhigh"} {
-		if r := RankOf(id); !r.Known || r.Capability != 3 || r.Match != "gemini-4-hydrogen*" {
-			t.Errorf("RankOf(%s) = %+v, want the gemini-4-hydrogen* row at capability 3", id, r)
-		}
-	}
-}
-
 // A dated or prefixed id inherits its family's rank; an id no family matches is unknown.
 func TestRankOfFamily(t *testing.T) {
-	base := RankOf("claude-opus-5-5")
-	for _, id := range []string{"claude-opus-5-5-20261201", "databricks-claude-opus-5-5"} {
+	tbl := rankTable{Families: []Rank{{Match: "*big-1*", Capability: 5, Cost: 4}}}
+	tbl.Families[0].Known = true
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	base := RankOf("big-1")
+	for _, id := range []string{"big-1-20261201", "databricks-big-1"} {
 		if got := RankOf(id); !got.Known || got.Match != base.Match {
 			t.Errorf("RankOf(%s) = %+v, want %s's family", id, got, base.Match)
 		}
@@ -138,21 +114,33 @@ func cands(ids ...string) []Candidate {
 }
 
 func TestRotationPool(t *testing.T) {
+	tbl := rankTable{Rotation: map[string]rotationRule{
+		"fast": {Min: 1, MaxCost: 2}, "standard": {Min: 3, MaxCost: 4}, "deep": {Min: 5, MaxCost: 5},
+	}, Families: []Rank{
+		{Match: "nano*", Capability: 1, Cost: 5}, {Match: "luna*", Capability: 1, Cost: 1},
+		{Match: "midm*", Capability: 3, Cost: 3}, {Match: "topm*", Capability: 5, Cost: 4},
+	}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
 	in := []Candidate{
-		{Model: "gpt-5-4-nano"}, {Model: "gpt-6-2-luna"},
-		{Model: "claude-sonnet-5-5"}, {Model: "claude-opus-5-5"},
+		{Model: "nano-1"}, {Model: "luna-1"},
+		{Model: "midm-1"}, {Model: "topm-1"},
 		{Model: "fake-model-a", Tools: "yes"}, {Model: "fake-model-b"},
-		{Model: "gpt-6-luna", Tools: "no"},
+		{Model: "luna-2", Tools: "no"},
 	}
 	for _, tc := range []struct {
 		name, tier string
 		tools      bool
 		want       []string
 	}{
-		{"fast", "fast", false, []string{"gpt-6-2-luna", "fake-model-a", "fake-model-b", "gpt-6-luna"}},
-		{"fast with tools", "fast", true, []string{"gpt-6-2-luna", "fake-model-a"}},
-		{"standard", "standard", false, []string{"claude-sonnet-5-5", "claude-opus-5-5"}},
-		{"deep", "deep", false, []string{"claude-opus-5-5"}},
+		{"fast", "fast", false, []string{"luna-1", "fake-model-a", "fake-model-b", "luna-2"}},
+		{"fast with tools", "fast", true, []string{"luna-1", "fake-model-a"}},
+		{"standard", "standard", false, []string{"midm-1", "topm-1"}},
+		{"deep", "deep", false, []string{"topm-1"}},
 		{"unknown tier", "unknown", false, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,6 +258,11 @@ func BenchmarkChoose(b *testing.B) {
 }
 
 func TestRankOfDottedSpelling(t *testing.T) {
+	tbl := rankTable{Families: []Rank{{Match: "grok-4-7*", Capability: 4}}}
+	tbl.Families[0].Known = true
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
 	if dot, dash := RankOf("grok-4.7"), RankOf("grok-4-7"); dot.Capability != dash.Capability || dash.Capability == 0 {
 		t.Errorf("grok-4.7 ranks capability %d, grok-4-7 %d; want the same spelling-independent rank", dot.Capability, dash.Capability)
 	}

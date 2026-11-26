@@ -178,7 +178,7 @@ func TestUnreadableRecordsSurfaceInPreflight(t *testing.T) {
 		t.Fatalf("Check = %+v; want a vault error, not unpinned agents", ps)
 	}
 	var out bytes.Buffer
-	RunInstallStep(context.Background(), &out, reg, "must-not-run", now)
+	RunInstallStep(context.Background(), &out, reg, "must-not-run", now, false)
 	if !strings.Contains(out.String(), "vault error: agent pins: vault: agent-records is corrupt") {
 		t.Fatalf("install output = %q", out.String())
 	}

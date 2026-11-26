@@ -1,53 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "claudeMdExcludes": [
-    "**/.claude/agents/claude.md"
-  ],
   "env": {
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
-    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "72",
-    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage:~/.claude/mods/dispatch-spawn:~/.claude/mods/codemode",
     "CLAUDE_CODE_SCROLL_SPEED": "2",
     "ENABLE_PROMPT_CACHING_1H": "1",
     "ENABLE_TOOL_SEARCH": "1"
   },
-  "attribution": {
-    "commit": "",
-    "pr": "",
-    "sessionUrl": false
-  },
-  "permissions": {
-    "allow": [
-      "Bash",
-      "Bash(claude-code *)",
-      "Bash(git grep:*)",
-      "Bash(go *)",
-      "Bash(gofmt -l *)",
-      "Bash(make *)",
-      "Bash(rtk *)",
-      "Edit",
-      "mcp__claude-in-chrome",
-      "Read",
-      "WebFetch(*)",
-      "Write"
-    ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(rm -rf ~)",
-      "Bash(sudo:*)",
-      "Edit(~/.ssh/**)"
-    ],
-    "ask": [
-      "Edit(**/.credentials.json)",
-      "Edit(~/.claude/state/vault.db)",
-      "Read(~/.ssh/id_*)"
-    ],
-    "defaultMode": "auto"
-  },
-  "model": "opus",
-  "feedbackSurveyRate": 0,
   "hooks": {
     "PreToolUse": [
       {
@@ -197,23 +156,13 @@
       }
     ]
   },
-  "statusLine": {
-    "type": "command",
-    "command": "$HOME/.claude/bin/claude-code theme statusline",
-    "padding": 0
-  },
   "enabledPlugins": {
     "gopls-lsp@claude-plugins-official": true
   },
-  "outputStyle": "Concise",
   "spinnerTipsEnabled": false,
   "prefersReducedMotion": true,
-  "worktree": {
-    "baseRef": "head"
-  },
-  "skipDangerousModePermissionPrompt": true,
+  "skipDangerousModePermissionPrompt": false,
   "tui": "fullscreen",
-  "useAutoModeDuringPlan": true,
   "theme": "auto",
   "awaySummaryEnabled": false,
   "autoScrollEnabled": true,
@@ -223,13 +172,6 @@
   "remoteControlAtStartup": true,
   "askUserQuestionTimeout": "5m",
   "autoConnectIde": false,
-  "feedbackDrafts": "off",
-  "modelSettings": {
-    "claude-fable-5-2": {
-      "effortLevel": "high"
-    }
-  },
-  "skipWorkflowUsageWarning": true,
   "idleCompaction": false,
   "switchModelsOnFlag": true
 }

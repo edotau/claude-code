@@ -7,13 +7,12 @@ paths:
 ---
 # TypeScript Testing
 
-> This file extends [standards/testing-guidelines.md](../../standards/testing-guidelines.md)
-> with TypeScript/npm specific content.
+Extends [testing-guidelines.md](../../standards/testing-guidelines.md).
 
-- Scope every run to what changed (full suite: `quality.md` step 6): `npx tsc --noEmit -p <tsconfig>` (a single
-  file cannot be typechecked alone), `npx eslint <files>`, `npx vitest run <path> [-t "<name>"]`.
-- E2E (cypress/playwright) builds and serves the whole app: wrap-up only, user-approved.
-- Read `package.json` `scripts` first and use the repo's runner; never `npm install` a test tool to run one.
-- Mock at the network boundary (MSW or the RTK Query endpoint), not the hook under test; reset handlers per test.
-- Generated clients (`rtk-query-codegen`, OpenAPI) are regenerated, never hand-edited.
-- A snapshot is not a guard: prefer explicit assertions; a snapshot needs a reason in the test name.
+- Read `package.json` scripts and use the repo's runner; never install a test tool for one run.
+- Scope checks: `npx tsc --noEmit -p <tsconfig>` (not one file), `npx eslint <files>`,
+  `npx vitest run <path> [-t "<name>"]`. Full suite: `quality.md` → Verification Order.
+- Cypress/Playwright E2E builds and serves the whole app: owner-approved wrap-up only.
+- Mock the network boundary (MSW or RTK Query endpoint), not the tested hook; reset handlers per test.
+- Regenerate clients (`rtk-query-codegen`, OpenAPI), never hand-edit.
+- Prefer explicit assertions; snapshots need a reason in the test name.

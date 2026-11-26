@@ -5,22 +5,19 @@ paths:
 ---
 # Python Patterns
 
-> This file extends [standards/quality.md](../../standards/quality.md) with Python specific content.
+Extends [quality.md](../../standards/quality.md).
 
 ## Optional Deps and TYPE_CHECKING Names
 
-- A name imported only under `if TYPE_CHECKING:` is legal in annotations only; `cast()` evaluates its first argument
-  at runtime, so quote it: `cast("V1Secret", ...)`.
-- `module.Attr` is not a valid type expression when `module` is a variable (an absent-SDK stub); import the type.
-- Never blanket-replace a type name across a file (it also rewrites runtime constructor calls): restrict to
-  annotation positions, then grep `Name(` call sites before running the suite.
+- Names imported under `if TYPE_CHECKING:` are annotation-only; quote runtime `cast()` types: `cast("V1Secret", ...)`.
+- An absent-SDK stub variable's `module.Attr` is not a type expression; import the type.
+- Restrict type-name replacements to annotations, then search `Name(` constructor calls before testing.
 
 ## Never Mutate `os.environ` to Steer a Library
 
-A pop-and-restore of `os.environ` is process-global: sibling threads and xdist workers see the variable missing.
+Pop-and-restore changes process-global state visible to sibling threads and xdist workers.
 
-- Pin the library's own precedence: most cloud SDKs resolve an explicit constructor kwarg (host, credentials, auth
-  type) before the env var, so the ambient env stops mattering. Read the resolution order first.
-- Otherwise scrub a copy for the child: `env = {k: v for k, v in os.environ.items() if k not in NAMES}` into
-  `subprocess`; in shell `env -u VAR cmd`, never a bare `unset` in a sourced file.
-- List only the vars the project actually sets; grep each candidate before adding it.
+- Read the library's precedence; prefer explicit constructor host, credentials or auth type over ambient env.
+- Otherwise pass a scrubbed copy to the child: `env = {k: v for k, v in os.environ.items() if k not in NAMES}`.
+  In shell use `env -u VAR cmd`, never bare `unset` in a sourced file.
+- Search each candidate first; list only variables the project sets.

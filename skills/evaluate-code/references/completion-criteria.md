@@ -1,13 +1,10 @@
 # Completion criteria and review severity
 
-The completion checklist and the review loop (R28) are canonical in `rules/standards/quality.md` → Completion. This is
-the severity scale.
+Checklist and review loop: `rules/standards/quality.md` → Completion.
 
 ## Severity
 
-| Level | Meaning | Action | Review-finding label |
-| --- | --- | --- | --- |
-| CRITICAL | Security vulnerability or data-loss risk | **BLOCK** — must fix | must-fix |
-| HIGH | Bug or significant quality issue | **FIX REQUIRED** — fix now (security: built-in `/security-review`) | should-fix |
-| MEDIUM | Maintainability concern | **FIX NOW** — same round, no ask | should-fix |
-| LOW | Style, minor | **FIX NOW** — same round, no ask (R28, `rules/standards/quality.md`) | nit |
+- **CRITICAL:** security vulnerability/data-loss risk → **BLOCK**, must-fix.
+- **HIGH:** bug/significant quality issue → **FIX REQUIRED**, should-fix; security uses built-in `/security-review`.
+- **MEDIUM:** maintainability concern → **FIX NOW**, should-fix, same round without asking.
+- **LOW:** style/minor → **FIX NOW**, nit, same round without asking (R28).

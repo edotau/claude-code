@@ -30,8 +30,9 @@
   extension fails; a new setting prefers a typed overlay field); "merge" means fold and dedup, never nest.
 - **Search before naming** — before adding any function, variable, flag, env var or config key, search the code,
   the vault (`claude-code vault ls env`) and the rules for one that exists or is similar, and extend it (a new value,
-  a slightly wider name) instead; name what you reused, or why none fit, in the hand-back. No new `HARNESS_*` names
-  (owner, 2026-11-26); an existing one is renamed only when the owner asks.
+  a slightly wider name) instead; name what you reused, or why none fit, in the hand-back. Never add, propose or
+  suggest a `HARNESS_*` name, in code or in a reply, even an existing one (owner, 2026-11-26); offer a way without it,
+  and rename an existing one only when the owner asks.
 - **No single source** — a source, mirror, route or profile is an ordered list with runtime fallback and the same
   integrity check; never remove a working source to unify (an owner pin or an explicit `--fallback none` stands).
 - **Typed over composed** — wherever code can decide, the model picks from a typed list (an action, an id, an enum,

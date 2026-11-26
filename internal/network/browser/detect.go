@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,9 +12,8 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// memoizeProbes shares one System Events probe and one PowerShell listener probe across every browser checked.
+// memoizeProbes shares one PowerShell listener probe across every browser checked.
 func memoizeProbes(env Env) Env {
-	env.gui = sync.OnceValue(func() string { return guiState(env) })
 	env.cdpListen = sync.OnceValue(func() string { return cdpListener(env) })
 	return env
 }
@@ -25,7 +23,9 @@ func Detect(env Env) Report {
 	env = memoizeProbes(env)
 	browsers := make([]browser, 0, len(knownBrowsers))
 	for _, s := range knownBrowsers {
-		browsers = append(browsers, detectOne(env, s))
+		b := detectOne(env, s)
+		b.Fix = fixFor(b)
+		browsers = append(browsers, b)
 	}
 	def, err := Default(env) // errDefaultUnsupported still carries the resolved (non-Chromium) name
 	if def.Name != "" {
@@ -95,17 +95,13 @@ func detectFamily(env Env, s spec, b *browser) {
 
 func stubUnsupported(b browser) browser {
 	b.Host = stateUnsupported
-	b.Paths = controlPaths{
-		Extension: stateUnsupported, CDP: stateUnsupported, WebDriver: stateUnsupported, GUI: stateUnsupported,
-	}
+	b.Paths = controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}
 	return b
 }
 
 func stubNotInstalled(b browser) browser {
 	b.Host = stateNotInstalled
-	b.Paths = controlPaths{
-		Extension: stateNotInstalled, CDP: stateNotInstalled, WebDriver: stateNotInstalled, GUI: stateNotInstalled,
-	}
+	b.Paths = controlPaths{Extension: stateNotInstalled, CDP: stateNotInstalled}
 	return b
 }
 
@@ -129,7 +125,7 @@ func isInstalled(env Env, s spec) bool {
 	}
 }
 
-// detectChromium fills in a Chromium-family browser's host, profiles, and the four control paths.
+// detectChromium fills in a Chromium-family browser's host, profiles, and the control paths.
 func detectChromium(env Env, s spec, b *browser) {
 	supportDir := appSupportPath(env, s)
 	b.Profiles = detectProfiles(supportDir)
@@ -141,8 +137,6 @@ func detectChromium(env Env, s spec, b *browser) {
 		b.Paths.Extension = stateNoHost
 	}
 	b.Paths.CDP = stateAvailable // binary present, confirmed by isInstalled above
-	b.Paths.WebDriver = stateUnsupported
-	b.Paths.GUI = env.guiState()
 }
 
 // checkHost reports whether the NativeMessagingHosts manifest exists, its target exists and its origin matches.
@@ -232,61 +226,14 @@ func rollupExtension(profiles []profile) string {
 	return stateNoExtension
 }
 
-func detectSafari(env Env, b *browser) {
+// detectSafari: Safari has no Claude extension and no CDP; WebDriver-based control is not built.
+func detectSafari(_ Env, b *browser) {
 	b.Host = stateUnsupported
-	b.Paths = controlPaths{
-		Extension: stateUnsupported,
-		CDP:       stateUnsupported,
-		WebDriver: safariWebDriverState(env),
-		GUI:       env.guiState(),
-	}
+	b.Paths = controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}
 }
 
-// safariWebDriverState reads Safari's AllowRemoteAutomation pref read-only; it never runs `safaridriver --enable`.
-func safariWebDriverState(env Env) string {
-	out, err := env.run("defaults", "read", "com.apple.Safari", "AllowRemoteAutomation")
-	if err == nil && strings.TrimSpace(out) == "1" {
-		return stateAvailable
-	}
-	return stateDisabled
-}
-
-func detectFirefox(env Env, b *browser) {
+// detectFirefox: Firefox has no Claude extension and no CDP here; WebDriver-based control is not built.
+func detectFirefox(_ Env, b *browser) {
 	b.Host = stateUnsupported
-	b.Paths = controlPaths{
-		Extension: stateUnsupported,
-		CDP:       stateUnsupported,
-		WebDriver: geckodriverState(env),
-		GUI:       env.guiState(),
-	}
-}
-
-func geckodriverState(env Env) string {
-	out, err := env.run("sh", "-c", "command -v geckodriver")
-	if err == nil && strings.TrimSpace(out) != "" {
-		return stateAvailable
-	}
-	return stateDisabled
-}
-
-// guiState probes GUI control with a no-op System Events query (no prompt); -1719/-25211 means permission denied.
-func guiState(env Env) string {
-	if env.goos() != "darwin" {
-		return stateUnsupported
-	}
-	if env.DryRun {
-		return stateAvailable // DryRun (Setup) never calls Run beyond its own install-state probes
-	}
-	_, err := env.probeRun("osascript", "-e", `tell application "System Events" to get name of first process`)
-	if err == nil {
-		return stateAvailable
-	}
-	msg := err.Error()
-	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-		msg = string(ee.Stderr)
-	}
-	if strings.Contains(msg, "-1719") || strings.Contains(msg, "-25211") {
-		return stateDisabled
-	}
-	return stateAvailable // another failure (e.g. no osascript): never claim disabled without the specific error
+	b.Paths = controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}
 }

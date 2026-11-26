@@ -14,11 +14,12 @@ Before a behavior change write TASK: code does X; check expects Y; spec says Z (
 contradicts, or stop and report). After a defect fix write ISSUE: searched <pattern> — found <N> other sites:
 <files|none>; before reporting PENDING: <skipped follow-up or none>. Report all as plain sentences.
 Return: status DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED,
-Ran on: <quoted `ask: ran on …` line | `self` (claude, Explore, Plan or Agent: in-context only); after a Pi fallback, the failed Pi line then `self`>.
+Ran on: <work receipt; self only for claude, Explore, Plan or Agent: in-context>.
+After a Pi fallback, include the failed Pi line before self.
 ```
 
-Templates list only their own lines. Reviewers inspect the artifact, never the report about it; Code
-Quality Reviewer runs only after `SPEC_COMPLIANT` and the simplify pass.
+Templates list only their own lines. Reviewers inspect the artifact, never the report about it.
+Use Spec Reviewer and Code Quality Reviewer as lenses of the shared collector review, after simplify.
 
 ## Implementer
 
@@ -58,7 +59,7 @@ with file:line findings.
 ```markdown
 Simplify, behavior-preserving: `Skill(simplify)` under `rules/standards/quality.md` → Simplify (a terminal leaf runs
 its four angles itself). Scope: base <rev>, head <rev>. May edit: <changed files>; an out-of-diff edit only with
-its blast radius in the report. Behavior gate, before AND after (both green): `<verification command>`
+its blast radius in the report. Cheap check, before and after: `<command allowed by testing-guidelines.md>`
 Return also: the simplify report (Applied file:line + assumption · Flagged · Bugs found · Skipped; Δ lines and
 Δ complexity per touched function); gate output before/after; DONE (applied N, flagged M) | BLOCKED (gate red first).
 ```
@@ -84,6 +85,7 @@ Plan review. Return its verdict first.
 ```text
 Task: <plan task id>
 Objective: <checklist line, verbatim>. Edit only: <owned files>. Scratch: /tmp/<job>/; delete it when done.
-Done when: <scoped test> exits 0 and <live check> shows <expected>. Return also: files changed, commands with exit
+Done when: <cheap check or exact-name repaired/written test> passes and <live check> shows <expected>.
+Return also: files changed, commands with exit
 code and env (cwd, CLAUDE_CONFIG_DIR), anything outside your files.
 ```

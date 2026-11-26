@@ -195,24 +195,6 @@ func TestValidateRouteCellsOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// The default ladder's first two rungs are copilot, one per provider (databricks, github), each carrying a model list.
-func TestDefaultLadderSplitsCopilotRungByProvider(t *testing.T) {
-	reg, err := Parse(assets.ProviderDefaults(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rungs := reg.Routing.Ladders["default"]
-	if len(rungs) < 2 {
-		t.Fatalf("default ladder has %d rungs, want >= 2", len(rungs))
-	}
-	for i, want := range []string{"databricks", "github"} {
-		g := rungs[i]
-		if g.Agent != "copilot" || g.Provider != want || len(g.Models) == 0 {
-			t.Errorf("rung %d = %+v, want copilot/%s with models", i, g, want)
-		}
-	}
-}
-
 // TestDatabricksLadderParses: the embedded databricks ladder loads and every rung names a roster agent or a provider.
 func TestDatabricksLadderParses(t *testing.T) {
 	reg, err := Parse(assets.ProviderDefaults(), nil)

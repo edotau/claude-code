@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,9 +19,11 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 		return nil, fmt.Errorf("embedded automode.json: %w", err)
 	}
 	doc := map[string]any{"autoMode": auto}
-	if env := missingTemplateEnv(Template(), userSettings()...); len(env) > 0 {
+	files := userSettings()
+	if env := missingTemplateEnv(Template(), files...); len(env) > 0 {
 		doc["env"] = env
 	}
+	maps.Copy(doc, missingTemplateKeys(Template(), files...))
 	if databricks {
 		doc["remoteControlAtStartup"] = false // Remote Control needs the claude.ai login; Databricks has none
 		doc["disableRemoteControl"] = true
@@ -59,6 +62,22 @@ func userSettings() [][]byte {
 		}
 	}
 	return out
+}
+
+// missingTemplateKeys returns the template's other top-level keys no settings file sets, so they need not live there.
+func missingTemplateKeys(tmpl []byte, files ...[]byte) map[string]any {
+	var t map[string]any
+	_ = json.Unmarshal(tmpl, &t) // the embedded template always parses; a bad one fills nothing
+	for _, f := range files {
+		var u map[string]any
+		_ = json.Unmarshal(f, &u)
+		for k := range u {
+			delete(t, k)
+		}
+	}
+	delete(t, "$schema")
+	delete(t, "env") // filled key by key by missingTemplateEnv
+	return t
 }
 
 // missingTemplateEnv returns the template env keys no settings file sets, never secret-named ones.

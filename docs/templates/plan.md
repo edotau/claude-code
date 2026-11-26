@@ -91,6 +91,15 @@ One message dispatches a whole wave; owned files are disjoint within it; a verif
 - NEXT: <follow-up left out of this plan>
 - **Unverified.** What no check in this plan covers.
 
+## Notes
+
+General reminders that apply to every task, kept up top so they are seen before the work starts:
+
+- [ ] Handoff — `claude-code memory update`
+- [ ] Commit, `rtk make audit`, `rtk make install`, push per task (named files only)
+
+`NOTE:` lines go here too, one per line; a note longer than 120 characters stays as one line, not wrapped.
+
 ## Decisions
 
 Every owner choice in the plan lives here, nowhere else; phases and tasks cite it by D-id. Each is a checkbox item:
@@ -140,5 +149,3 @@ point if a session, agent or worktree is lost. Mark an item **you** when only th
 - [ ] Review — `claude-code codex review --adversarial --base <branch>`
 - [ ] Fix review findings — `/code-review high --max-findings all --fix "<every finding>"` to the R28 bar
 - [ ] Full suite once
-- [ ] Commit, `rtk make audit`, `rtk make install`, push per task (named files only)
-- [ ] Handoff / `claude-code memory update`

@@ -541,7 +541,7 @@ func finishCarry(ctx context.Context, rec, final agent.Record, found bool, code 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: carry: result of %s: %v\n", rec.ID, err)
 	}
-	_, _, err = agent.UpdateRunning(rec.ID, func(r agent.Record) agent.Record {
+	done, _, err := agent.UpdateRunning(rec.ID, func(r agent.Record) agent.Record {
 		r.DurationMs = took.Milliseconds()
 		if !found || final.Status == "running" {
 			r.Status, r.FailKind, r.Error = "error", agent.FailAvailability, fmt.Sprintf(noRecordFmt, code)
@@ -560,6 +560,8 @@ func finishCarry(ctx context.Context, rec, final agent.Record, found bool, code 
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ask: carry: finish %s: %v\n", rec.ID, err)
+	} else {
+		agent.StartLaneLand(&done) // a carried job's lane lands like any background job's
 	}
 	return env
 }

@@ -273,7 +273,7 @@ func printRefreshErrors(w io.Writer, errs []error) {
 func fieldsLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // RunInstallStep refreshes stale listings, then pongs each agent; silent only when no pin has a credential.
-func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time) []Pong {
+func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, bin string, now time.Time, pong bool) []Pong {
 	if _, ok := proc.ValuesFromContext(ctx); !ok { // one baseline for the prediction and every pong child
 		ctx = proc.WithValues(ctx, proc.ValuesFromEnv(os.Environ()))
 	}
@@ -289,6 +289,10 @@ func RunInstallStep(ctx context.Context, w io.Writer, reg *providers.Registry, b
 	printRefreshErrors(w, RefreshStale(rctx, reg, ps, now, false))
 	rcancel()
 	ps = Check(ctx, reg, now)
+	if !pong { // install only refreshes; the live round is `models preflight --live`
+		printFixRows(w, ps)
+		return nil
+	}
 	pongStart := time.Now()                                      // pongs get their own window after the refresh, not what it left over
 	ctx, cancel := context.WithTimeout(ctx, pongCap("opencode")) // the longest pong bounds the step
 	defer cancel()

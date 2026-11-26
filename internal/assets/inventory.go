@@ -107,7 +107,7 @@ var inventory = []struct {
 	{"agent/pack-no-files.txt", "txt", "PackNoFiles", func() []byte { return read("agent/pack-no-files.txt") }},
 	{"hooks/simplicity.tmpl", "tmpl", "HookSimplicityHeader,HookSimplicityMore", func() []byte { return read("hooks/simplicity.tmpl") }},
 	{"hooks/paths.tmpl", "tmpl", "HookPathDetail,HookPathFailed,HookPathMapped,HookPathsContext", func() []byte { return read("hooks/paths.tmpl") }},
-	{"hooks/misc.tmpl", "tmpl", "HookBusyPeer,HookDiverged", func() []byte { return read("hooks/misc.tmpl") }},
+	{"hooks/misc.tmpl", "tmpl", "HookDiverged", func() []byte { return read("hooks/misc.tmpl") }},
 	{"hooks/notice.tmpl", "tmpl", "HookFailureClaim,HookFailureLine,HookFailuresMore,HookFailuresWarn,HookFixNow,HookNoticeDivergeWarn,HookNoticeDrainWarn,HookNoticeLine", func() []byte { return read("hooks/notice.tmpl") }},
 	{"agent/agy-toolless.txt", "txt", "AgyToolLessPreamble", func() []byte { return read("agent/agy-toolless.txt") }},
 	{"agent/stdin-task.txt", "txt", "PiStdinTask", func() []byte { return read("agent/stdin-task.txt") }},

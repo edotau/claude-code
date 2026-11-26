@@ -13,101 +13,80 @@ metadata:
 
 # Evaluate Code
 
-Quality review plus the discipline lens for LLM-code failure modes. Read-only: findings and a verdict, never edits.
+Review existing work: findings and a verdict, read-only unless the collector review permits fixes
+(`rules/standards/quality.md` → Completion). Judge and task-review modes remain read-only.
 
 ## Pick your path
 
-- **Review a diff/PR** → **Review a diff**.
-- **Audit a transcript** → **Audit a transcript**.
-- **Judge a claimed-done** → `references/judge.md` (is the claim true, not is the code good).
-- **Scan tech debt** → the **Tech debt** section below.
-- **Review a skill or plugin** → `references/codex-skill-plugin-review.md` (run by a carried `codex` ask).
-- **A/B-eval a skill rule change** → `references/eval.md` (trap suite; `workflows/code-evaluator.js`).
-- **Vet a task brief or plan** → `references/task-review.md`.
+- Diff/PR → **Review a diff**; transcript → **Audit a transcript**; debt → **Tech debt**.
+- Claimed-done → `references/judge.md`; task brief/plan → `references/task-review.md`.
+- Skill/plugin → `references/codex-skill-plugin-review.md` (carried `codex` ask).
+- A/B skill-rule eval → `references/eval.md` (`workflows/code-evaluator.js`).
 
 ## Audit a transcript
 
-Grade the work against its brief's `Method:` per step: **followed**, **skipped**, or **faked** (claimed, not
-observed).
-
-1. Run the detectors first — see the **Detectors** section below.
-2. For every skip or fake, name the concrete risk via `references/failure-modes.md`.
-3. Score on the 0–2 rubric in `references/judge.md`.
-4. Deliver a short table plus the one highest-value fix; apply only if asked.
+Grade each step against the brief's `Method:`: **followed**, **skipped**, **faked** (claimed without observation).
+Run **Detectors** first; name each skip/fake's risk from `references/failure-modes.md`, score with
+`references/judge.md`, then give a short table and the highest-value fix. Apply only if asked.
 
 ## Tech debt
 
-Scope = a module path or the repo.
-
-```bash
-rtk git diff --name-only HEAD~10 -- <scope> 2>/dev/null || git ls-files <scope> | head -50
-git grep -n -E 'TODO|FIXME|HACK|XXX|NOQA' -- <scope> | head -30
-```
-
-1. Read the files with the most markers.
-2. Score each item 1–5 on Impact, Risk, Effort; `Priority = (Impact + Risk) × (6 − Effort)` (max 50).
-3. Suggest a fix for the top 3; output a table, highest first:
-   `| Score | Category | File(s) | Description | Impact | Risk | Effort |`.
-4. To fix: apply the top item, re-run the `git grep`, then the next; stop if a fix needs a design decision.
-
+Scope a module or repo. Inspect files changed in the last ten commits (fallback: tracked files) and search
+`TODO|FIXME|HACK|XXX|NOQA` with `git grep -n -E`; read files with the most markers.
+Score each item 1–5 on Impact, Risk, Effort: `Priority = (Impact + Risk) × (6 − Effort)` (max 50).
+Give the top three fixes, highest first: `| Score | Category | File(s) | Description | Impact | Risk | Effort |`.
+When asked to fix, apply the top item, rerun the search, continue; stop at a design decision.
 Adapted from anthropics/knowledge-work-plugins (engineering), Apache-2.0.
 
 ## Lenses
 
-Report findings on changed code at >80% confidence; consolidate similar ones; list every finding at once, style
-included (R28: the author fixes all of them).
+Report changed-code findings at >80% confidence. Verify in code, consolidate similar findings and list all at once,
+including style (R28).
 
 ### Discipline — the four principles
 
-Defined in `rules/standards/principles.md`; apply to changes >20 lines or unfamiliar code. Detectors:
-`references/detectors.md`; examples: `references/anti-patterns.md`.
-
-Flag as should-fix: **1 Clarify** (silently picked one reading of an ambiguous requirement: a question, not a
-decision), **2 Simplicity** (overcomplicated; flag only, the simplify pass fixes it), **4 Goal-Driven** (criteria not
-concrete or not verified). **3 Surgical** (drive-by reformatting, comment churn, refactors of untouched code) is a
-nit, should-fix if it hides the real change.
+For >20 changed lines or unfamiliar code, apply `rules/standards/principles.md`:
+**1 Clarify** (silent interpretation of ambiguity: ask, don't decide), **2 Simplicity** (flag; simplify pass fixes),
+**4 Goal-Driven** (criteria concrete and verified) are should-fix. **3 Surgical** (unrelated formatting, comments,
+refactors) is a nit, should-fix when it hides the change. Detectors: `references/detectors.md`;
+examples: `references/anti-patterns.md`.
 
 ### Performance
 
-Query, data loop, hot path, or a speed/memory review: **measure before you optimize**; no number = hypothesis.
-Tables and report format: `references/performance.md`.
+For queries, data loops, hot paths or speed/memory reviews, measure first; no number means hypothesis.
+Use `references/performance.md`.
 
 ### Cross-boundary
 
-A seam (function signature, argv/env builder, flag, file format, API another package calls): read the producer and
-every consumer together and exercise each consumer path; verified only on every caller.
+For signatures, argv/env builders, flags, formats and shared APIs, read producer and every consumer together.
+Exercise every consumer path before calling the seam verified.
 
 ### PR / API contract
 
-A PR over ~200 lines, or touching a shared module, API serializer/schema, migration or shared table: run
-**blast-radius** and **breaking-change** detection per `references/pr-and-api-review.md`.
+Over ~200 lines, or touching shared modules, serializers/schemas, migrations or shared tables:
+run both passes in `references/pr-and-api-review.md`.
 
 ## Detectors
 
-`claude-code review <sub>` verbs: advisory by default (`simplify --fail` is a hard gate in `make lint`). Index, flags,
-enforcement levels: `references/detectors.md`.
+`claude-code review <sub>` is advisory by default; `simplify --fail` gates `rtk make lint`.
+Verbs, flags and enforcement: `references/detectors.md`.
 
 ## Review a diff
 
-This skill is what the built-in `/code-review`'s quality reviewer loads.
+The built-in `/code-review` quality reviewer loads this skill.
 
-```bash
-rtk git diff "$(git merge-base HEAD main)"...HEAD --stat
-```
-
-1. Mechanical gate first: `rules/standards/quality.md` → Verification Order.
-2. Run the detectors on the changed files, unless their output is in your brief.
-3. Apply the lenses to the diff and changed files, not session history; verify each finding in the code.
-4. Checklist: `rules/standards/quality.md` → Code Quality Checklist; severity:
-   `references/completion-criteria.md`; the call: [Verdicts](#verdicts).
+1. Establish diff scope: `rtk git diff "$(git merge-base HEAD main)"...HEAD --stat`.
+2. Mechanical gate: `rules/standards/quality.md` → Verification Order.
+3. Run detectors on changed files unless the brief already carries their output.
+4. Apply lenses to diff/files, not session history. Checklist: `rules/standards/quality.md` → Code Quality Checklist;
+   severity: `references/completion-criteria.md`; verdict below.
 
 ## Verdicts
 
-The verdict word comes first, alone, from a closed vocabulary; evidence follows. A claim that can't be re-run is
-marked UNVERIFIABLE (a claim status, not a verdict). Never soften a failing verdict or inflate a caveat.
+Put the verdict alone on the first line, evidence after. An unreproducible claim is **UNVERIFIABLE** (claim status,
+not verdict). Never soften failure or inflate a caveat.
 
-| Mode | Vocabulary |
-| --- | --- |
-| review (this file; `claude-code <agent> review`) | **SHIP** (no CRITICAL/HIGH; MEDIUM fixed first) \| **FIX REQUIRED** (HIGH, no CRITICAL) \| **BLOCK** (any CRITICAL) |
-| judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
-| task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |
+- **Review:** **SHIP** = no CRITICAL/HIGH, MEDIUM fixed first; **FIX REQUIRED** = HIGH without CRITICAL;
+  **BLOCK** = any CRITICAL (`claude-code <agent> review` uses these too).
+- **Judge:** `VERIFIED | VERIFIED WITH CAVEATS | REFUTED` (`references/judge.md`).
+- **Task brief / plan:** `READY | NEEDS CLARIFICATION` (`references/task-review.md`).

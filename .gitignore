@@ -83,6 +83,7 @@ coverage.*
 !/skills/dbx-expert
 !/skills/evaluate-code
 !/skills/golang
+!/skills/network-browser
 !/skills/problem-solving
 !/skills/reflection
 !/skills/simplify

@@ -211,8 +211,7 @@ func TestAgentsJSONRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := slices.Sorted(maps.Keys(doc.Agents))
-	want := []string{"codex", "copilot", "gemini", "opencode", "pi"}
-	if !slices.Equal(got, want) || !slices.Equal(want, agentid.External()) {
-		t.Errorf("agents.json keys = %v, agentid.External() = %v; want both %v", got, agentid.External(), want)
+	if want := agentid.External(); !slices.Equal(got, want) {
+		t.Errorf("agents.json keys = %v, want agentid.External() %v", got, want)
 	}
 }

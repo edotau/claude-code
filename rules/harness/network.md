@@ -6,89 +6,66 @@ paths:
 ---
 # Network, Web, MCP, Cleanup
 
-| To… | Run |
-| --- | --- |
-| Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explorer/SKILL.md`) |
-| Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
-| Sweep accumulated state (caches, run dirs, backups, stale launch overlays, leftover `memory sandbox` dirs) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
-| Restart the proxy only when its binary changed (`make install` and the status line run it when idle) | `claude-code gateway proxy --restart --if-changed` |
-| List teams and standing proxies, or stop them | `claude-code gateway proxy --status` · `--stop` (stops the daemon and every standing scope) |
-| Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port, or `--host-browser` opens the host's browser |
-| Least-busy Databricks workspace, requests through the other machine | `claude-code agents ask --overlay '{"agent":"<a>","provider":"databricks","profile":"auto","remote":"auto","tools":true}' "<task>"`; overlay `host: "auto"` runs the whole ask on that machine |
-| Send Databricks requests out through a host | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart --if-changed` (add `--force` with requests in flight) stops the tunnels after an actual restart; plain `--restart` leaves them running |
+- Web: `claude-code network websearch --query "<query>"` or `--extract <url>`; `skills/web-explorer/SKILL.md`.
+- Browser setup: `claude-code network browser [--setup --browser <b>]`.
+- MCP: `claude-code doctor --mcp [--format json]` is read-only. Propose removal/scope fixes or moving tokens
+  to vault-backed `${ENV}`; never remove/rotate without owner confirmation.
+- Cleanup: `claude-code clean [--list|--dry-run]` applies by default, never sweeps credentials/settings.
+  Projections/sessions require opt-in `--target`.
+- Proxy: `claude-code gateway proxy --status` lists standing scopes; `--stop` stops them and the daemon.
+  `--restart --if-changed` restarts only after binary changes (install/status line run it when idle).
+  Actual changed-binary restarts stop tunnels; plain restart leaves them. In-flight requests need `--force`.
+- `claude-code --host <h> <verb …>` runs remotely over SSH, with TTY on a terminal.
+  Databricks login forwards the callback or uses `--host-browser`.
+  `--remote <h>` runs here but sends Databricks HTTPS through that host's SOCKS tunnel.
 
 ## Corporate CA (`network pki`)
 
-`claude-code network pki` writes the pinned corporate bundle to `state/certs/corp-ca-bundle.pem`, with `root.pem` and
-`issuing.pem` beside it (`--trust` reads them there). Every `claude-code` process exports `SSL_CERT_FILE`,
-`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS` to that bundle when it exists and the variable is
-unset or empty, so no shell export is needed; a non-empty value you set wins. Overlays refuse `SSL_CERT_FILE`,
-`SSL_CERT_DIR` and `NODE_EXTRA_CA_CERTS`. A bundle at the old `$XDG_DATA_HOME/claude-code/certs/` (default
-`~/.local/share/claude-code/certs/`) is copied once (when running from the install clone) and never deleted.
-`doctor` row `ca bundle` shows age, the earliest CA expiry (fails inside 30 days) and export status.
-`--node-services` for a unit that runs as another user needs `--out` in a readable path if that user cannot
-traverse `state/certs/` (for example when `state/` is `0700`). Other harness-managed certificates go under
-`state/certs/<area>/` (unless overridden with `--out` or installed to the system trust store via `--trust`).
+`claude-code network pki` writes `state/certs/corp-ca-bundle.pem`, root.pem and issuing.pem; `--trust` reads there.
+When unset/empty, SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE and NODE_EXTRA_CA_CERTS use the bundle;
+non-empty owner values win. Overlays refuse SSL_CERT_FILE, SSL_CERT_DIR and NODE_EXTRA_CA_CERTS.
+The install clone copies an old XDG cert bundle once, never deletes it.
+Doctor reports age/earliest expiry (fails within 30 days)/exports. For another user's node service, set `--out`
+to a readable/traversable path. Other managed certs use `state/certs/<area>/` unless out/trust overrides.
 
 - `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST`. Requests to
-  `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5 tunnel per host
-  (record in `state/harness/ssh/`; a recorded tunnel is reused only while its pid is still our `ssh -N -D` on that
-  port, any other listener there gets a fresh tunnel); agents reach the proxy at `/via/<host>/…`.
-  A tunnel that cannot start or has died fails the request with `egress host <host>: <cause>`, never a direct
-  connection. `--direct` is refused under `--remote`; a credential minted by a provider's `auth.command` is not
-  tunnelled.
-- A standing scoped proxy listens on a free `127.0.0.1` port. Its scope record is removed when it stops; `--status` and
-  doctor sweep the records whose process is gone. A phase proxy is in-process and its record lasts only for its wave
-  or batch; it is not listed as standing.
-- `--host auto` and `--remote auto` resolve to a host name here, before any ssh call: `CLAUDE_REMOTE_HOST` (process
-  env, else the vault's; a comma-separated list, the first entry is the machine named), else the one other online
-  tailnet machine that answers `claude-code version` over ssh within 5 s (cached 10 minutes in
-  `state/harness/remote/auto-host.json`). None or several is an error listing them.
-- `--host <h>` or `--remote <h>` naming this machine (tailnet DNS name, OS hostname, or either one's first label) runs
-  the verb here with no ssh hop or tunnel.
-- Memory sync is off unless this machine's process or vault env has `NETWORK_MEMORY=on`. When on, every 30 minutes
-  and only while the machine is in use, it connects over ssh to each host in `CLAUDE_REMOTE_HOST`, pulls the peer's
-  change envelopes past its own watermarks, then pushes the ones the peer lacks; `claude-code memory sync` runs one
-  pass by hand. A machine that is only a peer never connects for sync.
-- Overlay `profile: auto` picks, among Databricks serving rows passing the local checks (stored credential, no auth
-  mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
-  workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked
-  (`state/harness/router/route-auto.json`), then name order. Never name a profile `auto`: it cannot be addressed.
-  a `--batch` picks per line, each line counted as
-  load for the next. A typed model no workspace serves fails before launch naming up to five served ids, unless
-  `--fallback` was typed as `pin`, `agents` or `all` (an env default never allows the swap).
-- On a 429 before any answer, the pick is cooled and the agent retries on the next workspace until one answers or none
-  is left; only then `--fallback` applies (`none` still fails, naming every workspace tried). A named profile, a
-  `--batch` line that names its own `profile`, `--session`, `--live`, a `--background` launch and `--host` never move;
-  a `--batch` line without `profile` and the `--job` child of a `--background` run do.
-- A `--host` ask that cannot run fails before the task with one line naming what the target lacks: the `claude-code`
-  binary, the agent's CLI, the Databricks profile or the model.
-- Claude's built-in `WebFetch` and `WebSearch` answer through Tavily on every Claude launch: the `web-tavily`
-  PostToolUse hook in the launch `--settings` replaces the result (`rules/harness/hooks.md`); on a Databricks profile
-  the proxy already ran the search through Tavily, so the hook replaces only fetches there.
-- `doctor --mcp` is read-only: propose the fix (`claude mcp remove <name> -s <scope>`, or move a token to `${ENV}` via
-  `vault set`); never remove or rotate without the user's confirmation.
-- `clean` applies by default (`--dry-run` previews) and never sweeps credentials or settings.
+  Databricks cloud/azure/gcp domains use one SSH SOCKS5 tunnel per host (`state/harness/ssh/`);
+  reuse only a pid verified as our SSH tunnel on that port. Agents use `/via/<host>/…`.
+  Failed/dead tunnels fail requests, never connect directly. Remote refuses `--direct`;
+  provider `auth.command` credential minting is not tunneled.
+- Standing scoped proxies use free loopback ports; stop/status/doctor remove dead scope records.
+  Phase proxies live only for their wave/batch and are not listed as standing.
+- Auto host/remote: process then vault `CLAUDE_REMOTE_HOST` (first comma-separated entry), else the sole online
+  tailnet peer answering `claude-code version` within 5 seconds (10-minute auto-host.json cache).
+  Zero/multiple peers fail. This machine's DNS/hostname/first label runs locally without SSH/tunnel.
+- Memory sync: `rules/workflows/memory-bank.md` → Verbs. With `NETWORK_MEMORY=on`, the active machine syncs
+  every 30 minutes while in use; a peer-only machine never initiates.
+- Auto profile chooses locally eligible Databricks rows (credential, no auth mark, model served), with no token probe:
+  revoked logins fail on request. Exclude rate-limit cooldowns; choose fewest dispatches, least recently picked, name.
+  Never name a profile auto. Batch chooses per line, counting prior picks as load.
+  Unserved typed models fail with up to five served ids unless explicit fallback pin/agents/all permits swapping.
+- A 429 before any answer cools the row and tries other workspaces before fallback; none fails with tried workspaces.
+  Named profiles, explicit batch-line profiles, session/live/background launches and host asks stay pinned;
+  unpinned batch lines and background job children may move.
+- Remote asks preflight target binary, agent CLI, Databricks profile and model before running the task.
+- Claude web tools use Tavily via launch hooks; Databricks proxy handles search already, so only fetch is replaced.
+  Hook details: `rules/harness/hooks.md` → Event → hook matrix.
 
 ## Clipboard over SSH
 
-Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` shim
-(`claude-code clip paste`) and `claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a
-Mac-side bridge. Two one-time owner steps:
+Clipboard paste reads the SSH client's Mac clipboard through a forwarded socket, never the WSL host's.
+Owner setup:
 
 ```text
 # Mac ~/.ssh/config
 Host <wsl-host>
     RemoteForward /tmp/claude-clip-%r.sock %d/.claude/run/clip.sock
 
-# WSL /etc/ssh/sshd_config (then: sudo systemctl restart ssh)
+# WSL /etc/ssh/sshd_config (restart ssh after changing)
 StreamLocalBindUnlink yes
 ```
 
-`make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
-runs per session. The Mac serves files only from `~/Desktop`, `~/Downloads`, `~/Documents`, `~/Pictures`, `~/Movies`,
-`~/Music` and the temp roots (anything else: `not shareable: outside <roots>`). Diagnose from the SSH session with
-`claude-code clip` (saves the image, prints its path). Failures:
-`no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
-socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
-clipboard — copy one there first (or its bridge is down)`.
+Mac install provides on-demand launchd `clip --serve`; no per-session process.
+The bridge serves only Desktop, Downloads, Documents, Pictures, Movies, Music and temp roots.
+Run `claude-code clip` (or the `wl-paste`/`clip paste` shim) to save the image and print its path.
+Check forwarding, socket type/ownership and a copied image on failure; another user's socket is refused.

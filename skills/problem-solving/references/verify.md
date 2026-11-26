@@ -14,13 +14,13 @@ IDENTIFY → RUN → READ output → VERIFY success → CLAIM
 ## Gate Sequence
 
 Run in order; a failure blocks later gates. Per `rules/standards/quality.md` → Verification Order: Gates 1-2 per
-task, Gate 5 before review or commit on every code change; the full suite (Gates 3, 4, 6) once per change set at
-wrap-up, with the user's approval, never in a subagent.
+task, Gate 5 before review or commit on every code change; the full suite (Gates 3, 4, 6) by the main session alone,
+once (at most twice) at landing, no approval needed (`testing-guidelines.md` → Several worktrees), never in a subagent.
 
 ```text
 Gate 1: FORMAT/LINT   — formatters + linters clean                         — every iteration
 Gate 2: SCOPED TESTS  — the tests for the packages/modules touched, named  — every iteration
-Gate 3: FINAL PASS    — full build + full test suite + security scan      — run ONCE per change set, with user approval
+Gate 3: FINAL PASS    — full build + full test suite + security scan      — ONCE (at most twice) at landing, main session
 Gate 4: AUTH/SEC      — auth verification (auth changes only); no hardcoded secrets — part of the final pass
 Gate 5: SIMPLIFY      — Skill(simplify) over the diff; re-run Gate 2 if it changed code — every code change, no approval
 Gate 6: DIFF REVIEW   — diff matches intent, no unrelated changes?        — part of the final pass
@@ -40,14 +40,14 @@ Scripted form: `Workflow code-looper` (only when the user asks; caps 3 iteration
 
 Each iteration runs Gates 1-2 only, fixing failures minimally. Once clean, run Gate 5, then Gates 3, 4 and 6 ONCE as
 the final pass. Only a failing final pass returns to Gate 1; after 5 iterations, escalate with the remaining
-failures. Gates 3, 4 and 6 belong to the main thread with the user's approval (a Workflow the user asked for is that
-opt-in); a subagent stops after Gate 2.
+failures. Gates 3, 4 and 6 belong to the main session at landing; a subagent stops after Gate 2, running only the
+tests it wrote or repaired, by exact name.
 
 Per-gate fixes:
 
 - **Format** — auto-fix and re-run.
 - **Lint** — fix only the flagged lines.
-- **Scoped tests** — a failing test is guilty until traced: `rules/standards/testing-guidelines.md` → When a test fails.
+- **Scoped tests** — a failing test is guilty until traced: `rules/standards/testing-guidelines.md` → TEST.
 - **Final pass** — trace the failure to its package, fix minimally, re-run from Gate 1; no second full run until the
   next iteration is clean.
 

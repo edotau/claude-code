@@ -421,7 +421,6 @@ func pageCheck(t *testing.T, page string, wants []string) {
 
 func pageTestEnv(t *testing.T) *providers.Registry {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
