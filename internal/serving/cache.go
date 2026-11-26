@@ -58,6 +58,18 @@ type Served struct {
 	Profile   string        `json:"profile"`
 	FetchedAt time.Time     `json:"fetched_at"`
 	Models    []ServedModel `json:"models"`
+	idx       map[string]int
+}
+
+// indexed returns s with the first-position index of every id, built once when a listing is read.
+func (s Served) indexed() Served {
+	s.idx = make(map[string]int, len(s.Models))
+	for i, m := range s.Models {
+		if _, dup := s.idx[m.ID]; !dup {
+			s.idx[m.ID] = i
+		}
+	}
+	return s
 }
 
 // Fresh reports whether s was fetched within CacheTTL of now; a timestamp beyond clockSkew in the future is stale.
@@ -70,8 +82,25 @@ type WireNamer interface {
 	WireModel(string) string
 }
 
+// lookup is the earliest position of wire or databricks-<wire>, the scan's tie rule.
+func (s Served) lookup(wire string) (int, bool) {
+	i, ok := s.idx[wire]
+	j, ok2 := s.idx[models.DatabricksPrefix+wire]
+	if ok2 && (!ok || j < i) {
+		return j, true
+	}
+	return i, ok
+}
+
 // FindWire matches wire (or databricks-<wire>) in s.Models; false when unlisted.
 func (s Served) FindWire(wire string) (ServedModel, bool) {
+	if s.idx != nil {
+		i, ok := s.lookup(wire)
+		if !ok {
+			return ServedModel{}, false
+		}
+		return s.Models[i], true
+	}
 	for _, m := range s.Models {
 		if m.ID == wire || m.ID == models.DatabricksPrefix+wire {
 			return m, true
@@ -163,6 +192,7 @@ func Load(profile string) (Served, bool) {
 	}
 	s, ok := sharedChecked(path, profile)
 	s.Models = slices.Clone(s.Models)
+	s.idx = nil // the caller owns this copy and may reorder it; only the read-only Shared listing keeps its index
 	return s, ok
 }
 
@@ -190,7 +220,7 @@ func readServed(path, profile string) (servedRead, error) {
 	if !schemas.DecodeOK(servedFormat, b, &s) || s.Profile != profile {
 		return servedRead{}, nil
 	}
-	return servedRead{s: s, ok: true}, nil
+	return servedRead{s: s.indexed(), ok: true}, nil
 }
 
 // Save writes s with mode 0600; a keep predicate matching the on-disk file under lock skips the write.
