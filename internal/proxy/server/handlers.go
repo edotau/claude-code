@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // retryable statuses move to the next attempt when nothing has been written to the client yet.
@@ -507,7 +507,7 @@ func unserved(resp *http.Response, p *providers.Provider) bool {
 // unservedMessage names the requested id, the wire id tried and, from a fresh listing, the served Claude endpoints.
 func unservedMessage(p *providers.Provider, requested, wire string, now time.Time) string {
 	msg := fmt.Sprintf("proxy: %s does not serve model %q (tried endpoint %s)", p.Name, requested, wire)
-	s, ok := serving.Load(p.Name)
+	s, ok := served.Load(p.Name)
 	if !ok || !s.Fresh(now) {
 		return msg
 	}

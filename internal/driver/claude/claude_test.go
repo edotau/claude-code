@@ -19,7 +19,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -432,14 +431,18 @@ func goldenStreamDeltas(t *testing.T, raw []byte) string {
 		if err := json.Unmarshal([]byte(line), &inner); err != nil || inner.Type != "stream_event" {
 			continue
 		}
-		var se anthropic.MessageStreamEventUnion
+		var se struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
 		if err := json.Unmarshal(inner.Event, &se); err != nil {
 			t.Fatal(err)
 		}
-		if d, ok := se.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
-			if td, ok := d.Delta.AsAny().(anthropic.TextDelta); ok {
-				deltas.WriteString(td.Text)
-			}
+		if se.Type == "content_block_delta" && se.Delta.Type == "text_delta" {
+			deltas.WriteString(se.Delta.Text)
 		}
 	}
 	return deltas.String()

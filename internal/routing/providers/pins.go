@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/models"
-	"github.com/edotau/claude-code/internal/routing/providers/structdiff"
 	"github.com/edotau/claude-code/internal/routing/route"
 )
 
@@ -187,7 +186,7 @@ func parseEnvLine(line string) (k, v string, ok bool) {
 // AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.
 func AuditRecords(before, after map[string]vault.AgentRecord) {
 	b, n := recordFields(before["claude"]), recordFields(after["claude"])
-	for _, f := range structdiff.SortedKeys(b, n) {
+	for _, f := range sortedMapKeys(b, n) {
 		switch {
 		case b[f] == n[f]:
 		case f == "profile":
@@ -213,8 +212,8 @@ func AuditModelPin(alias, spec string) {
 // recordDiff lists "agent.path: old → new" for every field that differs between before and after, secrets redacted.
 func recordDiff(reg *Registry, before, after map[string]vault.AgentRecord) []string {
 	var out []string
-	for _, c := range structdiff.Diff(routeForm(reg, before), routeForm(reg, after)) {
-		out = append(out, structdiff.Line(c, secretPath))
+	for _, c := range diffStructs(routeForm(reg, before), routeForm(reg, after)) {
+		out = append(out, diffLine(c, secretPath))
 	}
 	return out
 }

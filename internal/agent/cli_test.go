@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // codex/gemini ride stdin so an oversized prompt is not refused; opencode keeps argv and refuses; "ultra" runs no CLI.
@@ -300,7 +300,7 @@ func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
 		t.Fatal(err)
 	}

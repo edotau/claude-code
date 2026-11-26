@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // runKeysCheck drives the read-only (--check/piped) keys report; !allOK maps to rc 1.
@@ -276,7 +276,7 @@ func servedHarness(t *testing.T, on bool) *int {
 
 func cached(t *testing.T) bool {
 	t.Helper()
-	_, ok := serving.Load("qa")
+	_, ok := served.Load("qa")
 	return ok
 }
 

@@ -2,7 +2,6 @@ package claude
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -128,9 +127,8 @@ func TestClaudeNoToolsOpenAI(t *testing.T) {
 	}
 
 	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "boom", Provider: "toai", NoTools: true}, wire.Discard)
-	var he *httpError
-	if !errors.As(err, &he) || retry.Classify("claude", err, false).Kind != retry.KindTransient {
-		t.Errorf("502 = %v", err)
+	if e := retry.Classify("claude", err, false); e.Kind != retry.KindTransient || e.Status != 502 {
+		t.Errorf("502 = %v (%+v)", err, e)
 	}
 }
 
@@ -194,63 +192,6 @@ func TestClaudeNoToolsAndToolsExclusive(t *testing.T) {
 	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Tools: true, NoTools: true}, wire.Discard)
 	if err == nil || !strings.Contains(err.Error(), "exclusive") {
 		t.Errorf("err = %v, want the --no-tools/--tools exclusivity error", err)
-	}
-}
-
-// An empty stream (closed before any delta) is a failure, not an empty success.
-func TestParseChatStreamEmptyIsError(t *testing.T) {
-	if _, _, err := parseChatStream(strings.NewReader(""), io.Discard); err == nil {
-		t.Fatal("err = nil, want a stream-ended-without-[DONE] error")
-	}
-}
-
-func TestParseChatStream(t *testing.T) {
-	const first = `data: {"model":"served-model","choices":[{"delta":{"content":"one"}},{"delta":{"content":""}},{"delta":{"content":"two"}}],"usage":{"prompt_tokens":7,"completion_tokens":3}}` + "\n\n"
-	cases := []struct {
-		name, suffix, output, err string
-		writer                    io.Writer
-	}{
-		{name: "done ignores trailing data", suffix: "data: [DONE]\ndata: invalid\n", output: "onetwo"},
-		{name: "EOF without DONE", output: "onetwo", err: "chat stream ended without [DONE]"},
-		{name: "finish_reason then EOF", suffix: "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n", output: "onetwo"},
-		{name: "undecodable chunk is skipped", suffix: "data: invalid\ndata: [DONE]\n", output: "onetwo"},
-		{name: "upstream error", suffix: "data: {\"error\":{\"message\":\"failed\"}}\n", output: "onetwo", err: `upstream error mid-stream: {"message":"failed"}`},
-		{name: "writer error", writer: failingStreamWriter{}, err: io.ErrClosedPipe.Error()},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			var out strings.Builder
-			w := tc.writer
-			if w == nil {
-				w = &out
-			}
-			stream := ": comment\nevent: message\ndata:\ndata:  \n" + first + tc.suffix
-			usage, model, err := parseChatStream(strings.NewReader(stream), w)
-			if (err == nil) != (tc.err == "") || err != nil && !strings.HasPrefix(err.Error(), tc.err) {
-				t.Fatalf("err = %v, want prefix %q", err, tc.err)
-			}
-			if usage != (wire.Usage{InputTokens: 7, OutputTokens: 3}) || model != "served-model" || out.String() != tc.output {
-				t.Fatalf("usage = %+v, model = %q, output = %q", usage, model, out.String())
-			}
-		})
-	}
-}
-
-// A 5 MiB content chunk streams through whole, and an undecodable data: line between chunks is skipped.
-func TestParseChatStreamLargeChunkAndGarbageLine(t *testing.T) {
-	const size = 5 << 20
-	big := strings.Repeat("b", size)
-	stream := `data: {"model":"m","choices":[{"delta":{"content":"` + big + `"}}]}` + "\n\n" +
-		"data: {not json\n" +
-		`data: {"choices":[{"delta":{"content":"end"}}],"usage":{"prompt_tokens":2,"completion_tokens":1}}` + "\n" +
-		"data: [DONE]\n"
-	var out strings.Builder
-	usage, model, err := parseChatStream(strings.NewReader(stream), &out)
-	if err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if out.String() != big+"end" || model != "m" || usage != (wire.Usage{InputTokens: 2, OutputTokens: 1}) {
-		t.Fatalf("streamed %d bytes, model %q, usage %+v", out.Len(), model, usage)
 	}
 }
 
@@ -346,13 +287,7 @@ func TestOneShotWireModelsAlreadyBare(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.provider == "tanth" {
-				_, _, err = streamMessages(context.Background(), apiRequest{
-					BaseURL: srv.URL, Model: target.Model, Prompt: "x", MaxTokens: 1,
-				}, io.Discard)
-			} else {
-				_, _, err = chatStream(context.Background(), srv.URL, target.Provider, target.Model, "x", "", io.Discard)
-			}
+			_, err = agent.OneShotHTTP(context.Background(), target, agent.RunOptions{Prompt: "x"}, wire.Discard)
 			if err != nil || calls != 1 {
 				t.Fatalf("err=%v calls=%d; want nil/1", err, calls)
 			}
@@ -360,30 +295,26 @@ func TestOneShotWireModelsAlreadyBare(t *testing.T) {
 	}
 }
 
-func TestBodyErrorCodeAndHintReachClassify(t *testing.T) {
-	for body, want := range map[string]string{
-		`{"error":{"code":"Content_Filter"}}`: "content_filter", `{"error_code":"REFUSAL"}`: "refusal",
-		`{"error":{"code":7}}`: "", `not json`: "",
-	} {
-		if got := bodyErrorCode([]byte(body)); got != want {
-			t.Errorf("bodyErrorCode(%s) = %q, want %q", body, got, want)
+func TestOneShotHTTPErrorCodeAndOutputBudget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/messages":
+			w.Header().Set("X-Should-Retry", "false")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"code":"Content_Filter"}}`)
+		default:
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"length\"}]}\n\n")
 		}
-	}
-	err := &httpError{status: 503, msg: "HTTP 503", hint: retry.ParseShouldRetry("false")}
-	if e := retry.Classify("claude", err, false); e.ShouldRetry != retry.ShouldRetryNo || e.Kind != retry.KindTransient {
-		t.Errorf("Classify = %+v", e)
-	}
-	if e := retry.Classify("claude", &httpError{status: 400, msg: "HTTP 400", code: "content_filter"}, false); !e.PolicyRefusal {
-		t.Errorf("typed code not classified: %+v", e)
-	}
-}
+	}))
+	defer srv.Close()
+	registry(t, srv)
 
-func TestApplyChatLineLengthIsOutputBudget(t *testing.T) {
-	var usage wire.Usage
-	var served string
-	finished := false
-	line := []byte(`data: {"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}` + "\n")
-	_, err := applyChatLine(line, io.Discard, &usage, &served, &finished)
+	_, err := claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "tanth", NoTools: true}, wire.Discard)
+	if e := retry.Classify("claude", err, false); !e.PolicyRefusal || e.ShouldRetry != retry.ShouldRetryNo {
+		t.Errorf("400 content_filter classified as %+v", e)
+	}
+	_, err = claudeAgent.Run(context.Background(), agent.RunOptions{Prompt: "x", Provider: "toai", NoTools: true}, wire.Discard)
 	if retry.BudgetOf(err) != retry.BudgetOutput {
 		t.Fatalf("length finish: %v", err)
 	}

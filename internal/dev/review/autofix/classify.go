@@ -10,12 +10,12 @@ import (
 type Class string
 
 const (
-	ClassGofmt         Class = "gofmt"
-	ClassMarkdownLong  Class = "markdown-long"
+	ClassGofmt        Class = "gofmt"
+	ClassMarkdownLong Class = "markdown-long"
 	ClassWriterRows   Class = "writer-rows"
 	ClassComplexity   Class = "complexity"
-	ClassIneffassign   Class = "ineffassign"
-	ClassFailingTest   Class = "failing-test"
+	ClassIneffassign  Class = "ineffassign"
+	ClassFailingTest  Class = "failing-test"
 )
 
 // Finding is one classified row of `agents diff --check` output.

@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // headless is the only launch that carries the setup-token: -p and --print, in any position.
@@ -452,8 +452,8 @@ func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
 	const wire = "databricks-claude-opus-5-5"
 	for name, ready := range map[string]string{"dev": "READY", "qa": "READY", "prod": "NOT_READY"} {
 		reg.Providers[name].Auth.Type = providers.AuthNone
-		if err := serving.Save(serving.Served{Profile: name, FetchedAt: time.Now(),
-			Models: []serving.ServedModel{{ID: wire, Task: "llm/v1/chat", Ready: ready}}}); err != nil {
+		if err := served.Save(served.Served{Profile: name, FetchedAt: time.Now(),
+			Models: []served.ServedModel{{ID: wire, Task: "llm/v1/chat", Ready: ready}}}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/driver/copilotauth"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
-	endpoints "github.com/edotau/claude-code/internal/routing/serving"
+	endpoints "github.com/edotau/claude-code/internal/routing/served"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/platform/parallel"

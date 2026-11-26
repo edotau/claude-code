@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -72,5 +74,23 @@ func TestOneShotHTTPDialects(t *testing.T) {
 				t.Fatalf("got answer=%q stream=%q out=%d, want %q / %d", res.Answer, out.String(), res.Usage.OutputTokens, tc.wantAns, tc.wantOut)
 			}
 		})
+	}
+}
+
+func TestParseOneShotChatEdgeCases(t *testing.T) {
+	if _, _, err := parseOneShotStream(providers.ProtocolOpenAI, strings.NewReader(""), io.Discard); err == nil {
+		t.Fatal("empty stream must fail")
+	}
+	const size = 5 << 20
+	big := strings.Repeat("b", size)
+	stream := ": comment\n" +
+		`data: {"model":"m","choices":[{"delta":{"content":"` + big + `"}}]}` + "\n\n" +
+		"data: {not json\n" +
+		`data: {"choices":[{"delta":{"content":"end"}}],"usage":{"prompt_tokens":2,"completion_tokens":1}}` + "\n" +
+		"data: [DONE]\n"
+	var out strings.Builder
+	usage, model, err := parseOneShotStream(providers.ProtocolOpenAI, strings.NewReader(stream), &out)
+	if err != nil || out.String() != big+"end" || model != "m" || usage != (wire.Usage{InputTokens: 2, OutputTokens: 1}) {
+		t.Fatalf("err=%v len=%d model=%q usage=%+v", err, out.Len(), model, usage)
 	}
 }

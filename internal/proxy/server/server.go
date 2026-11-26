@@ -22,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 const (
@@ -205,7 +205,7 @@ func serveDrain(r *Router, w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// drainIfIdle starts refusing requests when none is in flight; a busy router is left serving.
+// drainIfIdle starts refusing requests when none is in flight; a busy router is left served.
 func drainIfIdle(r *Router) bool {
 	r.drainMu.Lock()
 	defer r.drainMu.Unlock()
@@ -610,7 +610,7 @@ func answerCount(w http.ResponseWriter, body []byte) (bool, error) {
 func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body proxyBody, t providers.Target, route,
 	clientModel string, count, last bool) (bool, error) {
 	p := t.Provider
-	url := serving.EndpointURL(route, providers.ProtocolAnthropic, t.Model, false)
+	url := served.EndpointURL(route, providers.ProtocolAnthropic, t.Model, false)
 	if count {
 		url += "/count_tokens"
 	}
@@ -678,7 +678,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	if ws := translate.WebSearchOf(body); ws != nil {
 		return r.tryWebSearch(w, in, out, ws, t, clientModel, stream, last)
 	}
-	resp, err := r.sendMethod(in, http.MethodPost, p, serving.EndpointURL(route, providers.ProtocolOpenAI, t.Model, false), out, func(h http.Header) {
+	resp, err := r.sendMethod(in, http.MethodPost, p, served.EndpointURL(route, providers.ProtocolOpenAI, t.Model, false), out, func(h http.Header) {
 		h.Set("Content-Type", "application/json")
 		if stream {
 			h.Set("Accept", "text/event-stream")

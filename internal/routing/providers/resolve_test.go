@@ -6,7 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/models"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 func TestPlainTargetCanonicalAndOneM(t *testing.T) {
@@ -297,9 +297,9 @@ func TestGrokKeepsOpencodeChatRoute(t *testing.T) {
 	}
 }
 
-func listingFacts(t *testing.T, facts map[string]serving.EndpointFacts) {
+func listingFacts(t *testing.T, facts map[string]served.EndpointFacts) {
 	t.Helper()
-	serving.SetFactsForTest(t, func(_, wire string) (serving.EndpointFacts, bool) { f, ok := facts[wire]; return f, ok })
+	served.SetFactsForTest(t, func(_, wire string) (served.EndpointFacts, bool) { f, ok := facts[wire]; return f, ok })
 }
 
 // Given a fresh listing, Then api_types decide ResponsesServable for a listed id, the old rule an unlisted one,
@@ -307,7 +307,7 @@ func listingFacts(t *testing.T, facts map[string]serving.EndpointFacts) {
 func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
 	vaulttest.Use(t)
 	both := []string{"mlflow/v1/chat/completions", "openai/v1/responses", "codex/v1/responses"}
-	listingFacts(t, map[string]serving.EndpointFacts{
+	listingFacts(t, map[string]served.EndpointFacts{
 		"databricks-gpt-6-luna": {APITypes: []string{"mlflow/v1/chat/completions"}},
 		"databricks-kimi-k3":    {APITypes: both},
 		"databricks-glm-5-3":    {APITypes: []string{"mlflow/v1/chat/completions", "codex/v1/responses"}},
@@ -339,7 +339,7 @@ func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
 
 // Given catalog limits and a listing, Then the catalog window wins and a fresh listed output beats the catalog's.
 func TestLimitsForPrefersCatalogThenListing(t *testing.T) {
-	listingFacts(t, map[string]serving.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
+	listingFacts(t, map[string]served.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
 		"databricks-gemini-4-argon": {Context: 5, Output: 7}, "databricks-gpt-oss-120b": {Output: 8192}})
 	p := &Provider{Name: "dev", Preset: PresetDatabricks}
 	if l, ok := LimitsFor(p, "databricks-gpt-5-4"); !ok || l.Context != 400000 || l.Output != 128000 {

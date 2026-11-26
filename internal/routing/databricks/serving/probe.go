@@ -22,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // CheckTarget is one endpoint to probe: ID is what the table shows, Wire the served endpoint name.
@@ -70,7 +70,7 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	if host == "" {
 		return nil, fmt.Errorf("%s has no https workspace host to probe", p.Name)
 	}
-	chatBase, respBase := serving.BaseURL(host, providers.ProtocolOpenAI), p.Routes[providers.ProtocolResponses]
+	chatBase, respBase := served.BaseURL(host, providers.ProtocolOpenAI), p.Routes[providers.ProtocolResponses]
 	if respBase == "" {
 		respBase = chatBase
 	}
@@ -183,9 +183,9 @@ func probeTarget(p *providers.Provider, o CheckOptions, t CheckTarget, chatBase,
 		return route, body, dialect == providers.ProtocolAnthropic, err
 	}
 	if t.Responses {
-		return serving.EndpointURL(respBase, providers.ProtocolResponses, t.Wire, false), func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }, false, nil
+		return served.EndpointURL(respBase, providers.ProtocolResponses, t.Wire, false), func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }, false, nil
 	}
-	return serving.EndpointURL(chatBase, serving.ProtocolInvocations, t.Wire, false), chatBody, false, nil
+	return served.EndpointURL(chatBase, served.ProtocolInvocations, t.Wire, false), chatBody, false, nil
 }
 
 // retryToolsLess resends c without tools after a non-transient failure and folds the verdict into r.
@@ -219,7 +219,7 @@ func clientProbeRoute(p *providers.Provider, t CheckTarget) (string, string, err
 	if !ok {
 		return "", "", errors.New("requested model has no resolved client route")
 	}
-	return serving.EndpointURL(base, dialect, t.Wire, false), dialect, nil
+	return served.EndpointURL(base, dialect, t.Wire, false), dialect, nil
 }
 
 func clientProbeBody(model, dialect string, tools bool) map[string]any {

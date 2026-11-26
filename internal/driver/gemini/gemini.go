@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
@@ -295,7 +295,7 @@ const agyFlashLite = "databricks-gemini-3-1-flash-lite"
 
 // agyServedGemini lists the READY Gemini endpoint names in p's fresh cached listing; nil when cold. A var for tests.
 var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
-	s, ok := serving.Fresh(p.Name, now)
+	s, ok := served.Fresh(p.Name, now)
 	if !ok {
 		return nil
 	}

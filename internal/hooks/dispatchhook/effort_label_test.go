@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // A --profile row spells the model as it serves it; a typed `<row>:<model>` gets no label.
@@ -53,7 +53,7 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(route.OverlayVar, "")
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-glm-5-2", Ready: "READY"}, {ID: "databricks-custom-model", Ready: "READY"},
 	}}); err != nil {
 		t.Fatal(err)

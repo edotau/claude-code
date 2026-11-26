@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/inflight"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // armPicks is state/harness/router/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
@@ -153,7 +153,7 @@ func workspaceStale[F any](ps []*providers.Provider, q WorkspaceQuery[F], now ti
 	}
 	for _, p := range ps {
 		if p.Preset == providers.PresetDatabricks {
-			_, fresh := serving.Fresh(p.Name, now)
+			_, fresh := served.Fresh(p.Name, now)
 			stale[p.Name] = !fresh
 		}
 	}

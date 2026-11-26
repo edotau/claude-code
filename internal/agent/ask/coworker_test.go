@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // confine sets this process's confinement to provider[:profile] as ApplyRouteOverlay exports it; "" is none.
@@ -182,7 +182,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}},`+
 		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	t.Setenv("DEV_WS_TOKEN", "SENTINEL-dev") // dev passes the workspace preflight, so each row reaches its flag fence
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil { // claude's model fence reads the listing
 		t.Fatal(err)
 	}

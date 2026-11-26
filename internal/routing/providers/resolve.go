@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/models"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // Target is one resolved (provider, wire model id) pair.
@@ -177,8 +177,8 @@ const (
 	apiTypeCodexResponses = "codex/v1/responses"
 )
 
-func listedFacts(p *Provider, wire string) (serving.EndpointFacts, bool) {
-	return serving.Facts(p.Name, p.WireModel(models.Strip1M(strings.TrimSpace(wire))))
+func listedFacts(p *Provider, wire string) (served.EndpointFacts, bool) {
+	return served.Facts(p.Name, p.WireModel(models.Strip1M(strings.TrimSpace(wire))))
 }
 
 // ListedResponses reports whether p's fresh listing says wire serves streaming Responses; known=false if absent.

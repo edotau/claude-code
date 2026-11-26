@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // ProfileRow is one profile's outcome for --all-profiles: the route when it resolved, else why not.
@@ -189,7 +189,7 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 
 // refreshServed is "" when p's served listing is fresh, or was refreshed and saved.
 func refreshServed(ctx context.Context, p *providers.Provider, now time.Time) string {
-	if s, ok := serving.Load(p.Name); ok && s.Fresh(now) {
+	if s, ok := served.Load(p.Name); ok && s.Fresh(now) {
 		return ""
 	}
 	infos, err := providers.ListModels(ctx, p)

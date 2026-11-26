@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // TestMain runs on the hermetic host; the roster rows discovery needs are linked in by this package's imports.
@@ -470,7 +470,7 @@ func servedHarness(t *testing.T, on bool) *int {
 
 func cached(t *testing.T) bool {
 	t.Helper()
-	_, ok := serving.Load("qa")
+	_, ok := served.Load("qa")
 	return ok
 }
 

@@ -17,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -350,14 +349,37 @@ func (u usageTokens) wire() wire.Usage {
 		CacheReadTokens: u.CacheReadInputTokens, CacheCreationTokens: u.CacheCreationInputTokens}
 }
 
-func (u usageTokens) delta() anthropic.MessageDeltaUsage {
-	return anthropic.MessageDeltaUsage{InputTokens: int64(u.InputTokens), OutputTokens: int64(u.OutputTokens),
-		CacheCreationInputTokens: int64(u.CacheCreationInputTokens), CacheReadInputTokens: int64(u.CacheReadInputTokens)}
+type claudeBlock struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Text      string `json:"text"`
+	ToolUseID string `json:"tool_use_id"`
 }
 
-// decodeMessage decodes a raw message as an anthropic.Message (string or absent = zero); a var so tests count calls.
-var decodeMessage = func(raw json.RawMessage) anthropic.Message {
-	var m anthropic.Message
+type claudeMessage struct {
+	ID      string        `json:"id"`
+	Model   string        `json:"model"`
+	Content []claudeBlock `json:"content"`
+	Usage   usageTokens   `json:"usage"`
+}
+
+func foldDeltaUsage(res *wire.Usage, u usageTokens) {
+	if u.InputTokens > 0 {
+		res.InputTokens = u.InputTokens
+	}
+	if u.CacheCreationInputTokens > 0 {
+		res.CacheCreationTokens = u.CacheCreationInputTokens
+	}
+	if u.CacheReadInputTokens > 0 {
+		res.CacheReadTokens = u.CacheReadInputTokens
+	}
+	res.OutputTokens = u.OutputTokens
+}
+
+// decodeMessage decodes a raw message (string or absent = zero); a var so tests count calls.
+var decodeMessage = func(raw json.RawMessage) claudeMessage {
+	var m claudeMessage
 	if len(raw) == 0 || raw[0] != '{' {
 		return m
 	}
@@ -366,9 +388,9 @@ var decodeMessage = func(raw json.RawMessage) anthropic.Message {
 }
 
 // topMessage decodes a top-level assistant or user message, the only ones the stream state and idle watch read.
-func (ev claudeEvent) topMessage() anthropic.Message {
+func (ev claudeEvent) topMessage() claudeMessage {
 	if ev.ParentToolUseID != "" || (ev.Type != "assistant" && ev.Type != "user") {
-		return anthropic.Message{}
+		return claudeMessage{}
 	}
 	return decodeMessage(ev.Message)
 }
@@ -450,13 +472,13 @@ type pendingTool struct {
 }
 
 // started notes every tool_use of a top-level assistant message, on the adapter's own clock.
-func (t toolTimer) started(ev claudeEvent, msg anthropic.Message) {
+func (t toolTimer) started(ev claudeEvent, msg claudeMessage) {
 	if ev.ParentToolUseID != "" {
 		return
 	}
 	for _, b := range msg.Content {
-		if u, ok := b.AsAny().(anthropic.ToolUseBlock); ok {
-			t[u.ID] = pendingTool{name: u.Name, start: wire.Clock()}
+		if b.Type == "tool_use" {
+			t[b.ID] = pendingTool{name: b.Name, start: wire.Clock()}
 		}
 	}
 }
@@ -496,11 +518,11 @@ type claudeUsage struct {
 	total    wire.Usage
 }
 
-func (c *claudeUsage) observe(ev claudeEvent, msg anthropic.Message) wire.Usage {
+func (c *claudeUsage) observe(ev claudeEvent, msg claudeMessage) wire.Usage {
 	if ev.ParentToolUseID != "" {
 		return c.total
 	}
-	id, u := msg.ID, messageUsage(msg)
+	id, u := msg.ID, msg.Usage.wire()
 	if ev.Type == "stream_event" {
 		switch ev.Event.Type {
 		case "message_start":
@@ -508,7 +530,7 @@ func (c *claudeUsage) observe(ev claudeEvent, msg anthropic.Message) wire.Usage 
 			c.current = id
 		case "message_delta":
 			id, u = c.current, c.messages[c.current]
-			foldDeltaUsage(&u, ev.Event.Usage.delta())
+			foldDeltaUsage(&u, ev.Event.Usage)
 		}
 	}
 	if id == "" {
@@ -526,12 +548,7 @@ func (c *claudeUsage) observe(ev claudeEvent, msg anthropic.Message) wire.Usage 
 	return c.total
 }
 
-func messageUsage(m anthropic.Message) wire.Usage {
-	return wire.Usage{InputTokens: int(m.Usage.InputTokens), OutputTokens: int(m.Usage.OutputTokens),
-		CacheReadTokens: int(m.Usage.CacheReadInputTokens), CacheCreationTokens: int(m.Usage.CacheCreationInputTokens)}
-}
-
-func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilResult bool) (bool, error) {
+func (s claudeStreamState) apply(ev claudeEvent, msg claudeMessage, untilResult bool) (bool, error) {
 	switch ev.Type {
 	case "stream_event":
 		s.transport.Event(wire.Clock())
@@ -633,7 +650,7 @@ func applyClaudeSystem(ev claudeEvent, res *wire.Result, ts *wire.TransportTrack
 }
 
 // applyClaudeAssistantEvent logs and emits a top-level assistant message; a subagent's is ignored.
-func applyClaudeAssistantEvent(ev claudeEvent, msg anthropic.Message, res *wire.Result, lg wire.StreamLog, sink wire.Sink, seen *wire.Answer) error {
+func applyClaudeAssistantEvent(ev claudeEvent, msg claudeMessage, res *wire.Result, lg wire.StreamLog, sink wire.Sink, seen *wire.Answer) error {
 	if ev.ParentToolUseID != "" {
 		return nil
 	}
@@ -644,25 +661,25 @@ func applyClaudeAssistantEvent(ev claudeEvent, msg anthropic.Message, res *wire.
 	return emitClaudeAssistant(sink, msg, seen)
 }
 
-func logClaudeAssistant(lg wire.StreamLog, msg anthropic.Message) {
+func logClaudeAssistant(lg wire.StreamLog, msg claudeMessage) {
 	for _, b := range msg.Content {
-		switch b := b.AsAny().(type) {
-		case anthropic.TextBlock:
+		switch b.Type {
+		case "text":
 			lg.Emit("assistant", b.Text)
-		case anthropic.ToolUseBlock:
+		case "tool_use":
 			lg.Emit("tool", b.Name)
 		}
 	}
 }
 
 // emitClaudeAssistant emits each text block through seen and each tool call to sink.
-func emitClaudeAssistant(sink wire.Sink, msg anthropic.Message, seen *wire.Answer) error {
+func emitClaudeAssistant(sink wire.Sink, msg claudeMessage, seen *wire.Answer) error {
 	for _, b := range msg.Content {
 		var err error
-		switch b := b.AsAny().(type) {
-		case anthropic.ToolUseBlock:
+		switch b.Type {
+		case "tool_use":
 			err = sink.Emit(wire.ToolEvent(b.Name, b.ID))
-		case anthropic.TextBlock:
+		case "text":
 			if b.Text != "" {
 				err = seen.Emit(sink, b.Text, true)
 			}

@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 func dbxProv(name string) *providers.Provider {
@@ -21,8 +21,8 @@ func dbxProv(name string) *providers.Provider {
 }
 
 // listing is a fresh served listing: ids mapped to their ready state, in a stable order.
-func listing(profile string, ready map[string]string) serving.Served {
-	s := serving.Served{Profile: profile, FetchedAt: time.Now()}
+func listing(profile string, ready map[string]string) served.Served {
+	s := served.Served{Profile: profile, FetchedAt: time.Now()}
 	for _, id := range slices.Sorted(func(yield func(string) bool) {
 		for k := range ready {
 			if !yield(k) {
@@ -30,13 +30,13 @@ func listing(profile string, ready map[string]string) serving.Served {
 			}
 		}
 	}) {
-		s.Models = append(s.Models, serving.ServedModel{ID: id, Ready: ready[id]})
+		s.Models = append(s.Models, served.ServedModel{ID: id, Ready: ready[id]})
 	}
 	return s
 }
 
 // stubServed makes the given profiles' listings fresh; any other profile has no cache. It also seeds a hermetic vault.
-func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...serving.Served) {
+func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...served.Served) {
 	t.Helper()
 	vaulttest.Use(t)
 	if menu != nil {
@@ -45,13 +45,13 @@ func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...servi
 		}
 	}
 	orig := servedListing
-	servedListing = func(profile string, _ time.Time) (serving.Served, bool) {
+	servedListing = func(profile string, _ time.Time) (served.Served, bool) {
 		for _, s := range byProfile {
 			if s.Profile == profile {
 				return s, true
 			}
 		}
-		return serving.Served{}, false
+		return served.Served{}, false
 	}
 	t.Cleanup(func() { servedListing = orig })
 }
@@ -72,7 +72,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{respA, respB}); err != nil {
 		t.Fatal(err)
 	}
-	if err := serving.Save(listing("dev", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})); err != nil {
+	if err := served.Save(listing("dev", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()
@@ -272,7 +272,7 @@ func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			vaulttest.Use(t)
 			if c.ready != "" {
-				if err := serving.Save(listing("dev", map[string]string{wired: c.ready})); err != nil {
+				if err := served.Save(listing("dev", map[string]string{wired: c.ready})); err != nil {
 					t.Fatal(err)
 				}
 			}

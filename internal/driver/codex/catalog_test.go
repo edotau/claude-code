@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 func BenchmarkIndexCodexModels(b *testing.B) {
@@ -249,15 +249,15 @@ func TestCatalogSkipNoteNamesEveryUnlistedModel(t *testing.T) {
 }
 
 // listFacts swaps the listing seam for the test; the id spelling is the wire name.
-func listFacts(t *testing.T, facts map[string]serving.EndpointFacts) {
+func listFacts(t *testing.T, facts map[string]served.EndpointFacts) {
 	t.Helper()
-	serving.SetFactsForTest(t, func(_, wire string) (serving.EndpointFacts, bool) { f, ok := facts[wire]; return f, ok })
+	served.SetFactsForTest(t, func(_, wire string) (served.EndpointFacts, bool) { f, ok := facts[wire]; return f, ok })
 }
 
 // Given a fresh listing, Then api_types decide Responses for a listed id, the old rule covers an unlisted one, Grok stays out.
 func TestCodexServesFollowsListingAPITypes(t *testing.T) {
 	responses := []string{"mlflow/v1/chat/completions", "openai/v1/responses", "codex/v1/responses"}
-	listFacts(t, map[string]serving.EndpointFacts{
+	listFacts(t, map[string]served.EndpointFacts{
 		"databricks-gpt-6-luna":  {APITypes: []string{"mlflow/v1/chat/completions", "anthropic/v1/messages"}},
 		"databricks-kimi-k3":     {APITypes: responses},
 		"databricks-grok-4-7":    {APITypes: responses},
@@ -280,7 +280,7 @@ func TestCodexServesFollowsListingAPITypes(t *testing.T) {
 
 // Given a fallback row whose listing states a window, Then the row uses it and the assumption note omits the id.
 func TestCatalogFallbackRowUsesListedWindow(t *testing.T) {
-	listFacts(t, map[string]serving.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000}})
+	listFacts(t, map[string]served.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000}})
 	menu := []providers.OpencodeModel{{ID: "gpt-5-5", Label: "G55"}, {ID: "gpt-5-4", Label: "G54"}, {ID: "gpt-6-luna", Label: "L"}}
 	rows, warn := buildRows(t, fallbackBundled, menu)
 	for _, r := range rows {

@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 type discoveryTransport func(*http.Request) (*http.Response, error)
@@ -554,7 +554,7 @@ func TestWarmServedNewerWins(t *testing.T) {
 		if err := WarmServed("dev", c.infos, c.at); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		got, ok := serving.Load("dev")
+		got, ok := served.Load("dev")
 		if !ok || len(got.Models) != 1 || got.Models[0].ID != c.want {
 			t.Errorf("%s: on disk %+v (ok=%v), want only %s", c.name, got.Models, ok, c.want)
 		}
@@ -569,7 +569,7 @@ func TestWarmServedKeepsFoundationFacts(t *testing.T) {
 	if err := WarmServed("facts", infos, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	s, ok := serving.Load("facts")
+	s, ok := served.Load("facts")
 	p := &providers.Provider{Name: "facts", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
 	m, found := s.Find(p, "gpt-5-4")
 	if !ok || !found || m.APITypes[0] != "openai/v1/responses" || m.Context != 400000 || m.Output != 128000 {

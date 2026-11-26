@@ -1,4 +1,4 @@
-package serving
+package served
 
 import (
 	"errors"
@@ -26,7 +26,7 @@ const (
 )
 
 var servedFormat = schemas.Register(schemas.Format{
-	Name: "served-models", Owner: "internal/routing/serving", Kind: schemas.Cache,
+	Name: "served-models", Owner: "internal/routing/served", Kind: schemas.Cache,
 	Glob:    func() string { return filepath.Join(paths.StateDir(), "preflight", "*.json") },
 	New:     func() any { return &Served{} },
 	Version: servedSchema, Keep: "rebuildable cache; a version mismatch is a miss",

@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 var candidateMemo = paths.NewMemo[routingKey, []catalog.Candidate]("agent.rotation-candidates")
@@ -19,7 +19,7 @@ var acceptedMemo = paths.NewMemo[routingKey, acceptedList]("agent.accepted-ids")
 
 type routingKey struct {
 	registry *providers.Registry
-	listing  *serving.ServedModel
+	listing  *served.ServedModel
 	inputs   [32]byte
 }
 
@@ -34,7 +34,7 @@ func routingListKey(agentName string, p *providers.Provider, tools bool, now tim
 	if err != nil {
 		return routingKey{}, err
 	}
-	listing, listed := serving.Shared(p.Name)
+	listing, listed := served.Shared(p.Name)
 	gh, ghFresh := githubSnapshot(p, now)
 	var snapshot []string
 	if p.Provider == "github" {

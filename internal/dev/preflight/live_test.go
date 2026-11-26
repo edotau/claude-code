@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/driver/copilotauth"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
@@ -49,10 +49,10 @@ func byAgent(ps []Pin) map[string]Pin {
 // Bare pins match prefixed Databricks listings; prefixed pins never match bare listings.
 func TestHasMatchesRuntimeSpelling(t *testing.T) {
 	dev := preflightRegistry(true).Providers["dev"]
-	if listed, _ := (serving.Served{Models: []serving.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}).Has(dev, "my-endpoint"); !listed {
+	if listed, _ := (served.Served{Models: []served.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}).Has(dev, "my-endpoint"); !listed {
 		t.Error("bare pin my-endpoint must match listed databricks-my-endpoint")
 	}
-	if listed, _ := (serving.Served{Models: []serving.ServedModel{{ID: "my-endpoint", Ready: "READY"}}}).Has(dev, "databricks-my-endpoint"); listed {
+	if listed, _ := (served.Served{Models: []served.ServedModel{{ID: "my-endpoint", Ready: "READY"}}}).Has(dev, "databricks-my-endpoint"); listed {
 		t.Error("pin databricks-my-endpoint must not match a bare my-endpoint listing")
 	}
 }
@@ -60,10 +60,10 @@ func TestHasMatchesRuntimeSpelling(t *testing.T) {
 // A listing stamped in the future is stale, not fresh forever.
 func TestFutureListingIsStale(t *testing.T) {
 	now := time.Now()
-	if (serving.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
+	if (served.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
 		t.Fatal("future fetched_at must not be fresh")
 	}
-	if !(serving.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
+	if !(served.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
 		t.Fatal("small skew must stay fresh")
 	}
 }
@@ -126,8 +126,8 @@ func TestRefreshStaleRelistsUnpinnedStaleProfile(t *testing.T) {
 	var got []string
 	refresh = func(_ context.Context, p *providers.Provider) error { got = append(got, p.Name); return nil }
 	t.Cleanup(func() { refresh = catalog.Refresh })
-	stale := serving.Served{Schema: 1, Profile: "dev", FetchedAt: now.Add(-26 * time.Hour), Models: []serving.ServedModel{{ID: "m"}}}
-	if err := serving.Save(stale); err != nil {
+	stale := served.Served{Schema: 1, Profile: "dev", FetchedAt: now.Add(-26 * time.Hour), Models: []served.ServedModel{{ID: "m"}}}
+	if err := served.Save(stale); err != nil {
 		t.Fatal(err)
 	}
 	if errs := RefreshStale(context.Background(), reg, nil, now, false); len(errs) != 0 || len(got) != 1 || got[0] != "dev" {

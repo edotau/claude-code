@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
@@ -111,8 +111,11 @@ func TestSessionTokenExpiresAtItsTTL(t *testing.T) {
 func TestLeftoverRevokedFileIgnored(t *testing.T) {
 	g := newSessionRig(t)
 	tok := g.mint(t, "dev")
-	writeLegacy(t, `{"schema":2,"sessions":[]}`) // creates the proxy state dir
-	if err := os.WriteFile(filepath.Join(filepath.Dir(proxy.SessionsFile()), "revoked.json"), []byte("{"), 0o600); err != nil {
+	dir := filepath.Join(paths.StateDir(), "proxy")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "revoked.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
@@ -306,108 +309,6 @@ func TestSessionRefusalNamesItsCause(t *testing.T) {
 				checkRefusal(t, g, &log, path, tok, tc.want)
 			}
 		})
-	}
-}
-
-// A token the previous build stored works until its process exits; the bridge never writes the old file.
-func TestLegacySessionTokenBridgedUntilItsProcessExits(t *testing.T) {
-	g := newSessionRig(t)
-	tok := proxy.SessionTokenPrefix + strings.Repeat("ab", 32)
-	hash := textutil.SHA256Hex([]byte(tok))
-	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
-		`"expires":"2023-11-20T00:00:00Z"}]}`)
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
-		t.Fatal("a stored old-format token was refused while its process lives")
-	}
-	if c, _ := g.call(t, "/p/other/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
-		t.Fatal("an old-format token was accepted outside its profiles")
-	}
-	g.advance(6 * 24 * time.Hour) // past the stored expiry: only the slide from the accepted use above keeps it
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c == http.StatusUnauthorized {
-		t.Fatal("an old-format token in use expired at its stored expiry")
-	}
-	g.advance(legacyTTL)
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
-		t.Fatal("an old-format token outlived its idle expiry")
-	}
-	g.advance(-legacyTTL)
-	g.setStart("999")
-	g.advance(sessionVerify)
-	if c, _ := g.call(t, "/p/dev/v1/messages", `{}`, tok); c != http.StatusUnauthorized {
-		t.Fatal("an old-format token outlived its process")
-	}
-	g.r.sessions.count()
-	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
-		t.Fatal("the bridge rewrote sessions.json, which the previous build still writes without a lock")
-	}
-}
-
-// A running daemon stops bridging a live old-format token once sessions.json is removed.
-func TestLegacySessionTokenDroppedWhenSessionsFileRemoved(t *testing.T) {
-	g := newSessionRig(t)
-	tok := proxy.SessionTokenPrefix + strings.Repeat("cd", 32)
-	hash := textutil.SHA256Hex([]byte(tok))
-	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
-		`"expires":"2023-11-20T00:00:00Z"}]}`)
-	if _, _, ok := g.r.sessions.legacyClaims(tok); !ok {
-		t.Fatal("a stored old-format token was not live before sessions.json was removed")
-	}
-	if err := os.Remove(proxy.SessionsFile()); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, ok := g.r.sessions.legacyClaims(tok); ok {
-		t.Fatal("a daemon kept bridging a token after sessions.json was removed")
-	}
-}
-
-// A renewal one daemon made survives a takeover, never revives an idle token, and leaves with its dead holder.
-func TestLegacyRenewalPersistsAcrossDaemons(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	now, start := time.Unix(1_700_000_000, 0), "100"
-	store := func() *sessionStore {
-		s := newSessionStore(secret, func() time.Time { return now })
-		s.procStart = func(int) (string, error) {
-			if start == "" {
-				return "", proc.ErrNoProcess
-			}
-			return start, nil
-		}
-		return s
-	}
-	tok := proxy.SessionTokenPrefix + strings.Repeat("cd", 32)
-	hash := textutil.SHA256Hex([]byte(tok))
-	writeLegacy(t, `{"schema":2,"sessions":[{"hash":"`+hash+`","profiles":["dev"],"pid":4242,"start":"100",`+
-		`"expires":"`+now.Add(24*time.Hour).UTC().Format(time.RFC3339)+`"}]}`)
-	if why := store().check(tok, "dev"); why != "" { // daemon 1 accepts and renews to now+7d
-		t.Fatalf("daemon 1 refused a live old token: %s", why)
-	}
-	now = now.Add(6 * 24 * time.Hour) // past the saved expiry, inside the renewed one
-	if why := store().check(tok, "dev"); why != "" {
-		t.Fatalf("daemon 2 lost daemon 1's renewal: %s", why)
-	}
-	now = now.Add(legacyTTL) // idle past daemon 2's own renewal
-	if why := store().check(tok, "dev"); why == "" {
-		t.Fatal("a stale renewal revived an idle old token")
-	}
-	now = now.Add(-legacyTTL)
-	start = ""
-	s := store()
-	s.pruneLegacy()
-	if raw, err := os.ReadFile(proxy.LegacyRenewalsFile()); err != nil || strings.Contains(string(raw), hash) {
-		t.Fatalf("a dead holder's renewal stayed in the file (err %v)", err)
-	}
-	if raw, _ := os.ReadFile(proxy.SessionsFile()); !strings.Contains(string(raw), hash) {
-		t.Fatal("the bridge rewrote sessions.json")
-	}
-}
-
-func writeLegacy(t *testing.T, v2 string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(proxy.SessionsFile()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(proxy.SessionsFile(), []byte(v2), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }
 

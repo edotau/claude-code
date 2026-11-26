@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // servedSession seeds a hermetic vault and a dev Databricks session; it returns the served-refresh spawn count.
@@ -26,7 +26,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "blurfle-dev")
 	t.Setenv(providers.EnvSessionProfile, "dev")
 	if !fetched.IsZero() {
-		if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
+		if err := served.Save(served.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
 			t.Fatal(err)
 		}
 	}

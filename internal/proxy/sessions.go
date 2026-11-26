@@ -347,8 +347,8 @@ func (r proxyTokenRecord) sameBinding(want proxyTokenRecord) bool {
 		slices.Equal(r.Fence, want.Fence) && r.Open == want.Open
 }
 
-// ErrSessionUnverified means only a proxy can judge the token: the secret is unreadable here, or it is a legacy token.
-var ErrSessionUnverified = errors.New("session token cannot be verified here (router secret unreadable or a legacy token)")
+// ErrSessionUnverified means only a proxy can judge the token because the router secret is unreadable here.
+var ErrSessionUnverified = errors.New("session token cannot be verified here (router secret unreadable)")
 
 // SessionRefused reports a SessionInvalid result that is a definite refusal, not ErrSessionUnverified.
 func SessionRefused(err error) bool { return err != nil && !errors.Is(err, ErrSessionUnverified) }
@@ -356,19 +356,10 @@ func SessionRefused(err error) bool { return err != nil && !errors.Is(err, ErrSe
 // SessionInvalid is why this config's proxies would refuse tok on profile ("" = any) now; nil when they accept it.
 func SessionInvalid(tok, profile string) error {
 	secret, ok, err := vaultSecret() // read only: a check never mints the router secret
-	// a stored previous-build token lives in the proxy's bridge
-	if err != nil || !ok || LegacySessionShape(tok) {
+	if err != nil || !ok {
 		return ErrSessionUnverified
 	}
 	return CheckSessionToken(secret, tok, profile, time.Now(), proc.StartTime)
-}
-
-// SessionsFile is the previous build's stored-token file, read for its bridge; it stays in that build's format.
-func SessionsFile() string { return filepath.Join(paths.StateDir(), "proxy", "sessions.json") }
-
-// LegacyRenewalsFile holds renewed expiries of previous-build tokens; only this build reads or writes it.
-func LegacyRenewalsFile() string {
-	return filepath.Join(paths.StateDir(), "proxy", "legacy-renewals.json")
 }
 
 // AuthenticClaims is tok's claims when its MAC verifies under this config's router secret, whatever its liveness.

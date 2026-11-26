@@ -25,7 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/databricks/serving"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	endpoints "github.com/edotau/claude-code/internal/routing/serving"
+	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
 // catalogListing is the fake workspace: Claude, a Responses-only GPT, open chat models, a cold and an embeddings row.

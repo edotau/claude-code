@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // --provider equal to the session's own subscribed provider stores the bare spec, unqualified.
@@ -189,8 +189,8 @@ func TestValidateClaudePinsJudgesOnSessionProfile(t *testing.T) {
 	if err := providers.SetProviderFields("qa", row); err != nil {
 		t.Fatal(err)
 	}
-	if err := serving.Save(serving.Served{Profile: "qa", FetchedAt: time.Now(),
-		Models: []serving.ServedModel{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
+	if err := served.Save(served.Served{Profile: "qa", FetchedAt: time.Now(),
+		Models: []served.ServedModel{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()

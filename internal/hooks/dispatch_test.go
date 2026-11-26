@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
-	"github.com/edotau/claude-code/internal/hooks/web"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/settings"
@@ -197,9 +196,8 @@ func guardBindingProbes() map[string]bindingProbe {
 				}
 		},
 		"dispatch-effort": func(*testing.T, string) (string, func(core.Result) bool) {
-			return `{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`, func(r core.Result) bool {
-				s, _ := r.UpdatedInput["script"].(string)
-				return strings.Contains(s, "model: 'sonnet'")
+			return `{"tool_name":"Agent","tool_input":{"subagent_type":"claude","description":"fix bug","prompt":"fix it"}}`, func(r core.Result) bool {
+				return len(r.UpdatedInput) > 0
 			}
 		},
 	}
@@ -264,7 +262,7 @@ var pointerBound = map[string]core.Runner{
 	"dispatch-handback": dispatchhook.Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": dispatchhook.ReminderWatched,
 	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 	"worktree-clean-end": wthook.CleanEnd, "worktree-fixnow": wthook.FixNow, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
-	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": web.Tavily,
+	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": webTavily,
 	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,
 }
 

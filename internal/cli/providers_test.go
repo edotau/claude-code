@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // fakeModelsServer serves the OpenAI-shaped {"data":[{"id":...}]} catalog listLive's non-copilot dispatch GETs.
@@ -297,7 +297,7 @@ func TestSwitchWarmsMissingServedCache(t *testing.T) {
 	if len(*got) == 0 {
 		t.Fatal("switch made no listing request")
 	}
-	if s, ok := serving.Load("qa"); !ok || len(s.Models) != 3 {
+	if s, ok := served.Load("qa"); !ok || len(s.Models) != 3 {
 		t.Fatalf("cache after switch = %+v ok=%v, want the 3 listed endpoints", s, ok)
 	}
 }
@@ -325,7 +325,7 @@ func TestSwitchDryRunMakesNoRequests(t *testing.T) {
 	if len(*got) != 0 {
 		t.Fatalf("dry-run made requests: %v", *got)
 	}
-	if _, ok := serving.Load("qa"); ok {
+	if _, ok := served.Load("qa"); ok {
 		t.Error("dry-run wrote a cache")
 	}
 }

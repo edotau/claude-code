@@ -24,7 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // TestGatewayProxyFlagValidation: lifecycle flags are mutually exclusive and --port belongs to --serve.
@@ -726,9 +726,9 @@ func TestGatewayRouteRefusesModelNoEndpointServes(t *testing.T) {
 	}{{"gpt-9-zzz", true}, {"gpt-6-1-terra", false}} {
 		t.Run(c.model, func(t *testing.T) {
 			parityEnv(t, "terra-par", true)
-			s := serving.Served{Profile: "terra-par", FetchedAt: time.Now(),
-				Models: []serving.ServedModel{{ID: "databricks-gpt-6-1-terra", Ready: "READY"}}}
-			if err := serving.Save(s); err != nil {
+			s := served.Served{Profile: "terra-par", FetchedAt: time.Now(),
+				Models: []served.ServedModel{{ID: "databricks-gpt-6-1-terra", Ready: "READY"}}}
+			if err := served.Save(s); err != nil {
 				t.Fatal(err)
 			}
 			code, _, errOut := hosttest.CaptureOutput(t, func() int {

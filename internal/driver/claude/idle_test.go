@@ -16,8 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -288,7 +286,7 @@ func TestClaudeExecMidStreamParseErrorKillsChild(t *testing.T) {
 func TestParseClaudeEventsDecodesEachMessageOnce(t *testing.T) {
 	orig := decodeMessage
 	calls := 0
-	decodeMessage = func(raw json.RawMessage) anthropic.Message { calls++; return orig(raw) }
+	decodeMessage = func(raw json.RawMessage) claudeMessage { calls++; return orig(raw) }
 	t.Cleanup(func() { decodeMessage = orig })
 	w := newIdleWatch(time.Minute, func() {})
 	defer w.Stop()

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -29,36 +28,22 @@ type seenSession struct {
 	checked time.Time
 }
 
-// sessionStore verifies signed tokens, which end with their process, expiry or the secret; the legacy bridge reads.
+// sessionStore verifies signed tokens, which end with their process, expiry or the secret.
 type sessionStore struct {
-	mu         sync.Mutex
-	secret     string
-	seen       map[string]*seenSession  // token hash -> last verified binding
-	legacy     map[string]legacySession // token hash -> the previous build's stored binding
-	legacyDead map[string]bool          // legacy hashes whose process was seen gone, refused from then on
-	legacyRead os.FileInfo              // the sessions.json version last folded in
-	legacyFile string                   // sessions.json, the previous build's file
-	renewed    map[string]legacyRenewal // token hash -> the renewal last read from or written to renewFile
-	renewRead  os.FileInfo              // the renewal file version last folded in
-	renewFile  string                   // legacy-renewals.json, this build's record of old-token slides
-	now        func() time.Time
-	procStart  func(pid int) (string, error) // a seam for tests: the pid's start-time identity
+	mu        sync.Mutex
+	secret    string
+	seen      map[string]*seenSession // token hash -> last verified binding
+	now       func() time.Time
+	procStart func(pid int) (string, error) // a seam for tests: the pid's start-time identity
 }
 
-// newMemorySessionStore is a store that never persists: no legacy reload, no renewal file.
+// newMemorySessionStore is an in-memory session store.
 func newMemorySessionStore(secret string, now func() time.Time) *sessionStore {
-	return &sessionStore{secret: secret, seen: map[string]*seenSession{},
-		legacy: map[string]legacySession{}, legacyDead: map[string]bool{},
-		renewed: map[string]legacyRenewal{}, now: now, procStart: proc.StartTime}
+	return &sessionStore{secret: secret, seen: map[string]*seenSession{}, now: now, procStart: proc.StartTime}
 }
 
 func newSessionStore(secret string, now func() time.Time) *sessionStore {
-	s := newMemorySessionStore(secret, now)
-	s.legacyFile, s.renewFile = proxy.SessionsFile(), proxy.LegacyRenewalsFile()
-	s.mu.Lock()
-	s.reloadLegacyLocked()
-	s.mu.Unlock()
-	return s
+	return newMemorySessionStore(secret, now)
 }
 
 // validProfile reports whether profile is non-empty and free of URL-structure characters.
@@ -69,11 +54,6 @@ func validProfile(profile string) bool {
 // validProfiles reports whether profiles is a non-empty set of valid profile names.
 func validProfiles(profiles []string) bool {
 	return len(profiles) > 0 && !slices.ContainsFunc(profiles, func(p string) bool { return !validProfile(p) })
-}
-
-// sameVersion reports fi is the file version read was taken from (an atomic write is a new inode).
-func sameVersion(read, fi os.FileInfo) bool {
-	return read != nil && os.SameFile(read, fi) && fi.ModTime().Equal(read.ModTime()) && fi.Size() == read.Size()
 }
 
 // mintFenced signs a token bound to pid's identity, with optional failover and a confinement fence.
@@ -133,18 +113,14 @@ func (s *sessionStore) check(tok, profile string) string {
 	if !fresh { // a fresh entry keeps its checked time: frequent use never extends the trust window
 		s.noteSeenLocked(hash, c, now)
 	}
-	s.slideLegacyLocked(hash, now)
 	if !c.FenceAllows(profile) { // after the seen note: a fenced-out live token still counts as live
 		return whyFenced
 	}
 	return ""
 }
 
-// verify is tok's claims when signed and inside its window, or a stored legacy binding; else why not.
+// verify is tok's claims when signed and inside its window; else why not.
 func (s *sessionStore) verify(tok string) (proxy.SessionClaims, string) {
-	if c, _, ok := s.legacyClaims(tok); ok {
-		return c, ""
-	}
 	c, err := proxy.ParseSessionToken(s.secret, tok)
 	if err != nil {
 		return c, err.Error()
@@ -199,16 +175,12 @@ func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
 	if !strings.HasPrefix(tok, proxy.SessionTokenPrefix) {
 		return proxy.SessionClaims{}, false
 	}
-	if c, _, ok := s.legacyClaims(tok); ok {
-		return c, true
-	}
 	c, err := proxy.ParseSessionToken(s.secret, tok)
 	return c, err == nil
 }
 
 // count is the tokens this daemon accepted whose process still lives; it is shown, never consulted for auth.
 func (s *sessionStore) count() int {
-	s.pruneLegacy()
 	s.mu.Lock()
 	probe := maps.Clone(s.seen)
 	s.mu.Unlock()

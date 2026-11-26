@@ -1,12 +1,10 @@
-package web
+package hooks
 
 import (
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 func TestWebTavilySkipsWithoutCallingTavily(t *testing.T) {
@@ -20,18 +18,10 @@ func TestWebTavilySkipsWithoutCallingTavily(t *testing.T) {
 			prev := sessionOnDatabricks
 			sessionOnDatabricks = func() bool { return true }
 			t.Cleanup(func() { sessionOnDatabricks = prev })
-			r := Tavily(core.ParseInputFor(strings.NewReader(tc.payload), "claude"))
+			r := webTavily(core.ParseInputFor(strings.NewReader(tc.payload), "claude"))
 			if r.UpdatedToolOutput != nil || r.Verdict != tc.verdict {
 				t.Errorf("got verdict %q, output %v; want %q and none", r.Verdict, r.UpdatedToolOutput, tc.verdict)
 			}
 		})
 	}
-}
-
-func TestMain(m *testing.M) {
-	cleanup := hosttest.Setup()
-	code := m.Run()
-	hosttest.Cleanup()
-	cleanup()
-	os.Exit(code)
 }

@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	endpoints "github.com/edotau/claude-code/internal/routing/serving"
+	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
 // poolOf is the lazy any-tier rotation pool of agentName on p, for router's pool checks.

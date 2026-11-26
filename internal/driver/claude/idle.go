@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -87,7 +85,7 @@ func (w *idleWatch) rejectedErr() error {
 }
 
 // observe records an event: it resets the window unless a tool is running, which pauses it.
-func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
+func (w *idleWatch) observe(ev claudeEvent, msg claudeMessage) {
 	if w == nil {
 		return
 	}
@@ -133,7 +131,7 @@ func (w *idleWatch) noteRetry(status *int) {
 	}
 }
 
-func countBlocks(msg anthropic.Message, typ string) (n int) {
+func countBlocks(msg claudeMessage, typ string) (n int) {
 	for _, b := range msg.Content {
 		if b.Type == typ {
 			n++
@@ -143,7 +141,7 @@ func countBlocks(msg anthropic.Message, typ string) (n int) {
 }
 
 // userAnswers is the tool_results a user event answers; an undecodable one (no blocks) counts as one so pending drains.
-func userAnswers(msg anthropic.Message) int {
+func userAnswers(msg claudeMessage) int {
 	if len(msg.Content) == 0 {
 		return 1
 	}
@@ -162,7 +160,7 @@ func (w *idleWatch) earliestTool() openTool {
 }
 
 // trackTools records opened tool calls by id, or drops the answered ones (all once none is pending).
-func (w *idleWatch) trackTools(msg anthropic.Message, answered bool) {
+func (w *idleWatch) trackTools(msg claudeMessage, answered bool) {
 	for _, b := range msg.Content {
 		if answered {
 			delete(w.tools, b.ToolUseID)

@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/models"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 const testBase = `{"providers": {"anthropic": {"a": {"protocol": "anthropic", "base_url": "https://a", "auth": {"type": "none"}}}}}`
@@ -567,7 +567,7 @@ func TestPresetTokenCommandOverrides(t *testing.T) {
 func TestContextTokens(t *testing.T) {
 	dbx := &Provider{Name: "dev", Preset: PresetDatabricks}
 	gh := &Provider{Name: "gh", Provider: "github"}
-	listingFacts(t, map[string]serving.EndpointFacts{
+	listingFacts(t, map[string]served.EndpointFacts{
 		"claude-opus-4-8":              {Context: models.ContextWindow1M},
 		"databricks-fixture-chat":      {Context: 128_000},
 		"databricks-fixture-big":       {Context: models.ContextWindow1M},

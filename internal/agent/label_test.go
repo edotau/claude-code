@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/databricks/serving"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	endpoints "github.com/edotau/claude-code/internal/routing/serving"
+	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
 type labelEngine struct{ stubEngine }

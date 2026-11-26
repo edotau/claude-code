@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/remote/egress"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 const (
@@ -56,7 +56,7 @@ func oneShotFlagsOK(req RunOptions) bool {
 // oneShotEndpoint selects the best streaming HTTP dialect and URL for (p, model).
 func oneShotEndpoint(p *providers.Provider, model string) (dialect, url string, ok bool) {
 	if base, has := providers.AnthropicRoute(p, model); has {
-		return providers.ProtocolAnthropic, serving.EndpointURL(base, providers.ProtocolAnthropic, model, false), true
+		return providers.ProtocolAnthropic, served.EndpointURL(base, providers.ProtocolAnthropic, model, false), true
 	}
 	if base, has := p.Route(providers.ProtocolResponses); has && (p.Protocol == providers.ProtocolResponses || providers.ServesResponses(p, model)) {
 		return providers.ProtocolResponses, strings.TrimRight(base, "/") + "/responses", true
@@ -103,6 +103,9 @@ func oneShotBody(dialect, model string, req RunOptions) ([]byte, error) {
 		if sys != "" {
 			body["system"] = sys
 		}
+		if req.Effort != "" {
+			body["output_config"] = map[string]string{"effort": req.Effort}
+		}
 		return json.Marshal(body)
 	case providers.ProtocolResponses:
 		body := map[string]any{"model": model, "input": req.Prompt, "stream": true}
@@ -134,6 +137,7 @@ type oneShotHTTPErr struct {
 	status int
 	after  time.Duration
 	hint   retry.ShouldRetry
+	code   string
 	msg    string
 }
 
@@ -141,6 +145,25 @@ func (e *oneShotHTTPErr) Error() string                  { return e.msg }
 func (e *oneShotHTTPErr) StatusCode() int                { return e.status }
 func (e *oneShotHTTPErr) RetryAfter() time.Duration      { return e.after }
 func (e *oneShotHTTPErr) ShouldRetry() retry.ShouldRetry { return e.hint }
+func (e *oneShotHTTPErr) ErrorCode() string              { return e.code }
+
+func bodyErrorCode(body []byte) string {
+	var b struct {
+		Code  string `json:"error_code"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &b) != nil {
+		return ""
+	}
+	return strings.ToLower(cmp.Or(b.Error.Code, b.Code))
+}
+
+func oneShotOutputLimit() error {
+	return &retry.Error{Kind: retry.KindFatal, Budget: retry.BudgetOutput,
+		Err: errors.New("one-shot answer cut off at the output token limit")}
+}
 
 func sendOneShot(ctx context.Context, p *providers.Provider, dialect, url string, payload []byte) (*http.Response, error) {
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
@@ -174,6 +197,7 @@ func sendOneShot(ctx context.Context, p *providers.Provider, dialect, url string
 	return nil, &oneShotHTTPErr{
 		status: resp.StatusCode, after: max(after, 0),
 		hint: retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")),
+		code: bodyErrorCode(raw),
 		msg:  fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw[:min(len(raw), 600)]))),
 	}
 }
@@ -240,16 +264,18 @@ func nonNullJSON(raw *json.RawMessage) []byte {
 	return trimmed
 }
 
+type chatSSEChoice struct {
+	Delta struct {
+		Content string `json:"content"`
+	} `json:"delta"`
+	FinishReason string `json:"finish_reason"`
+}
+
 func applyChatSSE(data []byte, w io.Writer, usage *wire.Usage, served *string, done *bool) (bool, error) {
 	var chunk struct {
-		Model   string `json:"model"`
-		Choices []struct {
-			Delta struct {
-				Content string `json:"content"`
-			} `json:"delta"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-		Usage *struct {
+		Model   string          `json:"model"`
+		Choices []chatSSEChoice `json:"choices"`
+		Usage   *struct {
 			PromptTokens     int `json:"prompt_tokens"`
 			CompletionTokens int `json:"completion_tokens"`
 		} `json:"usage"`
@@ -261,23 +287,28 @@ func applyChatSSE(data []byte, w io.Writer, usage *wire.Usage, served *string, d
 	if errRaw := nonNullJSON(chunk.Error); len(errRaw) > 0 {
 		return false, fmt.Errorf("upstream error mid-stream: %s", errRaw)
 	}
-	if chunk.Model != "" {
-		*served = chunk.Model
-	}
+	*served = cmp.Or(chunk.Model, *served)
 	if chunk.Usage != nil {
 		usage.InputTokens, usage.OutputTokens = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
 	}
-	for _, ch := range chunk.Choices {
+	return false, writeChatChoices(chunk.Choices, w, done)
+}
+
+func writeChatChoices(choices []chatSSEChoice, w io.Writer, done *bool) error {
+	limit := false
+	for _, ch := range choices {
 		if ch.FinishReason != "" {
 			*done = true
+			limit = limit || ch.FinishReason == "length"
 		}
-		if ch.Delta.Content != "" {
-			if _, err := io.WriteString(w, ch.Delta.Content); err != nil {
-				return false, err
-			}
+		if _, err := io.WriteString(w, ch.Delta.Content); err != nil {
+			return err
 		}
 	}
-	return false, nil
+	if limit {
+		return oneShotOutputLimit()
+	}
+	return nil
 }
 
 func applyResponsesSSE(data []byte, w io.Writer, usage *wire.Usage, served *string, done *bool) (bool, error) {
@@ -326,11 +357,15 @@ type anthropicSSEEvent struct {
 		} `json:"usage"`
 	} `json:"message"`
 	Delta *struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type       string `json:"type"`
+		Text       string `json:"text"`
+		StopReason string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage *struct {
-		OutputTokens int `json:"output_tokens"`
+		InputTokens         int `json:"input_tokens"`
+		OutputTokens        int `json:"output_tokens"`
+		CacheCreationTokens int `json:"cache_creation_input_tokens"`
+		CacheReadTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -345,9 +380,7 @@ func applyAnthropicSSE(data []byte, w io.Writer, usage *wire.Usage, served *stri
 	case "content_block_delta":
 		return applyAnthropicDelta(ev, w)
 	case "message_delta":
-		if ev.Usage != nil && ev.Usage.OutputTokens > 0 {
-			usage.OutputTokens = ev.Usage.OutputTokens
-		}
+		return false, applyAnthropicMsgDelta(ev, usage)
 	case "message_stop":
 		*done = true
 		return true, nil
@@ -355,6 +388,27 @@ func applyAnthropicSSE(data []byte, w io.Writer, usage *wire.Usage, served *stri
 		return false, fmt.Errorf("anthropic stream error: %s", string(data[:min(len(data), 300)]))
 	}
 	return false, nil
+}
+
+func applyAnthropicMsgDelta(ev anthropicSSEEvent, usage *wire.Usage) error {
+	if u := ev.Usage; u != nil {
+		if u.InputTokens > 0 {
+			usage.InputTokens = u.InputTokens
+		}
+		if u.CacheCreationTokens > 0 {
+			usage.CacheCreationTokens = u.CacheCreationTokens
+		}
+		if u.CacheReadTokens > 0 {
+			usage.CacheReadTokens = u.CacheReadTokens
+		}
+		if u.OutputTokens > 0 {
+			usage.OutputTokens = u.OutputTokens
+		}
+	}
+	if ev.Delta != nil && ev.Delta.StopReason == "max_tokens" {
+		return oneShotOutputLimit()
+	}
+	return nil
 }
 
 func applyAnthropicStart(ev anthropicSSEEvent, usage *wire.Usage, served *string) {

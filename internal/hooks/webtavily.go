@@ -1,5 +1,5 @@
-// Package web answers WebFetch/WebSearch through Tavily on Databricks sessions.
-package web
+// webTavily answers WebFetch/WebSearch through Tavily on Databricks sessions.
+package hooks
 
 import (
 	"context"
@@ -33,8 +33,8 @@ var sessionOnDatabricks = func() bool {
 	return p != nil && p.Preset == providers.PresetDatabricks
 }
 
-// Tavily (PostToolUse WebFetch|WebSearch) swaps the built-in result for Tavily's; any failure keeps the original.
-func Tavily(in *core.Input) core.Result {
+// webTavily (PostToolUse WebFetch|WebSearch) swaps the built-in result for Tavily's; any failure keeps the original.
+func webTavily(in *core.Input) core.Result {
 	if src, err := vault.HasSecretErr(tavilyKeyName); err == nil && src == "" {
 		return core.Result{} // no key anywhere: nothing to try
 	}
@@ -85,8 +85,8 @@ func webSearchTavily(ctx context.Context, args, resp map[string]any) core.Result
 		return core.Result{Verdict: webSkipProxy} // the proxy already searched through Tavily
 	}
 	start := time.Now()
-	hits, err := websearch.Search(ctx, query, websearch.DefaultMaxResults, stringList(args["allowed_domains"]),
-		stringList(args["blocked_domains"]))
+	hits, err := websearch.Search(ctx, query, websearch.DefaultMaxResults, webStringList(args["allowed_domains"]),
+		webStringList(args["blocked_domains"]))
 	if err != nil || len(hits) == 0 {
 		return core.Result{Verdict: webFallback}
 	}
@@ -120,7 +120,7 @@ func searchToolUseID(resp map[string]any) string {
 	return "tavily"
 }
 
-func stringList(v any) []string {
+func webStringList(v any) []string {
 	items, _ := v.([]any)
 	out := make([]string, 0, len(items))
 	for _, it := range items {

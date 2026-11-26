@@ -1,37 +1,19 @@
-// the one-shot HTTP calls of claude: the streaming Messages call (anthropic-sdk-go) and the chat-completions call.
+// The one-shot HTTP calls of claude, routed through the shared stdlib streaming client in internal/agent.
 package claude
 
 import (
-	"bufio"
-	"bytes"
-	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"time"
-
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/routing/agentid"
-
-	"github.com/edotau/claude-code/internal/platform/httpx"
-	"github.com/edotau/claude-code/internal/platform/textutil"
-	"github.com/edotau/claude-code/internal/remote/egress"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
-// apiMaxTokens caps a one-shot answer; reasoning models spend part of it thinking.
-const apiMaxTokens = 16_000
-
-// claudeOneShot is claude's tool-less one-shot via the anthropic SDK or openai route; ok is false for cli auth.
+// claudeOneShot is claude's tool-less one-shot via Anthropic or OpenAI HTTP; ok is false for cli auth.
 func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (res wire.Result, ok bool, err error) {
 	_, t, err := agent.ResolveRequestTarget(req)
 	if err != nil {
@@ -42,7 +24,6 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	if p.Auth.Method() == providers.AuthCLI {
 		return res, false, nil
 	}
-	res.Dropped = oneShotDropped(req)
 	effort, err := oneShotEffort(req, t)
 	if err != nil {
 		return res, true, retry.Fatal("claude", err)
@@ -51,29 +32,18 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 	if err != nil {
 		return wire.Result{}, true, err
 	}
-	var answer strings.Builder
-	w := io.MultiWriter(wire.SinkWriter(sink), &answer)
-	var usage wire.Usage
-	var model string
-	if base, ok := providers.AnthropicRoute(p, t.Model); ok {
-		usage, model, err = streamMessages(ctx, apiRequest{
-			BaseURL: base, Model: t.Model, Prompt: prompt, Effort: effort, MaxTokens: apiMaxTokens,
-			Authorize: func(ctx context.Context, h http.Header) error { return providers.Authorize(ctx, p, h) },
-		}, w)
-	} else {
-		if err := providers.ClaudeCodeError(p, t.Model); err != nil { // Responses-only: the one-shot has no such wire
+	if _, isAnth := providers.AnthropicRoute(p, t.Model); !isAnth {
+		if err := providers.ClaudeCodeError(p, t.Model); err != nil {
 			return res, true, retry.Fatal("claude", err)
 		}
 		if _, servable, why := providers.WireFor(p, t.Model); !servable {
 			return res, true, retry.Fatal("claude", errors.New(why))
 		}
-		base, _ := p.Route(providers.ProtocolOpenAI)
-		usage, model, err = chatStream(ctx, base, p, t.Model, prompt, effort, w)
 	}
-	if model != "" {
-		res.Model, res.Reported = model, strings.TrimSpace(model)
-	}
-	res.Answer, res.Usage = answer.String(), usage
+	httpReq := req
+	httpReq.Prompt, httpReq.Effort = prompt, effort
+	res, err = agent.OneShotHTTP(ctx, t, httpReq, sink)
+	res.Dropped = oneShotDropped(req)
 	logAPIRun(ctx, res, err)
 	return res, true, err
 }
@@ -110,295 +80,4 @@ func logAPIRun(ctx context.Context, res wire.Result, err error) {
 		return
 	}
 	lg.Emit("result", fmt.Sprintf("tokens in=%d out=%d", res.Usage.InputTokens, res.Usage.OutputTokens))
-}
-
-// chatClient bounds the wait for response headers; the body stream stays governed by ctx.
-var chatClient = httpx.NewClient(0, func() http.RoundTripper {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ResponseHeaderTimeout = 2 * time.Minute
-	t.Proxy = egress.Proxy // cloned at init, before cli.Run installs it on the default transport
-	return t
-}(), httpx.SameOriginRedirect)
-
-type httpError struct {
-	status int
-	after  time.Duration
-	msg    string
-	hint   retry.ShouldRetry // the x-should-retry response header
-	code   string            // the provider's typed error code
-}
-
-func (e *httpError) Error() string                  { return e.msg }
-func (e *httpError) StatusCode() int                { return e.status }
-func (e *httpError) RetryAfter() time.Duration      { return e.after }
-func (e *httpError) ShouldRetry() retry.ShouldRetry { return e.hint }
-func (e *httpError) ErrorCode() string              { return e.code }
-
-// errorBodyMax bounds the error body read for the message and the typed code.
-const errorBodyMax = 4 << 10
-
-// bodyErrorCode is the typed code of an error body ({"error":{"code"}} or Databricks' "error_code"); "" when absent.
-func bodyErrorCode(body []byte) string {
-	var b struct {
-		Code  string `json:"error_code"`
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(body, &b) != nil {
-		return ""
-	}
-	return strings.ToLower(cmp.Or(b.Error.Code, b.Code))
-}
-
-// chatStream POSTs {base}/chat/completions with stream=true and writes content deltas to w.
-func chatStream(ctx context.Context, base string, p *providers.Provider, model, prompt, effort string, w io.Writer) (wire.Usage, string, error) {
-	body := map[string]any{
-		"model":          model,
-		"messages":       []map[string]string{{"role": "user", "content": prompt}},
-		"stream":         true,
-		"stream_options": map[string]bool{"include_usage": true},
-	}
-	if effort != "" {
-		body["reasoning_effort"] = effort
-	}
-	payload, _ := json.Marshal(body)
-	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return wire.Usage{}, "", err
-	}
-	hreq.Header.Set("Content-Type", "application/json")
-	hreq.Header.Set("Accept", "text/event-stream")
-	if err := providers.Authorize(ctx, p, hreq.Header); err != nil {
-		return wire.Usage{}, "", err
-	}
-	resp, err := chatClient.Do(hreq)
-	if err != nil {
-		if ctx.Err() != nil {
-			return wire.Usage{}, "", ctx.Err()
-		}
-		return wire.Usage{}, "", &httpError{msg: err.Error()}
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyMax))
-		after, _ := textutil.HeaderRetryAfter(resp.Header, time.Now())
-		return wire.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
-			hint: retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")), code: bodyErrorCode(raw),
-			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw[:min(len(raw), 600)])))}
-	}
-	return parseChatStream(resp.Body, w)
-}
-
-type chatChunk struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
-	Error *json.RawMessage `json:"error"`
-}
-
-func (c chatChunk) foldUsage(usage *wire.Usage) {
-	if c.Usage != nil {
-		*usage = wire.Usage{InputTokens: c.Usage.PromptTokens, OutputTokens: c.Usage.CompletionTokens}
-	}
-}
-
-// applyChatLine folds one stream line into usage, served and w; done reports [DONE], finished a finish_reason.
-func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string, finished *bool) (done bool, _ error) {
-	data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r\n"), []byte("data:"))
-	if data = bytes.TrimSpace(data); !ok || len(data) == 0 {
-		return false, nil
-	}
-	if bytes.Equal(data, []byte("[DONE]")) {
-		return true, nil
-	}
-	var chunk chatChunk
-	if json.Unmarshal(data, &chunk) != nil {
-		return false, nil // skip an undecodable data: line
-	}
-	if chunk.Error != nil {
-		return false, fmt.Errorf("upstream error mid-stream: %s", *chunk.Error)
-	}
-	if chunk.Model != "" {
-		*served = chunk.Model
-	}
-	chunk.foldUsage(usage)
-	limit, err := chunk.write(w, finished)
-	if err != nil {
-		return false, err
-	}
-	if limit {
-		return false, outputLimit()
-	}
-	return false, nil
-}
-
-// write copies the chunk's content to w; limit reports a finish_reason of length.
-func (c chatChunk) write(w io.Writer, finished *bool) (limit bool, _ error) {
-	for _, ch := range c.Choices {
-		if ch.FinishReason != "" {
-			*finished = true
-			limit = limit || ch.FinishReason == "length"
-		}
-		if ch.Delta.Content == "" {
-			continue
-		}
-		if _, err := io.WriteString(w, ch.Delta.Content); err != nil {
-			return limit, err
-		}
-	}
-	return limit, nil
-}
-
-// outputLimit is the failure of a direct API answer cut off at the model's output token limit.
-func outputLimit() error {
-	return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Budget: retry.BudgetOutput,
-		Err: errors.New("claude answer cut off at the output token limit")}
-}
-
-func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
-	var usage wire.Usage
-	var served string
-	finished := false
-	br := bufio.NewReader(r)
-	for {
-		line, err := br.ReadBytes('\n')
-		if done, lerr := applyChatLine(line, w, &usage, &served, &finished); done || lerr != nil {
-			return usage, served, lerr
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return usage, served, err
-		}
-	}
-	if finished {
-		return usage, served, nil // a finish_reason is terminal even when the server omits [DONE]
-	}
-	return usage, served, fmt.Errorf("chat stream ended without [DONE] or a finish_reason: %w", io.ErrUnexpectedEOF) // a dropped stream retries
-}
-
-// apiRequest is one single-turn ask. Authorize sets auth headers per request; the SDK's env credential chain is off.
-type apiRequest struct {
-	BaseURL   string
-	Model     string
-	Prompt    string
-	Effort    string // minimal|low|medium|high|xhigh|max; "" = model default
-	MaxTokens int64
-	Authorize func(context.Context, http.Header) error
-}
-
-// streamMessages sends r and writes text deltas to w as they arrive; it returns the usage and the served model.
-func streamMessages(ctx context.Context, r apiRequest, w io.Writer) (wire.Usage, string, error) {
-	client := anthropic.NewClient(
-		option.WithoutEnvironmentDefaults(),
-		option.WithBaseURL(r.BaseURL),
-		option.WithHTTPClient(chatClient), // the header timeout and egress proxy the chat route has
-		option.WithMaxRetries(0),          // the caller's dispatch loop owns retries
-		option.WithMiddleware(anthropicAuthorization(r)),
-	)
-	params := anthropic.MessageNewParams{
-		Model:     r.Model,
-		MaxTokens: r.MaxTokens,
-		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(r.Prompt))},
-	}
-	if r.Effort != "" {
-		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(r.Effort)}
-	}
-	var res wire.Usage
-	var model string
-	stream := client.Messages.NewStreaming(ctx, params)
-	defer stream.Close()
-	stopped := false
-	for stream.Next() {
-		ev := stream.Current().AsAny()
-		_, isStop := ev.(anthropic.MessageStopEvent)
-		stopped = stopped || isStop
-		if err := applyMessageEvent(ev, &res, &model, w); err != nil {
-			return res, model, err
-		}
-	}
-	if err := stream.Err(); err != nil {
-		return res, model, boxSDKError(err)
-	}
-	if !stopped {
-		return res, model, fmt.Errorf("messages stream ended without message_stop: %w", io.ErrUnexpectedEOF) // retries
-	}
-	return res, model, nil
-}
-
-// applyMessageEvent folds one stream event into usage and model, and writes a text delta to w.
-func applyMessageEvent(ev any, res *wire.Usage, model *string, w io.Writer) error {
-	switch ev := ev.(type) {
-	case anthropic.MessageStartEvent:
-		*model = ev.Message.Model
-		u := ev.Message.Usage
-		res.InputTokens, res.OutputTokens = int(u.InputTokens), int(u.OutputTokens)
-		res.CacheCreationTokens, res.CacheReadTokens = int(u.CacheCreationInputTokens), int(u.CacheReadInputTokens)
-	case anthropic.ContentBlockDeltaEvent:
-		if t, ok := ev.Delta.AsAny().(anthropic.TextDelta); ok {
-			_, err := io.WriteString(w, t.Text)
-			return err
-		}
-	case anthropic.MessageDeltaEvent:
-		foldDeltaUsage(res, ev.Usage)
-		if ev.Delta.StopReason == anthropic.StopReasonMaxTokens {
-			return outputLimit()
-		}
-	}
-	return nil
-}
-
-// foldDeltaUsage applies a message_delta's cumulative usage; input and cache counts may be absent mid-stream.
-func foldDeltaUsage(res *wire.Usage, u anthropic.MessageDeltaUsage) {
-	if u.InputTokens > 0 {
-		res.InputTokens = int(u.InputTokens)
-	}
-	if u.CacheCreationInputTokens > 0 {
-		res.CacheCreationTokens = int(u.CacheCreationInputTokens)
-	}
-	if u.CacheReadInputTokens > 0 {
-		res.CacheReadTokens = int(u.CacheReadInputTokens)
-	}
-	res.OutputTokens = int(u.OutputTokens)
-}
-
-func anthropicAuthorization(r apiRequest) option.Middleware {
-	return func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		req.Header.Del("X-Api-Key")
-		req.Header.Del("Authorization")
-		if r.Authorize != nil {
-			if err := r.Authorize(req.Context(), req.Header); err != nil {
-				return nil, err
-			}
-		}
-		return next(req)
-	}
-}
-
-func boxSDKError(err error) error {
-	var apiErr *anthropic.Error
-	if !errors.As(err, &apiErr) {
-		return err
-	}
-	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON()),
-		code: bodyErrorCode([]byte(apiErr.RawJSON()))}
-	if apiErr.Response != nil {
-		out.hint = retry.ParseShouldRetry(apiErr.Response.Header.Get("X-Should-Retry"))
-		// Keep the SDK caller's integer-only header policy.
-		h := apiErr.Response.Header
-		if v := h.Get("Retry-After"); h.Get("Retry-After-Ms") != "" || (v == strings.TrimSpace(v) && !strings.Contains(v, ":")) {
-			out.after, _ = textutil.HeaderRetryAfter(h, time.Now())
-		}
-	}
-	return out
 }

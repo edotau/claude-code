@@ -1,4 +1,4 @@
-package serving
+package served
 
 import (
 	"fmt"

@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // Load() with an empty vault gives every agent x alias cell a model, account and billing; AliasOf round-trips.
@@ -306,7 +306,7 @@ func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
 		mark    bool
 		skip    string
 	}{{"all ready", ready, false, ""}, {"first not ready", notReady, false, first}, {"first unserved", ready, true, first}} {
-		if err := serving.Save(listing("dev", c.listing)); err != nil {
+		if err := served.Save(listing("dev", c.listing)); err != nil {
 			t.Fatal(err)
 		}
 		if c.mark {

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // Scope separates accounts and routes without persisting tokens or token fingerprints.
@@ -59,7 +59,7 @@ func NewScope(p *providers.Provider, subject string) (Scope, error) {
 		return Scope{}, err
 	}
 	geminiURL := routes[providers.ProtocolGemini]
-	if geminiURL == serving.BaseURL(host, providers.ProtocolGemini) {
+	if geminiURL == served.BaseURL(host, providers.ProtocolGemini) {
 		geminiURL = "" // preset-derived default: omitting it preserves existing sealed discovery cache hashes
 	}
 	return Scope{Profile: p.Name, CLIProfile: p.CLIProfile, Host: host,
@@ -426,11 +426,11 @@ func WarmServed(profile string, infos []providers.ModelInfo, at time.Time) error
 	if len(infos) == 0 {
 		return nil
 	}
-	s := serving.Served{Profile: profile, FetchedAt: at.UTC()}
+	s := served.Served{Profile: profile, FetchedAt: at.UTC()}
 	for _, m := range infos {
-		s.Models = append(s.Models, serving.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready, APITypes: m.APITypes,
+		s.Models = append(s.Models, served.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready, APITypes: m.APITypes,
 			ModelClass: m.ModelClass, Context: m.ContextToken, Output: m.OutputToken})
 	}
 	// a file dated past clockSkew ahead of at is distrusted and replaced, or it would block every later warm
-	return serving.Save(s, func(cur serving.Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
+	return served.Save(s, func(cur served.Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
 }

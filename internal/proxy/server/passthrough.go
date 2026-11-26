@@ -26,7 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
@@ -910,7 +910,7 @@ func databricksGemini(p *providers.Provider) (string, bool) {
 	if p.Preset != providers.PresetDatabricks {
 		return "", false
 	}
-	if base := serving.BaseURL(p.Host, providers.ProtocolGemini); base != "" {
+	if base := served.BaseURL(p.Host, providers.ProtocolGemini); base != "" {
 		return base, true
 	}
 	return "", false

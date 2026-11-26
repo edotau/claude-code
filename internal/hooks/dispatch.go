@@ -25,7 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
-	"github.com/edotau/claude-code/internal/hooks/web"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/platform/settings"
 )
@@ -482,7 +481,7 @@ var native = map[string]core.Runner{
 	"lane-land-queue":      lane.Queue,
 	"secrets-out":          secrets.Out,
 	"secrets-end":          secrets.End,
-	"web-tavily":           web.Tavily,
+	"web-tavily":           webTavily,
 }
 
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.

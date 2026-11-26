@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 func regressionDatabricksProfile(t *testing.T, name string, menu []providers.OpencodeModel) *providers.Provider {
@@ -136,8 +136,8 @@ func TestMenuEntriesCarryCatalogLimits(t *testing.T) {
 
 // Given a model the catalog lacks but the listing states both limits, Then the entry gets the limit block.
 func TestWithLimitUsesListedLimits(t *testing.T) {
-	serving.SetFactsForTest(t, func(_, wire string) (serving.EndpointFacts, bool) {
-		return serving.EndpointFacts{Context: 400000, Output: 128000}, wire == "databricks-listed-only"
+	served.SetFactsForTest(t, func(_, wire string) (served.EndpointFacts, bool) {
+		return served.EndpointFacts{Context: 400000, Output: 128000}, wire == "databricks-listed-only"
 	})
 	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
 	got := withLimit(map[string]any{}, p, "databricks-listed-only")

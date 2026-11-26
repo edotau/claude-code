@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // Text keeps ran-on and the dispatch id, json drops both, a refusal drops did-not-run.
@@ -246,7 +246,7 @@ func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	cliEnv(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}}}}`)
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestPoolValue(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
 	vaulttest.SetRecord(t, "opencode", "profile", "dev")
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}

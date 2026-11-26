@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 const routeOverlay = `{"providers":{"databricks":{
@@ -87,7 +87,7 @@ func TestResolveModelFamily(t *testing.T) {
 		}
 	}
 	check("codex", "dev", "sol", "databricks-gpt-6-1-sol")
-	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
+	if err := served.Save(served.Served{Profile: "dev", FetchedAt: time.Now(), Models: []served.ServedModel{
 		{ID: "databricks-gpt-6-sol"}, {ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
 		t.Fatal(err)
 	}

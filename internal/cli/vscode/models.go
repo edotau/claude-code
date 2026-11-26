@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/databricks/serving"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	endpoints "github.com/edotau/claude-code/internal/routing/serving"
+	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
 const (

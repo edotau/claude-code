@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 func init() {
@@ -105,7 +105,7 @@ func firstPartyIDs(p *providers.Provider) []string {
 
 // servedIDs is p's fresh listing's READY endpoint ids; nil without a fresh listing.
 func servedIDs(p *providers.Provider, now time.Time) []string {
-	s, ok := serving.FreshShared(p.Name, now)
+	s, ok := served.FreshShared(p.Name, now)
 	if !ok {
 		return nil
 	}

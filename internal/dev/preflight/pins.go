@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // Status values of a Pin.
@@ -239,7 +239,7 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 // checkServed fills p's served state for a Databricks pin from the cached workspace listing.
 func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 	p.Served = "unknown"
-	cat, ok := serving.Load(p.Profile)
+	cat, ok := served.Load(p.Profile)
 	switch {
 	case !ok:
 		p.Detail = "workspace listing not cached"

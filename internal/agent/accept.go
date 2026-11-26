@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // UnacceptedKind says why AcceptModel refused a model.
@@ -199,7 +199,7 @@ func AcceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []
 }
 
 func acceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []string, fresh bool) {
-	if s, ok := serving.Fresh(p.Name, now); ok {
+	if s, ok := served.Fresh(p.Name, now); ok {
 		chat := chatServed(s)
 		for _, m := range s.Models {
 			if _, why := preflightModelWire(agentName, p, m.ID); m.IsReady() && chat(m) && why == "" {

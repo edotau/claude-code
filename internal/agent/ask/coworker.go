@@ -22,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // ApplyRouteOverlay is ApplyRoute for an overlay's confinement: the model is checked and the provider named first.
@@ -336,7 +336,7 @@ func nearestWorkspaceIDs(skipped []agent.Finding) []string {
 func readyWorkspaceIDs(skipped []agent.Finding) []string {
 	var near []string
 	for _, f := range skipped {
-		served, ok := serving.Fresh(f.Profile, time.Now())
+		served, ok := served.Fresh(f.Profile, time.Now())
 		if !ok {
 			continue
 		}

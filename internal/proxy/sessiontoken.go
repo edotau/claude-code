@@ -30,13 +30,6 @@ const (
 	RefusalSpendCap = "spend-cap"
 )
 
-// LegacySessionShape reports the previous build's stored-token shape (cct_ + 64 lowercase hex); only a proxy judges it.
-func LegacySessionShape(tok string) bool {
-	h, ok := strings.CutPrefix(tok, SessionTokenPrefix)
-	_, err := hex.DecodeString(h)
-	return ok && len(h) == 64 && h == strings.ToLower(h) && err == nil
-}
-
 // sessionKeyLabel separates the token MAC key from every other use of the router secret.
 const sessionKeyLabel = "claude-code proxy session token v1"
 

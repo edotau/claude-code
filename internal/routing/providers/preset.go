@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/routing/databricks/oauth"
 	"github.com/edotau/claude-code/internal/routing/models"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // PresetDatabricks derives every route, the auth commands and the launch env from one host + one CLI profile.
@@ -143,15 +143,15 @@ func ValidID(s string) bool { return cliProfileRE().MatchString(s) }
 
 func expandServing(p *Provider, host string) {
 	if p.BaseURL == "" {
-		p.BaseURL = serving.BaseURL(host, ProtocolAnthropic)
+		p.BaseURL = served.BaseURL(host, ProtocolAnthropic)
 	}
 	for _, d := range []string{ProtocolOpenAI, ProtocolResponses} {
 		if p.Routes[d] == "" {
-			p.Routes = withKey(p.Routes, d, serving.BaseURL(host, d))
+			p.Routes = withKey(p.Routes, d, served.BaseURL(host, d))
 		}
 	}
 	if p.Routes[ProtocolGemini] == "" {
-		p.Routes = withKey(p.Routes, ProtocolGemini, serving.BaseURL(host, ProtocolGemini))
+		p.Routes = withKey(p.Routes, ProtocolGemini, served.BaseURL(host, ProtocolGemini))
 	}
 	if p.ModelPrefix == "" {
 		p.ModelPrefix = models.DatabricksPrefix

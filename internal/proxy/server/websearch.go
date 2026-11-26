@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/remote/websearch"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // searchRoundCap bounds one request's web searches, and the rounds a model may spend after its max_uses.
@@ -101,7 +101,7 @@ type anthropicWire struct {
 
 func (a *anthropicWire) round(w *statusWriter, in *http.Request, body []byte) (*translate.Reply, bool, error) {
 	p := a.t.Provider
-	url := serving.EndpointURL(a.route, providers.ProtocolAnthropic, a.t.Model, false)
+	url := served.EndpointURL(a.route, providers.ProtocolAnthropic, a.t.Model, false)
 	headers := func(h http.Header) {
 		copyRequestHeaders(h, in.Header)
 		dropDatabricksBetas(p, h)

@@ -1,5 +1,5 @@
 // Package serving owns Databricks serving-endpoint URL derivation and the served-models disk cache.
-package serving
+package served
 
 import "strings"
 

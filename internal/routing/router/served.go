@@ -8,18 +8,18 @@ import (
 
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/serving"
+	"github.com/edotau/claude-code/internal/routing/served"
 )
 
 // unservedTTL is how long a model whose endpoint a live call found gone stays out of served-aware picks.
 const unservedTTL = time.Hour
 
 // servedListing is profile's fresh cached listing; false when the switch is off, absent or past TTL. A var for tests.
-var servedListing = func(profile string, now time.Time) (serving.Served, bool) {
+var servedListing = func(profile string, now time.Time) (served.Served, bool) {
 	if !providers.ServedRoutingOn() {
-		return serving.Served{}, false
+		return served.Served{}, false
 	}
-	return serving.FreshShared(profile, now)
+	return served.FreshShared(profile, now)
 }
 
 // servedKey is the spelling a model is marked and looked up under: the one the agents request from p.
@@ -57,7 +57,7 @@ func ServedReady(p *providers.Provider, model string, now time.Time) (ready, fre
 
 // ServedListed reads p's cached listing whatever the servedAware switch says; fresh is false when absent or past TTL.
 func ServedListed(p *providers.Provider, model string, now time.Time) (listed, ready, fresh bool) {
-	s, ok := serving.FreshShared(p.Name, now)
+	s, ok := served.FreshShared(p.Name, now)
 	if !ok {
 		return false, false, false
 	}
@@ -83,7 +83,7 @@ func SpellServed(p *providers.Provider, id string, now time.Time) string {
 
 // exactReady reports p's fresh listing names wire exactly and has it READY.
 func exactReady(p *providers.Provider, wire string, now time.Time) bool {
-	s, ok := serving.FreshShared(p.Name, now)
+	s, ok := served.FreshShared(p.Name, now)
 	if !ok {
 		return false
 	}
