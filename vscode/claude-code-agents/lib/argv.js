@@ -26,9 +26,9 @@ function usageArgv(binary, opts) {
   return argv;
 }
 
-/** argv for `<binary> configure provider --list --format json`. */
+/** argv for `<binary> vault ls providers --format json`. */
 function profileArgv(binary) {
-  return [binary, 'configure', 'provider', '--list', '--format', 'json'];
+  return [binary, 'vault', 'ls', 'providers', '--format', 'json'];
 }
 
 /** shellArgs for an `ssh -t host tmux attach -t session` terminal. */

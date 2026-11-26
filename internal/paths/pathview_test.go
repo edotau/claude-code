@@ -20,16 +20,6 @@ const mountinfoSample = `22 1 8:1 / / rw,relatime - ext4 /dev/sdc rw
 43 22 0:43 / /proc rw - proc proc rw
 `
 
-const darwinSample = `/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)
-devfs on /dev (devfs, local, nobrowse)
-//user@fileserver/team on /Volumes/team (smbfs, nodev, nosuid, mounted by user)
-nas:/export/data on /Volumes/data (nfs, nodev, nosuid, mounted by user)
-me@devbox:/work on /Users/u/remote (macfuse, nodev, nosuid, synchronous, mounted by u)
-map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)
-nobody@thing:/x on /Volumes/Other Share (webdav, nodev)
-/dev/disk4s1 on /Volumes/USB (msdos, local)
-`
-
 func testResolver() *Resolver {
 	return &Resolver{
 		Distro: "Ubuntu",
@@ -160,28 +150,6 @@ func TestParseMountinfo(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("mount %d = %+v, want %+v", i, got[i], want[i])
 		}
-	}
-}
-
-func TestParseDarwinMount(t *testing.T) {
-	got := classified(parseDarwinMount(darwinSample))
-	want := []Mount{
-		{Point: "/Volumes/team", Kind: kindSMB, Host: "fileserver", RemotePath: "team"},
-		{Point: "/Volumes/data", Kind: KindNFS, Host: "nas", RemotePath: "/export/data"},
-		{Point: "/Users/u/remote", Kind: kindSSHFS, Host: "devbox", RemotePath: "/work"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d mounts, want %d: %+v", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("mount %d = %+v, want %+v", i, got[i], want[i])
-		}
-	}
-	// A macOS SMB share resolves through the parsed table.
-	r := &Resolver{Mounts: classified(got)}
-	if p, ok := r.Resolve(`\\fileserver\team\x.txt`); !ok || p != "/Volumes/team/x.txt" {
-		t.Errorf("darwin smb resolve = %q, %v", p, ok)
 	}
 }
 

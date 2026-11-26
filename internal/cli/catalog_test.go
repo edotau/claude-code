@@ -1016,7 +1016,7 @@ func sealedDiscoveryRaw(t *testing.T) string {
 	t.Helper()
 	var discoveryKeys []string
 	if err := vault.View(func(tx *vault.Tx) error {
-		for _, name := range tx.Names(vault.Secrets) {
+		for _, name := range tx.Names(vault.Cache) {
 			if strings.HasPrefix(name, "model-discovery/") {
 				discoveryKeys = append(discoveryKeys, name)
 			}
@@ -1028,7 +1028,7 @@ func sealedDiscoveryRaw(t *testing.T) string {
 	if len(discoveryKeys) != 1 {
 		t.Fatalf("discovery records = %d, want one", len(discoveryKeys))
 	}
-	raw, found, err := vault.ReadSecret(discoveryKeys[0])
+	raw, found, err := vault.ReadCache(discoveryKeys[0])
 	if err != nil || !found {
 		t.Fatalf("read sealed snapshot: found=%v err=%v", found, err)
 	}

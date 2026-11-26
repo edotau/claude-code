@@ -36,7 +36,7 @@ it). Each entry is a **profile** (an account on a provider: `qa`, `ultra`, `chat
 ```
 
 ```bash
-claude-code configure provider --list [name]        # providers, credential state, fallback ladder
+claude-code vault ls providers [name]        # providers, credential state, fallback ladder
 claude-code configure provider --all [<profile>]    # check every sign-in (or one); --check exits 1 if any not ok
 claude-code switch example                          # pin the session profile
 claude-code models --pin haiku=gpt-5-nano            # pin a model alias: a plain id on the session profile
@@ -279,7 +279,8 @@ Every sync first validates the current credential via the workspace's SCIM `Me` 
 identity ID, not explicitly inactive). Token presence or expiry alone is not accepted as proof. This establishes
 **valid identity, not endpoint permissions**. A refreshed token for the same identity can reuse discovery.
 
-Discovery and sanitized probe outcomes are **encrypted vault secrets**, separate from the plaintext menu overlay.
+Discovery and sanitized probe outcomes are **encrypted vault `cache` records** (`vault ls cache`, never among the
+secrets), separate from the plaintext menu overlay.
 The `model-discovery/v1/<sha256 JSON scope>` key covers the resolved profile name, CLI profile, normalized workspace
 host, serving spelling rule, resolved Anthropic/chat/Responses route URLs and authenticated subject ID.
 Changed route URLs cannot reuse old discovery/probe snapshots. No token, token fingerprint, raw probe error or secret
@@ -352,7 +353,7 @@ and `options.prices={}` clears the table:
 ```bash
 claude-code configure provider dev options.warehouse_id=<id> \
   'options.prices={"<model-id>":{"input":0,"output":0,"cache_read":0,"cache_write":0}}'
-claude-code configure provider --list dev   # shows options.warehouse_id and each price
+claude-code vault ls providers dev   # shows options.warehouse_id and each price
 claude-code usage --cost --days 7           # estimate per profile and model
 ```
 

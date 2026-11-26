@@ -135,15 +135,7 @@ func Text(s string) string {
 	return Shared().String(s)
 }
 
-// Bytes masks b in place with the shared matcher and returns the hit count.
-func Bytes(b []byte) int {
-	if len(b) == 0 {
-		return 0
-	}
-	return Shared().Mask(b)
-}
-
-// ValueBytes masks vault values in one encoded JSON document or line in place, keeping it valid JSON (JSONWriter).
+// ValueBytes masks vault values in one encoded JSON document or line in place, keeping it valid JSON.
 func ValueBytes(b []byte) int {
 	if len(b) == 0 {
 		return 0

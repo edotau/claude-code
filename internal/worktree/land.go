@@ -279,19 +279,29 @@ func applyLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest,
 	rec.pin(plan, &rec.a.Seconds.Rebase)
 	printRebase(req.Out, plan, integrated)
 
-	gate, gateSource, err = scopeGate(ctx, plan, req, gate, gateSource)
+	var h *HeldGate
+	if gate != "" && (usesGateSlot(gate, gateSource) || wantsScope(plan.WorktreePath, req, gateSource)) {
+		h = HoldGate(ctx, repo.Main, plan.IntegratedOID, req.Name, req.Out)
+		rec.stage(&rec.a.Seconds.Wait)
+	}
+	defer func() { h.Release() }()
+	gate, gateSource, first, err := scopeGate(ctx, req, h.At(plan), gate, gateSource)
 	if err != nil {
 		return nil, err
 	}
+	if !usesGateSlot(gate, gateSource) {
+		h.Release()
+		h = nil
+	}
 	rec.a.Scope = scopeOf(gate, gateSource, req)
-	if err = runGate(ctx, plan, req, gate, gateSource); err != nil {
+	secs, err := runGate(ctx, req, h.At(plan), gate, gateSource)
+	rec.gated(secs)
+	if err != nil {
 		return nil, err
 	}
-	rec.stage(&rec.a.Seconds.Test)
 
-	first := firstScope(ctx, plan, gateSource)
 	rec.a.Packages = len(first.Tested)
-	l := &relander{repo: repo, plan: plan, req: req, gate: gate, source: gateSource, first: first, rec: rec}
+	l := &relander{repo: repo, plan: plan, req: req, gate: gate, source: gateSource, first: first, rec: rec, h: h}
 	landed, err := l.promoteLoop(ctx)
 	if err != nil {
 		return nil, err
@@ -308,40 +318,46 @@ func printRebase(out io.Writer, plan *LandPlan, r *LandResult) {
 	fmt.Fprintf(out, "rebased:    %s -> %s in %s\n", ShortOID(r.BeforeOID), ShortOID(r.AfterOID), plan.WorktreePath)
 }
 
-// scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify or the whole suite is due.
-func scopeGate(ctx context.Context, plan *LandPlan, req LandRequest, gate, gateSource string) (g, source string, err error) {
-	if gateSource != "Makefile" || req.FullVerify || !paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
-		return gate, gateSource, nil
-	}
-	scoped, pkgs, nChanged, full, err := scopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
-	if err != nil {
-		return "", "", fmt.Errorf("scoped gate: %w", err)
-	}
-	if full {
-		// the whole suite is the Makefile gate itself, not a hard-coded go test
-		return gate, gateSource, nil
-	}
-	return scoped, fmt.Sprintf("%s, tests: %d changed + %d direct importers (full suite runs in the post-land audit)",
-		scopedGateSource, nChanged, len(pkgs)-nChanged), nil
+// wantsScope reports whether scopeGate narrows a Makefile test gate: not with FullVerify or without a go.mod.
+func wantsScope(dir string, req LandRequest, gateSource string) bool {
+	return gateSource == "Makefile" && !req.FullVerify && paths.FileExists(filepath.Join(dir, "go.mod"))
 }
 
-// runGate runs the verify gate (or announces its absence); a failure leaves the worktree on disk and blocks promotion.
-func runGate(ctx context.Context, plan *LandPlan, req LandRequest, gate, gateSource string) error {
+// scopeGate narrows a Makefile test gate to the changed Go packages at at, returning what that gate covers.
+func scopeGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource string) (g, source string, sc gateScope, err error) {
+	if !wantsScope(at.Dir, req, gateSource) {
+		return gate, gateSource, sc, nil
+	}
+	scoped, pkgs, nChanged, sc, err := scopedGoGate(ctx, at.Dir, at.Base)
+	if err != nil {
+		return "", "", sc, fmt.Errorf("scoped gate: %w", err)
+	}
+	if !sc.Scoped {
+		// the whole suite is the Makefile gate itself, not a hard-coded go test
+		return gate, gateSource, sc, nil
+	}
+	return scoped, fmt.Sprintf("%s, tests: %d changed + %d direct importers (full suite runs in the post-land audit)",
+		scopedGateSource, nChanged, len(pkgs)-nChanged), sc, nil
+}
+
+// runGate runs the verify gate at at (or announces its absence), returning seconds per step; a failure blocks it.
+func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource string) (map[string]float64, error) {
 	if gate == "" {
 		fmt.Fprintln(req.Out, "verify: skipped (--no-verify) — promoting unverified")
-		return nil
+		return nil, nil
 	}
-	steps := gateSteps(gate, gateSource)
+	stages := gateStages(gate, gateSource)
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
-	if len(steps) > 1 {
-		fmt.Fprintln(req.Out, "verify: build, vet and tests run concurrently")
+	if len(stages) > 1 {
+		fmt.Fprintln(req.Out, "verify: build, then vet and tests")
 	}
-	if err := runSteps(ctx, plan.WorktreePath, steps, plan.TargetOID, req.Out, req.Err); err != nil {
-		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
-		return fmt.Errorf("verify failed, not promoting: %w", err)
+	secs, err := runStages(ctx, at, stages, req.Out, req.Err)
+	if err != nil {
+		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", at.Lane)
+		return secs, fmt.Errorf("verify failed, not promoting: %w", err)
 	}
 	fmt.Fprintf(req.Out, "verify: passed (%s)\n", gateSource)
-	return nil
+	return secs, nil
 }
 
 // PlanOrResolve runs Preflight; a predicted conflict proceeds to the lane rebase; nil plan = blocked.

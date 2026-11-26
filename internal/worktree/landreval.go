@@ -87,16 +87,31 @@ func scopeOf(gate, source string, req LandRequest) Scope {
 	return ScopeFull
 }
 
-// scopeAt lists packages, the lane's NUL-joined files and its gate scope (not Scoped when the whole suite is due).
-func scopeAt(ctx context.Context, plan *LandPlan) (list []goPkg, abs, files string, sc gateScope, err error) {
+// gated adds a gate's seconds per step to the attempt: build and vet apart, every other step as test time.
+func (r *attempt) gated(secs map[string]float64) {
+	for name, s := range secs {
+		switch name {
+		case "build":
+			r.a.Seconds.Build += s
+		case "vet":
+			r.a.Seconds.Vet += s
+		default:
+			r.a.Seconds.Test += s
+		}
+	}
+	r.t = time.Now()
+}
+
+// scopeAt lists packages in dir, the lane's NUL-joined files and its gate scope (not Scoped for the whole suite).
+func scopeAt(ctx context.Context, plan *LandPlan, dir string) (list []goPkg, abs, files string, sc gateScope, err error) {
 	names, err := laneFiles(ctx, plan.WorktreePath, plan.TargetOID, plan.IntegratedOID)
 	if err != nil {
 		return nil, "", "", sc, err
 	}
-	if list, err = listPackages(ctx, plan.WorktreePath); err != nil {
+	if list, err = listPackages(ctx, dir); err != nil {
 		return nil, "", "", sc, err
 	}
-	if abs, err = filepath.Abs(plan.WorktreePath); err == nil {
+	if abs, err = filepath.Abs(dir); err == nil {
 		abs, err = filepath.EvalSymlinks(abs)
 	}
 	if err != nil {
@@ -107,18 +122,6 @@ func scopeAt(ctx context.Context, plan *LandPlan) (list []goPkg, abs, files stri
 		sc = gateScope{Changed: changed, Tested: reverseDeps(list, abs, changed), Scoped: true}
 	}
 	return list, abs, files, sc, nil
-}
-
-// firstScope is what the first gate covered; anything but the scoped Go gate (or a failed listing) is not Scoped.
-func firstScope(ctx context.Context, plan *LandPlan, source string) gateScope {
-	if !strings.HasPrefix(source, scopedGateSource) {
-		return gateScope{}
-	}
-	_, _, _, sc, err := scopeAt(ctx, plan)
-	if err != nil {
-		return gateScope{}
-	}
-	return sc
 }
 
 // rebaseIfMoved re-integrates the lane onto a moved target under the land lock; from is the old target.
@@ -153,11 +156,17 @@ type relander struct {
 	gate, source string
 	first        gateScope
 	rec          *attempt
+	h            *HeldGate
 }
 
 // recheck re-gates the rebased lane outside the lock: build and vet always, tests only where the moved commits reach.
 func (l *relander) recheck(ctx context.Context, from string) error {
-	list, abs, files, next, err := scopeAt(ctx, l.plan)
+	if err := l.h.Reset(ctx, l.plan.IntegratedOID); err != nil {
+		fmt.Fprintf(l.req.Err, "re-check: gate slot reset failed (%v); gating in the lane\n", err)
+		l.h = nil
+	}
+	dir := l.h.Where(l.plan.WorktreePath)
+	list, abs, files, next, err := scopeAt(ctx, l.plan, dir)
 	if err != nil {
 		return err
 	}
@@ -181,8 +190,8 @@ func (l *relander) recheck(ctx context.Context, from string) error {
 	}
 	fmt.Fprintf(l.req.Out, "re-check:   target moved to %s; reval %s\n", ShortOID(l.plan.TargetOID), l.rec.a.Reval)
 	l.first = next
-	err = runGate(ctx, l.plan, l.req, gate, source)
-	l.rec.stage(&l.rec.a.Seconds.Test)
+	secs, err := runGate(ctx, l.req, l.h.At(l.plan), gate, source)
+	l.rec.gated(secs)
 	return err
 }
 

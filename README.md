@@ -78,7 +78,7 @@ reviews: `claude-code agents ask -h` and [`rules/harness/agent.md`](rules/harnes
 
 A **provider** hosts an endpoint, a **profile** is an account on it, and a model alias (`opus`, `sonnet`) maps to a
 model id per profile. Built-ins are in `internal/assets/files/providers/defaults.json`; `claude-code switch <profile>`
-pins the session profile and `claude-code configure provider --list` shows credential state. **The harness itself stores
+pins the session profile and `claude-code vault ls providers` shows credential state. **The harness itself stores
 secrets only in the encrypted vault (`claude-code vault set`)**, never in a plain file or `settings.json`; a provider
 may read a credential you supply through `auth.command`, `auth.file` or the environment.
 The vault key comes from the OS keyring, `HARNESS_VAULT_KEY` or `key_command`. Commands:

@@ -670,7 +670,7 @@ func TestVaultListNestedOverlayRowsPerProfileNoPlans(t *testing.T) {
 		"databricks":{"dev":{"auth":{"type":"none"},"models":{"opus":"o1"}},"qa":{"auth":{"type":"none"}}},
 		"local":{"ollama":null}, "github":{"empty":{}}},
 		"agentPlans":{"copilot":[{"tier":"standard","id":"fake-plan"}]}}`)
-	code, stdout, _ := vaultRun(t, "ls", "providers", "--format", "text")
+	code, stdout, _ := vaultRun(t, "ls", "all", "--format", "text")
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
@@ -766,6 +766,7 @@ func checkVaultListJSON(t *testing.T, stdout string, exported []byte) {
 		checkSecretRow(t, row)
 	}
 	delete(got, "secrets")
+	want["cache"] = json.RawMessage("[]") // a vault with no snapshot lists an empty cache
 	a, _ := json.Marshal(got)
 	b, _ := json.Marshal(want)
 	if !bytes.Equal(a, b) {

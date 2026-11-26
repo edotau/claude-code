@@ -4,6 +4,20 @@ What Go cannot generate is the narrative: what actually happened this session, i
 account. The bank is injected every session, so keep it to what is wrong-and-dangerous to forget;
 don't fatten it with facts a lookup can serve.
 
+## Typed run: return ops
+
+When the prompt ends with a "Bank entries" listing and you have no file tools, ignore Steps 1-5 below: answer ONLY
+with the op batch (JSON matching the schema), never edit a file. Go writes every heading, date, id, marker, file name
+and status word; you give the content.
+
+- `add` a new entry: `target` (`sessionHistory`, `decisionLog`, `conventions`, `activeContext`, `progress`, ...),
+  `section` for activeContext/progress, `title` (one line) and `text`.
+- `update`, `supersede` or `close` an existing entry: `id` is a ref from the listing (never invent one); a stored id
+  also needs `read` (the same ref); `close` needs `reason` `done|stale|superseded-by` (+ `by`).
+- `noop` with a `note` when nothing is worth persisting; `{"ops": []}` is valid.
+- Go already files DECISION events and the NEXT, BUG and NOTE tags; never re-add them. One `sessionHistory` add for
+  the session; update activeContext and progress entries instead of repeating them.
+
 File names below are bare; edit the exact paths the prompt lists (under the store root from `claude-code memory path`).
 
 ## Step 1: Session summary → `sessionHistory.md`

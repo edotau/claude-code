@@ -49,15 +49,16 @@ func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := vault.Update(func(tx *vault.Tx) error {
-		records, err := tx.Records()
-		if err != nil {
-			return err
-		}
-		for name, record := range records {
-			if strings.HasPrefix(name, "picker-additions/v1/") {
-				record.Sealed = []byte("invalid-sealed-record")
-				return tx.PutRecord(name, record)
+		for _, name := range tx.Names(vault.Cache) {
+			if !strings.HasPrefix(name, "picker-additions/v1/") {
+				continue
 			}
+			record, _, err := tx.RecordIn(vault.Cache, name)
+			if err != nil {
+				return err
+			}
+			record.Sealed = []byte("invalid-sealed-record")
+			return tx.PutRecordIn(vault.Cache, name, record)
 		}
 		return errors.New("picker additions record not created")
 	}); err != nil {

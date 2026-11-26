@@ -131,7 +131,7 @@ paths:
   `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
   experiments, rule 4). The type `coworker` means Pi in code mode (`--agent coworker` is `--agent pi --codemode
   on`): `CodeModeRow.TypedByMode` on Pi's row (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi
-  code-mode run `coworker` (receipt `coworker via pi`) and a Pi run with code mode off by its model (`claude`,
+  code-mode run `coworker` (receipt `coworker`) and a Pi run with code mode off by its model (`claude`,
   runner `pi`).
   Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
   `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.

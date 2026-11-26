@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
 // SectionNames runs in this order when no section is named.
@@ -245,7 +245,9 @@ func runProvider(d *dialog) bool {
 	}
 	names := d.reg.Names()
 	cur := configure.CurrentProvider(d.reg)
-	printProviderRows(d, names, cur)
+	if !printProviderRows(d) {
+		return false
+	}
 	if !d.o.Interactive || d.o.Check || d.o.DryRun {
 		printProviderStatus(d, cur)
 		return !d.o.Check || allCredsPresent(d.reg, names)
@@ -270,18 +272,17 @@ func printProviderStatus(d *dialog, cur string) {
 	}
 }
 
-func printProviderRows(d *dialog, names []string, cur string) {
-	for i, n := range names {
-		mark := " "
-		if n == cur {
-			mark = "*"
-		}
-		cred := "cred:missing"
-		if providers.CredentialPresent(d.reg.Providers[n]) {
-			cred = "cred:ok"
-		}
-		d.printf("%s %d) %-13s %s\n", mark, i+1, n, cred)
+// printProviderRows prints the `vault ls providers` rows, so the page and the verb show one list.
+func printProviderRows(d *dialog) bool {
+	lines, err := vaultdoc.ProviderLines(d.reg, "")
+	if err != nil {
+		d.println(err)
+		return false
 	}
+	for _, l := range lines {
+		d.println(l)
+	}
+	return true
 }
 
 func applyNamedProvider(d *dialog, name string) bool {
@@ -293,13 +294,10 @@ func applyNamedProvider(d *dialog, name string) bool {
 }
 
 func pickProvider(d *dialog, names []string) bool {
-	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
+	fmt.Fprint(d.out, "pick a profile by name (blank = keep current): ")
 	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
 		return true
-	}
-	if idx, err := strconv.Atoi(line); err == nil && idx >= 1 && idx <= len(names) {
-		line = names[idx-1]
 	}
 	return applyNamedProvider(d, line)
 }

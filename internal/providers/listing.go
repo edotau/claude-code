@@ -12,7 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// providerGroups is the family order `configure provider --list` prints; local takes every other host.
+// providerGroups is the family order `vault ls providers` prints; local takes every other host.
 var providerGroups = []string{"anthropic", "openai", "github", "google", "magnitude", GroupDatabricks, "local"}
 
 // AgentServer is an agent CLI and whether it can run a profile; ListTable files one row per agent.
@@ -21,7 +21,7 @@ type AgentServer struct {
 	Serves func(*Provider) bool
 }
 
-// ListTable renders the `configure provider --list` summary: provider families, agent CLIs, then the fallback chain.
+// ListTable renders the `vault ls providers` summary: provider families, agent CLIs, then the fallback chain.
 func ListTable(reg *Registry, ready func(*Provider) bool, agents []AgentServer) []string {
 	groups, modes := readyGroups(reg, ready)
 	rows, live := providerRows(reg, groups, modes)
@@ -92,7 +92,7 @@ func agentRows(reg *Registry, agents []AgentServer, live []*Provider) [][3]strin
 	return rows
 }
 
-// ProfileDetail renders one provider's `--list <name>` view; source and note are its resolved credential origin.
+// ProfileDetail renders one provider's `vault ls providers <name>` view; source and note are its credential origin.
 func ProfileDetail(p *Provider, source, note string) []string {
 	auth := p.Auth.Method()
 	if p.Auth.Env != "" {

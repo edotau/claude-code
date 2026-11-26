@@ -37,7 +37,7 @@ type Model struct {
 
 // ReadSnapshot is the sealed snapshot for auth and tok; ok false on a miss, another account or a vault error.
 func ReadSnapshot[M any](auth Auth, tok string) (Snapshot[M], bool) {
-	raw, found, err := vault.ReadSecret(AccountRecord(auth.Account))
+	raw, found, err := vault.ReadCache(AccountRecord(auth.Account))
 	if err != nil || !found {
 		return Snapshot[M]{}, false
 	}

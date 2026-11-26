@@ -7,8 +7,9 @@
   },
   "routing": {
     "weights": {
-      "price": 0.5,
-      "headroom": 0.5
+      "price": 0.4,
+      "headroom": 0.4,
+      "latency": 0.2
     },
     "claudeAnywhere": true,
     "ladders": {

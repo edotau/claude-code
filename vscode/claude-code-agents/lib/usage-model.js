@@ -243,7 +243,7 @@ function buildStats(usageJson, agents, nowMs) {
   return { windowDays, totalTokens, sessions, turns, activeDays, costUsd, costPartial, mix, cacheShare, daily, bestDay };
 }
 
-/** `configure provider --list --format json` → one entry per provider whose credential resolves, tier → model rows. */
+/** `vault ls providers --format json` → one entry per provider whose credential resolves, tier → model rows. */
 function buildProviderModels(profileJson) {
   const list = (profileJson && Array.isArray(profileJson.list) && profileJson.list) || [];
   const session = (profileJson && profileJson.session) || null;
@@ -260,7 +260,7 @@ function buildProviderModels(profileJson) {
     }));
 }
 
-/** Flat `usage --format json` + `configure provider --list --format json` → the model the status bar/webview render. */
+/** Flat `usage --format json` + `vault ls providers --format json` → the model the status bar/webview render. */
 function buildUsageModel(usageJson, profileJson, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now(); // reset labels still render at call time, not from this
   const billing = (usageJson && usageJson.billing) || {};

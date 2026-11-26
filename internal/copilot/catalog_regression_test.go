@@ -50,7 +50,7 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
 		t.Fatalf("refreshCatalog = %v, %v; listings = %d; want refusal before listing account-b", got, err, calls)
 	}
-	if _, found, err := vault.ReadSecret(copilotauth.CatalogRecord); err != nil || found {
+	if _, found, err := vault.ReadCache(copilotauth.CatalogRecord); err != nil || found {
 		t.Fatalf("snapshot found = %v, err = %v; want no mislabeled snapshot", found, err)
 	}
 }

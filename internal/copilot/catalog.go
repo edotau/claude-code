@@ -84,10 +84,10 @@ func saveCatalogSnapshot(s copilotauth.Snapshot[SDKModel]) error {
 		return errors.New("cannot encode catalog snapshot")
 	}
 	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutSealed(key, copilotauth.AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
+		if err := tx.PutCache(key, copilotauth.AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
 			return err
 		}
-		return tx.PutSealed(key, copilotauth.CatalogRecord, string(data), "github/copilot", s.DiscoveredAt)
+		return tx.PutCache(key, copilotauth.CatalogRecord, string(data), "github/copilot", s.DiscoveredAt)
 	})
 }
 

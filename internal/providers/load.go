@@ -133,7 +133,7 @@ func loadRegistry() (*Registry, error) {
 // Known errors unless profile is in the registry.
 func (r *Registry) Known(profile string) error {
 	if r.Providers[profile] == nil {
-		return fmt.Errorf("unknown profile %s (see configure provider --list)", profile)
+		return fmt.Errorf("unknown profile %s (see vault ls providers)", profile)
 	}
 	return nil
 }

@@ -159,18 +159,6 @@ func (p Prices) ListPrice(provider, id string) (providers.Price, bool) {
 	return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
 }
 
-// Rate is Lookup's row when it carries a price; a reader uses it only where options.prices names none.
-func (p Prices) Rate(id string) (ModelPrice, bool) {
-	row, ok := p.Lookup(id)
-	return row, ok && row.Priced
-}
-
-// Deprecated reports whether the snapshot marks id deprecated; the model stays usable.
-func (p Prices) Deprecated(id string) bool {
-	row, _ := p.Lookup(id)
-	return row.Status == "deprecated"
-}
-
 // ReadPrices is the table on disk; a missing file is empty, a broken one an error.
 func ReadPrices() (Prices, error) {
 	raw, err := os.ReadFile(PricesPath())

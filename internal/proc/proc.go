@@ -77,7 +77,7 @@ func spawnDetachedPID(bin string, args []string, dir string, out *os.File, unset
 // receiptScript runs "$@" and renames a non-zero status into $1/exit-<shell pid>, never seen empty; 128+n is signal n.
 const receiptScript = `d=$1; shift; "$@"; s=$?; [ "$s" -eq 0 ] || { echo "$s" > "$d/.exit-$$" && mv "$d/.exit-$$" "$d/exit-$$"; }`
 
-// ExitReceiptPath is where SpawnDetachedWithReceipt's wrapper (pid) leaves the child's exit status.
+// ExitReceiptPath is where SpawnDetachedWithReceiptUnset's wrapper (pid) leaves the child's exit status.
 func ExitReceiptPath(dir string, pid int) string {
 	return filepath.Join(dir, "exit-"+strconv.Itoa(pid))
 }
@@ -100,13 +100,7 @@ func ExitReceipt(dir string, pid int) string {
 	return fmt.Sprintf("exit status %d", code)
 }
 
-// SpawnDetachedWithReceipt is SpawnDetached under an sh wrapper that writes the child's exit status to
-// ExitReceiptPath(receiptDir, wrapperPid); without sh it spawns the child directly.
-func SpawnDetachedWithReceipt(bin string, args []string, dir string, out *os.File, receiptDir string, extraEnv ...string) bool {
-	return SpawnDetachedWithReceiptUnset(bin, args, dir, out, receiptDir, nil, extraEnv...)
-}
-
-// SpawnDetachedWithReceiptUnset is SpawnDetachedWithReceipt minus the unset names from the child's inherited env.
+// SpawnDetachedWithReceiptUnset is SpawnDetached under an sh wrapper writing the exit status to ExitReceiptPath.
 func SpawnDetachedWithReceiptUnset(bin string, args []string, dir string, out *os.File, receiptDir string, unset []string, extraEnv ...string) bool {
 	sh, err := exec.LookPath("sh")
 	if err != nil || os.MkdirAll(receiptDir, 0o700) != nil {

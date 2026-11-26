@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // planRepo is a repo (the cwd) whose plans home holds one plan per name=body pair.
@@ -143,13 +144,13 @@ func TestTickFollowUpSweepsGreen(t *testing.T) {
 	t.Cleanup(func() { tickSweep, tickAutofix = oldSweep, oldFix })
 	var swept int
 	tickSweep = func(time.Time) []string { swept++; return nil }
-	tickAutofix = func(_, _, out string) []string {
+	tickAutofix = func(_, _, out string, _ ...string) []string {
 		if out != "" {
 			t.Errorf("autofix gate output = %q, want empty", out)
 		}
 		return nil
 	}
-	tickFollowUp("", t.TempDir(), "abcdef0", map[string][]waves.TaskCheck{"1.1": {{Exit: 0}}})
+	tickFollowUp("", t.TempDir(), "abcdef0", map[string][]waves.TaskCheck{"1.1": {{Exit: 0}}}, nil)
 	if swept != 1 {
 		t.Fatalf("sweep calls = %d, want 1", swept)
 	}
@@ -166,5 +167,25 @@ func TestPlanTickAuditFlags(t *testing.T) {
 	code, stdout, stderr := runCLI(t, "plan", "tick", "--audit", "--dry-run", "--format", "json")
 	if code != 0 || !strings.Contains(stdout, `"dry_run": true`) || !strings.Contains(stdout, `"changed": []`) {
 		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+// a failing check is broadcast once per sha, and re-reporting after done reopens it.
+func TestReportVerifyFailures(t *testing.T) {
+	planRepo(t, nil)
+	tasks := []plans.Task{{ID: "1.1"}, {ID: "1.2"}}
+	checks := map[string][]waves.TaskCheck{"1.1": {{Exit: 1}}, "1.2": {{Exit: 1, Skip: "no verify"}}}
+	ids := reportVerifyFailures("/p/2026-11-18-a.md", "/repo", "abcdef0123", tasks, checks)
+	if len(ids) != 1 {
+		t.Fatalf("ids = %q, want only the confirmed failure", ids)
+	}
+	reportVerifyFailures("/p/2026-11-18-a.md", "/repo", "abcdef0123", tasks, checks)
+	if recs, _ := worktree.ListFailures(worktree.FailuresDir()); len(recs) != 1 {
+		t.Fatalf("records = %d, want 1 (deduped)", len(recs))
+	}
+	_ = worktree.DoneFailure(worktree.FailuresDir(), ids[0])
+	reportVerifyFailures("/p/2026-11-18-a.md", "/repo", "abcdef0123", tasks, checks)
+	if _, done := worktree.FailureHolder(worktree.FailuresDir(), ids[0]); done {
+		t.Fatal("a done failure stayed done after re-report")
 	}
 }

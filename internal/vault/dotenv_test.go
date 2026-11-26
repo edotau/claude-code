@@ -412,3 +412,29 @@ func BenchmarkParseDotenv(b *testing.B) {
 		ParseDotenv(strings.NewReader(text))
 	}
 }
+
+// A snapshot left among the secrets moves to Cache on the next open, once; credentials stay put.
+func TestLegacyCacheMovesOnRead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	const snap, value = "model-discovery/v1/abc", `{"schema":1}`
+	if err := Store("PLAIN_NAME", "plain-value-words"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSealed(func(tx *Tx, key *Key) error {
+		return tx.PutRecordIn(Secrets, snap, Record{Sealed: key.Seal(snap, value), Kid: key.Kid, Len: len(value), Label: "x"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, serr := ListStored(nil)
+	cached, cerr := ListCache()
+	got, _, rerr := ReadCache(snap)
+	gen := WriteGen()
+	_, err := ListCache()
+	summary := fmt.Sprintf("%v %v %v %v", errors.Join(serr, cerr, rerr, err), stored, cached, WriteGen()-gen)
+	want := fmt.Sprintf("<nil> %v %v 0", []Stored{{Name: "PLAIN_NAME", Len: 17, SetAt: stored[0].SetAt, Prefix: ""}},
+		[]Stored{{Name: snap, Label: "x", Len: len(value)}})
+	if summary != want || got != value {
+		t.Fatalf("got %s, want %s (value read back: %v)", summary, want, got == value)
+	}
+}

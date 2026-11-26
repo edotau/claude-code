@@ -40,7 +40,7 @@ func TestFoldSnapshot(t *testing.T) {
 // A model id only one provider lists resolves; one two providers list is not known; the provider's own row reads.
 func TestPricesLookup(t *testing.T) {
 	p, _ := fixtureFold(t)
-	if r, ok := p.Rate("claude-opus-4-5"); !ok || r.Input != 5 || !p.Deprecated("claude-opus-4-5") {
+	if r, ok := p.Lookup("claude-opus-4-5"); !ok || !r.Priced || r.Input != 5 || r.Status != "deprecated" {
 		t.Errorf("unique id = %+v, %v, want the anthropic price, deprecated", r, ok)
 	}
 	if _, ok := p.Lookup("claude-opus-5-5"); ok {
@@ -49,8 +49,8 @@ func TestPricesLookup(t *testing.T) {
 	if r, ok := p.Row("anthropic", "claude-opus-5-5"); !ok || r.Input != 4 {
 		t.Errorf("provider row = %+v, %v", r, ok)
 	}
-	if _, ok := p.Rate("free-model"); ok {
-		t.Error("a row without a price must not give a rate")
+	if r, ok := p.Lookup("free-model"); ok && r.Priced {
+		t.Error("a row without a price must not be priced")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestPricesFileAndSnapshotPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := ReadPrices()
-	if err != nil || !got.Deprecated("claude-opus-4-5") || !got.Read.Equal(pricesT0) {
+	if row, _ := got.Lookup("claude-opus-4-5"); err != nil || row.Status != "deprecated" || !got.Read.Equal(pricesT0) {
 		t.Errorf("round trip = %+v, %v", got, err)
 	}
 }

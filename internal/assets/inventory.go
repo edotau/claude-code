@@ -109,7 +109,7 @@ var inventory = []struct {
 	{"files/hooks/simplicity.tmpl", "tmpl", "HookSimplicityHeader,HookSimplicityMore", func() []byte { return read("files/hooks/simplicity.tmpl") }},
 	{"files/hooks/paths.tmpl", "tmpl", "HookPathDetail,HookPathFailed,HookPathMapped,HookPathsContext", func() []byte { return read("files/hooks/paths.tmpl") }},
 	{"files/hooks/misc.tmpl", "tmpl", "HookBusyPeer,HookDiverged", func() []byte { return read("files/hooks/misc.tmpl") }},
-	{"files/hooks/notice.tmpl", "tmpl", "HookNoticeDivergeWarn,HookNoticeDrainWarn,HookNoticeLine", func() []byte { return read("files/hooks/notice.tmpl") }},
+	{"files/hooks/notice.tmpl", "tmpl", "HookFailuresMore,HookFailuresWarn,HookNoticeDivergeWarn,HookNoticeDrainWarn,HookNoticeLine", func() []byte { return read("files/hooks/notice.tmpl") }},
 	{"files/agent/agy-toolless.txt", "txt", "AgyToolLessPreamble", func() []byte { return read("files/agent/agy-toolless.txt") }},
 	{"files/agent/stdin-task.txt", "txt", "PiStdinTask", func() []byte { return read("files/agent/stdin-task.txt") }},
 	{"files/agent/attach.tmpl", "tmpl", "AttachRef,ClaudeAttachImage", func() []byte { return read("files/agent/attach.tmpl") }},

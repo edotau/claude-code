@@ -21,7 +21,6 @@ func BenchmarkScan(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		countEdits(path)
-		_, _ = EditedFiles(path)
 	}
 }
 
@@ -38,9 +37,6 @@ func TestLastUsageAndEdits(t *testing.T) {
 	u, ok := LastUsage(tr)
 	if !ok || u.Tokens != 100 || u.Model != "claude-opus-5" {
 		t.Errorf("full-scan fallback: %+v %v", u, ok)
-	}
-	if got, err := EditedFiles(tr); err != nil || strings.Join(got, ",") != "/r/a.go,/r/b.go" {
-		t.Errorf("edits %v", got)
 	}
 	if n := countEdits(tr); n != 2 {
 		t.Errorf("CountEdits = %d, want 2 (Read excluded)", n)
@@ -557,16 +553,6 @@ func TestGitCommitCommandTrailingWrapperFlag(t *testing.T) {
 	}
 }
 
-// A missing transcript is no edits and no error; an unreadable one (a directory) surfaces its read error.
-func TestEditedFilesErrors(t *testing.T) {
-	if got, err := EditedFiles(filepath.Join(t.TempDir(), "absent.jsonl")); err != nil || len(got) != 0 {
-		t.Fatalf("missing transcript: %v, %v; want no edits and nil", got, err)
-	}
-	if _, err := EditedFiles(t.TempDir()); err == nil {
-		t.Fatal("a directory as the transcript must return its read error")
-	}
-}
-
 func editFileLine(file string) string {
 	return `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"` + file + `"}}]}}` + "\n"
 }
@@ -592,10 +578,6 @@ func incrementalScan(t *testing.T) (string, EditScan) {
 
 func TestEditedFilesFromMatchesFullScan(t *testing.T) {
 	tr, second := incrementalScan(t)
-	full, err := EditedFiles(tr)
-	if err != nil || !slices.Equal(second.Files, full) {
-		t.Fatalf("incremental %v != full scan %v (%v)", second.Files, full, err)
-	}
 	if fi, _ := os.Stat(tr); second.Offset != fi.Size() {
 		t.Fatalf("offset = %d, want file size %d", second.Offset, fi.Size())
 	}

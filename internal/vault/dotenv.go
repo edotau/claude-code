@@ -62,11 +62,11 @@ func UnquoteDotenv(value string) string {
 	return value
 }
 
-// Stored is one vault secret's display metadata, never its value.
+// Stored is one vault record's display metadata, never its value.
 type Stored struct {
-	Name, Prefix string
-	Len          int
-	SetAt        time.Time
+	Name, Prefix, Label string
+	Len                 int
+	SetAt               time.Time
 }
 
 func (s Stored) Masked() string {
@@ -111,6 +111,22 @@ func ListStored(only []string) ([]Stored, error) {
 		out = append(out, Stored{Name: n, Prefix: m.Prefix, Len: m.Len, SetAt: m.SetAt})
 	}
 	return out, nil
+}
+
+// ListCache lists the Cache snapshots by name with label, size and set-time, without decrypting.
+func ListCache() ([]Stored, error) {
+	var out []Stored
+	err := View(func(tx *Tx) error {
+		for _, n := range tx.Names(Cache) {
+			r, _, err := tx.RecordIn(Cache, n)
+			if err != nil {
+				return err
+			}
+			out = append(out, Stored{Name: n, Label: r.Label, Len: r.Len, SetAt: r.SetAt})
+		}
+		return nil
+	})
+	return out, err
 }
 
 // AppendDotenv appends NAME=value lines to path (0600, header when new), skipping names it has; symlinks are refused.

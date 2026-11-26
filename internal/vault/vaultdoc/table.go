@@ -34,9 +34,10 @@ func Width() int {
 }
 
 // Text lays out each selected section (heading + aligned rows, Sections order), painted when color is on.
-func Text(doc Doc, stored []vault.Stored, sel []string, width int, color bool) string {
+func Text(doc Doc, recs Records, sel []string, width int, color bool) string {
 	render := map[string]func() string{
-		"secrets":   func() string { return vaultSecretsText(stored, width) },
+		"secrets":   func() string { return vaultSecretsText(recs.Secrets, width) },
+		"cache":     func() string { return vaultCacheText(recs.Cache, width) },
 		"env":       func() string { return vaultSection("ENV", EnvRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },

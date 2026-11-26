@@ -139,7 +139,7 @@ func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 func TestSpawnDetachedWithReceiptRecordsSignal(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh")
 	dir := t.TempDir()
-	if !SpawnDetachedWithReceipt("sh", []string{"-c", "kill -9 $$"}, dir, nil, dir) {
+	if !SpawnDetachedWithReceiptUnset("sh", []string{"-c", "kill -9 $$"}, dir, nil, dir, nil) {
 		t.Fatal("spawn failed")
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {

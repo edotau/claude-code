@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -29,16 +28,14 @@ func usesGateSlot(gate, source string) bool {
 func HoldGate(ctx context.Context, top, oid, lane string, out io.Writer) *HeldGate {
 	deadline := time.Now().Add(gateSlotWait)
 	for warned := false; ; warned = true {
-		s, err := AcquireSlot(ctx, top, oid, lane)
+		s, err := TryAcquireSlot(ctx, top, oid)
 		if err != nil {
 			fmt.Fprintf(out, "land %s: no gate slot (%v); gating in the lane\n", lane, err)
 			return nil
 		}
-		// a private tree-<own> means every slot is busy
-		if !strings.HasPrefix(filepath.Base(s.Dir), "tree-") {
+		if s != nil {
 			return &HeldGate{dir: s.Dir, slot: s}
 		}
-		s.Release()
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return nil
 		}
@@ -58,6 +55,11 @@ func (h *HeldGate) Where(laneDir string) string {
 		return laneDir
 	}
 	return h.dir
+}
+
+// At is where the plan's gate runs: the slot, or the lane when nothing is held.
+func (h *HeldGate) At(plan *LandPlan) gateAt {
+	return gateAt{Dir: h.Where(plan.WorktreePath), Base: plan.TargetOID, Lane: plan.WorktreePath}
 }
 
 // Reset moves a held slot to oid for the next revalidation round; a nil gate has nothing to reset.

@@ -63,9 +63,6 @@ type Permissions struct {
 	Deny  []Rule `json:"deny,omitempty"`
 }
 
-// IsZero reports a request with no policy: no mode and no rules.
-func (p Permissions) IsZero() bool { return p.Mode == "" && len(p.Allow)+len(p.Ask)+len(p.Deny) == 0 }
-
 // String is the rule in ParseRule's syntax.
 func (r Rule) String() string {
 	if r.Arg == "" {

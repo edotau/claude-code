@@ -41,20 +41,6 @@ type Origin struct {
 	Len                 int
 }
 
-type sourceError struct{ cause error }
-
-func (e sourceError) Error() string { return "redact: value source unavailable" }
-func (e sourceError) Unwrap() error { return e.cause }
-
-// Load accepts a vault adapter without coupling this package to vault storage or its errors.
-func Load(values func() ([]string, error)) (*Matcher, error) {
-	vals, err := values()
-	if err != nil {
-		return nil, sourceError{err}
-	}
-	return FromValues(vals), nil
-}
-
 func FromValues(vals []string) *Matcher {
 	recs := make([][2]string, len(vals))
 	for i, v := range vals {

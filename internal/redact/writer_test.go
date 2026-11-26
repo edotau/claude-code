@@ -97,15 +97,11 @@ func TestWriterMatchesWholeBufferAtEverySplit(t *testing.T) {
 	for _, pair := range overlapPairs {
 		StubValues(t, pair[:])
 		for _, in := range overlapInputs(pair[0], pair[1]) {
-			plain, encoded := []byte(in), []byte(in)
+			plain := []byte(in)
 			Shared().MaskValues(plain)
-			ValueBytes(encoded)
 			for cut := 0; cut <= len(in); cut++ {
 				if got := streamed(t, Writer, in, cut); !bytes.Equal(got, plain) {
 					t.Fatalf("pair %q input %q cut %d: got %q, want %q", pair[0], in, cut, got, plain)
-				}
-				if got := streamed(t, JSONWriter, in, cut); !bytes.Equal(got, encoded) {
-					t.Fatalf("JSON pair %q input %q cut %d: got %q, want %q", pair[0], in, cut, got, encoded)
 				}
 			}
 		}

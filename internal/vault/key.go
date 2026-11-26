@@ -412,7 +412,7 @@ func resealSecrets(t *Tx, old, next *Key) error {
 	if curKid != "" && curKid != old.Kid {
 		return ErrWrongKey
 	}
-	for _, bucket := range []string{Secrets, SettingsBackups} {
+	for _, bucket := range []string{Secrets, Cache, SettingsBackups} {
 		if err := resealBucket(t, bucket, old, next); err != nil {
 			return err
 		}
@@ -724,7 +724,7 @@ func (k *Key) SealSettingsBackup(name, value string) []byte {
 }
 
 func (k *Key) openIn(bucket, name string, r Record) (string, error) {
-	if bucket == Secrets {
+	if bucket == Secrets || bucket == Cache {
 		return k.Open(name, r)
 	}
 	return k.open(k.backupsAEAD, settingsBackupsInfo, name, r)

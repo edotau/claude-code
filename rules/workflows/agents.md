@@ -43,7 +43,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - `/coworker` (same flags plus `[--codemode on|only]`) — Pi in code mode: the session runs `agents ask --background
   --agent pi --provider databricks --profile <p> --codemode on [flags] --tools --autonomous - < brief` plain (`--carry` refuses
   pi), then `agents result -f <id>`; `--provider`/`--profile` replace the Databricks default. The run is typed
-  `coworker` (receipt `coworker via pi`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
+  `coworker` (receipt `coworker`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
   There is no `/pi`. A route that travels whole (provider, profile, host, remote) is `agents ask --overlay`; workflow
   steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`; what
   `auto` resolves to: `rules/harness/network.md`.

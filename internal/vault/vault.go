@@ -2,6 +2,7 @@
 package vault
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -26,9 +27,13 @@ const (
 	Env             = "env"
 	Overlay         = "overlay"
 	Secrets         = "secrets"
+	Cache           = "cache" // discovery and catalog snapshots: sealed like secrets, never credentials
 	SettingsBackups = "settings_backups"
 	Meta            = "meta"
 )
+
+// CachePrefixes name the snapshot records that live in Cache; one found in Secrets is moved on the next open.
+var CachePrefixes = []string{"model-discovery/v1/", "model-discovery-subject/v1/", "picker-additions/v1/", "copilot-catalog"}
 
 var (
 	ErrLocked   = errors.New("vault: no master key (keyring, HARNESS_VAULT_KEY or key_command)")
@@ -103,30 +108,65 @@ func migrateSchemaAt(path string) error {
 	return closeErr
 }
 
+// checkSchema refuses an unreadable schema and, in a write tx, upgrades schema 7 and moves legacy cache records.
 func checkSchema(t *Tx) error {
-	s, _ := t.Get(Meta, "schema")
-	n, err := strconv.Atoi(s)
-	if s != "" && err != nil {
-		return fmt.Errorf("vault: invalid schema %q", s)
+	n, err := schemaOf(t)
+	if err != nil {
+		return err
 	}
-	if n > schemaVersion {
-		return fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
+	legacy := t.legacyCache()
+	if n != 7 && len(legacy) == 0 {
+		return nil
+	}
+	if !t.tx.Writable() {
+		return errSchemaMigration
 	}
 	if n == 7 {
-		if !t.tx.Writable() {
-			return errSchemaMigration
-		}
-		if err := t.migrateAgentRecords(); err != nil {
+		if err := errors.Join(t.migrateAgentRecords(), t.Put(Meta, "schema", strconv.Itoa(schemaVersion))); err != nil {
 			return err
 		}
-		return t.Put(Meta, "schema", strconv.Itoa(schemaVersion))
 	}
-	if n < schemaVersion {
-		return fmt.Errorf("vault: schema %d is older than this build reads (schema %d); open it once with a "+
+	for _, name := range legacy { // same AEAD and AAD in both buckets, so the sealed bytes move without a key
+		v, _ := t.Get(Secrets, name)
+		if err := errors.Join(t.Put(Cache, name, v), t.Put(Secrets, name, "")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// schemaOf is the tx's stored schema, an error unless this build reads it (7 still upgrades).
+func schemaOf(t *Tx) (int, error) {
+	s, _ := t.Get(Meta, "schema")
+	n, err := strconv.Atoi(s)
+	switch {
+	case s != "" && err != nil:
+		return 0, fmt.Errorf("vault: invalid schema %q", s)
+	case n > schemaVersion:
+		return 0, fmt.Errorf("vault: written by a newer claude-code (schema %d)", n)
+	case n != 7 && n < schemaVersion:
+		return 0, fmt.Errorf("vault: schema %d is older than this build reads (schema %d); open it once with a "+
 			"claude-code built before the vault migrations were removed (git history), or restore state/vault.db "+
 			"from a backup", n, schemaVersion)
 	}
-	return nil
+	return n, nil
+}
+
+// legacyCache lists snapshot records still stored among the secrets, written before the cache section existed.
+func (t *Tx) legacyCache() []string {
+	var names []string
+	if t.tx == nil || t.tx.Bucket([]byte(Secrets)) == nil {
+		return nil
+	}
+	c := t.tx.Bucket([]byte(Secrets)).Cursor()
+	for _, p := range CachePrefixes {
+		for k, v := c.Seek([]byte(p)); k != nil && bytes.HasPrefix(k, []byte(p)); k, v = c.Next() {
+			if v != nil {
+				names = append(names, string(k))
+			}
+		}
+	}
+	return names
 }
 
 func create(path string) error {

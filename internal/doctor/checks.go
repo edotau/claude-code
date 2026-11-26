@@ -169,19 +169,19 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 	}
 }
 
-func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)) {
-	for _, r := range routingRows() {
-		check(r.OK, false, r.Name, r.Detail)
+func checkHostHealth(ctx context.Context, report func(bool, bool, string, string)) {
+	soft := func(rows ...check) {
+		for _, r := range rows {
+			report(r.OK, false, r.Name, r.Detail)
+		}
 	}
+	soft(routingRows()...)
 	store := memoryStoreRow()
-	check(store.OK, store.Hard, store.Name, store.Detail)
-	for _, r := range memorySyncRows() {
-		check(r.OK, false, r.Name, r.Detail)
-	}
-	dream := memoryDreamRow(time.Now())
-	check(dream.OK, false, dream.Name, dream.Detail)
+	report(store.OK, store.Hard, store.Name, store.Detail)
+	soft(memorySyncRows()...)
+	soft(memoryDreamRow(time.Now()))
 	proxyDetail, proxyBad := proxyStatus(ctx)
-	check(!proxyBad, false, "proxy", proxyDetail)
+	report(!proxyBad, false, "proxy", proxyDetail)
 	var spendCap providers.SpendCap
 	if reg, err := providers.LoadShared(); err == nil {
 		spendCap = reg.Routing.SpendCap // a load error is already reported by the provider registry row
@@ -190,42 +190,41 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 		_, d, err := tokenledger.SpendTotals("", time.Now())
 		return d, err
 	})
-	check(!spendBad, false, "spend cap", spendDetail)
-	rtkOK, rtkDetail := rtkDoctorStatus()
-	check(rtkOK, false, "rtk compressor", rtkDetail)
-	rtkVerOK, rtkVerDetail := rtkVersionStatus(ctx)
-	check(rtkVerOK, false, "rtk version", rtkVerDetail)
-	for _, r := range rtkHookRows() {
-		check(r.OK, false, r.Name, r.Detail)
-	}
-	goDetail, goOK := setup.GoCacheDetail()
-	check(goOK, false, "go cache", goDetail)
-	ccOK, ccDetail := pathBinaryStatus()
-	check(ccOK, false, "claude-code on PATH", ccDetail)
-	hookOK, hookDetail := hookBinaryStatus(paths.BinDir())
-	check(hookOK, false, "hook binary", hookDetail)
-	tsOK, tsDetail := tailscale.Doctor(ctx)
-	check(tsOK, false, "tailscale", tsDetail)
-	ca := caBundleRow(time.Now())
-	check(ca.OK, false, ca.Name, ca.Detail)
-	for _, r := range upstreamRows(ctx) {
-		check(r.OK, false, r.Name, r.Detail)
-	}
+	report(!spendBad, false, "spend cap", spendDetail)
+	soft(toolRows(ctx)...)
+	soft(caBundleRow(time.Now()))
+	soft(upstreamRows(ctx)...)
 	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
-	check(nested.Dir == "" || onlyWorktrees(nested), false, "nested config", nestedDetail(nested))
+	report(nested.Dir == "" || onlyWorktrees(nested), false, "nested config", nestedDetail(nested))
 	strayOK, strayDetail := strayClaudeJSON()
-	check(strayOK, false, "claude.json", strayDetail)
-	root := repoRootCheck(paths.ConfigDir())
-	check(root.OK, false, root.Name, root.Detail)
+	report(strayOK, false, "claude.json", strayDetail)
+	soft(repoRootCheck(paths.ConfigDir()))
 	auditOK, auditDetail := auditSummary()
-	check(auditOK, false, "audit (7d)", auditDetail)
+	report(auditOK, false, "audit (7d)", auditDetail)
 	setupOK, setupDetail := setupDoctorDetail()
-	check(setupOK, false, "setup", setupDetail)
-	check(true, false, "browser", browserDoctorDetail())
+	report(setupOK, false, "setup", setupDetail)
+	report(true, false, "browser", browserDoctorDetail())
 	clipOK, clipDetail := clipboard.DoctorDetail()
-	check(clipOK, false, "clipboard", clipDetail)
-	check(settingsErr == nil, false, "settings.json", orErr("valid", settingsErr))
+	report(clipOK, false, "clipboard", clipDetail)
+	report(settingsErr == nil, false, "settings.json", orErr("valid", settingsErr))
+}
+
+// toolRows are the rtk, Go cache, binary and tailscale rows, in order.
+func toolRows(ctx context.Context) []check {
+	rtkOK, rtkDetail := rtkDoctorStatus()
+	rtkVerOK, rtkVerDetail := rtkVersionStatus(ctx)
+	rows := []check{{Name: "rtk compressor", OK: rtkOK, Detail: rtkDetail}, {Name: "rtk version", OK: rtkVerOK, Detail: rtkVerDetail}}
+	rows = append(rows, rtkHookRows()...)
+	goDetail, goOK := setup.GoCacheDetail()
+	ccOK, ccDetail := pathBinaryStatus()
+	hookOK, hookDetail := hookBinaryStatus(paths.BinDir())
+	tsOK, tsDetail := tailscale.Doctor(ctx)
+	return append(rows,
+		check{Name: "go cache", OK: goOK, Detail: goDetail},
+		check{Name: "claude-code on PATH", OK: ccOK, Detail: ccDetail},
+		check{Name: "hook binary", OK: hookOK, Detail: hookDetail},
+		check{Name: "tailscale", OK: tsOK, Detail: tsDetail})
 }
 
 // routingRows are the report-only dispatch rows, in order: slots, lands, the fit table, the local row.

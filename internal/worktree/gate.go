@@ -38,14 +38,14 @@ type goPkg struct {
 }
 
 // scopedGoGate builds the land gate: build and vet all, test the nChanged changed packages and their direct importers.
-func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, nChanged int, full bool, err error) {
+func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, nChanged int, sc gateScope, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
 	if err != nil {
-		return "", nil, 0, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
+		return "", nil, 0, sc, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
 	}
 	list, err := listPackages(ctx, dir)
 	if err != nil {
-		return "", nil, 0, false, err
+		return "", nil, 0, sc, err
 	}
 	// go list reports absolute package dirs
 	abs, err := filepath.Abs(dir)
@@ -54,11 +54,11 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		abs, err = filepath.EvalSymlinks(abs)
 	}
 	if err != nil {
-		return "", nil, 0, false, err
+		return "", nil, 0, sc, err
 	}
 	changed, full := changedPackages(list, abs, string(out))
 	if full {
-		return fullGoGate, nil, 0, true, nil
+		return fullGoGate, nil, 0, sc, nil
 	}
 	set := reverseDeps(list, abs, changed)
 	pkgs = slices.Sorted(maps.Keys(set))
@@ -67,7 +67,7 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 			nChanged++
 		}
 	}
-	return scopedGateCommand(pkgs), pkgs, nChanged, false, nil
+	return scopedGateCommand(pkgs), pkgs, nChanged, gateScope{Changed: changed, Tested: set, Scoped: true}, nil
 }
 
 // changedPackages maps NUL-separated changed files to their package dirs; full is true when the whole suite must run.
@@ -534,21 +534,13 @@ func gateEnv() []string {
 // scopedGateSource prefixes the source of a gate scopeGate built from independent steps.
 const scopedGateSource = "scoped go gate"
 
-// gateSteps splits a scoped go gate into its independent steps; any other gate is one step.
-func gateSteps(gate, source string) []string {
-	if strings.HasPrefix(source, scopedGateSource) {
-		return strings.Split(gate, " && ")
-	}
-	return []string{gate}
-}
-
 // gateStages orders a go gate (scoped or the full suite) as [build] then [vet, test]; any other gate is one stage.
 func gateStages(gate, source string) [][]string {
-	steps := gateSteps(gate, source)
-	if gate == fullGoGate {
-		steps = strings.Split(gate, " && ")
+	if !usesGateSlot(gate, source) {
+		return [][]string{{gate}}
 	}
-	if len(steps) < 2 || gate != fullGoGate && !strings.HasPrefix(source, scopedGateSource) {
+	steps := strings.Split(gate, " && ")
+	if len(steps) < 2 {
 		return [][]string{steps}
 	}
 	return [][]string{steps[:1], steps[1:]}
@@ -563,8 +555,8 @@ func stepName(step string) string {
 	return f[0]
 }
 
-// gateAt is where a gate runs (Dir) and the land base it compares against.
-type gateAt struct{ Dir, Base string }
+// gateAt is where a gate runs (Dir), the land base it compares against and the lane kept on a failure.
+type gateAt struct{ Dir, Base, Lane string }
 
 // runStages runs stages in order, a stage's steps concurrently; returns seconds per step, a failure names its stage.
 func runStages(ctx context.Context, at gateAt, stages [][]string, stdout, stderr io.Writer) (map[string]float64, error) {
@@ -582,13 +574,7 @@ func runStages(ctx context.Context, at gateAt, stages [][]string, stdout, stderr
 	return secs, nil
 }
 
-// runSteps runs steps concurrently, each with its own output buffer; the first failure cancels the rest.
-func runSteps(ctx context.Context, dir string, steps []string, base string, stdout, stderr io.Writer) error {
-	_, err := runTimed(ctx, gateAt{dir, base}, steps, stdout, stderr)
-	return err
-}
-
-// runTimed is runSteps that also returns each step's wall time.
+// runTimed runs steps concurrently, each with its own output buffer; the first failure cancels the rest.
 func runTimed(ctx context.Context, at gateAt, steps []string, stdout, stderr io.Writer) ([]time.Duration, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

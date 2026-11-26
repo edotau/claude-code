@@ -16,15 +16,6 @@ const (
 	ProtocolInvocations = "invocations"
 )
 
-// CatalogURL is host's /api/2.0/serving-endpoints URL, or "" when host is blank.
-func CatalogURL(host string) string {
-	host = strings.TrimRight(strings.TrimSpace(host), "/")
-	if host == "" {
-		return ""
-	}
-	return host + CatalogPath
-}
-
 // BaseURL derives the Databricks serving base URL for dialect from a workspace host, or "" when host is blank.
 func BaseURL(host, dialect string) string {
 	host = strings.TrimRight(strings.TrimSpace(host), "/")

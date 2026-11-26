@@ -192,25 +192,6 @@ func withRoot(m Mount, root string) Mount {
 	return m
 }
 
-// parseDarwinMount reads macOS `mount` output ("src on /point (fstype, opts)") into classified mounts.
-func parseDarwinMount(text string) []Mount {
-	var out []Mount
-	for line := range strings.SplitSeq(text, "\n") {
-		src, rest, ok := strings.Cut(line, " on ")
-		open := strings.LastIndex(rest, " (")
-		if !ok || open < 0 || !strings.HasSuffix(rest, ")") {
-			continue
-		}
-		fstype, _, _ := strings.Cut(rest[open+2:len(rest)-1], ",")
-		m, ok := classify(rest[:open], src, strings.TrimSpace(fstype))
-		if !ok {
-			m = Mount{Point: rest[:open], Kind: kindOpaque}
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
 func unescapeOctal(s string) string {
 	if !strings.Contains(s, `\`) {
 		return s

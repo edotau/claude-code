@@ -59,9 +59,9 @@ func TestScopedGoGate(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
 
-	cmd, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
-	if err != nil || full {
-		t.Fatalf("err=%v full=%v", err, full)
+	cmd, pkgs, _, sc, err := scopedGoGate(context.Background(), dir, base)
+	if err != nil || !sc.Scoped {
+		t.Fatalf("err=%v scoped=%v", err, sc.Scoped)
 	}
 	if want := []string{"internal/foo"}; !slices.Equal(pkgs, want) {
 		t.Errorf("pkgs=%v want %v", pkgs, want)
@@ -73,9 +73,9 @@ func TestScopedGoGate(t *testing.T) {
 	write("go.mod", "module example.com/m\n\ngo 1.23\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "mod")
-	cmd, _, _, full, err = scopedGoGate(context.Background(), dir, base)
-	if err != nil || !full || !strings.HasSuffix(cmd, "go test ./...") {
-		t.Fatalf("go.mod change: cmd=%s full=%v err=%v", cmd, full, err)
+	cmd, _, _, sc, err = scopedGoGate(context.Background(), dir, base)
+	if err != nil || sc.Scoped || !strings.HasSuffix(cmd, "go test ./...") {
+		t.Fatalf("go.mod change: cmd=%s scoped=%v err=%v", cmd, sc.Scoped, err)
 	}
 }
 
@@ -126,9 +126,9 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "data")
 
-	_, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
-	if err != nil || full {
-		t.Fatalf("err=%v full=%v", err, full)
+	_, pkgs, _, sc, err := scopedGoGate(context.Background(), dir, base)
+	if err != nil || !sc.Scoped {
+		t.Fatalf("err=%v scoped=%v", err, sc.Scoped)
 	}
 	if want := []string{"emb", "emb/sub", "mem"}; !slices.Equal(pkgs, want) {
 		t.Errorf("pkgs=%v want %v", pkgs, want)
@@ -137,8 +137,8 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	write("tools/run.sh", "#!/bin/sh\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "script")
-	if cmd, _, _, full, err := scopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
-		t.Fatalf("unowned non-markdown file: cmd=%s full=%v err=%v", cmd, full, err)
+	if cmd, _, _, sc, err := scopedGoGate(context.Background(), dir, base); err != nil || sc.Scoped || cmd != fullGoGate {
+		t.Fatalf("unowned non-markdown file: cmd=%s scoped=%v err=%v", cmd, sc.Scoped, err)
 	}
 }
 
@@ -327,9 +327,9 @@ func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "docs")
 
-	cmd, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
-	if err != nil || full || len(pkgs) != 0 {
-		t.Fatalf("err=%v full=%v pkgs=%v", err, full, pkgs)
+	cmd, pkgs, _, sc, err := scopedGoGate(context.Background(), dir, base)
+	if err != nil || !sc.Scoped || len(pkgs) != 0 {
+		t.Fatalf("err=%v scoped=%v pkgs=%v", err, sc.Scoped, pkgs)
 	}
 	if cmd != "go build ./... && go vet ./..." {
 		t.Errorf("cmd=%q, want build and vet only", cmd)
@@ -401,21 +401,12 @@ func TestRunVerifyDropsVaultKey(t *testing.T) {
 func TestRunStepsFirstFailureCancelsRest(t *testing.T) {
 	var out, errOut bytes.Buffer
 	start := time.Now()
-	err := runSteps(context.Background(), t.TempDir(), []string{"sleep 30", "echo hi; exit 3"}, "", &out, &errOut)
+	_, err := runTimed(context.Background(), gateAt{Dir: t.TempDir()}, []string{"sleep 30", "echo hi; exit 3"}, &out, &errOut)
 	if err == nil || !strings.Contains(err.Error(), "exit 3") {
 		t.Fatalf("err = %v, want the failing step's exit 3", err)
 	}
 	if time.Since(start) > 10*time.Second || !strings.Contains(out.String(), "hi") {
 		t.Fatalf("slept %v, out=%q; want the sibling cancelled and output kept", time.Since(start), out.String())
-	}
-}
-
-func TestGateStepsSplitsOnlyScopedGate(t *testing.T) {
-	if got := gateSteps("a && b && c", scopedGateSource+", x"); len(got) != 3 {
-		t.Errorf("scoped steps = %v", got)
-	}
-	if got := gateSteps("a && b", "flag"); len(got) != 1 {
-		t.Errorf("--verify gate split: %v", got)
 	}
 }
 

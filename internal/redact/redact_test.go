@@ -3,7 +3,6 @@ package redact
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,8 +14,8 @@ import (
 
 func TestFile(t *testing.T) {
 	value := "FAKE-SECRET-0123456789abcdef+/?\"\\"
-	m, err := Load(func() ([]string, error) { return []string{value, "short123"}, nil })
-	if err != nil || m.Skipped != 1 {
+	m := FromValues([]string{value, "short123"})
+	if m.Skipped != 1 {
 		t.Fatal("load counts")
 	}
 	forms := variants(value)
@@ -106,11 +105,6 @@ func TestMaskKnownValueInJSON(t *testing.T) {
 }
 
 func TestLoadAndFileGuards(t *testing.T) {
-	sentinel := errors.New("source unavailable")
-	_, err := Load(func() ([]string, error) { return nil, sentinel })
-	if !errors.Is(err, sentinel) || err.Error() != "redact: value source unavailable" {
-		t.Fatal("source error contract")
-	}
 	m := FromValues([]string{`{"key":"FAKE-SECRET-0123456789abcdef","nested":["short"]}`})
 	if m.Skipped != 1 || m.String("FAKE-SECRET-0123456789abcdef") == "FAKE-SECRET-0123456789abcdef" {
 		t.Fatal("JSON leaves")

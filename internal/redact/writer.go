@@ -5,12 +5,8 @@ import "io"
 // Writer masks vault values in what is written to w, even one split across writes; Close flushes the held tail.
 func Writer(w io.Writer) io.WriteCloser { return &streamWriter{w: w} }
 
-// JSONWriter is Writer for JSON or JSON lines: a mask keeps every value's type, so each document still parses.
-func JSONWriter(w io.Writer) io.WriteCloser { return &streamWriter{w: w, json: &jsonLexer{}} }
-
 type streamWriter struct {
 	w    io.Writer
-	json *jsonLexer
 	pend []byte // from the first byte whose masking a later write could still change
 	err  error  // the first failed write to w, returned by every later Write and by Close
 }
@@ -23,7 +19,7 @@ func (s *streamWriter) Write(p []byte) (int, error) {
 	s.pend = append(s.pend, p...) // a copy: an io.Writer must not modify p
 	done := len(s.pend)
 	if m.longest > 0 {
-		_, done = m.scan(s.pend, false, s.json, nil)
+		_, done = m.scan(s.pend, false, nil, nil)
 	}
 	if err := s.emit(done); err != nil {
 		return 0, err
@@ -52,7 +48,7 @@ func (s *streamWriter) Close() error {
 	if s.err != nil {
 		return s.err
 	}
-	Shared().scan(s.pend, true, s.json, nil)
+	Shared().scan(s.pend, true, nil, nil)
 	err := s.emit(len(s.pend))
 	s.pend = nil
 	return err

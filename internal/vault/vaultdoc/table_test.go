@@ -39,7 +39,7 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 		vaulttest.SetRecord(t, r[0], r[1], r[2])
 	}
 	doc := exportDoc(t)
-	text := Text(doc, nil, []string{"agents"}, 200, false)
+	text := Text(doc, Records{}, []string{"agents"}, 200, false)
 	flat := strings.Join(strings.Fields(text), " ")
 	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex copilot high", "gemini (off)"} {
 		if !strings.Contains(flat, want) {
@@ -49,7 +49,7 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	if strings.Contains(text, "AGENTS") || strings.Contains(text, "records") || strings.Count(text, "opus-x") != 1 {
 		t.Errorf("records repeated outside the table:\n%s", text)
 	}
-	if colored := Text(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
+	if colored := Text(doc, Records{}, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
 		t.Errorf("off agent with no other fields not dimmed:\n%q", colored)
 	}
 }

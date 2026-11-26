@@ -48,10 +48,13 @@ func (t *Tx) PutStored(key *Key, name, value string) error {
 	})
 }
 
-// PutSealed seals value under name with a display label and set-time, inside the caller's transaction.
-func (t *Tx) PutSealed(key *Key, name, value, label string, at time.Time) error {
-	return t.PutRecord(name, Record{Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value), Label: label, SetAt: at})
+// PutCache seals a snapshot into Cache under name with a display label and set-time, inside the caller's transaction.
+func (t *Tx) PutCache(key *Key, name, value, label string, at time.Time) error {
+	return t.PutRecordIn(Cache, name, Record{Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value), Label: label, SetAt: at})
 }
+
+// ReadCache opens a Cache snapshot with the same coherent key lookup as ReadSecret.
+func ReadCache(name string) (value string, found bool, err error) { return readSealed(Cache, name) }
 
 // Delete removes name's vault record without resolving a key and audits it; an absent name is a silent no-op.
 func Delete(name string) error {

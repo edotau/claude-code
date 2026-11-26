@@ -31,18 +31,7 @@ func hasEditToolName(line []byte) bool {
 // CommitEditWeight is how many edits a Bash `git commit` counts for; memory.updateMinEdits derives from it.
 const CommitEditWeight = 3
 
-// EditedFiles returns the unique paths the transcript's Edit/Write tool calls touched, sorted.
-func EditedFiles(path string) ([]string, error) {
-	seen := map[string]bool{}
-	err := eachEdit(path, func(p string) {
-		if p != "" {
-			seen[p] = true
-		}
-	})
-	return slices.Sorted(maps.Keys(seen)), err
-}
-
-// EditScan is a resumable EditedFiles pass: the paths edited before byte Offset and Sum, a fingerprint of that prefix.
+// EditScan is a resumable pass over edited paths: those before byte Offset, and Sum, a fingerprint of that prefix.
 type EditScan struct {
 	Offset int64
 	Sum    string
@@ -197,24 +186,6 @@ func countLineEdits(line []byte) (n int) {
 		}
 	}
 	return n
-}
-
-// eachEdit calls fn with the target path of each editor tool_use in an assistant record.
-func eachEdit(path string, fn func(filePath string)) error {
-	if path == "" {
-		return nil
-	}
-	f, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil // no transcript yet: no edits
-	}
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return EachLine(f, func(line []byte) {
-		eachEditLine(line, fn)
-	})
 }
 
 func eachEditLine(line []byte, fn func(filePath string)) {

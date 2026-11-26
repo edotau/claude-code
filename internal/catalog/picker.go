@@ -491,7 +491,7 @@ func decodePicker(raw, scope string) (pickerCatalog, error) {
 
 // pickerRecord reads this profile's record; only a missing record counts as empty.
 func pickerRecord(p *providers.Provider) (pickerCatalog, error) {
-	raw, found, err := vault.ReadSecret(pickerKey(p))
+	raw, found, err := vault.ReadCache(pickerKey(p))
 	if err != nil {
 		return pickerCatalog{}, errors.New("cannot read or decrypt saved picker additions")
 	}
@@ -586,14 +586,14 @@ func AppendPickerModels(p *providers.Provider, live []providers.ModelInfo) (adde
 		if err != nil {
 			return errors.New("cannot encode picker additions")
 		}
-		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
 	})
 	return added, err
 }
 
 // txPicker opens the sealed record inside a transaction; a missing record is an empty catalog.
 func txPicker(tx *vault.Tx, key *vault.Key, name, scope string) (pickerCatalog, error) {
-	record, found, err := tx.Record(name)
+	record, found, err := tx.RecordIn(vault.Cache, name)
 	if err != nil {
 		return pickerCatalog{}, errors.New("cannot read saved picker additions record")
 	}
@@ -661,7 +661,7 @@ func EditPickerDrops(p *providers.Provider, ids []string, undrop, write bool) (r
 		if err != nil {
 			return errors.New("cannot encode picker additions")
 		}
-		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
 	})
 	return removed, err
 }
@@ -686,7 +686,7 @@ func RecordDropped(p *providers.Provider, id, reason string, at time.Time) (adde
 			return errors.New("cannot encode picker additions")
 		}
 		added = true
-		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
 	})
 	return added, err
 }

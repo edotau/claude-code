@@ -222,13 +222,13 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 	prov := reg.Providers[p.Profile]
 	if prov == nil {
 		p.Status, p.Detail = statusStale, "profile "+p.Profile+" is not in the registry"
-		p.Fix = "claude-code configure provider --list; then claude-code " + name + " profile <profile>"
+		p.Fix = "claude-code vault ls providers; then claude-code " + name + " profile <profile>"
 		return p
 	}
 	p.Status = StatusOK
 	if !providers.CredentialPresent(prov) {
 		p.Status, p.Served, p.Detail = statusUnserved, "unknown", "no credential for "+p.Profile
-		p.Fix = "claude-code configure provider --list " + p.Profile
+		p.Fix = "claude-code vault ls providers " + p.Profile
 		return p
 	}
 	if prov.Preset == providers.PresetDatabricks && p.Model != agent.AutoModel {

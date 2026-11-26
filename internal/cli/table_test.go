@@ -477,7 +477,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"vault":   {"ls", "set", "get", "rm", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
-			"index", "path", "watch", "import", "fmt", "report", "sandbox", "upgrade", "extract"},
+			"index", "path", "watch", "import", "fmt", "report", "sandbox", "upgrade", "extract", "shadow"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
 		"workflow": {"skeleton", "lint", "sync"},
@@ -850,7 +850,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "configure history diff": true, "workflow lint": true, "workflow sync": true,
-		"test ramdisk": true, "memory init": true,
+		"test ramdisk": true, "failures done": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}

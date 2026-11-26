@@ -644,6 +644,22 @@ func TestEnvPageRowsMatchVaultRows(t *testing.T) {
 	}
 }
 
+// The providers page's rows are exactly the `vault ls providers` rows.
+func TestProvidersPageRowsMatchVaultRows(t *testing.T) {
+	reg := menuTestEnv(t)
+	want, err := vaultdoc.ProviderLines(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if !printProviderRows(&dialog{reg: reg, out: &out}) {
+		t.Fatal("printProviderRows failed")
+	}
+	if got := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); !slices.Equal(got, want) {
+		t.Fatalf("page rows = %q, want %q", got, want)
+	}
+}
+
 func TestAgentAccountPrefersWorkspaceAndPinnedGitHubIdentity(t *testing.T) {
 	menuTestEnv(t)
 	d := worstCaseHomeDialog(t)

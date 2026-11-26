@@ -182,7 +182,7 @@ func runTickVerify(plan, sha string, ids []string, session string) int {
 		return 1
 	}
 	code := tickGreen(session, top, sha, tasks, reportChecks(session, sha, tasks, checks))
-	tickFollowUp(session, top, sha, checks) // after the ticks and their notices, and never changing the exit code
+	tickFollowUp(session, top, sha, checks, reportVerifyFailures(plan, top, sha, tasks, checks)) // after the ticks and their notices, and never changing the exit code
 	return code
 }
 
@@ -193,12 +193,30 @@ var (
 )
 
 // tickFollowUp records fix-leaf spend on every run, green or red, then repairs a red gate; notices only.
-func tickFollowUp(session, top, sha string, checks map[string][]waves.TaskCheck) {
+func tickFollowUp(session, top, sha string, checks map[string][]waves.TaskCheck, failureIDs []string) {
 	lines := tickSweep(time.Now())
-	lines = append(lines, tickAutofix(top, sha, redGateOutput(checks))...)
+	lines = append(lines, tickAutofix(top, sha, redGateOutput(checks), failureIDs...)...)
 	for _, l := range lines {
 		tickNotice(session, l)
 	}
+}
+
+// reportVerifyFailures broadcasts each task's confirmed failing check and returns the failure ids; errors are dropped.
+func reportVerifyFailures(plan, top, sha string, tasks []plans.Task, checks map[string][]waves.TaskCheck) []string {
+	var ids []string
+	stem := strings.TrimSuffix(filepath.Base(plan), filepath.Ext(plan))
+	for _, t := range tasks {
+		i := slices.IndexFunc(checks[t.ID], func(c waves.TaskCheck) bool { return c.Exit != 0 && c.Skip == "" })
+		if i < 0 {
+			continue
+		}
+		c := checks[t.ID][i]
+		f := worktree.Failure{Kind: worktree.FailPlanCheck, Subject: strings.Join(strings.Fields(stem+" "+t.ID+"@"+sha[:min(7, len(sha))]), " "), // ReportFailure collapses it too
+			Summary: c.Line(), Log: c.Saved, Repo: top}
+		_, _ = worktree.ReportFailure(worktree.FailuresDir(), f)
+		ids = append(ids, worktree.FailureID(f.Kind, f.Subject))
+	}
+	return ids
 }
 
 // tickGreen ticks the green tasks on sha and posts their notices; 1 means the plan write failed.
@@ -343,11 +361,11 @@ func cmdPlanTask(args []string) int {
 	}
 	switch {
 	case *done:
-		err = plans.MarkDone(path, id, *sha)
+		_, err = plans.MarkDone(path, id, *sha)
 	case *reopen:
 		err = reopenTask(path, id)
 	case byID:
-		err = plans.StrikeWith(path, id, *reason, *evidence)
+		_, err = plans.StrikeWith(path, id, *reason, *evidence)
 	default:
 		err = plans.Strike(path, id, *strike)
 	}

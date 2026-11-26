@@ -26,6 +26,19 @@ func SlotRoot() string { return filepath.Join(os.TempDir(), "claude-code-verify"
 
 // AcquireSlot locks a stable per-repo slot at sha; with every slot busy it uses a private tree named by own.
 func AcquireSlot(ctx context.Context, top, sha, own string) (*Slot, error) {
+	if s, err := TryAcquireSlot(ctx, top, sha); s != nil || err != nil {
+		return s, err
+	}
+	dir := filepath.Join(SlotRoot(), "tree-"+own)
+	RemoveTree(ctx, top, dir) // a reused pid's leftover is ours
+	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
+		return nil, err
+	}
+	return &Slot{Dir: dir, top: top, release: func() { RemoveTree(context.Background(), top, dir) }}, nil
+}
+
+// TryAcquireSlot locks a free stable per-repo slot at sha; nil, nil when every slot is busy.
+func TryAcquireSlot(ctx context.Context, top, sha string) (*Slot, error) {
 	root := SlotRoot()
 	if err := ensureRoot(root); err != nil {
 		return nil, err
@@ -51,12 +64,7 @@ func AcquireSlot(ctx context.Context, top, sha, own string) (*Slot, error) {
 		}
 		return s, nil
 	}
-	dir := filepath.Join(root, "tree-"+own)
-	RemoveTree(ctx, top, dir) // a reused pid's leftover is ours
-	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
-		return nil, err
-	}
-	return &Slot{Dir: dir, top: top, release: func() { RemoveTree(context.Background(), top, dir) }}, nil
+	return nil, nil
 }
 
 // Release hands the slot back; a fallback tree is removed.

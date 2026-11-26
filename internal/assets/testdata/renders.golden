@@ -152,6 +152,11 @@ Peer session (claude pid 42) is editing this checkout (main); message it (find i
 notice (peer): text
 == HookNoticeDrainWarn ==
 notices: WARNING — could not drain this session's inbox (e); notices may be missing or repeat
+== HookFailuresMore ==
+notice (failures): 2 more failures: claude-code failures ls
+== HookFailuresWarn ==
+
+notices: WARNING — could not read failures (e); skipped
 == HookNoticeDivergeWarn ==
 
 notices: WARNING — could not check branch divergence (e); skipped

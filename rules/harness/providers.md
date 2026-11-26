@@ -12,7 +12,7 @@ paths:
 | To…                                           | Run                                                                                                                                                                   |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets`                                                                                          |
-| See providers and credential state            | `claude-code configure provider --list [<name>]`                                                                                                                      |
+| See providers and credential state            | `claude-code vault ls providers [<name>]`                                                                                                                             |
 | Set a credential                              | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command`                                                                   |
 | Inspect or edit the vault                     | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret` (`get` redacts; `--secret` prints, main session only); env and overlays: `claude-code configure` |
 | Switch the session profile                    | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>`                                                                                  |
@@ -24,7 +24,7 @@ paths:
   the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.
   `--secrets` scans transcripts modified within seven days (`--days N` changes the window, `--days 0` covers all
   ages) and prints each store's counts and older-file skips; `--since N` limits git commits only.
-- Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Credential verbs
+- Secrets: CLAUDE.md hard rule 2; `vault ls providers` shows the source, never the value. Credential verbs
   (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) print `<redacted: N bytes>`
   (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
   (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are

@@ -244,9 +244,10 @@ func cmdVaultRotateSecret(args []string) int {
 // vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
 func vaultList(args []string) int {
 	fs := helptext.NewFlagSet("vault ls", helptext.Page{
-		Usage: "claude-code vault ls [<section>...|all|overlays]\n[--format text|json] [--tailscale]",
+		Usage: "claude-code vault ls [<section>...|all|overlays]\nclaude-code vault ls providers [<name>] [--format text|json]\n[--tailscale]",
 		About: "Print what the vault stores, secrets masked. Sections: " +
-			strings.Join(vaultdoc.Sections, ", ") + "; bare or all prints every one.",
+			strings.Join(vaultdoc.Sections, ", ") + "; bare or all prints every one.\n" +
+			"providers alone lists the merged profiles with credential state (present or absent, never a value).",
 	})
 	ts := fs.Bool("tailscale", false, "show Tailscale credential presence, not JSON")
 	format := fs.String("format", "", "text or json (default: text on a terminal, json otherwise)")
@@ -260,12 +261,15 @@ func vaultList(args []string) int {
 	if *ts {
 		return vaultListTailscale(names, *format)
 	}
+	f := listFormat(*format)
+	if name, ok := providerListName(names); ok {
+		return providerList(name, f)
+	}
 	sel, err := vaultdoc.Select(names)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "vault ls:", err)
 		return 2
 	}
-	f := listFormat(*format)
 	if err := helptext.CheckFormat(f); err != nil {
 		return helptext.FailUsage("vault ls: %v", err)
 	}
@@ -273,6 +277,46 @@ func vaultList(args []string) int {
 		return helptext.Fail("vault ls: %v", err)
 	}
 	return 0
+}
+
+// providerList prints every provider's credential state, or one provider's detail, from the shared vaultdoc rows.
+func providerList(name, format string) int {
+	if err := helptext.CheckFormat(format); err != nil {
+		return helptext.BadFormat("vault ls providers", err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if format == helptext.JSON {
+		v, err := vaultdoc.ProviderJSON(reg, name)
+		if err != nil {
+			return helptext.Fail("%v", err)
+		}
+		return helptext.WriteJSONOrFail("vault ls providers", v)
+	}
+	lines, err := vaultdoc.ProviderLines(reg, name)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if err := printLines(lines); err != nil {
+		return helptext.Fail("vault ls providers: %v", err)
+	}
+	return 0
+}
+
+// providerListName reports `providers [<name>]`, where a second word that is no section is a provider name.
+func providerListName(names []string) (name string, ok bool) {
+	if len(names) == 0 || len(names) > 2 || !strings.EqualFold(names[0], "providers") {
+		return "", false
+	}
+	if len(names) == 1 {
+		return "", true
+	}
+	if _, err := vaultdoc.Select(names[1:]); err == nil {
+		return "", false
+	}
+	return names[1], true
 }
 
 // vaultListTailscale is `vault ls --tailscale`: credential presence, no sections and no --format.

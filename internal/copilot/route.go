@@ -619,7 +619,7 @@ var effortModels = cachedEffortModels
 
 // Model capabilities are account-independent; this read must not discover or resolve launch credentials.
 func cachedEffortModels() []SDKModel {
-	raw, found, err := vault.ReadSecret(copilotauth.CatalogRecord)
+	raw, found, err := vault.ReadCache(copilotauth.CatalogRecord)
 	if err != nil || !found {
 		return nil
 	}

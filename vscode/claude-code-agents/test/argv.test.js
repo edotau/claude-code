@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   dispatchStartArgv,
+  profileArgv,
   attachShellArgs,
   attachCommandLine,
   AGENTS,
@@ -13,6 +14,10 @@ test('dispatchStartArgv: --dir is omitted entirely when empty', () => {
     dispatchStartArgv('claude-code', { host: 'h', agent: 'claude', dir: '', task: 'do it' }),
     ['claude-code', 'network', 'remote', '--host', 'h', '--agent', 'claude', 'do it']
   );
+});
+
+test('profileArgv: reads the provider list from vault ls providers', () => {
+  assert.deepEqual(profileArgv('claude-code'), ['claude-code', 'vault', 'ls', 'providers', '--format', 'json']);
 });
 
 test('dispatchStartArgv: --dir included when given', () => {

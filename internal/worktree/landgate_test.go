@@ -47,6 +47,9 @@ func TestGateStages(t *testing.T) {
 	if got := gateStages(fullGoGate, "go.mod"); len(got) != 2 || gateStages("make test", "Makefile")[0][0] != "make test" {
 		t.Fatalf("full gate stages = %v", got)
 	}
+	if got := gateStages("a && b", "flag"); len(got) != 1 || len(got[0]) != 1 {
+		t.Fatalf("--verify gate split: %v", got)
+	}
 }
 
 // Stages run in order with per-step seconds recorded; a failed stage is named and later stages never run.

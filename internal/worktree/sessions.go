@@ -373,7 +373,7 @@ func Append(session string, n Notice) error {
 // inboxKeep is how many lines an undrained inbox keeps: the newest inboxKeep-1 notices and one dropped line.
 const inboxKeep = 50
 
-// drainBytes caps one drain's notice text, half the hook's 9500-char context cap, so a session and a lane drain together fit.
+// drainBytes caps one drain's notice text (half the hook's 9500-char cap) so a session and a lane drain fit.
 const drainBytes = 4000
 
 // truncatedMark ends the text of a lone oversize notice.
@@ -423,6 +423,33 @@ func droppedIn(line []byte) int {
 	return 1
 }
 
+// parseInbox returns the valid notices of raw and their lines; no line-size cap, unlike bufio.Scanner.
+func parseInbox(raw []byte) ([][]byte, []Notice) {
+	var all [][]byte
+	var out []Notice
+	for line := range bytes.SplitSeq(raw, []byte("\n")) {
+		var n Notice
+		if json.Unmarshal(line, &n) == nil && n.Text != "" {
+			all = append(all, line)
+			out = append(out, n)
+		}
+	}
+	return all, out
+}
+
+// takeDrain is how many leading notices one drain delivers, truncating an oversize lead in place.
+func takeDrain(out []Notice) int {
+	keep, used := 0, 0
+	for keep < min(len(out), drainMax) && (keep == 0 || used+len(out[keep].Text) <= drainBytes) {
+		used += len(out[keep].Text)
+		keep++
+	}
+	if len(out[0].Text) > drainBytes {
+		out[0].Text = strings.ToValidUTF8(out[0].Text[:drainBytes], "") + truncatedMark
+	}
+	return keep
+}
+
 // DrainErr returns and removes session's oldest drainMax notices, newest last, plus an "N more queued" notice.
 func DrainErr(session string) ([]Notice, error) {
 	if session == "" {
@@ -443,26 +470,12 @@ func DrainErr(session string) ([]Notice, error) {
 			return err
 		}
 		var all [][]byte
-		// no line-size cap, unlike bufio.Scanner
-		for line := range bytes.SplitSeq(raw, []byte("\n")) {
-			var n Notice
-			if json.Unmarshal(line, &n) == nil && n.Text != "" {
-				all = append(all, line)
-				out = append(out, n)
-			}
-		}
+		all, out = parseInbox(raw)
 		if len(out) == 0 { // no valid notice: nothing to deliver, drop the junk file
 			writeErr = os.Remove(file)
 			return nil
 		}
-		keep, used := 0, 0
-		for keep < min(len(out), drainMax) && (keep == 0 || used+len(out[keep].Text) <= drainBytes) {
-			used += len(out[keep].Text)
-			keep++
-		}
-		if len(out[0].Text) > drainBytes {
-			out[0].Text = strings.ToValidUTF8(out[0].Text[:drainBytes], "") + truncatedMark
-		}
+		keep := takeDrain(out)
 		rest := all[keep:]
 		out = out[:keep]
 		if len(rest) == 0 {
