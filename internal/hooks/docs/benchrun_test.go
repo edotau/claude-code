@@ -344,6 +344,21 @@ func TestBenchPrunesOnlyExpiredCompletedBundles(t *testing.T) {
 	}
 }
 
+func TestBenchPruneRemovesInputsAndOrphanTrees(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "abc")
+	for _, suffix := range []string{".marker", ".in.json", ".json"} {
+		writeBenchFixture(t, base+suffix, "fixture")
+	}
+	if err := os.MkdirAll(base+".json.wt.x1", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeBenchFixture(t, filepath.Join(base+".json.wt.x1", "f"), "fixture")
+	benchPrune(base)
+	if left, _ := filepath.Glob(base + "*"); len(left) != 0 {
+		t.Fatalf("pruned base left %v", left)
+	}
+}
+
 func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix locks")

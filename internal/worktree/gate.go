@@ -542,19 +542,68 @@ func gateSteps(gate, source string) []string {
 	return []string{gate}
 }
 
+// gateStages orders a go gate (scoped or the full suite) as [build] then [vet, test]; any other gate is one stage.
+func gateStages(gate, source string) [][]string {
+	steps := gateSteps(gate, source)
+	if gate == fullGoGate {
+		steps = strings.Split(gate, " && ")
+	}
+	if len(steps) < 2 || gate != fullGoGate && !strings.HasPrefix(source, scopedGateSource) {
+		return [][]string{steps}
+	}
+	return [][]string{steps[:1], steps[1:]}
+}
+
+// stepName is the stage label of a step: "go vet ./..." is "vet", anything else its first word.
+func stepName(step string) string {
+	f := strings.Fields(strings.TrimPrefix(step, "go "))
+	if len(f) == 0 {
+		return step
+	}
+	return f[0]
+}
+
+// gateAt is where a gate runs (Dir) and the land base it compares against.
+type gateAt struct{ Dir, Base string }
+
+// runStages runs stages in order, a stage's steps concurrently; returns seconds per step, a failure names its stage.
+func runStages(ctx context.Context, at gateAt, stages [][]string, stdout, stderr io.Writer) (map[string]float64, error) {
+	secs := map[string]float64{}
+	for _, steps := range stages {
+		durs, err := runTimed(ctx, at, steps, stdout, stderr)
+		names := mapStrings(steps, stepName)
+		for i, d := range durs {
+			secs[names[i]] += d.Seconds()
+		}
+		if err != nil {
+			return secs, fmt.Errorf("%s stage: %w", strings.Join(names, "+"), err)
+		}
+	}
+	return secs, nil
+}
+
 // runSteps runs steps concurrently, each with its own output buffer; the first failure cancels the rest.
 func runSteps(ctx context.Context, dir string, steps []string, base string, stdout, stderr io.Writer) error {
+	_, err := runTimed(ctx, gateAt{dir, base}, steps, stdout, stderr)
+	return err
+}
+
+// runTimed is runSteps that also returns each step's wall time.
+func runTimed(ctx context.Context, at gateAt, steps []string, stdout, stderr io.Writer) ([]time.Duration, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	outs, errs, fails := make([]bytes.Buffer, len(steps)), make([]bytes.Buffer, len(steps)), make([]error, len(steps))
+	durs := make([]time.Duration, len(steps))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var first error
 	for i, s := range steps {
 		wg.Go(func() {
-			fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i])
+			start := time.Now()
+			fails[i] = runVerify(ctx, at.Dir, s, at.Base, &outs[i], &errs[i])
+			durs[i] = time.Since(start)
 			if fails[i] != nil && isPytestStep(s) {
-				fails[i] = emptyPytest(ctx, dir, base, fails[i], &outs[i])
+				fails[i] = emptyPytest(ctx, at.Dir, at.Base, fails[i], &outs[i])
 			}
 			if fails[i] != nil {
 				// the first to fail is the cause; the rest die from its cancel
@@ -571,7 +620,7 @@ func runSteps(ctx context.Context, dir string, steps []string, base string, stdo
 		_, _ = outs[i].WriteTo(stdout)
 		_, _ = errs[i].WriteTo(stderr)
 	}
-	return first
+	return durs, first
 }
 
 // gateFailure is one failing location parsed from gate output; file is empty when the line names none.

@@ -120,7 +120,7 @@ func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
 	}
 }
 
-// TestDrainDeliversNewestFiveOnceAndRemovesInbox: six appends drain as the newest five in order, then nothing.
+// TestDrainDeliversNewestFiveOnceAndRemovesInbox: six appends drain as the oldest five plus a count, then the last.
 func TestDrainDeliversNewestFiveOnceAndRemovesInbox(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for i := range 6 {
@@ -129,11 +129,14 @@ func TestDrainDeliversNewestFiveOnceAndRemovesInbox(t *testing.T) {
 		}
 	}
 	got, err := DrainErr("Sess-1")
-	if err != nil || len(got) != drainMax || got[0].Text != "n1" || got[4].Text != "n5" || got[4].Schema != noticeSchema {
-		t.Fatalf("drain = %+v, %v; want n1..n5 newest last", got, err)
+	if err != nil || len(got) != drainMax+1 || got[0].Text != "n0" || got[4].Text != "n4" || got[4].Schema != noticeSchema || got[5].Text != "1 more queued" {
+		t.Fatalf("drain = %+v, %v; want n0..n4 oldest first, then 1 more queued", got, err)
+	}
+	if again, err := DrainErr("Sess-1"); err != nil || len(again) != 1 || again[0].Text != "n5" {
+		t.Fatalf("second drain = %+v, want n5", again)
 	}
 	if again, err := DrainErr("Sess-1"); err != nil || len(again) != 0 {
-		t.Fatalf("second drain = %+v, want none: the first must remove the inbox", again)
+		t.Fatalf("third drain = %+v, want none: the last must remove the inbox", again)
 	}
 }
 
@@ -150,8 +153,8 @@ func TestAppendKeepsNewestInboxKeep(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != inboxKeep || !strings.Contains(lines[0], fmt.Sprintf(`"n%d"`, 20)) || !strings.Contains(lines[inboxKeep-1], fmt.Sprintf(`"n%d"`, inboxKeep+19)) {
-		t.Fatalf("inbox holds %d lines, want the newest %d (n20..n%d)", len(lines), inboxKeep, inboxKeep+19)
+	if len(lines) != inboxKeep || !strings.Contains(lines[0], `"dropped"`) || !strings.Contains(lines[0], "21 dropped") || !strings.Contains(lines[1], `"n21"`) || !strings.Contains(lines[inboxKeep-1], fmt.Sprintf(`"n%d"`, inboxKeep+19)) {
+		t.Fatalf("inbox holds %d lines, want a dropped line plus the newest %d (n21..n%d)", len(lines), inboxKeep-1, inboxKeep+19)
 	}
 }
 
@@ -178,8 +181,12 @@ func TestDrainKeepsNoticesAfterOversizedLine(t *testing.T) {
 		}
 	}
 	got, err := DrainErr("big")
-	if err != nil || len(got) != 3 || got[0].Text != "A" || got[2].Text != "C" {
-		t.Fatalf("drain returned %d notices, want 3 (A, oversized, C)", len(got))
+	if err != nil || len(got) != 2 || got[0].Text != "A" || got[1].Text != "2 more queued" {
+		t.Fatalf("drain returned %d notices, want A then 2 more queued", len(got))
+	}
+	next, err := DrainErr("big")
+	if err != nil || len(next) != 2 || !strings.HasSuffix(next[0].Text, truncatedMark) || next[1].Text != "1 more queued" {
+		t.Fatalf("second drain = %d notices, %v; want the truncated oversize then 1 more queued", len(next), err)
 	}
 }
 
@@ -282,5 +289,20 @@ func TestCommitCLIDispatchRefusesSubagentClaimUnderSamePid(t *testing.T) {
 	r.Source.Owner = func() int { return peerPid }
 	if _, err := commitRun(r); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
 		t.Fatalf("err = %v, want a refusal naming b.txt", err)
+	}
+}
+
+// TestDrainOversizeLeaderDoesNotHideQueue: a huge first notice is cut, and the rest stay queued with their count.
+func TestDrainOversizeLeaderDoesNotHideQueue(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	texts := []string{strings.Repeat("x", drainBytes*2), "b", "c"}
+	for i, text := range texts {
+		if err := Append("big-lead", Notice{TS: int64(i), Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := DrainErr("big-lead")
+	if err != nil || len(got) != 2 || !strings.HasSuffix(got[0].Text, truncatedMark) || len(got[0].Text) > drainBytes+len(truncatedMark) || got[1].Text != "2 more queued" {
+		t.Fatalf("drain = %d notices, %v; want one truncated notice then 2 more queued", len(got), err)
 	}
 }

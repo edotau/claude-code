@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -24,14 +23,15 @@ type fakeDisk struct {
 func stubDisk(t *testing.T, system string, attachErr error) *fakeDisk {
 	t.Helper()
 	f := &fakeDisk{tmp: t.TempDir()}
-	origGoos, origAttach, origDetach := goos, attach, detach
+	origGoos, origAttach, origDetach, origMounted := goos, attach, detach, mounted
+	mounted = func(string) bool { return false }
 	goos = system
 	attach = func(volume string) (string, string, error) {
 		f.attached = append(f.attached, volume)
 		return "/dev/disk9", f.tmp, attachErr
 	}
 	detach = func(dev string) { f.detached = append(f.detached, dev) }
-	t.Cleanup(func() { goos, attach, detach = origGoos, origAttach, origDetach })
+	t.Cleanup(func() { goos, attach, detach, mounted = origGoos, origAttach, origDetach, origMounted })
 	return f
 }
 
@@ -52,11 +52,24 @@ func TestRunOnDiskPassesTMPDIRAndExitCodeThenDetaches(t *testing.T) {
 	if string(got) != f.tmp {
 		t.Errorf("child TMPDIR = %q, want %q", got, f.tmp)
 	}
-	if len(f.attached) != 1 || !strings.HasPrefix(f.attached[0], "claude-code-test-") {
-		t.Errorf("attached = %v, want one per-run volume", f.attached)
+	if len(f.attached) != 1 || f.attached[0] != "claude-code-test" {
+		t.Errorf("attached = %v, want the stable volume", f.attached)
 	}
 	if len(f.detached) != 1 || f.detached[0] != "/dev/disk9" {
 		t.Errorf("detached = %v, want the attached device once", f.detached)
+	}
+}
+
+func TestVolumeNameIsStableWhenFreeElseSuffixedByPid(t *testing.T) {
+	orig := mounted
+	t.Cleanup(func() { mounted = orig })
+	mounted = func(string) bool { return false }
+	if got := volumeName(42); got != "claude-code-test" {
+		t.Errorf("free: volumeName = %q, want the stable name", got)
+	}
+	mounted = func(v string) bool { return v == "claude-code-test" }
+	if got := volumeName(42); got != "claude-code-test-42" {
+		t.Errorf("taken: volumeName = %q, want the per-pid name", got)
 	}
 }
 
@@ -136,9 +149,9 @@ fi
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(offEnv, "1")
 	t.Setenv("TMPDIR", t.TempDir())
-	origGoos, origAttach := goos, attach
-	goos, attach = "darwin", attachDisk
-	t.Cleanup(func() { goos, attach = origGoos, origAttach })
+	origGoos, origAttach, origMounted := goos, attach, mounted
+	goos, attach, mounted = "darwin", attachDisk, func(string) bool { return false }
+	t.Cleanup(func() { goos, attach, mounted = origGoos, origAttach, origMounted })
 	out := filepath.Join(t.TempDir(), "tmpdir")
 	start := time.Now()
 	code := Run(probe(out, "3"))

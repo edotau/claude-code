@@ -2,8 +2,10 @@ package lane
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory/memtest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
 	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
@@ -138,6 +141,61 @@ func TestHandbackVerdictReadsTypedStatus(t *testing.T) {
 		if got := HandbackVerdict(&want); got != h {
 			t.Errorf("HandbackVerdict(%+v) = %q, want %q", want, got, h)
 		}
+	}
+}
+
+func TestLaneQueueOncePerSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	main, a, b := t.TempDir(), t.TempDir(), t.TempDir()
+	if out, err := exec.Command("git", "-C", main, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	main = paths.Canon(main)
+	tip := int64(0)
+	laneTipTime = func(string) int64 { return tip }
+	t.Cleanup(func() { laneTipTime = func(string) int64 { return 0 } })
+	mustQueue(t, worktree.QueuedLane{Lane: a, Repo: main, Reason: "uncommitted work", QueuedAt: firstQueued})
+	mustQueue(t, worktree.QueuedLane{Lane: b, Repo: main, Reason: "unfixed items", QueuedAt: firstQueued})
+	if got := laneQueueContext(main, "s1"); strings.Count(got, "land queue:") != 2 {
+		t.Fatalf("first prompt = %q", got)
+	}
+	if got := laneQueueContext(main, "s1"); got != "" {
+		t.Fatalf("unchanged queue printed again: %q", got)
+	}
+	mustQueue(t, worktree.QueuedLane{Lane: a, Repo: main, Reason: "changed reason", QueuedAt: firstQueued})
+	if got := laneQueueContext(main, "s1"); !strings.Contains(got, "changed reason") || strings.Contains(got, "unfixed items") {
+		t.Fatalf("changed entry = %q", got)
+	}
+	if err := os.Remove(b); err != nil {
+		t.Fatal(err)
+	}
+	if got := laneQueueContext(main, "s1"); !strings.Contains(got, "1 lanes waiting") || strings.Contains(got, filepath.Base(b)) {
+		t.Fatalf("missing lane = %q", got)
+	}
+	tip = firstQueued + 1
+	if got := laneQueueContext(main, "s1"); got != "" {
+		t.Fatalf("moved tip kept its entry: %q", got)
+	}
+}
+
+func TestLandRunsWithoutSerialLock(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(laneStateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inspect, land := inspectLane, runWorktreeLand
+	t.Cleanup(func() { inspectLane, runWorktreeLand = inspect, land })
+	inspectLane = func(laneJob, *worktree.Repo, string) (worktree.QueuedLane, bool, bool) {
+		return worktree.QueuedLane{}, false, false
+	}
+	free := false
+	runWorktreeLand = func(string, string, string) (int, string) {
+		free, _ = paths.TryFileLock(filepath.Join(laneStateDir(), "serial.lock"), time.Millisecond, func() error { return nil })
+		return 0, ""
+	}
+	landAttempt(laneJob{lane: t.TempDir()}, &worktree.Repo{Main: t.TempDir()}, "")
+	if !free {
+		t.Fatal("serial.lock still held while worktree land runs")
 	}
 }
 

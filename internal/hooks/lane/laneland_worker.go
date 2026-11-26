@@ -169,7 +169,7 @@ func judgeLane(j laneJob, base string) {
 }
 
 // inspectLane reads the lane's state: empty when it has nothing to land, hold (with q filled) when it must wait.
-func inspectLane(j laneJob, repo *worktree.Repo, base string) (q worktree.QueuedLane, hold, empty bool) {
+var inspectLane = func(j laneJob, repo *worktree.Repo, base string) (q worktree.QueuedLane, hold, empty bool) {
 	j.verdict = laneVerdictOf(base, j.lane, j.verdict) // re-read: a sibling run may have finished meanwhile
 	q = worktree.QueuedLane{Lane: j.lane, Repo: repo.Main, Task: j.task}
 	entries, err := worktree.List(repo)

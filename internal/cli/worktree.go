@@ -28,6 +28,7 @@ var worktreePage = helptext.Page{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
 		{"land", "verified land on local, uncommitted; --dry-run, --resume"},
+		{"collapse", "merge finished lanes into one collector lane (--dry-run)"},
 		{"clean", "remove a landed worktree or its kept branch (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
@@ -85,6 +86,7 @@ var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 	"list":      cmdWorktreeList,
 	"create":    cmdWorktreeCreate,
 	"land":      cmdWorktreeLand,
+	"collapse":  cmdWorktreeCollapse,
 	"clean":     cmdWorktreeClean,
 	"clean-all": cmdWorktreeCleanAll,
 	"base":      cmdWorktreeBase,
@@ -345,6 +347,28 @@ func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
 	code := landUnderLease(ctx, repo, req)
 	if landed != "" { // landed even when the clean failed
 		recordCloseTerms(onLane(name, plans.Home(repo.Main)), landed, os.Stderr)
+	}
+	return code
+}
+
+func cmdWorktreeCollapse(repo *worktree.Repo, args []string) int {
+	fs := helptext.NewFlagSet("worktree collapse", helptext.Page{Usage: "claude-code worktree collapse [--dry-run] <collector> <lane>...",
+		About: "Cherry-pick each lane's own commits into <collector> (created from main), building and vetting per lane."})
+	dryRun := fs.Bool("dry-run", false, "print the pick plan and change nothing")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	rest := fs.Args()
+	if len(rest) < 2 {
+		return helptext.Fail("worktree collapse: give a collector and at least one lane")
+	}
+	err := worktree.Collapse(context.Background(), repo, worktree.CollapseRequest{Collector: rest[0], Lanes: rest[1:], DryRun: *dryRun, Out: os.Stdout})
+	if err == nil {
+		return 0
+	}
+	code := helptext.Fail("worktree collapse: %v", err)
+	if errors.Is(err, worktree.ErrCollapseStopped) {
+		return 3
 	}
 	return code
 }

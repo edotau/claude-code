@@ -45,7 +45,24 @@ var (
 	goos   = runtime.GOOS
 	attach = attachDisk
 	detach = detachDisk
+
+	// mounted reports whether a /Volumes entry of that name exists; tests never touch the real /Volumes.
+	mounted = func(volume string) bool {
+		_, err := os.Lstat(filepath.Join("/Volumes", volume))
+		return err == nil
+	}
 )
+
+// stableVolume is the volume name used when it is free, so the Go test cache sees one TMPDIR across runs.
+const stableVolume = "claude-code-test"
+
+// volumeName is the stable name when nothing is mounted under it, else a per-pid name so concurrent runs never collide.
+func volumeName(pid int) string {
+	if !mounted(stableVolume) {
+		return stableVolume
+	}
+	return fmt.Sprintf("%s-%d", stableVolume, pid)
+}
 
 // Run is the `test ramdisk` entry; it returns the command's exit code.
 func Run(args []string) int {
@@ -64,7 +81,7 @@ func Run(args []string) int {
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM) // before attach, so a cancel at any point still detaches
 	defer signal.Stop(sigs)
-	dev, tmp, err := attach(fmt.Sprintf("claude-code-test-%d", os.Getpid()))
+	dev, tmp, err := attach(volumeName(os.Getpid()))
 	if code, cancelled := cancelledDuring(sigs, dev, err); cancelled {
 		return code
 	}

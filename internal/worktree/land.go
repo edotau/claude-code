@@ -183,7 +183,7 @@ func promoteFreshHeads(ctx context.Context, repo *Repo, plan *LandPlan) (target,
 	}
 	if freshTarget != plan.TargetOID {
 		return "", "", &LandResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "target moved since integration — re-run worktree land to re-integrate and retry"},
-			fmt.Errorf("promote: target moved from %s to %s since integration", plan.TargetOID, freshTarget)
+			fmt.Errorf("promote: %w from %s to %s since integration", errTargetMoved, plan.TargetOID, freshTarget)
 	}
 	if freshSource != plan.IntegratedOID {
 		return "", "", &LandResult{Phase: "promote", BeforeOID: freshTarget, ResumeHint: "worktree changed since the verified integration — re-run worktree land to re-integrate and retry"},
@@ -214,6 +214,7 @@ func firstNonEmpty(vals ...string) string {
 // LandRequest is one `worktree land` apply; Out/Err get the progress lines, the Show* hooks render plans and results.
 type LandRequest struct {
 	Name, Target, ResolveAgent, Verify    string
+	waited                                time.Duration
 	Resume, NoClean, FullVerify, NoVerify bool
 	Out, Err                              io.Writer
 	ShowPlan                              func(*LandPlan)
@@ -236,7 +237,16 @@ func ShortOID(oid string) string {
 }
 
 // Land runs the lifecycle under the caller's lease: plan or resume, gate, rebase, verify, land, clean.
-func Land(ctx context.Context, repo *Repo, req LandRequest) (*landOutcome, error) {
+func Land(ctx context.Context, repo *Repo, req LandRequest) (out *landOutcome, err error) {
+	err = withLandRun(ctx, repo, req.Name, req.Out, func(waited time.Duration) error {
+		req.waited = waited
+		out, err = land(ctx, repo, req)
+		return err
+	})
+	return out, err
+}
+
+func land(ctx context.Context, repo *Repo, req LandRequest) (*landOutcome, error) {
 	defer beginScanMemo()()
 	var plan *LandPlan
 	var err error
@@ -258,34 +268,44 @@ func Land(ctx context.Context, repo *Repo, req LandRequest) (*landOutcome, error
 	return applyLand(ctx, repo, plan, req, gate, gateSource)
 }
 
-// applyLand runs the lane rebase -> the gate (if any) -> promote -> an optional clean, inside the caller's lease.
-func applyLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest, gate, gateSource string) (*landOutcome, error) {
+// applyLand runs the lane rebase -> the gate (if any) -> promote with re-checks -> an optional clean, inside the lease.
+func applyLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest, gate, gateSource string) (out *landOutcome, err error) {
+	rec := startAttempt(repo, req)
+	defer func() { rec.finish(err) }()
 	plan, integrated, err := integrateLane(ctx, repo, plan, req)
 	if err != nil {
 		return nil, fmt.Errorf("integrate: %w", err)
 	}
-	if integrated.BeforeOID == integrated.AfterOID {
-		fmt.Fprintf(req.Out, "rebase:     skipped, lane already on %s\n", plan.TargetRef)
-	} else {
-		fmt.Fprintf(req.Out, "rebased:    %s -> %s in %s\n", ShortOID(integrated.BeforeOID), ShortOID(integrated.AfterOID), plan.WorktreePath)
-	}
+	rec.pin(plan, &rec.a.Seconds.Rebase)
+	printRebase(req.Out, plan, integrated)
 
 	gate, gateSource, err = scopeGate(ctx, plan, req, gate, gateSource)
 	if err != nil {
 		return nil, err
 	}
-	if err := runGate(ctx, plan, req, gate, gateSource); err != nil {
+	rec.a.Scope = scopeOf(gate, gateSource, req)
+	if err = runGate(ctx, plan, req, gate, gateSource); err != nil {
 		return nil, err
 	}
+	rec.stage(&rec.a.Seconds.Test)
 
-	landed, err := promote(ctx, repo, plan)
+	first := firstScope(ctx, plan, gateSource)
+	rec.a.Packages = len(first.Tested)
+	l := &relander{repo: repo, plan: plan, req: req, gate: gate, source: gateSource, first: first, rec: rec}
+	landed, err := l.promoteLoop(ctx)
 	if err != nil {
-		if landed != nil && landed.ResumeHint != "" {
-			fmt.Fprintln(req.Err, "  retry:", landed.ResumeHint)
-		}
-		return nil, fmt.Errorf("promote: %w", err)
+		return nil, err
 	}
 	return afterLand(ctx, repo, plan, req, landed)
+}
+
+// printRebase prints the rebase line of one integration.
+func printRebase(out io.Writer, plan *LandPlan, r *LandResult) {
+	if r.BeforeOID == r.AfterOID {
+		fmt.Fprintf(out, "rebase:     skipped, lane already on %s\n", plan.TargetRef)
+		return
+	}
+	fmt.Fprintf(out, "rebased:    %s -> %s in %s\n", ShortOID(r.BeforeOID), ShortOID(r.AfterOID), plan.WorktreePath)
 }
 
 // scopeGate narrows a Makefile test gate to the changed Go packages unless FullVerify or the whole suite is due.

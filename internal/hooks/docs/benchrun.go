@@ -364,8 +364,10 @@ func benchReconcile(state string) {
 }
 
 func benchPrune(base string) {
-	for _, suffix := range []string{".job.json", ".json", ".json.err", ".baseline", ".marker"} {
-		if err := os.RemoveAll(base + suffix); err != nil {
+	trees, _ := filepath.Glob(base + ".json.wt.*") // a SIGKILLed worker's EXIT trap never removed these
+	for _, file := range append(trees, base+".job.json", base+".in.json", base+".json", base+".json.err",
+		base+".baseline", base+".marker") {
+		if err := os.RemoveAll(file); err != nil {
 			return
 		}
 	}

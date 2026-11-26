@@ -300,7 +300,7 @@ type Notice struct {
 // noticeSchema is the inbox format's current version.
 const noticeSchema = 1
 
-// drainMax caps how many notices one drain delivers; older overflow is dropped.
+// drainMax caps how many of the oldest notices one drain delivers; the rest stay queued.
 const drainMax = 5
 
 var _ = schemas.Register(schemas.Format{
@@ -370,10 +370,19 @@ func Append(session string, n Notice) error {
 	return capInbox(file)
 }
 
-// inboxKeep is how many of the newest notices an inbox keeps; a lane nobody drains stays small.
+// inboxKeep is how many lines an undrained inbox keeps: the newest inboxKeep-1 notices and one dropped line.
 const inboxKeep = 50
 
-// capInbox rewrites file to its newest inboxKeep lines when it holds more.
+// drainBytes caps one drain's notice text, half the hook's 9500-char context cap, so a session and a lane drain together fit.
+const drainBytes = 4000
+
+// truncatedMark ends the text of a lone oversize notice.
+const truncatedMark = " [truncated]"
+
+// droppedKind marks the line that counts the notices the cap displaced.
+const droppedKind = "dropped"
+
+// capInbox rewrites file to a dropped-count line plus its newest inboxKeep-1 notices when it holds more lines.
 func capInbox(file string) error {
 	return paths.WithFileLock(file, func() error {
 		raw, err := os.ReadFile(file)
@@ -387,12 +396,34 @@ func capInbox(file string) error {
 		if len(lines) <= inboxKeep {
 			return nil
 		}
-		keep := bytes.Join(lines[len(lines)-inboxKeep:], nil)
+		cut := len(lines) - (inboxKeep - 1)
+		dropped := 0
+		for _, line := range lines[:cut] {
+			dropped += droppedIn(line)
+		}
+		marker, err := json.Marshal(Notice{Schema: noticeSchema, TS: time.Now().Unix(), Kind: droppedKind, Text: strconv.Itoa(dropped) + " dropped"})
+		if err != nil {
+			return err
+		}
+		keep := append(append(marker, '\n'), bytes.Join(lines[cut:], nil)...)
 		return paths.AtomicWrite(file, append(keep, '\n'), 0o600)
 	})
 }
 
-// DrainErr returns and removes session's notices (≤ drainMax, newest last); an error still yields what was read.
+// droppedIn is how many notices line stands for: its count when it is a dropped line, else one.
+func droppedIn(line []byte) int {
+	var n Notice
+	if json.Unmarshal(line, &n) == nil && n.Kind == droppedKind {
+		if f := strings.Fields(n.Text); len(f) > 0 {
+			if c, err := strconv.Atoi(f[0]); err == nil && c > 0 {
+				return c
+			}
+		}
+	}
+	return 1
+}
+
+// DrainErr returns and removes session's oldest drainMax notices, newest last, plus an "N more queued" notice.
 func DrainErr(session string) ([]Notice, error) {
 	if session == "" {
 		return nil, nil
@@ -404,40 +435,52 @@ func DrainErr(session string) ([]Notice, error) {
 		}
 		return nil, fmt.Errorf("drain notices %s: %w", file, err)
 	}
-	raw, ok, err := takeInbox(file)
-	if !ok {
-		return nil, err
-	}
 	var out []Notice
-	// no line-size cap, unlike bufio.Scanner
-	for line := range bytes.SplitSeq(raw, []byte("\n")) {
-		var n Notice
-		if json.Unmarshal(line, &n) == nil && n.Text != "" {
-			out = append(out, n)
+	var writeErr error
+	err := paths.WithFileLock(file, func() error {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return err
 		}
-	}
-	return out[max(0, len(out)-drainMax):], err
-}
-
-// takeInbox reads and removes file under its lock; ok is false when nothing was read (err says why).
-func takeInbox(file string) (raw []byte, ok bool, err error) {
-	var readErr error
-	err = paths.WithFileLock(file, func() error {
-		if raw, readErr = os.ReadFile(file); readErr != nil {
-			return readErr
+		var all [][]byte
+		// no line-size cap, unlike bufio.Scanner
+		for line := range bytes.SplitSeq(raw, []byte("\n")) {
+			var n Notice
+			if json.Unmarshal(line, &n) == nil && n.Text != "" {
+				all = append(all, line)
+				out = append(out, n)
+			}
 		}
-		ok = true
-		return os.Remove(file)
+		if len(out) == 0 { // no valid notice: nothing to deliver, drop the junk file
+			writeErr = os.Remove(file)
+			return nil
+		}
+		keep, used := 0, 0
+		for keep < min(len(out), drainMax) && (keep == 0 || used+len(out[keep].Text) <= drainBytes) {
+			used += len(out[keep].Text)
+			keep++
+		}
+		if len(out[0].Text) > drainBytes {
+			out[0].Text = strings.ToValidUTF8(out[0].Text[:drainBytes], "") + truncatedMark
+		}
+		rest := all[keep:]
+		out = out[:keep]
+		if len(rest) == 0 {
+			writeErr = os.Remove(file)
+			return nil
+		}
+		out = append(out, Notice{Schema: noticeSchema, TS: time.Now().Unix(), Kind: "more", Text: strconv.Itoa(len(rest)) + " more queued"})
+		writeErr = paths.AtomicWrite(file, append(bytes.Join(rest, []byte("\n")), '\n'), 0o600)
+		return nil
 	})
-	switch {
-	case err == nil:
-	case !ok && errors.Is(readErr, os.ErrNotExist):
-		// another drain took it between the stat and the lock
-		return nil, false, nil
-	case !ok:
-		return nil, false, fmt.Errorf("drain notices %s: %w", file, err)
-	default:
-		err = fmt.Errorf("drain notices %s: read but not removed, they may repeat: %w", file, err)
+	if errors.Is(err, os.ErrNotExist) { // another drain took it between the stat and the lock
+		return nil, nil
 	}
-	return raw, ok, err
+	if err != nil {
+		return nil, fmt.Errorf("drain notices %s: %w", file, err)
+	}
+	if writeErr != nil {
+		return out, fmt.Errorf("drain notices %s: read but not updated, they may repeat: %w", file, writeErr)
+	}
+	return out, nil
 }

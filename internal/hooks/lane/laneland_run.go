@@ -58,17 +58,18 @@ type attempt struct {
 	out                string
 }
 
-// landAttempt re-inspects the lane under the machine-wide lane lock (a leaf may have resumed), then lands it.
+// landAttempt re-inspects the lane under the machine-wide lane lock (a leaf may have resumed), then lands it unlocked.
 func landAttempt(j laneJob, repo *worktree.Repo, base string) attempt {
 	var a attempt
 	ran, _ := paths.TryFileLock(filepath.Join(laneStateDir(), "serial.lock"), laneSerialWait, func() error {
-		if a.q, a.hold, a.empty = inspectLane(j, repo, base); !a.hold && !a.empty {
-			a.code, a.out = runWorktreeLand(repo.Main, filepath.Base(j.lane), j.session)
-		}
+		a.q, a.hold, a.empty = inspectLane(j, repo, base)
 		return nil
 	})
 	if !ran {
 		return attempt{code: 1, out: "lane-land: another lane held the land lock for " + laneSerialWait.String() + "\n", retry: true}
+	}
+	if !a.hold && !a.empty {
+		a.code, a.out = runWorktreeLand(repo.Main, filepath.Base(j.lane), j.session)
 	}
 	a.retry = strings.Contains(a.out, "target moved") || strings.Contains(a.out, "holds the land lock")
 	return a

@@ -4,11 +4,15 @@ package lane
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -45,7 +49,7 @@ var laneSpawn = func(args []string) bool {
 
 // Queue (UserPromptSubmit) lists this repo's queued lanes, each with its next command.
 func Queue(in *core.Input) core.Result {
-	return core.Result{Context: laneQueueContext(in.CWD)}
+	return core.Result{Context: laneQueueContext(in.CWD, in.SessionID)}
 }
 
 // Land (SubagentStop) hands a stopped leaf's lane to the detached worker and returns at once.
@@ -153,8 +157,44 @@ func leafReport(transcript string) string {
 // laneQueueMax caps the queue lines one prompt shows.
 const laneQueueMax = 5
 
-// laneQueueContext is one line per lane queued for this checkout's repo; "" (one stat) when nothing is queued.
-func laneQueueContext(cwd string) string {
+// laneTipTime is the commit time of the lane's branch tip (0 when unknown); a seam so tests need no git.
+var laneTipTime = func(lane string) int64 {
+	out, err := exec.Command("git", "-C", lane, "log", "-1", "--format=%ct").Output()
+	n, perr := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || perr != nil {
+		return 0
+	}
+	return n
+}
+
+// liveQueued is this repo's queued lanes minus those whose branch tip moved after the entry was written.
+func liveQueued(main string) []worktree.QueuedLane {
+	return slices.DeleteFunc(worktree.Queued(main), func(q worktree.QueuedLane) bool {
+		return !paths.IsDir(q.Lane) || laneTipTime(q.Lane) > q.QueuedAt
+	})
+}
+
+func laneQueueKey(q worktree.QueuedLane) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s", q.Lane, q.Branch, q.Reason, q.Detail))
+	return hex.EncodeToString(sum[:8])
+}
+
+// freshQueueLines is every lane's key, the lines of lanes not in prev (capped) and how many were not in prev.
+func freshQueueLines(lanes []worktree.QueuedLane, prev []string) (keys, lines []string, fresh int) {
+	for _, q := range lanes {
+		keys = append(keys, laneQueueKey(q))
+		if slices.Contains(prev, keys[len(keys)-1]) {
+			continue
+		}
+		if fresh++; fresh <= laneQueueMax {
+			lines = append(lines, assets.HookLaneQueueLine(filepath.Base(q.Lane), q.Branch, q.Reason, q.Detail, q.Next))
+		}
+	}
+	return keys, lines, fresh
+}
+
+// laneQueueContext shows a queued lane's line once per session, then one count line when the queue changes.
+func laneQueueContext(cwd, session string) string {
 	if !paths.FileExists(worktree.LandQueueFile()) {
 		return ""
 	}
@@ -162,14 +202,26 @@ func laneQueueContext(cwd string) string {
 	if top == "" {
 		return ""
 	}
-	lanes := worktree.Queued(paths.Canon(main))
-	var lines []string
-	for i, q := range lanes {
-		if i == laneQueueMax {
-			lines = append(lines, assets.HookLaneQueueMore(len(lanes)-laneQueueMax))
-			break
+	lanes := liveQueued(paths.Canon(main))
+	seenFile := filepath.Join(paths.StateDir(), "lane-queue-seen", worktree.SessionSlug(session))
+	var prev []string
+	if session != "" {
+		raw, _ := os.ReadFile(seenFile)
+		prev = strings.Fields(string(raw))
+	}
+	keys, lines, fresh := freshQueueLines(lanes, prev)
+	if session != "" {
+		if slices.Equal(keys, prev) {
+			return ""
 		}
-		lines = append(lines, assets.HookLaneQueueLine(filepath.Base(q.Lane), q.Branch, q.Reason, q.Detail, q.Next))
+		_ = os.MkdirAll(filepath.Dir(seenFile), 0o700)
+		_ = paths.AtomicWrite(seenFile, []byte(strings.Join(keys, "\n")+"\n"), 0o600)
+		if fresh == 0 && len(lanes) > 0 {
+			lines = append(lines, fmt.Sprintf("land queue: %d lanes waiting; claude-code worktree list shows each", len(lanes)))
+		}
+	}
+	if fresh > laneQueueMax {
+		lines = append(lines, assets.HookLaneQueueMore(fresh-laneQueueMax))
 	}
 	return strings.Join(lines, "\n")
 }
