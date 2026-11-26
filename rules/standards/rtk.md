@@ -1,7 +1,7 @@
 # rtk — Compact Shell Output
 
 **Write every model-read Bash call in its `rtk` form.** `rtk rewrite '<cmd>'` prints it; empty means run as typed.
-The `rtk-rewrite` hook rewrites in place, except auto mode only notes the form (rewriting voids its classification).
+The `rtk-rewrite` hook rewrites in place in every mode, auto mode included.
 Write the prefix yourself; vetoed commands and code-mode runs stay bare.
 
 - **Prefixed:** `git` (except `git grep`), `gh`, `go`, `grep`, `rg`, `find`, `ls`, `tree`, `diff`, `make`, `docker`,

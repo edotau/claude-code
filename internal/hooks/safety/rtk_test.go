@@ -52,8 +52,8 @@ func TestRTKSkipsCodex(t *testing.T) {
 	}
 }
 
-// TestRTKAutoModeNotes: auto mode only notes the rtk form; a changed input would void the classifier's verdict.
-func TestRTKAutoModeNotes(t *testing.T) {
+// TestRTKAutoModeRewrites: auto mode rewrites in place like every other mode (owner, 2026-11-26).
+func TestRTKAutoModeRewrites(t *testing.T) {
 	bin := hosttest.FakeRTK(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	auto := func(cmd string) core.Result {
@@ -61,8 +61,8 @@ func TestRTKAutoModeNotes(t *testing.T) {
 		return RTKRewrite(core.ParseInput(strings.NewReader(in)))
 	}
 	res := auto("git log --oneline -20")
-	if res.UpdatedInput != nil || !strings.Contains(res.Context, bin+" git log --oneline -20") || res.Decision != core.Allow {
-		t.Fatalf("auto mode = %+v, want the rtk form as a note and no decision", res)
+	if got, _ := res.UpdatedInput["command"].(string); got != bin+" git log --oneline -20" || res.Decision != core.Allow {
+		t.Fatalf("auto mode = %+v, want the rtk form in place and no decision", res)
 	}
 	for _, cmd := range []string{bin + " git log --oneline -20", "go vet ./x"} {
 		if res := auto(cmd); res.UpdatedInput != nil || res.Decision != core.Allow {
@@ -719,21 +719,5 @@ func TestRTKClaudeSkipsCodeMode(t *testing.T) {
 	t.Setenv(rtkwrap.CodemodeEnv, "on")
 	if got, ok := rtkOut(t, hosttest.RTKBashIn("git log --oneline -20")); ok {
 		t.Fatalf("code mode rewrote to %q", got)
-	}
-}
-
-// In auto mode the rewrite is a note, not a changed input: a changed input voids the classifier's verdict.
-func TestRTKRewriteAutoModeNotesOnly(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	word := homeRTK(t)
-	in := core.ParseInput(strings.NewReader(hosttest.RTKBashIn("ls internal")))
-	in.PermissionMode = "auto"
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	res := RTKRewrite(in)
-	if res.UpdatedInput != nil {
-		t.Fatalf("auto mode changed the input: %v", res.UpdatedInput)
-	}
-	if !strings.Contains(res.Context, "rtk form for next time: "+word+" ls internal") {
-		t.Errorf("note %q does not name the rtk form", res.Context)
 	}
 }

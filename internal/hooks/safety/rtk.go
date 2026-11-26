@@ -338,9 +338,6 @@ func rtkRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	notes := rtkNotes(in.SessionID, f.word, f.found, bin, f.onPath)
-	if in.PermissionMode == "auto" { // a changed input voids the auto classifier's verdict and forces a re-issue
-		return core.Result{Context: strings.TrimSpace(notes + "\nrtk form for next time: " + f.cmd)}
-	}
 	updated["command"] = f.cmd
 	return core.Result{Context: notes, UpdatedInput: updated}
 }
