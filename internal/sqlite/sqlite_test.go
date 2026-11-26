@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func openTemp(t *testing.T, opts Options) (*sql.DB, string) {
