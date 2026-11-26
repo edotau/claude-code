@@ -27,6 +27,8 @@ var deliberate = map[string]string{
 	"max-file-length":                    "mdsmith-only, off: no VS Code analog",
 	"token-budget":                       "mdsmith-only, off: no VS Code analog",
 	"table-readability":                  "mdsmith-only, off: no VS Code analog",
+	"empty-section-body":                 "mdsmith-only, gate-only: no VS Code analog",
+	"cross-file-reference-integrity":     "mdsmith-only, gate-only: no VS Code analog",
 	"no-duplicate-headings":              "MD024 siblings_only has no analog; VS Code-only",
 	"list-indent":                        "MD005 stays VS Code-only; mdsmith's rule also covers disabled MD007",
 	"no-multiple-blanks.settings.max":    "explicit 1 equals the MD012 default",
@@ -182,12 +184,7 @@ func checkOverride(ctx context.Context, root, glob string, orule map[string]any,
 	}
 	childBytes, err := os.ReadFile(filepath.Join(root, base, RulesFile))
 	if errors.Is(err, fs.ErrNotExist) {
-		for key := range orule {
-			if !allowed(key) {
-				return []string{base + ": no " + RulesFile + " mirrors this override"}, nil
-			}
-		}
-		return nil, nil
+		return missingOverride(root, base, orule)
 	}
 	if err != nil {
 		return nil, err
@@ -215,6 +212,22 @@ func checkOverride(ctx context.Context, root, glob string, orule map[string]any,
 		return nil, err
 	}
 	return append(notes, compareRules(want, got, base+": ")...), nil
+}
+
+func missingOverride(root, base string, orule map[string]any) ([]string, error) {
+	if base == "memory" {
+		if _, err := os.Stat(filepath.Join(root, "memory")); errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+	}
+	for key := range orule {
+		if !allowed(key) {
+			return []string{base + ": no " + RulesFile + " mirrors this override"}, nil
+		}
+	}
+	return nil, nil
 }
 
 // convertRules runs mdsmith's markdownlint converter in a scratch dir; unexpected converter notes are drift.
@@ -275,16 +288,21 @@ func resolve(ctx context.Context, dir, file string) (map[string]any, error) {
 func compareRules(want, got map[string]any, prefix string) []string {
 	var drift []string
 	for _, k := range slices.Sorted(maps.Keys(want)) {
-		if !allowed(k) && !reflect.DeepEqual(want[k], got[k]) {
+		if !allowed(k) && !disabledSetting(want, got, k) && !reflect.DeepEqual(want[k], got[k]) {
 			drift = append(drift, fmt.Sprintf("%s%s: markdownlint says %v, .mdsmith.yml says %v", prefix, k, want[k], got[k]))
 		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(got)) {
-		if _, ok := want[k]; !ok && !allowed(k) {
+		if _, ok := want[k]; !ok && !allowed(k) && !disabledSetting(want, got, k) {
 			drift = append(drift, fmt.Sprintf("%s%s: markdownlint says <none>, .mdsmith.yml says %v", prefix, k, got[k]))
 		}
 	}
 	return drift
+}
+
+func disabledSetting(want, got map[string]any, key string) bool {
+	rule, _, ok := strings.Cut(key, ".settings.")
+	return ok && want[rule+".enabled"] == false && got[rule+".enabled"] == false
 }
 
 func firstMarkdown(dir string) string {

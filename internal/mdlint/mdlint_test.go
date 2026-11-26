@@ -2,33 +2,11 @@ package mdlint
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestCheckText(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, MdsmithFile), []byte("rules:\n  line-length:\n    max: 120\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	fs, err := CheckText(ctx, root, "# T\n\n"+strings.TrimSpace(strings.Repeat("word ", 26))+"\n")
-	if errors.Is(err, ErrNoMdsmith) {
-		t.Skip("mdsmith not installed")
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(fs) != 1 || fs[0].Rule != "MDS001" {
-		t.Fatalf("long line findings = %v", fs)
-	}
-	if fs, err = CheckText(ctx, root, "# T\n\nshort\n"); err != nil || len(fs) != 0 {
-		t.Fatalf("clean text: %v %v", fs, err)
-	}
-}
 
 func TestWrapItem(t *testing.T) {
 	span := "`" + strings.Repeat("x y ", 9) + "end`"
@@ -57,15 +35,6 @@ func TestStoreRules(t *testing.T) {
 	if got := string(StoreRules("memory")); !strings.Contains(got, `"extends": "../.markdownlint.json"`) ||
 		!strings.Contains(got, `"MD046": false`) {
 		t.Fatalf("rules = %s", got)
-	}
-	dir := t.TempDir()
-	for range 2 {
-		if err := WriteStoreConfig(dir); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, RulesFile)); string(b) != string(StoreRules("memory")) {
-		t.Fatalf("written = %s", b)
 	}
 }
 

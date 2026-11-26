@@ -142,15 +142,6 @@ func FixFile(ctx context.Context, root, rel string) error {
 	return err
 }
 
-// CheckText lints text on stdin against root's rules; overrides never apply to stdin.
-func CheckText(ctx context.Context, root, text string) ([]Finding, error) {
-	if text == "" {
-		text = "\n"
-	}
-	out, _, err := run(ctx, root, text, "check", "-f", "json", "-o", "-", "--no-color", "-")
-	return findings(out, err)
-}
-
 var itemPrefix = regexp.MustCompile(`^(\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?)`)
 
 // WrapItem wraps a line to Width, never splitting a code span or link; continuations indent to the text column.
@@ -223,14 +214,4 @@ func StoreRules(base string) []byte {
 	up := strings.Repeat("../", len(strings.FieldsFunc(filepath.ToSlash(filepath.Clean(base)), func(r rune) bool { return r == '/' })))
 	b, _ := json.MarshalIndent(map[string]any{"extends": up + RulesFile, "MD046": false}, "", "  ")
 	return append(b, '\n')
-}
-
-// WriteStoreConfig writes StoreRules("memory") to dir/.markdownlint.json when its bytes differ (atomic write).
-func WriteStoreConfig(dir string) error {
-	dest := filepath.Join(dir, RulesFile)
-	want := StoreRules("memory")
-	if have, err := os.ReadFile(dest); err == nil && bytes.Equal(have, want) {
-		return nil
-	}
-	return paths.AtomicWrite(dest, want, 0o644)
 }

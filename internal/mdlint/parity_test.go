@@ -76,3 +76,44 @@ func TestParityDrift(t *testing.T) {
 		t.Fatalf("drift = %v", lines)
 	}
 }
+
+func TestParityMdsmithOnlyRules(t *testing.T) {
+	want := map[string]any{"empty-section-body.enabled": false, "cross-file-reference-integrity.enabled": false}
+	got := map[string]any{"empty-section-body.enabled": true, "cross-file-reference-integrity.enabled": true}
+	if drift := compareRules(want, got, ""); len(drift) != 0 {
+		t.Fatalf("mdsmith-only rule drift = %v", drift)
+	}
+}
+
+func TestParityDisabledRuleSettings(t *testing.T) {
+	want := map[string]any{"foo.enabled": false, "foo.settings.x": 1}
+	got := map[string]any{"foo.enabled": false, "foo.settings.x": 2, "foo.settings.y": 3}
+	if drift := compareRules(want, got, ""); len(drift) != 0 {
+		t.Fatalf("disabled rule drift = %v", drift)
+	}
+	got["foo.enabled"] = true
+	if drift := compareRules(want, got, ""); !strings.Contains(strings.Join(drift, "\n"), "foo.enabled:") {
+		t.Fatalf("enabled mismatch drift = %v", drift)
+	}
+	want["foo.enabled"] = true
+	if drift := compareRules(want, got, ""); !strings.Contains(strings.Join(drift, "\n"), "foo.settings.x:") {
+		t.Fatalf("enabled rule settings drift = %v", drift)
+	}
+}
+
+func TestParityAbsentMemoryOverride(t *testing.T) {
+	root := parityRoot(t)
+	ctx := withLookupRoot(context.Background(), root)
+	orule := map[string]any{"some-rule": true}
+	drift, err := checkOverride(ctx, root, "memory/**", orule, nil)
+	if err != nil || len(drift) != 0 {
+		t.Fatalf("absent memory drift = %v, err = %v", drift, err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	drift, err = checkOverride(ctx, root, "memory/**", orule, nil)
+	if err != nil || len(drift) != 1 || drift[0] != "memory: no .markdownlint.json mirrors this override" {
+		t.Fatalf("present memory drift = %v, err = %v", drift, err)
+	}
+}

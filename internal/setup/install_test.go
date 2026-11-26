@@ -66,6 +66,8 @@ func compactStepPrefix(t *testing.T, line string) string {
 		return "install"
 	case strings.HasPrefix(line, "rtk-config"):
 		return "rtk-config"
+	case strings.HasPrefix(line, "mdlint"):
+		return "mdlint"
 	case strings.HasPrefix(line, "links"):
 		return "links"
 	case strings.HasPrefix(line, "settings"):
@@ -175,9 +177,9 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 			for _, l := range splitNonEmpty(out.String()) {
 				got = append(got, compactStepPrefix(t, l))
 			}
-			want := []string{"install", "links", "settings"}
+			want := []string{"install", "mdlint", "links", "settings"}
 			if runtime.GOOS != "windows" {
-				want = []string{"install", "rtk-config", "links", "settings"}
+				want = []string{"install", "rtk-config", "mdlint", "links", "settings"}
 			}
 			if windowsProfile {
 				want = append(want, "settings (windows)")

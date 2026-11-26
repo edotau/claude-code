@@ -54,6 +54,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	if err := installRTKConfig(w, dryRun); err != nil {
 		return err
 	}
+	installMdlintConfig(w, dryRun)
 	if err := linkUserBins(w, target, dryRun); err != nil {
 		return err
 	}
@@ -86,6 +87,7 @@ func installCompact(w io.Writer) error {
 	if err := installRTKConfig(w, false); err != nil {
 		return err
 	}
+	installMdlintConfig(w, false)
 	agentsCompactLine(w)
 	extras := extrasCompact(w)
 	defer func() {
