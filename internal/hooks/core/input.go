@@ -38,6 +38,7 @@ type Input struct {
 	Prompt              string `json:"prompt"`
 	Source              string `json:"source"`
 	AgentID             string `json:"agent_id"`
+	PermissionMode      string `json:"permission_mode"`
 	AgentTranscriptPath string `json:"agent_transcript_path"`
 	Trigger             string `json:"trigger"`
 	BackgroundTasks     int    `json:"-"` // length of the Stop payload's background_tasks array

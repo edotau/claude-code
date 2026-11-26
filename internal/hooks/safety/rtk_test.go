@@ -721,3 +721,19 @@ func TestRTKClaudeSkipsCodeMode(t *testing.T) {
 		t.Fatalf("code mode rewrote to %q", got)
 	}
 }
+
+// In auto mode the rewrite is a note, not a changed input: a changed input voids the classifier's verdict.
+func TestRTKRewriteAutoModeNotesOnly(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	word := homeRTK(t)
+	in := core.ParseInput(strings.NewReader(hosttest.RTKBashIn("ls internal")))
+	in.PermissionMode = "auto"
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	res := RTKRewrite(in)
+	if res.UpdatedInput != nil {
+		t.Fatalf("auto mode changed the input: %v", res.UpdatedInput)
+	}
+	if !strings.Contains(res.Context, "rtk form for next time: "+word+" ls internal") {
+		t.Errorf("note %q does not name the rtk form", res.Context)
+	}
+}
