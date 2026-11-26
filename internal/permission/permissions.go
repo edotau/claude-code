@@ -123,43 +123,13 @@ func ExpandHome(tool, arg string) string {
 // PermAllow is the mode where every call runs unless a rule denies it; any other mode asks on no match.
 const PermAllow = "allow"
 
-// Decide applies Deny > Ask > Allow, then the mode fallback: allow allows, other modes ask.
-func (p Permissions) Decide(tool, arg string) Decision { return p.DecideAt("", tool, arg) }
-
-// DecideAt is Decide for a command run in cwd: a static relative cd is also judged as its absolute target.
+// DecideAt applies Deny > Ask > Allow then the mode fallback; a static relative cd is judged as its absolute target.
 func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	if tool != "Bash" {
 		return p.decideOne(tool, arg)
 	}
 	code := shellCode(arg) // judge what bash runs: a comment can hide a quote that ends one
-	d := p.decideBash(code, 0, cwd)
-	if d == Allow || !slices.Contains(p.Deny, readOnlyDeny[0]) { // loosen only a catch-all refusal
-		return d
-	}
-	unrolled, ok := unrollFor(code)
-	if !ok {
-		return d
-	}
-	u := p.decideBash(unrolled, 1, cwd)
-	if u == Deny || d == Deny && p.explicitDeny(code, cwd) { // a Deny rule always stands
-		return d
-	}
-	if p.explicitAsk(code, cwd) {
-		u = min(u, Ask)
-	}
-	return max(d, u)
-}
-
-// explicitDeny reports a Deny rule other than the read-only catch-all matching cmd (Read denies: the unrolled verdict).
-func (p Permissions) explicitDeny(cmd, cwd string) bool {
-	rules := slices.DeleteFunc(slices.Clone(p.Deny), func(r Rule) bool { return r.Tool == "Bash" && r.Arg == NotReadOnlyShellArg })
-	return Permissions{Deny: rules}.decideBash(cmd, 0, cwd) == Deny
-}
-
-// explicitAsk reports an Ask rule matching cmd as a whole or one of its segments.
-func (p Permissions) explicitAsk(cmd, cwd string) bool {
-	return anyRule(p.Ask, "Bash", strings.TrimSpace(cmd), false) ||
-		Permissions{Mode: PermAllow, Ask: p.Ask}.decideBash(cmd, 0, cwd) == Ask
+	return p.decideBash(code, 0, cwd)
 }
 
 // shellCode is cmd without the text bash never runs as commands: comments and heredoc bodies fed to a data consumer.
@@ -446,102 +416,25 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 		return Deny
 	}
 	outer, subs := shell.ExtractSubstitutions(cmd)
-	if len(subs) > 0 && (slices.Contains(p.Deny, readOnlyDeny[0]) || p.spliceReadDenied(cmd)) { // read-only never runs one
-		return Deny
-	}
-	worst, seen, start := Allow, false, cwd
+	worst, seen := Allow, false
 	for _, sub := range subs {
 		worst = min(worst, p.decideBash(sub, depth+1, ""), Ask)
 		cwd = "" // a masked substitution may sit in a cd target
 	}
 	segs, seps := shell.SegmentsSep(outer)
-	moved := false // an earlier segment may have changed the cwd
 	for i, seg := range segs {
-		at := cwd
-		if at == "" && !moved {
-			at = start
-		}
 		next, cdTo := cdDir(seg, cwd)
 		if cwd = next; seps[i] != "&&" { // only an `&&` after a static cd carries a known cwd to the next segment
 			cwd = ""
 		}
-		if d, ok := p.decideSeg(seg, cdTo, opDir{at, moved && at == ""}, depth); ok {
+		if d, ok := p.decideSeg(seg, cdTo, depth); ok {
 			seen, worst = true, min(worst, d)
 		}
-		moved = moved || mayMoveCwd(seg)
 	}
 	if !seen { // a bare `$(x)` or backtick command: its substitutions' verdict still counts
 		return min(worst, p.decideOne("Bash", strings.TrimSpace(cmd)))
 	}
 	return worst
-}
-
-var forLoop = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?s)^\s*for[ \t]+([a-z_][a-z0-9_]*)[ \t]+in((?:[ \t]+[A-Za-z0-9._/@%+:,][A-Za-z0-9._/@%+=:,-]*)+)` + // zsh expands a leading `=`
-		`[ \t]*[;\n]\s*do[ \t\n]+(.*?)[ \t]*[;\n]\s*done\s*$`)
-})
-
-// maxUnrolled caps the unrolled body bytes (words × body length).
-const maxUnrolled = 64 << 10
-
-// zshTiedVars are lowercase names zsh ties to PATH-like variables.
-var zshTiedVars = []string{"path", "cdpath", "fpath", "manpath", "mailpath", "module_path"}
-
-// unrollFor is a literal-word for loop as its body once per word, $x replaced; false for any other shape.
-func unrollFor(cmd string) (string, bool) {
-	m := forLoop().FindStringSubmatch(cmd)
-	if m == nil || slices.Contains(zshTiedVars, m[1]) || !loopBodyOK(m[3]) ||
-		len(strings.Fields(m[2]))*len(m[3]) > maxUnrolled {
-		return "", false
-	}
-	var out []string
-	ref := regexp.MustCompile(`\$(\{` + m[1] + `\}|` + m[1] + `\b)`) // m[1] is an identifier: no regexp metacharacter
-	for w := range strings.FieldsSeq(m[2]) {
-		s := ref.ReplaceAllLiteralString(m[3], w)
-		if strings.Contains(s, "$") || unquotedAny(s, "(){}") { // another variable, a group or a subshell
-			return "", false
-		}
-		out = append(out, s)
-	}
-	return strings.Join(out, "; "), true
-}
-
-// loopBodyOK: no backtick, backslash, single-quoted $ or nested control word.
-func loopBodyOK(body string) bool {
-	if strings.ContainsAny(body, "`\\") {
-		return false
-	}
-	at := shell.QuoteAt(body)
-	for i := range len(body) {
-		if body[i] == '$' && at[i] != 0 && at[i] != '"' {
-			return false
-		}
-	}
-	return !slices.ContainsFunc(shell.Segments(body), func(seg string) bool {
-		return slices.ContainsFunc(shell.Tokens(seg), func(t string) bool { return slices.Contains(loopControlWords, t) })
-	})
-}
-
-func unquotedAny(s, chars string) bool {
-	at := shell.QuoteAt(s)
-	for i := range len(s) {
-		if at[i] == 0 && strings.IndexByte(chars, s[i]) >= 0 {
-			return true
-		}
-	}
-	return false
-}
-
-var loopControlWords = []string{"for", "while", "until", "do", "done", "break", "continue", "select", "case", "if",
-	"function", "eval", "source"}
-
-var subOpener = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[$<>]\\(|`") })
-
-// spliceReadDenied: under a Read deny, a segment that opens a substitution may read a path no check can see.
-func (p Permissions) spliceReadDenied(cmd string) bool {
-	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
-		return subOpener().MatchString(seg) && readOnlyReadDenied(p, strings.ReplaceAll(seg, "`", "$"), opDir{lost: true}) // `x` is $(x)
-	})
 }
 
 // commandWords reads `rtk x` as x, a path-named program by its basename and $HOME/${HOME}/home as ~.
@@ -573,7 +466,7 @@ func tildeWord(t, home string) string {
 }
 
 // decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
-func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision, bool) {
+func (p Permissions) decideSeg(seg, cdTo string, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
 	if len(rawToks) == 0 { // a blank line, a trailing `;` or a masked substitution; `env` or `x=1` alone is judged
 		if hasWrite(seg) { // `> f function a` tokenizes to nothing but still writes f
@@ -583,19 +476,14 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 	}
 	toks := commandWords(UnwrapXargs(rawToks))
 	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
-	judged := seg
 	if cdTo != "" {
-		judged = "cd " + textutil.ShellQuote(cdTo)
-		d = p.cdVerdict(d, strings.TrimSpace(seg), strings.Join(toks, " "), judged)
+		d = p.cdVerdict(d, strings.TrimSpace(seg), strings.Join(toks, " "), "cd "+textutil.ShellQuote(cdTo))
 	}
 	if nested, ok := shell.NestedCommand(toks); ok {
 		d = min(d, p.decideBash(nested, depth+1, ""), Ask)
 	}
 	if d == Allow && hasWrite(seg) { // a quoted `<` is text, not a redirect
 		d = Ask
-	}
-	if d != Deny && (readOnlyReadDenied(p, judged, at) || p.diffNotRegular(judged, at)) { // an Ask never outranks these
-		d = Deny
 	}
 	return d, true
 }
@@ -650,23 +538,6 @@ func xargsTakesNext(opt string, values []string) bool {
 	}
 	return false
 }
-
-// mayMoveCwd: a cd, pushd, popd, eval or source word, or `.` as a command (a case arm too); `cat .` moves nothing.
-func mayMoveCwd(seg string) bool {
-	toks := shell.Tokens(seg)
-	if cmd, _ := shell.Unwrap(toks, ""); len(cmd) > 0 && slices.Contains(cwdMovingWords(), cmd[0]) {
-		return true
-	}
-	for _, start := range shell.CommandStarts(toks) { // a nested command: `time cd x`, `if x; then cd y`
-		if cmd, _ := shell.Unwrap(start, ""); len(cmd) > 0 && slices.Contains(cwdMovingWords(), cmd[0]) {
-			return true
-		}
-	}
-	// a case arm (`a) cd x`) hides its command after `)`; an argument like `grep cd f` never moves cwd
-	return unquotedAny(seg, ")") && slices.ContainsFunc(toks, func(t string) bool { return slices.Contains(cwdMovingWords(), t) })
-}
-
-var cwdMovingWords = sync.OnceValue(func() []string { return shell.GuardWords("cwd_moving_words") })
 
 // cdVerdict joins a relative cd's verdict d with its absolute spelling's: a deny of either wins, then an allow.
 func (p Permissions) cdVerdict(d Decision, raw, norm, abs string) Decision {
@@ -815,11 +686,7 @@ func (p Permissions) decideForm(tool, arg string, norm bool) Decision {
 // anyRule reports a matching rule; the file-redirect rule reads quotes, so it skips a normalized spelling.
 func anyRule(rules []Rule, tool, arg string, norm bool) bool {
 	for _, r := range rules {
-		if hit, ok := readOnlyRuleHit(r, tool, arg, norm); ok {
-			if hit {
-				return true
-			}
-		} else if r.matches(tool, arg) && !skipsNormalized(r, norm) {
+		if r.matches(tool, arg) && !skipsNormalized(r, norm) {
 			return true
 		}
 	}
@@ -829,20 +696,6 @@ func anyRule(rules []Rule, tool, arg string, norm bool) bool {
 // skipsNormalized reports a file-redirect rule meeting a normalized spelling, which has no quotes to read it from.
 func skipsNormalized(r Rule, norm bool) bool {
 	return norm && r.Arg == RedirectFileArg
-}
-
-// readOnlyRuleHit judges the read-only shell rules on a normalized spelling, whose quotes are gone.
-func readOnlyRuleHit(r Rule, tool, arg string, norm bool) (hit, handled bool) {
-	if !norm || tool != "Bash" || r.Tool != tool {
-		return false, false
-	}
-	switch r.Arg {
-	case ReadOnlyShellArg:
-		return readOnlySegment(arg, false), true
-	case NotReadOnlyShellArg:
-		return false, true
-	}
-	return false, false
 }
 
 func (r Rule) matches(tool, arg string) bool {
@@ -863,10 +716,8 @@ func (r Rule) matches(tool, arg string) bool {
 // shellRuleForms are the Bash rule arguments that name a shell-aware check instead of a command spelling.
 var shellRuleForms = sync.OnceValue(func() map[string]func(string) bool {
 	return map[string]func(string) bool{
-		RedirectFileArg:     shell.FileRedirect,
-		SedPrintArg:         sedPrintMatches,
-		ReadOnlyShellArg:    func(c string) bool { return readOnlySegment(c, true) },
-		NotReadOnlyShellArg: func(c string) bool { return !readOnlySegment(c, true) },
+		RedirectFileArg: shell.FileRedirect,
+		SedPrintArg:     sedPrintMatches,
 	}
 })
 
@@ -932,6 +783,3 @@ func pathMatches(pattern, p string) bool {
 	}
 	return path.IsAbs(pattern) && path.IsAbs(p) && paths.GlobMatch(paths.CanonDeep(pattern), paths.CanonDeep(p))
 }
-
-// readOnlyDeny is the read-only shell policy spelled as deny rules.
-var readOnlyDeny = []Rule{{Tool: "Bash", Arg: NotReadOnlyShellArg}, {Tool: "Write"}, {Tool: "Edit"}}

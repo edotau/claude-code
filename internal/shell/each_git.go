@@ -94,25 +94,6 @@ func HarnessArgs(words []string) []string {
 	return rest
 }
 
-// SecretFlag reports --secret on HarnessArgs h; an agents brief is data, so that group never counts.
-func SecretFlag(h []string) bool {
-	return len(h) > 0 && h[0] != "agents" && boolFlagOn(h[1:], "secret")
-}
-
-// boolFlagOn reports -name, --name or --name=<not false|0> before any `--`, as Go's flag package reads them.
-func boolFlagOn(args []string, name string) bool {
-	for _, a := range args {
-		if a == "--" {
-			return false
-		}
-		k, v, has := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		if strings.HasPrefix(a, "-") && k == name && (!has || v != "false" && v != "0") {
-			return true
-		}
-	}
-	return false
-}
-
 // eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
 func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if depth > maxNest {
