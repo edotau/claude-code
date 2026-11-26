@@ -259,7 +259,7 @@ func commitWrite(path string, raw, next []byte, existed bool, o RenderOptions, o
 // confirmLost reports lines the write would lose and returns false when the user kept their edits.
 func confirmLost(path string, lost []string, o RenderOptions, out io.Writer, label string) bool {
 	if o.Confirm == nil {
-		fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure --revert` restores\n",
+		fmt.Fprintf(out, "%s: overwrote %d hand-edited line(s) in %s; `claude-code configure revert` restores\n",
 			label, len(lost), path)
 		printLostLines(out, lost)
 		return true

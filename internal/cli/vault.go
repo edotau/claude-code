@@ -21,20 +21,22 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-func vaultSections() []string { return append(slices.Clone(vaultdoc.Sections), "all") }
+// vaultWriteSections are the sections `vault set` and `vault rm` take; secrets is the default for set.
+var vaultWriteSections = []string{"secrets", "env", "overlay"}
+
+func vaultSections() []string { return append(slices.Clone(vaultdoc.Sections), "all", "overlays") }
 
 // vaultSpec is the completion node for the vault verb.
 func vaultSpec() *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
 	secretNames := providers.SecretNames
+	writeSections := func() []string { return vaultWriteSections }
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"ls": {Args: []func() []string{vaultSections}, Flags: []helptext.Flag{boolFlag("tailscale"), formatFlag()}},
-		"set": {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("tailscale"), boolFlag("api-key"),
-			boolFlag("dry-run")}},
+		"set": {Args: []func() []string{writeSections, secretNames}, Flags: []helptext.Flag{boolFlag("tailscale"), boolFlag("api-key"),
+			boolFlag("dry-run"), boolFlag("yes"), {Name: "file"}}},
 		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("secret")}},
-		"delete":        {Args: []func() []string{secretNames}},
-		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
-		"overlay":       {Sub: map[string]*helptext.Node{"ls": {}, "set": {Args: []func() []string{func() []string { return vaultdoc.SettableOverlayKeys }}, Flags: []helptext.Flag{{Name: "file"}}}, "unset": {Args: []func() []string{func() []string { return vaultdoc.OverlayKeys }}, Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}}}},
+		"rm":            {Args: []func() []string{writeSections, secretNames}, Flags: []helptext.Flag{boolFlag("dry-run"), boolFlag("yes")}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
 		"export":        {Args: []func() []string{secretNames}, Flags: []helptext.Flag{flag("out")}},
 		"rotate-secret": {Flags: []helptext.Flag{boolFlag("force")}},
@@ -46,12 +48,10 @@ var vaultPage = helptext.Page{
 	About: "The encrypted store (state/vault.db): sealed secrets, pins, env, and the\n" +
 		"profile and agent overlays. Values print only through get.",
 	Commands: [][2]string{
-		{"ls", "everything stored, secrets first (masked); bare vault runs it"},
-		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
+		{"ls", "everything stored (masked); bare vault runs it; ls overlays"},
+		{"set", "[secrets|env|overlay] NAME: store; --tailscale; bare: dialog"},
 		{"get", "print secrets redacted; --secret for values, --key for master"},
-		{"delete", "remove a secret"},
-		{"env", "set or unset one env value (not sealed); ls env lists"},
-		{"overlay", "list overlay keys; set KEY --file; unset KEY"},
+		{"rm", "<secrets|env|overlay> NAME: remove one entry"},
 		{"import", "seal every NAME=value line of a .env file"},
 		{"export", "append secrets to ./.env (0600); --out for another path"},
 		{"rotate-secret", "re-seal every secret under a new master key"},
@@ -61,8 +61,15 @@ var vaultPage = helptext.Page{
 
 // vaultVerbs is the vault subcommand table.
 var vaultVerbs = map[string]func(args []string) int{
-	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "delete": cmdVaultDelete,
-	"env": cmdVaultEnv, "overlay": cmdVaultOverlay, "import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
+	"ls": vaultList, "set": cmdVaultSet, "get": cmdVaultGet, "rm": cmdVaultRm,
+	"import": cmdVaultImport, "export": cmdVaultExport, "rotate-secret": cmdVaultRotateSecret,
+}
+
+// vaultRemoved names the form that replaced each folded verb (a hint, not an alias).
+var vaultRemoved = map[string]string{
+	"delete":  "claude-code vault rm secrets NAME",
+	"env":     "claude-code vault set env NAME VALUE, or vault rm env NAME",
+	"overlay": "claude-code vault set overlay KEY --file PATH|-, vault rm overlay KEY, or vault ls overlays",
 }
 
 // cmdVault dispatches the vault subcommands; bare `vault` lists.
@@ -78,6 +85,10 @@ func cmdVault(args []string) int {
 	if run, ok := vaultVerbs[sub]; ok {
 		return run(args)
 	}
+	if use, gone := vaultRemoved[sub]; gone {
+		fmt.Fprintf(os.Stderr, "vault %s is gone; use %s\n", sub, use)
+		return 2
+	}
 	return unknownSub("vault", sub, vaultPage)
 }
 
@@ -92,39 +103,66 @@ func vaultUsageErr(sub string, args []string) int {
 	return 2
 }
 
-// cmdVaultSet stores a secret by NAME (or via the guided dialog); --tailscale adds a Tailscale credential.
+// cmdVaultSet stores a secret (default section), an env value or an overlay document; --tailscale adds a credential.
 func cmdVaultSet(args []string) int {
 	fs := helptext.NewFlagSet("vault set", helptext.Page{
-		Usage: "claude-code vault set [NAME] [flags]",
-		About: "Store a secret sealed in the vault; no NAME on a terminal opens the guided dialog.",
+		Usage: "claude-code vault set [secrets|env|overlay] [flags] [NAME [VALUE]]",
+		About: "secrets NAME: sealed; value from a hidden prompt or stdin (bare: dialog).\n" +
+			"env NAME VALUE: plain value injected into launches.\n" +
+			"overlay KEY --file PATH|-: validated document. " + vaultOverlaySetAbout,
 	})
 	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key) instead of NAME")
 	apiKey := fs.Bool("api-key", false, "with --tailscale: piped stdin is one TAILSCALE_API_KEY value")
 	dryRun := fs.Bool("dry-run", false, "report what would be written; change nothing")
-	names, err := helptext.ParseArgs(fs, args)
+	yes := fs.Bool("yes", false, "env: overwrite an existing value without asking; required off a terminal")
+	fs.BoolVar(yes, "y", false, "same as --yes")
+	file := fs.String("file", "", "overlay: document to store, a path or - for stdin")
+	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if *ts {
+	section, words := splitVaultSection(words)
+	switch {
+	case section == "env" && len(words) == 2:
+		return vaultEnvSet(words[0], words[1], *dryRun, *yes)
+	case section == "overlay" && len(words) == 1:
+		return vaultOverlaySet(words[0], *file, *dryRun)
+	case section != "secrets":
+		fs.Usage()
+		return 2
+	}
+	return vaultSetSecrets(words, *ts, *apiKey, *dryRun)
+}
+
+// splitVaultSection peels a leading section word; secrets is the default.
+func splitVaultSection(words []string) (string, []string) {
+	if len(words) > 0 && slices.Contains(vaultWriteSections, words[0]) {
+		return words[0], words[1:]
+	}
+	return "secrets", words
+}
+
+// vaultSetSecrets is `vault set [secrets] [NAME]` and the --tailscale credentials.
+func vaultSetSecrets(names []string, ts, apiKey, dryRun bool) int {
+	if ts {
 		if len(names) > 0 {
 			return vaultUsageErr("set", names)
 		}
 		if tui.StdinIsTerminal() {
-			return vaultSetTailscaleInteractive(*dryRun)
+			return vaultSetTailscaleInteractive(dryRun)
 		}
-		return vaultSetTailscalePiped(*apiKey, *dryRun)
+		return vaultSetTailscalePiped(apiKey, dryRun)
 	}
-	if *apiKey {
+	if apiKey {
 		return helptext.FailUsage("vault set: --api-key needs --tailscale")
 	}
-	if len(names) == 0 && !*dryRun && tui.StdinIsTerminal() {
+	if len(names) == 0 && !dryRun && tui.StdinIsTerminal() {
 		return menu.Secrets(menu.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
 	if len(names) != 1 {
-		fs.Usage()
-		return 2
+		return helptext.FailUsage("vault set: usage: claude-code vault set [secrets] NAME")
 	}
-	return vaultSetSecret(names[0], *dryRun)
+	return vaultSetSecret(names[0], dryRun)
 }
 
 // vaultSetTailscaleInteractive asks which credential kind, then reads each value hidden.
@@ -206,7 +244,7 @@ func cmdVaultRotateSecret(args []string) int {
 // vaultList prints the selected sections (default all): secrets masked, then the vault's non-secret config.
 func vaultList(args []string) int {
 	fs := helptext.NewFlagSet("vault ls", helptext.Page{
-		Usage: "claude-code vault ls [<section>...|all]\n[--format text|json] [--tailscale]",
+		Usage: "claude-code vault ls [<section>...|all|overlays]\n[--format text|json] [--tailscale]",
 		About: "Print what the vault stores, secrets masked. Sections: " +
 			strings.Join(vaultdoc.Sections, ", ") + "; bare or all prints every one.",
 	})
@@ -216,15 +254,11 @@ func vaultList(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
+	if slices.Contains(names, "overlays") {
+		return vaultListOverlays(len(names) == 1 && !*ts && *format == "")
+	}
 	if *ts {
-		if len(names) > 0 {
-			return vaultUsageErr("ls", names)
-		}
-		if *format != "" {
-			return helptext.FailUsage("vault ls: --format does not apply with --tailscale")
-		}
-		vaultdoc.Tailscale(os.Stdout)
-		return 0
+		return vaultListTailscale(names, *format)
 	}
 	sel, err := vaultdoc.Select(names)
 	if err != nil {
@@ -239,6 +273,26 @@ func vaultList(args []string) int {
 		return helptext.Fail("vault ls: %v", err)
 	}
 	return 0
+}
+
+// vaultListTailscale is `vault ls --tailscale`: credential presence, no sections and no --format.
+func vaultListTailscale(names []string, format string) int {
+	if len(names) > 0 {
+		return vaultUsageErr("ls", names)
+	}
+	if format != "" {
+		return helptext.FailUsage("vault ls: --format does not apply with --tailscale")
+	}
+	vaultdoc.Tailscale(os.Stdout)
+	return 0
+}
+
+// vaultListOverlays is `vault ls overlays`, valid only alone and without flags.
+func vaultListOverlays(alone bool) int {
+	if !alone {
+		return helptext.FailUsage("vault ls: overlays takes no other section or flag")
+	}
+	return vaultOverlayList()
 }
 
 // listFormat is format, or text on a terminal and json otherwise.
@@ -376,23 +430,49 @@ func vaultGetKey(secret bool) int {
 	return helptext.PrintSecrets("vault get --key", secret, helptext.Secret{Value: k.Raw()})
 }
 
-// cmdVaultDelete removes NAME from the vault.
-func cmdVaultDelete(args []string) int {
-	fs := helptext.NewFlagSet("vault delete", helptext.Page{
-		Usage: "claude-code vault delete NAME",
-		About: "Remove a secret from the vault.",
+// cmdVaultRm removes one NAME from a section: a sealed secret, an env value or an overlay document.
+func cmdVaultRm(args []string) int {
+	fs := helptext.NewFlagSet("vault rm", helptext.Page{
+		Usage: "claude-code vault rm <secrets|env|overlay> [flags] NAME",
+		About: "Remove a sealed secret, an env value or an overlay document.",
 	})
-	names, err := helptext.ParseArgs(fs, args)
+	dryRun := fs.Bool("dry-run", false, "report what would be removed; write nothing")
+	yes := fs.Bool("yes", false, "env, overlay: remove without asking; required off a terminal")
+	fs.BoolVar(yes, "y", false, "same as --yes")
+	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(names) != 1 {
+	if len(words) != 2 || !slices.Contains(vaultWriteSections, words[0]) {
 		fs.Usage()
 		return 2
 	}
-	name := names[0]
+	name := words[1]
+	switch words[0] {
+	case "env":
+		return vaultEnvUnset(name, *dryRun, *yes)
+	case "overlay":
+		return vaultOverlayUnset(name, *dryRun, *yes)
+	}
+	return vaultRmSecret(name, *dryRun)
+}
+
+// vaultRmSecret removes one sealed secret; --dry-run only checks it is stored.
+func vaultRmSecret(name string, dryRun bool) int {
+	if dryRun {
+		names, err := vault.NamesErr()
+		if err != nil {
+			return helptext.Fail("vault rm: %v", err)
+		}
+		verb := "removed"
+		if !slices.Contains(names, name) {
+			verb = "left (not stored)"
+		}
+		fmt.Printf("dry run: %s would be %s; nothing written\n", name, verb)
+		return 0
+	}
 	if err := vault.Remove(name); err != nil {
-		return helptext.Fail("vault delete: %v", err)
+		return helptext.Fail("vault rm: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "deleted %s\n", name)
 	return 0

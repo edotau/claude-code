@@ -145,8 +145,10 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 // A prefix guard rule (Bash(x:*)) is not expressible as an agy exact-match deny and is skipped.
 func TestGeminiSettingsSkipsPrefixRules(t *testing.T) {
 	home := agenttest.Scratch(t)
-	overlay := `{"guardRules":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"]}}`
-	vaulttest.Put(t, vault.Overlay, "agents", overlay)
+	live := `{"permissions":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"]}}`
+	if err := os.WriteFile(settings.SettingsFile(), []byte(live), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"gemini"}}); err != nil {

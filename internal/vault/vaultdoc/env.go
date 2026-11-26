@@ -44,7 +44,7 @@ func checkEnvSet(name, value string) error {
 	}
 	switch {
 	case value == "":
-		return fmt.Errorf("%s: empty value; `vault env unset %s` removes it", name, name)
+		return fmt.Errorf("%s: empty value; `vault rm env %s` removes it", name, name)
 	case secretEnvName(name):
 		return fmt.Errorf("%s is a secret name; the env bucket is not sealed, use `claude-code vault set %s`", name, name)
 	case providers.LooksLikeSecret(value):

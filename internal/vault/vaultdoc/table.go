@@ -37,12 +37,10 @@ func Width() int {
 func Text(doc Doc, stored []vault.Stored, sel []string, width int, color bool) string {
 	render := map[string]func() string{
 		"secrets":   func() string { return vaultSecretsText(stored, width) },
-		"pins":      func() string { return vaultSection("PINS", vaultMapRows(doc.Pins), width) },
 		"env":       func() string { return vaultSection("ENV", EnvRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
 		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
 		"agents":    func() string { return vaultAgentsText(doc.Agents, width, color) },
-		"settings":  func() string { return vaultSection("SETTINGS", vaultFlattenSection(doc.Settings), width) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
 	var b strings.Builder
@@ -71,7 +69,7 @@ func emptySection(out string) bool {
 	return body == "  (none)\n"
 }
 
-// vaultMapRows sorts a pins/env map into rows by key.
+// vaultMapRows sorts an env map into rows by key.
 func vaultMapRows(m map[string]string) [][2]string {
 	keys := slices.Sorted(maps.Keys(m))
 	rows := make([][2]string, len(keys))
@@ -146,7 +144,7 @@ func vaultFlattenValue(prefix string, v any) [][2]string {
 	return rows
 }
 
-// Key/value sections (PINS, ENV, ROUTING, SETTINGS, AGENTS, VAULT) clip a longer key or value with "…".
+// Key/value sections (ENV, ROUTING, AGENTS, VAULT) clip a longer key or value with "…".
 const (
 	kvKeyMax   = 24
 	kvValueMax = 48

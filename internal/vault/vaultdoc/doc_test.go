@@ -18,7 +18,7 @@ func exportTestDoc(t *testing.T) []byte {
 }
 
 func TestExportEmpty(t *testing.T) {
-	const want = "{\n  \"pins\": {},\n  \"env\": {},\n  \"providers\": null,\n  \"agents\": null,\n  \"settings\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
+	const want = "{\n  \"env\": {},\n  \"providers\": null,\n  \"agents\": null,\n  \"vault\": {\n    \"key_command\": \"\"\n  }\n}\n"
 	for _, created := range []bool{false, true} {
 		name := "missing"
 		if created {

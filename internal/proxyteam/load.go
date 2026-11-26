@@ -68,7 +68,7 @@ func Parse(def, overlay []byte) (Config, []Problem) {
 }
 
 // overlayHint names where an overlay problem comes from and how to clear it.
-const overlayHint = " (vault overlay proxy-teams; remove: claude-code vault overlay unset proxy-teams --yes)"
+const overlayHint = " (vault overlay proxy-teams; remove: claude-code vault rm overlay proxy-teams --yes)"
 
 // markOverlay tags each problem on an overlay team, or on the config as a whole, with its source.
 func markOverlay(ps []Problem, overlay []Team) []Problem {

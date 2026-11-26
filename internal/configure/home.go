@@ -273,7 +273,7 @@ func confirmAndRender(w io.Writer, agents string, forceHomes bool) error {
 	return prepared.Apply()
 }
 
-// Revert is `configure --revert [--agent a,b] [--dry-run]`.
+// Revert is `configure revert [--agent a,b] [--dry-run]`.
 func Revert(w io.Writer, agents string, dryRun bool) error {
 	return agent.RevertConfigs(agentconfig.RenderOptions{Agents: textutil.SplitCSV(agents), DryRun: dryRun, Out: w})
 }

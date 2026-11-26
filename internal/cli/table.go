@@ -91,8 +91,8 @@ func buildCommands() []command {
 		}, spec: usagecmd.Spec},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install claude-code and agent links; seed settings.json", run: setup.RunInstall, spec: setup.InstallSpec},
-		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure, spec: configureSpec},
-		{name: "theme", group: groupSettings, hidden: true, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
+		{name: "theme", group: groupSettings, hidden: true, summary: "status line renderer (settings.json runs it)", run: cmdThemeStatusline, spec: themeStatuslineSpec},
+		{name: "configure", group: groupSettings, summary: "guided setup; restore resets settings.json", run: cmdConfigure, spec: configureSpec},
 	}, hiddenCommands()...)
 }
 
@@ -309,7 +309,7 @@ func jsonErrorsFor(name string, args []string) bool {
 }
 
 // retiredVerbs maps a removed verb to its new home for the unknown-command message.
-var retiredVerbs = map[string]string{"scm": "worktree -h", "history": "configure --history"}
+var retiredVerbs = map[string]string{"scm": "worktree -h", "history": "configure history -h"}
 
 // runRouted handles --host (verb over ssh on a tailnet host) and --remote (egress via an ssh host).
 func runRouted(argv []string, name string) (code int, ok bool) {

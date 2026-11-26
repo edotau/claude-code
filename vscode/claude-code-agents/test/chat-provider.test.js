@@ -54,7 +54,7 @@ test('models come from the harness command and carry its limits', async () => {
   const { provider, runs } = setup([]);
   const infos = await provider.provideLanguageModelChatInformation();
   await provider.provideLanguageModelChatInformation();
-  assert.deepEqual(runs, ['configure --vscode --print'], 'listed once per session');
+  assert.deepEqual(runs, ['configure vscode --dry-run --format json'], 'listed once per session');
   assert.equal(infos[0].id, 'dev:databricks-gpt-x');
   assert.equal(infos[0].maxInputTokens, 200000);
   assert.equal(infos[0].capabilities.toolCalling, true);

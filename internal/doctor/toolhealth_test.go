@@ -202,7 +202,7 @@ func TestCodeModeDoctorRows(t *testing.T) {
 	got = rows()
 	expect(got, "code mode env claude", true, "ok")
 	expect(got, "code mode env opencode", false, "warn drift: OPENCODE_EXPERIMENTAL_CODE_MODE")
-	expect(got, "vault env PI_CODEMODE", false, "claude-code vault env unset PI_CODEMODE --yes")
+	expect(got, "vault env PI_CODEMODE", false, "claude-code vault rm env PI_CODEMODE --yes")
 }
 
 // writeFakeCLI puts an executable named name in dir that mentions the code-mode variable (none when mention is empty).

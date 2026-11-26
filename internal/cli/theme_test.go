@@ -118,7 +118,7 @@ func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
-	if !strings.Contains(out, "usage: claude-code configure --theme") || strings.Contains(out, "PALETTES") {
+	if !strings.Contains(out, "usage: claude-code configure theme") || strings.Contains(out, "PALETTES") {
 		t.Errorf("bare theme must print usage only; palettes belong to --palettes:\n%s", out)
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
@@ -183,6 +183,22 @@ func TestThemeStatuslineRendersFromStdin(t *testing.T) {
 	}
 }
 
+func TestTopLevelThemeStatuslineStillRenders(t *testing.T) {
+	hermeticTheme(t)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.WriteString("{}")
+	w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = old }()
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"claude-code", "theme", "statusline"}) }); code != 0 {
+		t.Fatalf("theme statusline with {} exit %d, want 0", code)
+	}
+}
+
 func TestThemeStatuslineBadFlagExitsTwo(t *testing.T) {
 	hermeticTheme(t)
 	code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"statusline", "--nope"}) })
@@ -201,7 +217,7 @@ func TestThemeStatuslineStyleHelpAndCompletionListEveryStyle(t *testing.T) {
 			t.Errorf("statusline help missing style %q: %q", style, stderr)
 		}
 	}
-	got := candidates("theme", "statusline", "--style", "")
+	got := candidates("configure", "theme", "statusline", "--style", "")
 	for _, style := range statusline.Styles {
 		if !slices.Contains(got, style) {
 			t.Errorf("style completion missing %q: %v", style, got)
@@ -209,9 +225,9 @@ func TestThemeStatuslineStyleHelpAndCompletionListEveryStyle(t *testing.T) {
 	}
 }
 
-func TestThemeVSCodeDispatchesToVSCode(t *testing.T) {
+func TestConfigureVSCodeDispatchesToVSCode(t *testing.T) {
 	hermeticTheme(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"vscode", "--bogus-flag"}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdConfigure([]string{"vscode", "--bogus-flag"}) })
 	if code != 2 {
 		t.Errorf("exit %d, want 2 (flag parse error from vscode.Run)", code)
 	}

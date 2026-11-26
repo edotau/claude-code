@@ -108,9 +108,12 @@ func TestCmdVault(t *testing.T) {
 		{"finalize is unknown", []string{"finalize"}, 2, ""},
 		{"rollback is unknown", []string{"rollback"}, 2, ""},
 		{"rotate-secret extra arg", []string{"rotate-secret", "x"}, 2, ""},
+		{"delete removed", []string{"delete", "X"}, 2, "vault rm secrets"},
+		{"env removed", []string{"env", "set", "X", "y"}, 2, "vault set env"},
+		{"overlay removed", []string{"overlay", "ls"}, 2, "vault ls overlays"},
 		{"rotate-key removed", []string{"rotate-key"}, 2, ""},
 		{"key removed", []string{"key", "show"}, 2, ""},
-		{"set bare", []string{"set"}, 2, "usage: claude-code vault set [NAME]"},
+		{"set bare", []string{"set"}, 2, "claude-code vault set [secrets]"},
 		{"set NAME --tailscale", []string{"set", "VAULT_TEST_DUMMY", "--tailscale"}, 2, ""},
 		{"export to stdout", []string{"export", "--out", "-"}, 2, "vault get"},
 		{"get --key with a name", []string{"get", "--key", "ALPHA"}, 2, ""},
@@ -351,7 +354,7 @@ func TestVaultSetRefusesMalformedShape(t *testing.T) {
 
 func TestVaultStorageHelpPrintsUsage(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	for _, op := range []string{"set", "get", "delete", "import", "export"} {
+	for _, op := range []string{"set", "get", "rm", "import", "export"} {
 		code, stdout, stderr := vaultRun(t, op, "-h")
 		if code != 0 || !strings.Contains(stderr, "usage: claude-code vault "+op) || stdout != "" {
 			t.Errorf("vault %s -h: want usage + exit 0 and no op output, got exit %d", op, code)
@@ -381,11 +384,11 @@ func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 	}
 }
 
-func TestVaultDeleteStoredSecret(t *testing.T) {
+func TestVaultRmStoredSecret(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	const value = "obviously-fake-delete"
 	vaultStore(t, "VAULT_TEST_DUMMY", value)
-	code, stdout, stderr := vaultRun(t, "delete", "VAULT_TEST_DUMMY")
+	code, stdout, stderr := vaultRun(t, "rm", "secrets", "VAULT_TEST_DUMMY")
 	if code != 0 || len(vault.Names()) != 0 {
 		t.Fatalf("delete: exit %d, stored names=%v", code, vault.Names())
 	}
@@ -572,9 +575,9 @@ func TestVaultListSections(t *testing.T) {
 			if bare != run("all") {
 				t.Error("all differs from bare list")
 			}
-			filtered := run("PINS", "SeCrEtS", "pins")
+			filtered := run("ENV", "SeCrEtS", "env")
 			if format == "json" {
-				checkFilteredJSON(t, filtered, run("pins"))
+				checkFilteredJSON(t, filtered, run("env"))
 				return
 			}
 			checkFilteredText(t, bare, filtered)
@@ -588,29 +591,29 @@ func TestVaultListSections(t *testing.T) {
 	}
 }
 
-// checkFilteredJSON asserts the secrets+pins selection holds exactly those keys and pins-only omits secrets.
-func checkFilteredJSON(t *testing.T, filtered, pinsOnly string) {
+// checkFilteredJSON asserts the secrets+env selection holds exactly those keys and env-only omits secrets.
+func checkFilteredJSON(t *testing.T, filtered, envOnly string) {
 	t.Helper()
 	var doc map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(filtered), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if len(doc) != 2 || doc["secrets"] == nil || doc["pins"] == nil {
-		t.Error("filtered JSON must contain only secrets and pins")
+	if len(doc) != 2 || doc["secrets"] == nil || doc["env"] == nil {
+		t.Error("filtered JSON must contain only secrets and env")
 	}
 	doc = nil
-	if err := json.Unmarshal([]byte(pinsOnly), &doc); err != nil {
+	if err := json.Unmarshal([]byte(envOnly), &doc); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := doc["secrets"]; ok {
-		t.Error("pins-only JSON includes secrets")
+		t.Error("env-only JSON includes secrets")
 	}
 }
 
-// checkFilteredText asserts bare text lists sections in canonical order and filtered text keeps only SECRETS and PINS.
+// checkFilteredText asserts bare text lists sections in canonical order and filtered text keeps only SECRETS and ENV.
 func checkFilteredText(t *testing.T, bare, filtered string) {
 	t.Helper()
-	order := []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"}
+	order := []string{"SECRETS", "ENV", "PROVIDERS", "VAULT"}
 	var headings []string
 	for line := range strings.SplitSeq(bare, "\n") {
 		if slices.Contains(order, line) {
@@ -620,7 +623,7 @@ func checkFilteredText(t *testing.T, bare, filtered string) {
 	if !slices.Equal(headings, order) {
 		t.Errorf("section order = %v", headings)
 	}
-	if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nPINS\n") {
+	if !strings.HasPrefix(filtered, "SECRETS\n") || !strings.Contains(filtered, "\nENV\n") {
 		t.Error("filtered sections must retain canonical order")
 	}
 	for _, head := range order[2:] {
@@ -793,12 +796,10 @@ func checkSecretRow(t *testing.T, row map[string]json.RawMessage) {
 // Seed every config section and a fake secret that must only appear masked.
 func seedVaultListFixture(t *testing.T) {
 	t.Helper()
-	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	vaulttest.Put(t, vault.Env, "KEEP_ENV", "keepvalue")
 	vaulttest.Put(t, vault.Overlay, "providers",
 		`{"default":"anthropic","fallback":["one","two"],"providers":{"openai":null,"anthropic":{"custom":{"models":{"opus":"m1"}}}}}`)
 	vaulttest.Put(t, vault.Overlay, "agents", `{}`)
-	vaulttest.Put(t, vault.Overlay, "settings", `{"env":{"FOO":"bar"},"flag":true}`)
 	vaulttest.Put(t, vault.Meta, "key_command", `["pass","show","x"]`)
 	vaulttest.Secret(t, "TAVILY_API_KEY", vaultLeakSecret)
 }
@@ -814,18 +815,15 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault ls --format text = %d, stderr = %q", code, stderr)
 	}
-	for _, head := range []string{"PINS", "ENV", "PROVIDERS", "SETTINGS", "VAULT"} {
+	for _, head := range []string{"ENV", "PROVIDERS", "VAULT"} {
 		if !strings.Contains(stdout, head+"\n") {
 			t.Errorf("stdout missing heading %q; stdout = %q", head, stdout)
 		}
 	}
 	for _, tc := range []struct{ key, value string }{
-		{"HARNESS_PROVIDER", "anthropic"}, // PINS
-		{"KEEP_ENV", "keepvalue"},         // ENV
-		{"default", "anthropic"},          // PROVIDERS top-level sibling of providers.*
+		{"KEEP_ENV", "keepvalue"}, // ENV
+		{"default", "anthropic"},  // PROVIDERS top-level sibling of providers.*
 		{"fallback", "one → two"},
-		{"env.FOO", "bar"},                     // SETTINGS nested
-		{"flag", "true"},                       // SETTINGS scalar
 		{"key_command", `["pass","show","x"]`}, // VAULT
 	} {
 		if !vaultTextHasRow(stdout, tc.key, tc.value) {
@@ -861,7 +859,7 @@ func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vault ls <sections> = %d, stderr = %q", code, stderr)
 	}
-	for _, head := range []string{"SECRETS", "PINS", "ENV", "PROVIDERS", "SETTINGS"} {
+	for _, head := range []string{"SECRETS", "ENV", "PROVIDERS"} {
 		if !strings.Contains(stdout, head+"\n  (none)\n") {
 			t.Errorf("stdout = %q, want %s rendered as (none)", stdout, head)
 		}

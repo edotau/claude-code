@@ -1,5 +1,5 @@
 'use strict';
-// Databricks models in VS Code's picker via the loopback proxy's chat/completions; list from `configure --vscode --print`.
+// Databricks models in VS Code's picker via the loopback proxy's chat/completions; list from `configure vscode --dry-run --format json`.
 const vscode = require('vscode');
 
 const VENDOR = 'claude-code-databricks';
@@ -179,7 +179,7 @@ class ChatProvider {
   }
 
   async load() {
-    const raw = JSON.parse(await this.run(['configure', '--vscode', '--print'])).profiles || [];
+    const raw = JSON.parse(await this.run(['configure', 'vscode', '--dry-run', '--format', 'json'])).profiles || [];
     const models = new Map();
     for (const p of raw) {
       for (const m of p.models || []) models.set(`${p.profile}:${m.id}`, { ...m, profile: p.profile, base: p.base });

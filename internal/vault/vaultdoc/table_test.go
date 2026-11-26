@@ -3,7 +3,6 @@ package vaultdoc
 import (
 	"encoding/json"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -14,15 +13,8 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
-
-// textHasRow reports whether the rendered table has a row for key with exactly value, tolerant of padding.
-func textHasRow(stdout, key, value string) bool {
-	re := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(key) + `\s\s+` + regexp.QuoteMeta(value) + `$`)
-	return re.MatchString(stdout)
-}
 
 // TestVaultProvidersGroupsPresetRows: preset rows collapse into one row listing each env with its credential mark.
 func TestVaultProvidersGroupsPresetRows(t *testing.T) {
@@ -36,11 +28,10 @@ func TestVaultProvidersGroupsPresetRows(t *testing.T) {
 	}
 }
 
-// TestVaultAgentsTableSpansRecordsToText: agent records fold into one AGENT table once, loose pins stay under PINS.
+// TestVaultAgentsTableSpansRecordsToText: agent records fold into one AGENT table once.
 func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("COLUMNS", "200")
-	vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "anthropic")
 	for _, r := range [][3]string{
 		{"claude", "profile", "dev"}, {"claude", "model", "sonnet"}, {"claude", "aliases.opus", "opus-x"},
 		{"codex", "profile", "copilot"}, {"codex", "effort", "high"},
@@ -48,7 +39,7 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 		vaulttest.SetRecord(t, r[0], r[1], r[2])
 	}
 	doc := exportDoc(t)
-	text := Text(doc, nil, []string{"pins", "agents"}, 200, false)
+	text := Text(doc, nil, []string{"agents"}, 200, false)
 	flat := strings.Join(strings.Fields(text), " ")
 	for _, want := range []string{"AGENT PROFILE MODEL EFFORT", "claude dev sonnet opus=opus-x", "codex copilot high", "gemini (off)"} {
 		if !strings.Contains(flat, want) {
@@ -57,10 +48,6 @@ func TestVaultAgentsTableSpansRecordsToText(t *testing.T) {
 	}
 	if strings.Contains(text, "AGENTS") || strings.Contains(text, "records") || strings.Count(text, "opus-x") != 1 {
 		t.Errorf("records repeated outside the table:\n%s", text)
-	}
-	pinsBlock, _, _ := strings.Cut(text, "AGENT")
-	if !strings.Contains(pinsBlock, "PINS\n") || !textHasRow(pinsBlock, "HARNESS_PROVIDER", "anthropic") {
-		t.Errorf("PINS must hold the non-agent pin:\n%s", pinsBlock)
 	}
 	if colored := Text(doc, nil, []string{"agents"}, 200, true); !strings.Contains(colored, ansi.Dim+"  gemini") {
 		t.Errorf("off agent with no other fields not dimmed:\n%q", colored)

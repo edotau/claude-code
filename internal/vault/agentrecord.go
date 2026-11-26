@@ -59,6 +59,21 @@ func (r AgentRecord) IsZero() bool {
 	return r.Model+r.Effort+r.Context == ""
 }
 
+// Settings is r as route.AgentSettings: model_verbosity rides as Verbosity, config_route "session" as ConfigRoute.
+func (r AgentRecord) Settings() route.AgentSettings {
+	s := route.AgentSettings{Model: r.Model, Effort: r.Effort, Context: r.Context, Verbosity: r.Extras["model_verbosity"]}
+	if !r.Route.IsZero() {
+		s.Route = &r.Route
+	}
+	if !r.FallbackRoute.IsZero() {
+		s.FallbackRoute = &r.FallbackRoute
+	}
+	if r.Extras["config_route"] == route.ConfigRouteSession {
+		s.ConfigRoute = &route.ConfigRoute{Session: true}
+	}
+	return s
+}
+
 // EffectiveRoute is the stored dispatch route.
 func (r AgentRecord) EffectiveRoute() route.Route { return r.Route }
 

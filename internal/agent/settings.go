@@ -107,7 +107,7 @@ func validateRecord(agentName string, r vault.AgentRecord) (Settings, error) {
 	if !agentid.Known(agentName) {
 		return st, fmt.Errorf("unknown agent %q (%s)", agentName, strings.Join(agentid.All(), "|"))
 	}
-	if err := agentid.ValidEffort(agentName, r.Effort); err != nil {
+	if err := r.Settings().Validate(); err != nil {
 		return st, err
 	}
 	for _, f := range recordFieldOwners {

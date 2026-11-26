@@ -33,7 +33,7 @@ claude-code doctor  # checks binaries, providers, credentials and the proxy
 host tools that are missing (never updating one already present) and three pinned linters (`DEV_TOOLS=0` skips them),
 plus the pinned `typos` spell checker for changed Markdown; it runs no root command. It refuses a dirty tracked tree
 (`FORCE=1` overrides). `claude-code install --dry-run`
-previews all of it. `claude-code configure --restore` resets `settings.json` to the template (a backup is written
+previews all of it. `claude-code configure restore` resets `settings.json` to the template (a backup is written
 first). Deleting the clone leaves behind the agent CLIs and host tools it installed, the files `agents sync` wrote into
 each agent CLI's home, the vault key in the OS keyring and, on a Mac, the clipboard launch agent. Fresh machine,
 existing `~/.claude` and every install option: [`rules/harness/commands.md`](rules/harness/commands.md).

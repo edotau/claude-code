@@ -21,7 +21,7 @@ func reportMerge(label, dest string, result mergeResult) {
 
 // Run merges the settings and keybindings templates, drops the retired chat groups and links the Agents extension.
 func Run(args []string) int {
-	fs := helptext.NewFlagSet("theme vscode", helptext.Page{Usage: "claude-code theme vscode [flags]",
+	fs := helptext.NewFlagSet("configure vscode", helptext.Page{Usage: "claude-code configure vscode [flags]",
 		About: "Merge embedded templates into VS Code's settings.json and keybindings.\n" +
 			"settings.json is the User scope, which Settings Sync syncs; under\n" +
 			"~/.vscode-server it is the Machine scope, which Settings Sync skips.\n" +
@@ -29,14 +29,14 @@ func Run(args []string) int {
 			"Link the Claude Code Agents extension into the detected extensions directory.\n" +
 			"Remove the Databricks groups an older run wrote into chatLanguageModels.json."})
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
-	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
-	printModelsJSON := fs.Bool("print", false, "print the Databricks chat models as JSON, write nothing (not with --check or --dry-run)")
+	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (--format json: print the chat models as JSON)")
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *printModelsJSON {
-		if *check || *dryRun || fs.NArg() > 0 {
-			return helptext.Fail("theme vscode: --print takes no other flag or argument")
+	if *format == helptext.JSON {
+		if !*dryRun || *check || fs.NArg() > 0 {
+			return helptext.Fail("configure vscode: --format json needs --dry-run alone")
 		}
 		if err := printModels(os.Stdout); err != nil {
 			return helptext.Fail("vscode: %v", err)
@@ -44,7 +44,7 @@ func Run(args []string) int {
 		return 0
 	}
 	if fs.NArg() > 0 { // a stray argument must not fall through to a merge
-		return helptext.Fail("theme vscode: unexpected argument %q", fs.Arg(0))
+		return helptext.Fail("configure vscode: unexpected argument %q", fs.Arg(0))
 	}
 	return vscodeSync(syncOptions{}, *check, *dryRun)
 }
@@ -52,7 +52,7 @@ func Run(args []string) int {
 // vscodeSync runs the merge and reports it: drift check (exit 1 on drift), dry-run preview, or apply.
 func vscodeSync(o syncOptions, check, dryRun bool) int {
 	if check && dryRun {
-		fmt.Fprintln(os.Stderr, "claude-code: theme vscode --check and --dry-run are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "claude-code: configure vscode --check and --dry-run are mutually exclusive")
 		return 2
 	}
 	o.Check = check || dryRun
@@ -150,7 +150,7 @@ func reportDryRun(label, dest string, changed bool) {
 	}
 }
 
-// Spec is the completion node for `theme vscode`.
+// Spec is the completion node for `configure vscode`.
 func Spec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("print")}}
+	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("dry-run"), helptext.Plain("format")}}
 }

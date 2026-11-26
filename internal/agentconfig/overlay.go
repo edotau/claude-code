@@ -19,7 +19,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -71,10 +70,9 @@ var routeKeys = []routeKey{
 		"unknown (" + strings.Join(providers.ProviderKeys(), "|") + ")"},
 	{"profile", "", func(o Overlay) string { return o.Profile }, nil, ""},
 	{"model", "model", func(o Overlay) string { return o.Model }, nil, ""},
-	{"effort", "effort", func(o Overlay) string { return o.Effort }, in(agentid.EffortNames()), "want one of " + strings.Join(agentid.EffortNames(), ", ")},
-	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, in(route.FallbackModes),
-		"want " + strings.Join(route.FallbackModes, ", ")},
-	{"runner", "runner", func(o Overlay) string { return o.Runner }, in(route.Runners), "want " + strings.Join(route.Runners, ", ")},
+	{"effort", "effort", func(o Overlay) string { return o.Effort }, nil, ""},
+	{"fallback", "fallback", func(o Overlay) string { return o.Fallback }, nil, ""},
+	{"runner", "runner", func(o Overlay) string { return o.Runner }, nil, ""},
 	{"host", "host", func(o Overlay) string { return o.Host }, sshHost, "not a valid ssh host"},
 	{"remote", "", func(o Overlay) string { return o.Remote }, sshHost, "not a valid ssh host"},
 	{"account", "", func(o Overlay) string { return o.Account }, nil, ""},
@@ -466,7 +464,16 @@ func (o Overlay) checkRouting() error {
 			return err
 		}
 	}
-	return o.checkCrossKeys()
+	return cmp.Or(o.Settings().Validate(), o.checkCrossKeys())
+}
+
+// Settings is the overlay's shared-shape fields as route.AgentSettings; route.AgentSettings.Validate checks the enums.
+func (o Overlay) Settings() route.AgentSettings {
+	s := route.AgentSettings{Model: o.Model, Effort: o.Effort, FallbackMode: o.Fallback, Runner: o.Runner}
+	if !o.IsZero() {
+		s.Route = &o.routeUnit
+	}
+	return s
 }
 
 func (k routeKey) check(v string) error {

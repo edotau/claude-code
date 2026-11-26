@@ -238,12 +238,8 @@ func assertFoldRepoint(t *testing.T, kind string, folded bool, out string) {
 		(r.EffectiveFallbackRoute().Profile != "dev" || r.Model != "dev:m1" || r.Aliases["opus"] != "dev:m2" || !strings.Contains(out, "agent claude fallback")) {
 		t.Fatalf("agent refs not re-pointed: %+v\n%s", r, out)
 	}
-	if kind == "pin" {
-		var v string
-		_ = vault.View(func(tx *vault.Tx) error { v, _ = tx.Get(vault.Pins, "PROFILE"); return nil })
-		if v != "dev" {
-			t.Fatalf("PROFILE pin = %q, want dev", v)
-		}
+	if kind == "pin" && strings.Contains(out, "pin PROFILE") {
+		t.Fatalf("legacy pins bucket was re-pointed; want it ignored: %s", out)
 	}
 }
 

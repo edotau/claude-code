@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// vault overlay unset: off a terminal it needs --yes, --dry-run writes nothing, an unknown key is refused.
+// vault rm overlay: off a terminal it needs --yes, --dry-run writes nothing, an unknown key is refused.
 func TestVaultOverlayUnset(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "proxy-teams", `{"schema":1}`)
@@ -27,24 +27,24 @@ func TestVaultOverlayUnset(t *testing.T) {
 		out  string
 		left bool
 	}{
-		{[]string{"unset", "providers", "--yes"}, 1, "not a removable overlay key", true},
-		{[]string{"unset", "proxy-teams"}, 2, "pass --yes", true},
-		{[]string{"unset", "--dry-run", "proxy-teams"}, 0, "would be removed", true},
-		{[]string{"ls"}, 0, "proxy-teams  12 bytes", true},
-		{[]string{"unset", "--yes", "proxy-teams"}, 0, "overlay proxy-teams removed (was 12 bytes)", false},
-		{[]string{"unset", "--yes", "proxy-teams"}, 0, "not set; nothing written", false},
+		{[]string{"rm", "overlay", "providers", "--yes"}, 1, "not a removable overlay key", true},
+		{[]string{"rm", "overlay", "proxy-teams"}, 2, "pass --yes", true},
+		{[]string{"rm", "overlay", "--dry-run", "proxy-teams"}, 0, "would be removed", true},
+		{[]string{"ls", "overlays"}, 0, "proxy-teams  12 bytes", true},
+		{[]string{"rm", "overlay", "--yes", "proxy-teams"}, 0, "overlay proxy-teams removed (was 12 bytes)", false},
+		{[]string{"rm", "overlay", "--yes", "proxy-teams"}, 0, "not set; nothing written", false},
 	} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay(c.args) })
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(c.args) })
 		var left bool
 		_ = vault.View(func(tx *vault.Tx) error { _, left = tx.Get(vault.Overlay, "proxy-teams"); return nil })
 		if code != c.code || left != c.left || !strings.Contains(stdout+stderr, c.out) {
-			t.Errorf("vault overlay %v: exit %d left %v output %q; want exit %d left %v containing %q",
+			t.Errorf("vault %v: exit %d left %v output %q; want exit %d left %v containing %q",
 				c.args, code, left, stdout+stderr, c.code, c.left, c.out)
 		}
 	}
 }
 
-// vault overlay set: an over-cap proxy-teams document is refused and nothing is written.
+// vault set overlay: an over-cap proxy-teams document is refused and nothing is written.
 func TestVaultOverlaySetRefusesOverCap(t *testing.T) {
 	vaulttest.Use(t)
 	doc := filepath.Join(t.TempDir(), "teams.json")
@@ -53,7 +53,7 @@ func TestVaultOverlaySetRefusesOverCap(t *testing.T) {
 	if err := os.WriteFile(doc, []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay([]string{"set", "proxy-teams", "--file", doc}) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"set", "overlay", "proxy-teams", "--file", doc}) })
 	var stored bool
 	_ = vault.View(func(tx *vault.Tx) error { _, stored = tx.Get(vault.Overlay, "proxy-teams"); return nil })
 	if code == 0 || stored || !strings.Contains(stderr, "nothing written") {
@@ -77,7 +77,7 @@ func TestVaultOverlaySetRefusesMalformed(t *testing.T) {
 			for _, prior := range []string{"", "previous-value"} {
 				vaulttest.Put(t, vault.Overlay, c.key, prior)
 				code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-					return cmdVaultOverlay([]string{"set", c.key, "--file", doc})
+					return cmdVault([]string{"set", "overlay", c.key, "--file", doc})
 				})
 				if code != 1 || stdout != "" || !strings.Contains(stderr, "nothing written") || strings.Contains(stderr, "private-value") {
 					t.Fatalf("exit=%d stdout=%q stderr=%q; want a value-free refusal", code, stdout, stderr)
@@ -104,7 +104,7 @@ func TestVaultOverlaySetAgentRecordsShareValidator(t *testing.T) {
 		if err := os.WriteFile(f, []byte(doc), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay([]string{"set", "agent-records", "--file", f}) })
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault([]string{"set", "overlay", "agent-records", "--file", f}) })
 		if refused := code != 0; refused != wantErr || wantErr && !strings.Contains(stderr, want.Error()) {
 			t.Errorf("%s: exit %d stderr %q; want refused=%v naming %q", doc, code, stderr, wantErr, want)
 		}
@@ -127,7 +127,7 @@ func TestVaultOverlaySetStoresAndAudits(t *testing.T) {
 			}
 			for _, prior := range []string{"", c.doc} {
 				code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-					return cmdVaultOverlay([]string{"set", c.key, "--file", doc})
+					return cmdVault([]string{"set", "overlay", c.key, "--file", doc})
 				})
 				want := fmt.Sprintf("overlay %s set: %d -> %d bytes\n", c.key, len(prior), len(c.doc))
 				if code != 0 || stdout != "" || stderr != want {
@@ -158,7 +158,7 @@ func TestVaultOverlaySetStdin(t *testing.T) {
 	os.Stdin = f
 	t.Cleanup(func() { os.Stdin = old })
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVaultOverlay([]string{"set", "agent-records", "--file", "-"})
+		return cmdVault([]string{"set", "overlay", "agent-records", "--file", "-"})
 	})
 	if code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, stderr)
@@ -171,7 +171,7 @@ func TestVaultOverlaySetBackupAndUnknownRefused(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers.prev", "previous-value")
 	for _, key := range []string{"providers.prev", "private-value"} {
 		code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-			return cmdVaultOverlay([]string{"set", key, "--file", "does-not-exist"})
+			return cmdVault([]string{"set", "overlay", key, "--file", "does-not-exist"})
 		})
 		if code != 1 || stdout != "" || !strings.Contains(stderr, "no validator") || strings.Contains(stderr, "private-value") {
 			t.Errorf("key refusal: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -192,7 +192,7 @@ func TestVaultOverlaySetProvidersWarningsDoNotLeak(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVaultOverlay([]string{"set", "providers", "--file", doc})
+		return cmdVault([]string{"set", "overlay", "providers", "--file", doc})
 	})
 	if code != 0 || stdout != "" || stderr != fmt.Sprintf("overlay providers set: 0 -> %d bytes\n", len(raw)) {
 		t.Fatalf("provider collision warning leaked: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -200,8 +200,8 @@ func TestVaultOverlaySetProvidersWarningsDoNotLeak(t *testing.T) {
 }
 
 func TestVaultOverlayHelpWidth(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"set", "--help"}} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultOverlay(args) })
+	for _, args := range [][]string{{"set", "--help"}} {
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVault(args) })
 		if code != 0 {
 			t.Fatalf("help %v: exit=%d stderr=%q", args, code, stderr)
 		}
@@ -230,7 +230,7 @@ func TestVaultOverlaySetProvidersKeepsBackupAndAuthGuard(t *testing.T) {
 			t.Fatal(err)
 		}
 		code, _, stderr := hosttest.CaptureOutput(t, func() int {
-			return cmdVaultOverlay([]string{"set", "providers", "--file", doc})
+			return cmdVault([]string{"set", "overlay", "providers", "--file", doc})
 		})
 		if code != 0 {
 			t.Fatalf("exit=%d stderr=%q", code, stderr)
@@ -244,7 +244,7 @@ func TestVaultOverlaySetProvidersKeepsBackupAndAuthGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdVaultOverlay([]string{"set", "providers", "--file", doc})
+		return cmdVault([]string{"set", "overlay", "providers", "--file", doc})
 	})
 	if code != 1 || stdout != "" || !strings.Contains(stderr, "provider overlay change refused; nothing written") {
 		t.Fatalf("auth change: exit=%d stdout=%q stderr=%q", code, stdout, stderr)

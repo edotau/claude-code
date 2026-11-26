@@ -63,7 +63,7 @@
 <text x="22.0" y="635" fill="#8a7e90" font-weight="bold">SETTINGS</text>
 <text x="22.0" y="654" fill="#d7d4dc">  </text>
 <text x="38.8" y="654" fill="#fa6b9b" font-weight="bold">configure       </text>
-<text x="173.2" y="654" fill="#d7d4dc">guided setup; --restore resets settings.json</text>
+<text x="173.2" y="654" fill="#d7d4dc">guided setup; restore resets settings.json</text>
 <text x="22.0" y="673" fill="#d7d4dc">  </text>
 <text x="38.8" y="673" fill="#ff6b9d" font-weight="bold">install         </text>
 <text x="173.2" y="673" fill="#d7d4dc">install claude-code and agent links; seed settings.json</text>

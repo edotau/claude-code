@@ -193,7 +193,7 @@ func leftoverCodemodeDetail(env map[string]string) (pass bool, detail string) {
 	if _, ok := env[legacyCodemodeEnv]; !ok {
 		return true, "not set"
 	}
-	return false, "warn unread: renamed to " + rtkwrap.CodemodeEnv + "; run `claude-code vault env unset " +
+	return false, "warn unread: renamed to " + rtkwrap.CodemodeEnv + "; run `claude-code vault rm env " +
 		legacyCodemodeEnv + " --yes`"
 }
 

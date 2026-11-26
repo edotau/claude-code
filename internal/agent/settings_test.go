@@ -18,6 +18,42 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// A bad enum or budget is refused by the overlay and the record alike, naming the same field.
+func TestOverlayAndRecordShareSettingsValidation(t *testing.T) {
+	cases := []struct {
+		field, overlay string
+		rec            vault.AgentRecord
+	}{
+		{"fallback_mode", `{"fallback":"x"}`, vault.AgentRecord{}},
+		{"runner", `{"runner":"x"}`, vault.AgentRecord{}},
+		{"effort", `{"effort":"turbo"}`, vault.AgentRecord{Effort: "turbo"}},
+		{"verbosity", ``, vault.AgentRecord{Extras: map[string]string{"model_verbosity": "loud"}}},
+		{"budgetUSD", `{"budgetUSD":-1}`, vault.AgentRecord{}},
+	}
+	for _, c := range cases {
+		if c.overlay != "" {
+			if _, err := agentconfig.LoadOverlayContext(t.Context(), c.overlay, nil); !errMatches(err, c.field) {
+				t.Errorf("overlay %s: err = %v, want it to name %s", c.overlay, err, c.field)
+			}
+		}
+		if c.rec.IsZero() {
+			continue
+		}
+		if err := ValidateRecord("codex", c.rec); !errMatches(err, c.field) {
+			t.Errorf("record %s: err = %v, want it to name %s", c.field, err, c.field)
+		}
+	}
+	ok := `{"provider":"databricks","profile":"dev","model":"m","effort":"high","fallback":"pin","runner":"pi","budgetUSD":1}`
+	if _, err := agentconfig.LoadOverlayContext(t.Context(), ok, nil); err != nil {
+		t.Errorf("valid overlay refused: %v", err)
+	}
+	rec := vault.AgentRecord{Model: "m", Effort: "high", Route: route.Route{Provider: "databricks", Profile: "dev"},
+		Extras: map[string]string{"model_verbosity": "low", "config_route": "session"}}
+	if err := ValidateRecord("codex", rec); err != nil {
+		t.Errorf("valid record refused: %v", err)
+	}
+}
+
 // errMatches reports err against want: "" wants nil, anything else an error containing it.
 func errMatches(err error, want string) bool {
 	if want == "" {
@@ -46,10 +82,10 @@ func TestValidateRecord(t *testing.T) {
 		{"copilot", vault.AgentRecord{Effort: "high", Context: "1m", Route: route.Route{Provider: "github", Account: "octo"}}, ""},
 		{"gemini", vault.AgentRecord{Effort: "xhigh"}, ""},
 		{"opencode", vault.AgentRecord{Effort: "low"}, ""},
-		{"codex", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for codex`},
-		{"copilot", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for copilot`},
-		{"gemini", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for gemini`},
-		{"opencode", vault.AgentRecord{Effort: "turbo"}, `effort "turbo" for opencode`},
+		{"codex", vault.AgentRecord{Effort: "turbo"}, `effort: "turbo" is not one of`},
+		{"copilot", vault.AgentRecord{Effort: "turbo"}, `effort: "turbo" is not one of`},
+		{"gemini", vault.AgentRecord{Effort: "turbo"}, `effort: "turbo" is not one of`},
+		{"opencode", vault.AgentRecord{Effort: "turbo"}, `effort: "turbo" is not one of`},
 		{"claude", vault.AgentRecord{Context: "1m"}, "claude: context is copilot only"},
 		{"codex", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "codex: aliases is claude only"},
 		{"copilot", vault.AgentRecord{Aliases: map[string]string{"opus": "x"}}, "copilot: aliases is claude only"},
@@ -303,13 +339,13 @@ func TestBuiltinRecordsValidate(t *testing.T) {
 	}
 }
 
-// A bad legacy launch entry still reports the stored-record error and keeps the fallback env for every agent.
+// A bad stored launch entry reports the stored-record error and falls back to the built-in env for every agent.
 func TestResolveSettingsInvalidLegacyLaunchKeepsFallback(t *testing.T) {
 	for _, name := range agentid.All() {
 		t.Run(name, func(t *testing.T) {
 			vaulttest.Use(t)
-			vaulttest.Put(t, vault.Overlay, "agents", fmt.Sprintf(
-				`{"agents":{%q:{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://invalid.example","KEEP_ME=1"]}}}}`, name))
+			vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, fmt.Sprintf(
+				`{%q:{"launch":{"env":["COPILOT_PROVIDER_BASE_URL=https://invalid.example","KEEP_ME=1"]}}}`, name))
 			st, err := ResolveSettings(name, RunOptions{}, providers.Target{}, false)
 			if err == nil || !strings.Contains(err.Error(), name+" launch.env:") || st.Agent != name {
 				t.Fatalf("ResolveSettings: agent=%q err=%v; want fallback and launch.env error", st.Agent, err)
@@ -326,8 +362,8 @@ func TestResolveSettingsInvalidLegacyLaunchKeepsFallback(t *testing.T) {
 			route := "COPILOT_PROVIDER_BASE_URL=https://route.example"
 			env, _, _, cleanup, err := NewBaseEngine(name).RenderSettings(t.Context(), st, []string{route}, nil)
 			defer cleanup()
-			if err != nil || !slices.Contains(env, "KEEP_ME=1") || !slices.Contains(env, route) || len(env) != 2 {
-				t.Fatalf("fallback env=%d err=%v; want KEEP_ME and only the routed endpoint", len(env), err)
+			if err != nil || !slices.Contains(env, route) || len(env) != 1 {
+				t.Fatalf("fallback env=%d err=%v; want only the routed endpoint", len(env), err)
 			}
 		})
 	}

@@ -2,14 +2,11 @@ package agentconfig
 
 import (
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -23,106 +20,31 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
-func writeOverlay(t *testing.T, body string) {
-	t.Helper()
+// An old vault holding every removed section opens, lists, and resolves settings with those keys ignored.
+func TestRemovedSectionsIgnored(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "agents", body)
-}
-
-func TestConfigOverlayAbsent(t *testing.T) {
-	vaulttest.Use(t)
-	for _, existing := range []bool{false, true} {
-		if existing {
-			vaulttest.Put(t, vault.Env, "PLAIN", "value")
-		}
-		if _, err := configOverlay(); !errors.Is(err, fs.ErrNotExist) {
-			t.Errorf("OverlayDoc (existing vault %v) error = %v, want fs.ErrNotExist", existing, err)
-		}
+	removed := map[string]string{"settings": `{"flag":true}`, "codex-settings": `{"model_verbosity":"high"}`,
+		"agents": `{"guardRules":{"deny":["Bash(overlay)"]},"agents":{"codex":{"permission":{"approvalPolicy":"x"}}}}`}
+	for k, v := range removed {
+		vaulttest.Put(t, vault.Overlay, k, v)
 	}
-}
-
-// TestLoadMergesOverlayVendorWhole: an overlay vendor entry replaces the built-in whole (no field-level merge).
-func TestLoadMergesOverlayVendorWhole(t *testing.T) {
-	writeOverlay(t, `{"agents":{"opencode":{"permission":{"sandboxMode":"read-only"}}}}`)
+	vaulttest.Put(t, vault.Pins, "PROFILE", "dev")
+	var names []string
+	if err := vault.View(func(tx *vault.Tx) error { names = tx.Names(vault.Overlay); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != len(removed) {
+		t.Errorf("overlay names = %v, want the %d seeded keys listed", names, len(removed))
+	}
+	got, err := Settings("codex")
+	want := vault.AgentRecord{Extras: map[string]string{"approvalPolicy": "never", "sandboxMode": "danger-full-access"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Settings(codex) = %+v, %v; want built-in %+v", got, err, want)
+	}
 	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oc := cfg.records["opencode"]
-	if oc.Extras[extraApprovalPolicy] != "" || len(oc.Launch.Env) != 0 || len(oc.Launch.Args) != 0 {
-		t.Errorf("opencode fields not zeroed by whole-entry overlay replace: %+v", oc)
-	}
-	// other vendors keep their defaults untouched
-	gm := cfg.records["gemini"]
-	wantGeminiArgs := []string{"--dangerously-skip-permissions"}
-	if !reflect.DeepEqual(gm.Launch.Args, wantGeminiArgs) {
-		t.Errorf("gemini.Launch.Args = %v, want %v (defaults preserved)", gm.Launch.Args, wantGeminiArgs)
-	}
-}
-
-// TestOverlayNullVendorRemovesIt: "name": null in the overlay clears the built-in agent's knobs.
-func TestOverlayNullVendorRemovesIt(t *testing.T) {
-	writeOverlay(t, `{"agents":{"gemini":null}}`)
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := cfg.records["gemini"]
-	if len(got.Launch.Args) != 0 || len(got.Extras) != 0 {
-		t.Errorf("gemini record after null overlay = %+v, want knobs cleared", got)
-	}
-}
-
-// TestOverlayCommentAcceptedUnknownKeyRefused: a top-level _comment loads; any other unknown key still errors.
-func TestOverlayCommentAcceptedUnknownKeyRefused(t *testing.T) {
-	if _, err := parseConfig([]byte(`{"_comment":"note","agents":{}}`)); err != nil {
-		t.Errorf("_comment overlay: %v, want nil", err)
-	}
-	if _, err := parseConfig([]byte(`{"bogus":1}`)); err == nil {
-		t.Error("unknown top-level key: nil error, want refusal")
-	}
-}
-
-// TestOverlayGuardRulesReplaceWholesale: overlay GuardRules replace the defaults wholesale, like Providers.Fallback.
-func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
-	writeOverlay(t, `{"guardRules":{"deny":["also-only-this"]}}`)
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := cfg.Guard()
-	if len(g.Deny) != 1 || g.Deny[0] != "also-only-this" {
-		t.Errorf("Guard().Deny = %v, want [also-only-this]", g.Deny)
-	}
-}
-
-// TestOverlayEmptyGuardRulesClearDefaults
-func TestOverlayEmptyGuardRulesClearDefaults(t *testing.T) {
-	writeOverlay(t, `{"guardRules":{"deny":[]}}`)
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := cfg.Guard()
-	if len(g.Deny) != 0 {
-		t.Errorf("Guard() = %+v, want empty (overlay explicitly presents empty guardRules)", g)
-	}
-}
-
-// TestOverlayOmittedGuardRulesKeepsDefaults
-func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
-	writeOverlay(t, `{"agents":{}}`)
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defaults, err := parseConfig(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g, want := cfg.Guard(), defaults.Guard()
-	if !reflect.DeepEqual(g, want) {
-		t.Errorf("Guard() with omitted guardRules = %+v, want defaults %+v", g, want)
+	if err != nil || slices.Contains(cfg.Guard().Deny, "Bash(overlay)") {
+		t.Errorf("Guard() = %v, %v; want the legacy guardRules ignored", cfg.Guard().Deny, err)
 	}
 }
 
@@ -132,21 +54,19 @@ func TestDefaultGuardsFollowLiveSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		name, body, overlay string
-		want                []string
+		name, body string
+		want       []string
 	}{
-		{"live deny honored", `{"permissions":{"deny":["Bash(owner-command)"]}}`, "", []string{"Bash(owner-command)"}},
-		{"template rules omitted", `{"permissions":{"deny":[]}}`, "", []string{}},
-		{"missing file", "", "", doc.Permissions.Deny},
-		{"invalid file", "{", "", doc.Permissions.Deny},
-		{"no deny list", "{}", "", doc.Permissions.Deny},
-		{"unreadable file", "directory", "", doc.Permissions.Deny},
-		{"overlay beats live", `{"permissions":{"deny":["Bash(live)"]}}`, `{"guardRules":{"deny":["Bash(overlay)"]}}`,
-			[]string{"Bash(overlay)"}},
+		{"live deny honored", `{"permissions":{"deny":["Bash(owner-command)"]}}`, []string{"Bash(owner-command)"}},
+		{"template rules omitted", `{"permissions":{"deny":[]}}`, []string{}},
+		{"missing file", "", doc.Permissions.Deny},
+		{"invalid file", "{", doc.Permissions.Deny},
+		{"no deny list", "{}", doc.Permissions.Deny},
+		{"unreadable file", "directory", doc.Permissions.Deny},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			cfg, err := parseConfig([]byte(c.overlay))
+			cfg, err := parseConfig()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,25 +82,6 @@ func TestDefaultGuardsFollowLiveSettings(t *testing.T) {
 			}
 			if got := cfg.Guard().Deny; !slices.Equal(got, c.want) {
 				t.Errorf("Guard().Deny = %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
-// A broken overlay names its vault location instead of silently returning defaults.
-func TestMalformedOverlayErrors(t *testing.T) {
-	writeOverlay(t, `{not json`)
-	for name, read := range map[string]func() (*Config, error){
-		"Load":  LoadConfig,
-		"Parse": func() (*Config, error) { return parseConfig([]byte(`{not json`)) },
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := read()
-			if err == nil {
-				t.Fatalf("%s() with malformed overlay = nil error, want error", name)
-			}
-			if !strings.Contains(err.Error(), "vault overlay/agents") {
-				t.Fatalf("%s() error = %q, want vault overlay/agents", name, err)
 			}
 		})
 	}
@@ -221,11 +122,11 @@ func TestDefaults(t *testing.T) {
 
 func checkCodexDefaults(t *testing.T, codex vault.AgentRecord) {
 	t.Helper()
-	if codex.Extras[extraApprovalPolicy] != "never" {
-		t.Errorf("codex.Permission.ApprovalPolicy = %q, want never", codex.Extras[extraApprovalPolicy])
+	if codex.Extras["approvalPolicy"] != "never" {
+		t.Errorf("codex approvalPolicy = %q, want never", codex.Extras["approvalPolicy"])
 	}
-	if codex.Extras[extraSandboxMode] != "danger-full-access" {
-		t.Errorf("codex.Permission.SandboxMode = %q, want danger-full-access", codex.Extras[extraSandboxMode])
+	if codex.Extras["sandboxMode"] != "danger-full-access" {
+		t.Errorf("codex sandboxMode = %q, want danger-full-access", codex.Extras["sandboxMode"])
 	}
 	if codex.Launch != nil && len(codex.Launch.Args) != 0 {
 		t.Errorf("codex.Launch.Args = %v, want none (config.toml carries approval/sandbox)", codex.Launch.Args)
@@ -234,8 +135,8 @@ func checkCodexDefaults(t *testing.T, codex vault.AgentRecord) {
 
 func checkCopilotDefaults(t *testing.T, copilot vault.AgentRecord) {
 	t.Helper()
-	if copilot.Extras[extraDefaultPermissionMode] != "allow-all" {
-		t.Errorf("copilot.Permission.DefaultPermissionMode = %q, want allow-all", copilot.Extras[extraDefaultPermissionMode])
+	if copilot.Extras["defaultPermissionMode"] != "allow-all" {
+		t.Errorf("copilot defaultPermissionMode = %q, want allow-all", copilot.Extras["defaultPermissionMode"])
 	}
 	wantCopilotArgs := []string{"--allow-all"}
 	if !reflect.DeepEqual(copilot.Launch.Args, wantCopilotArgs) {
@@ -259,50 +160,26 @@ func checkGeminiDefaults(t *testing.T, gemini vault.AgentRecord) {
 	if !reflect.DeepEqual(gemini.Launch.Args, wantGeminiArgs) {
 		t.Errorf("gemini.Launch.Args = %v, want %v", gemini.Launch.Args, wantGeminiArgs)
 	}
-	if gemini.Extras[extraUseGuardRules] != "true" {
-		t.Error("gemini.Permission.UseGuardRules = false, want true")
+	if gemini.Extras["useGuardRules"] != "true" {
+		t.Error("gemini useGuardRules = false, want true")
 	}
 }
 
-// The overlay key is "agents"; a stale "vendors" overlay is ignored.
-func TestOverlayReadsAgentsNotVendors(t *testing.T) {
-	writeOverlay(t, `{"agents":{"opencode":{"permission":{"sandboxMode":"only-agents"}}}}`)
-	if doc, err := configOverlay(); err != nil || !strings.Contains(string(doc), "only-agents") {
-		t.Fatalf("OverlayDoc = %q, %v", doc, err)
-	}
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "vendors", `{"vendors":{"gemini":null}}`)
-	if _, err := configOverlay(); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("stale vendors overlay read: %v", err)
-	}
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := cfg.records["gemini"]; !ok {
-		t.Error("stale vendors overlay removed gemini")
-	}
-}
-
-// TestSettingsMerge: built-in, then the legacy overlay entry (whole), then the stored record; "" unsets an extras key.
+// TestSettingsMerge: built-in, then the stored record; "" unsets an extras key.
 func TestSettingsMerge(t *testing.T) {
-	overlay := `{"agents":{"codex":{"permission":{"approvalPolicy":"on-request"},"launch":{"env":["X=1"]}}}}`
 	cases := []struct {
-		name, agent, overlay string
-		stored               vault.AgentRecord
-		want                 vault.AgentRecord
+		name, agent string
+		stored      vault.AgentRecord
+		want        vault.AgentRecord
 	}{
 		{name: "built-in only", agent: "codex",
 			want: vault.AgentRecord{Extras: map[string]string{"approvalPolicy": "never", "sandboxMode": "danger-full-access"}}},
-		{name: "overlay whole-replace", agent: "codex", overlay: overlay,
-			want: vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"X=1"}},
-				Extras: map[string]string{"approvalPolicy": "on-request"}}},
-		{name: "record block over both", agent: "codex", overlay: overlay,
+		{name: "record block over built-in", agent: "codex",
 			stored: vault.AgentRecord{Route: route.Route{Profile: "dev"},
 				Launch: &vault.AgentLaunch{Args: []string{"-y"}}, Extras: map[string]string{"sandboxMode": "read-only"}},
 			want: vault.AgentRecord{Route: route.Route{Profile: "dev"},
 				Launch: &vault.AgentLaunch{Args: []string{"-y"}},
-				Extras: map[string]string{"approvalPolicy": "on-request", "sandboxMode": "read-only"}}},
+				Extras: map[string]string{"approvalPolicy": "never", "sandboxMode": "read-only"}}},
 		{name: "extras empty unsets a built-in key", agent: "gemini",
 			stored: vault.AgentRecord{Extras: map[string]string{"useGuardRules": ""}},
 			want:   vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"--dangerously-skip-permissions"}}}},
@@ -310,9 +187,6 @@ func TestSettingsMerge(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			vaulttest.Use(t)
-			if c.overlay != "" {
-				vaulttest.Put(t, vault.Overlay, "agents", c.overlay)
-			}
 			if !c.stored.IsZero() {
 				if err := vault.SetAgentRecord(c.agent, c.stored); err != nil {
 					t.Fatal(err)

@@ -129,7 +129,6 @@ func TestReadOnlyRenamedVerbs(t *testing.T) {
 		{"claude-code vault ls", true},
 		{"claude-code vault set X", false},
 		{"claude-code vault rm X", false},
-		{"claude-code vault delete X", false},
 		{"claude-code vault get --key", true},
 		{"claude-code vault get --key | cat", true},
 		{"rtk claude-code vault get --key --secret", false},

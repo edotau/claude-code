@@ -901,7 +901,7 @@ func SeedSettings(file string, transform func([]byte) ([]byte, error)) (seeded b
 	return seeded && err == nil, err
 }
 
-// ResetSettings is the owner-run `configure --restore`: copy file to file.bak.<timestamp>, then write Render whole.
+// ResetSettings is the owner-run `configure restore`: copy file to file.bak.<timestamp>, then write Render whole.
 func ResetSettings(file string) (backup string, err error) {
 	err = paths.WithFileLock(file, func() error {
 		mode := os.FileMode(0o644)

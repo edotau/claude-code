@@ -20,90 +20,42 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-var vaultOverlayPage = helptext.Page{
-	Usage: "claude-code vault overlay <ls|set|unset> [KEY] [flags]",
-	About: "List the vault's overlay keys, validate and store one, or remove one.\n" +
-		vaultOverlaySetAbout,
-	Commands: [][2]string{
-		{"ls", "every overlay key with its stored size"},
-		{"set", "KEY --file PATH|-: validate, store, audit"},
-		{"unset", "KEY: remove that overlay document"},
-	},
-}
-
 const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models,\n" +
 	"github-auth. providers.prev is a backup and cannot be set.\n" +
 	"github-auth is a plain-text profile name; other keys are JSON.\n" +
 	"Set prints byte sizes only, never document values."
 
-// cmdVaultOverlay is `vault overlay ls`, `set KEY --file PATH|-` and `unset KEY`.
-func cmdVaultOverlay(args []string) int {
-	if code, ok := helpOrBare(vaultOverlayPage, args); ok {
-		return code
-	}
-	sub, args := args[0], args[1:]
-	switch sub {
-	case "ls":
-		return vaultOverlayList(args)
-	case "set":
-		return vaultOverlaySet(args)
-	case "unset":
-		return vaultOverlayUnset(args)
-	}
-	return unknownSub("vault overlay", sub, vaultOverlayPage)
-}
-
-func vaultOverlayList(args []string) int {
-	fs := helptext.NewFlagSet("vault overlay ls", helptext.Page{Usage: "claude-code vault overlay ls [flags]"})
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
+// vaultOverlayList is `vault ls overlays`: every overlay key with its stored size.
+func vaultOverlayList() int {
 	sizes, err := vaultdoc.OverlayStored()
 	if err != nil {
-		return helptext.Fail("vault overlay ls: %v", err)
+		return helptext.Fail("vault ls overlays: %v", err)
 	}
-	keys := make([]string, 0, len(sizes))
-	for k := range sizes {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(sizes)) {
 		fmt.Printf("%s  %d bytes\n", k, sizes[k])
 	}
 	return 0
 }
 
-func vaultOverlayUnset(args []string) int {
-	fs := helptext.NewFlagSet("vault overlay unset", helptext.Page{Usage: "claude-code vault overlay unset KEY [flags]"})
-	dryRun := fs.Bool("dry-run", false, "report what would be removed; write nothing")
-	yes := fs.Bool("yes", false, "remove without asking; required off a terminal")
-	fs.BoolVar(yes, "y", false, "same as --yes")
-	words, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
-	}
-	if len(words) != 1 {
-		fs.Usage()
-		return 2
-	}
-	key := words[0]
+// vaultOverlayUnset is `vault rm overlay KEY`.
+func vaultOverlayUnset(key string, dryRun, yes bool) int {
 	doc, err := vaultdoc.PeekOverlay(key)
 	if err != nil {
-		return helptext.Fail("vault overlay unset: %v", err)
+		return helptext.Fail("vault rm overlay: %v", err)
 	}
 	if doc == "" {
 		fmt.Fprintf(os.Stderr, "overlay %s is not set; nothing written\n", key)
 		return 0
 	}
-	if *dryRun {
+	if dryRun {
 		fmt.Fprintf(os.Stderr, "dry run: overlay %s (%d bytes) would be removed; nothing written\n", key, len(doc))
 		return 0
 	}
-	if code, stop := confirmOverlayUnset(key, len(doc), *yes); stop {
+	if code, stop := confirmOverlayUnset(key, len(doc), yes); stop {
 		return code
 	}
 	if err := vaultdoc.UnsetOverlay(key, doc); err != nil {
-		return helptext.Fail("vault overlay unset: %v", err)
+		return helptext.Fail("vault rm overlay: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "overlay %s removed (was %d bytes)\n", key, len(doc))
 	return 0
@@ -115,10 +67,10 @@ func confirmOverlayUnset(key string, size int, yes bool) (code int, stop bool) {
 	case yes:
 		return 0, false
 	case !tui.StdinIsTerminal():
-		fmt.Fprintf(os.Stderr, "vault overlay unset: %s holds %d bytes; pass --yes to remove it\n", key, size)
+		fmt.Fprintf(os.Stderr, "vault rm overlay: %s holds %d bytes; pass --yes to remove it\n", key, size)
 		return 2, true
 	case !tui.ConfirmKey(fmt.Sprintf("remove overlay %s (%d bytes)?", key, size), false):
-		fmt.Fprintln(os.Stderr, "vault overlay: nothing changed")
+		fmt.Fprintln(os.Stderr, "vault: nothing changed")
 		return 0, true
 	}
 	return 0, false
@@ -159,39 +111,33 @@ var overlayValidators = map[string]func(doc []byte) error{
 	},
 }
 
-func vaultOverlaySet(args []string) int {
-	fs := helptext.NewFlagSet("vault overlay set", helptext.Page{
-		Usage: "claude-code vault overlay set KEY --file PATH|-",
-		About: vaultOverlaySetAbout,
-	})
-	file := fs.String("file", "", "document to store: a path, or - for stdin")
-	words, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return helptext.ExitCode(err)
+// vaultOverlaySet is `vault set overlay KEY --file PATH|-`: validate, then store and audit (--dry-run stops before).
+func vaultOverlaySet(key, file string, dryRun bool) int {
+	if file == "" {
+		return helptext.FailUsage("vault set overlay: KEY needs --file PATH|-")
 	}
-	if len(words) != 1 || *file == "" {
-		fs.Usage()
-		return 2
-	}
-	key := words[0]
 	validate, ok := overlayValidators[key]
 	if !ok {
-		return helptext.Fail("vault overlay set: key has no validator; settable keys: %s", strings.Join(vaultdoc.SettableOverlayKeys, ", "))
+		return helptext.Fail("vault set overlay: key has no validator; settable keys: %s", strings.Join(vaultdoc.SettableOverlayKeys, ", "))
 	}
-	raw, err := readOverlayDoc(*file)
+	raw, err := readOverlayDoc(file)
 	if err != nil {
-		return helptext.Fail("vault overlay set: %v", err)
+		return helptext.Fail("vault set overlay: %v", err)
 	}
 	if err := validate(raw); err != nil {
 		why := "invalid document"
 		if key == vault.AgentRecordsKey { // validateAgentRecords errors never echo a value
 			why = err.Error()
 		}
-		return helptext.Fail("vault overlay set: %s refused, nothing written (%s)", key, why)
+		return helptext.Fail("vault set overlay: %s refused, nothing written (%s)", key, why)
+	}
+	if dryRun {
+		fmt.Fprintf(os.Stdout, "dry run: overlay %s would be set to %d bytes; nothing written\n", key, len(raw))
+		return 0
 	}
 	old, err := vaultdoc.SetOverlay(key, string(raw))
 	if err != nil {
-		return helptext.Fail("vault overlay set: %v", err)
+		return helptext.Fail("vault set overlay: %v", err)
 	}
 	audit.Log(audit.OverlaySet, key, fmt.Sprintf("%d -> %d bytes", old, len(raw)))
 	fmt.Fprintf(os.Stderr, "overlay %s set: %d -> %d bytes\n", key, old, len(raw))

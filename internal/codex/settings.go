@@ -203,12 +203,9 @@ func settingsPatch(home string) (path string, old []byte, next string, existed b
 // codexEffortKey is config.toml's effort key; the record keeps the effort in its own field.
 const codexEffortKey = "model_reasoning_effort"
 
-// codexPreferences is the legacy codex-settings overlay with the record's effort and model_verbosity laid over it.
-func codexPreferences(rec vault.AgentRecord, overlay map[string]string) (map[string]string, error) {
-	prefs := maps.Clone(overlay)
-	if prefs == nil {
-		prefs = map[string]string{}
-	}
+// codexPreferences is the codex record's effort, model_verbosity and config_route as preference keys.
+func codexPreferences(rec vault.AgentRecord) (map[string]string, error) {
+	prefs := map[string]string{}
 	if rec.Effort != "" {
 		prefs[codexEffortKey] = rec.Effort
 	}
@@ -247,17 +244,13 @@ func configRouteName(v string) (string, error) {
 	return r.Profile, nil
 }
 
-// LoadCodexPreferences is the config.toml preferences: the codex record over the legacy codex-settings overlay.
+// LoadCodexPreferences is the config.toml preferences read from the codex record.
 func LoadCodexPreferences() (map[string]string, error) {
 	rec, err := agentconfig.Settings(agentid.Codex)
 	if err != nil {
 		return nil, err
 	}
-	var overlay map[string]string
-	if err = vault.View(func(tx *vault.Tx) (e error) { overlay, e = loadCodexOverlay(tx); return e }); err != nil {
-		return nil, err
-	}
-	return codexPreferences(rec, overlay)
+	return codexPreferences(rec)
 }
 
 // withoutRoute is prefs minus config_route, which is record-only and never a config.toml key.
@@ -267,20 +260,16 @@ func withoutRoute(prefs map[string]string) map[string]string {
 	return out
 }
 
-// UpdateCodexPreferences edits the preferences in one transaction: writes the codex record, empties the legacy overlay.
+// UpdateCodexPreferences edits the preferences in one transaction and writes them to the codex record.
 func UpdateCodexPreferences(edit func(map[string]string) map[string]string) error {
 	reg, regErr := providers.LoadShared() // read before the transaction: the registry reads the vault itself
 	return vault.Update(func(tx *vault.Tx) error {
-		overlay, err := loadCodexOverlay(tx)
-		if err != nil {
-			return err
-		}
 		recs, err := tx.AgentRecords()
 		if err != nil {
 			return err
 		}
 		rec := recs[agentid.Codex]
-		prefs, err := codexPreferences(rec, overlay)
+		prefs, err := codexPreferences(rec)
 		if err != nil {
 			return err
 		}
@@ -292,10 +281,7 @@ func UpdateCodexPreferences(edit func(map[string]string) map[string]string) erro
 		rec.Extras = withExtra(rec.Extras, extraVerbosity, next[extraVerbosity])
 		rec.Extras = withExtra(rec.Extras, extraConfigRoute, next[extraConfigRoute])
 		recs[agentid.Codex] = rec
-		if err := tx.PutAgentRecords(recs); err != nil {
-			return err
-		}
-		return tx.Put(vault.Overlay, codexOverlayKey, "")
+		return tx.PutAgentRecords(recs)
 	})
 }
 
@@ -539,8 +525,6 @@ func codexConfigCheck(name, path string, managed bool) agent.Check {
 	return row
 }
 
-const codexOverlayKey = "codex-settings"
-
 // CodexField is one preference; Local ones live only in the codex record, never in config.toml.
 type CodexField struct {
 	Key    string
@@ -587,19 +571,6 @@ func validateCodexOverlay(ov map[string]string) error {
 		}
 	}
 	return nil
-}
-
-func loadCodexOverlay(tx *vault.Tx) (map[string]string, error) {
-	ov := map[string]string{}
-	if raw, ok := tx.Get(vault.Overlay, codexOverlayKey); ok {
-		if err := json.Unmarshal([]byte(raw), &ov); err != nil {
-			return nil, fmt.Errorf("codex: invalid saved preferences: %w", err)
-		}
-	}
-	if ov == nil {
-		ov = map[string]string{}
-	}
-	return ov, validateCodexOverlay(ov)
 }
 
 type codexConfigBackup struct {

@@ -100,7 +100,7 @@ func TestPinnedBundle(t *testing.T) {
 		t.Error("bundle written despite wrong pin")
 	}
 	err = run(context.Background(), options{out: out}, func(string) string { return "" }, &stdout, &stderr)
-	wantErr(t, err, envURL, "vault env set")
+	wantErr(t, err, envURL, "vault set env")
 }
 
 func TestDefaultBundlePath(t *testing.T) {

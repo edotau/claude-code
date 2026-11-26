@@ -178,7 +178,7 @@ func checkMisfiled() []vaultCheck {
 	for _, name := range slices.Sorted(maps.Keys(recs)) {
 		if secretredact.IsModelID(recs[name]) {
 			out = append(out, vaultCheck{Name: "misfiled: " + name, Detail: name + " holds a model id, not a secret " +
-				"(move it: claude-code vault env set " + name + " <value> or configure agents …)"})
+				"(move it: claude-code vault set env " + name + " <value> or configure agents …)"})
 		}
 	}
 	return out

@@ -13,24 +13,29 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/statusline"
 	"github.com/edotau/claude-code/internal/ui/theme"
-	"github.com/edotau/claude-code/internal/ui/vscode"
 )
 
 var themeStatuslinePage = helptext.Page{
-	Usage: "claude-code theme statusline [flags] < payload.json",
+	Usage: "claude-code configure theme statusline [flags] < payload.json",
 	About: "Renders the status line from Claude Code's JSON on stdin (settings.json runs it).",
 }
 
+var themeLegacyPage = helptext.Page{
+	Usage:    "claude-code theme statusline [flags] < payload.json",
+	About:    "Renders the status line; every other theme action is under `claude-code configure theme`.",
+	Commands: [][2]string{{"statusline", "render the status line (settings.json runs it)"}},
+}
+
 var themePage = helptext.Page{
-	Usage: "claude-code configure --theme [<palette>|<command>] [flags]",
+	Usage: "claude-code configure theme [<palette>|<command>] [flags]",
 	About: "Pick the status line's gradient palette and theme the tools around it. A palette name sets it; " +
 		"--palettes lists them.",
 	Commands: [][2]string{
 		{"apply", "merge theme/<tool>.json into each tool's config"},
 		{"statusline", "render the status line (settings.json runs it)"},
 	},
-	Hint: "claude-code configure --vscode merges VS Code settings (see its -h).\n" +
-		"claude-code configure --theme <command> -h lists that command's flags.",
+	Hint: "claude-code configure vscode merges VS Code settings (see its -h).\n" +
+		"claude-code configure theme <command> -h lists that command's flags.",
 }
 
 // cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
@@ -61,19 +66,26 @@ func cmdTheme(args []string) int {
 	return setThemePalette(fs.Args()[0])
 }
 
-// themeSubcommand runs the statusline or vscode subcommand; ok is false when args name neither.
+// themeSubcommand runs the statusline subcommand; ok is false for any other args.
 func themeSubcommand(args []string) (code int, ok bool) {
-	if len(args) == 0 {
+	if len(args) == 0 || args[0] != "statusline" {
 		return 0, false
 	}
-	switch args[0] {
-	case "statusline":
-		fs := helptext.NewFlagSet("theme statusline", themeStatuslinePage)
-		return statusline.Run(fs, args[1:], os.Stdin, os.Stdout), true
-	case "vscode":
-		return vscode.Run(args[1:]), true
+	fs := helptext.NewFlagSet("configure theme statusline", themeStatuslinePage)
+	return statusline.Run(fs, args[1:], os.Stdin, os.Stdout), true
+}
+
+// cmdThemeStatusline is the entry settings.json runs, `theme statusline`; the rest of `theme` moved.
+func cmdThemeStatusline(args []string) int {
+	if code, ok := themeSubcommand(args); ok {
+		return code
 	}
-	return 0, false
+	if len(args) == 0 || isHelpVerb(args[0]) {
+		if code, ok := helpOrBare(themeLegacyPage, args); ok {
+			return code
+		}
+	}
+	return helptext.FailUsage("theme: retired; use `claude-code configure theme -h`")
 }
 
 func setThemePalette(name string) int {
@@ -120,10 +132,10 @@ func printPalettes(w io.Writer, colored bool) {
 	}
 }
 
-// themeApply is `claude-code theme apply [--only a,b]`: merge every theme/<tool>.json|.conf into that tool's config.
+// themeApply is `configure theme apply [--only a,b]`: merge every theme/<tool>.json|.conf into that tool's config.
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
-		Usage: "claude-code configure --theme apply [flags]",
+		Usage: "claude-code configure theme apply [flags]",
 		About: "Merge every theme/<tool>.json|.conf into that tool's config. Targets: vscode, statusline, opencode, " +
 			"opencode-themes, copilot, gemini, ghostty.",
 	})
@@ -157,19 +169,16 @@ func themeApply(args []string) int {
 	return 0
 }
 
-// themeSpec is the completion node for the theme verb tree.
+// themeStatuslineSpec is the completion node for the legacy `theme statusline` entry.
+func themeStatuslineSpec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{"statusline": themeSpec().Sub["statusline"]}}
+}
+
+// themeSpec is the completion node for `configure theme`.
 func themeSpec() *helptext.Node {
 	return &helptext.Node{Args: []func() []string{theme.GradientNames}, Flags: []helptext.Flag{helptext.BoolFlag("palettes"), helptext.BoolFlag("reset")},
 		Sub: map[string]*helptext.Node{
 			"apply":      {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("only")}},
 			"statusline": {Flags: []helptext.Flag{{Name: "style", Values: func() []string { return statusline.Styles }}}},
-			"vscode":     vscode.Spec(),
 		}}
-}
-
-// configureThemeSpec is themeSpec without vscode, which configure reaches as --vscode.
-func configureThemeSpec() *helptext.Node {
-	n := themeSpec()
-	delete(n.Sub, "vscode")
-	return n
 }

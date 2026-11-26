@@ -32,11 +32,11 @@ func TestSpecArgsOfferSectionsThenProfiles(t *testing.T) {
 func TestConfigureHelpShowsDoubleDashFlags(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	_, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"-h"}) })
-	if !strings.Contains(stderr, "--restore") {
-		t.Errorf("help lacks --restore:\n%s", stderr)
+	if !strings.Contains(stderr, "--agent") {
+		t.Errorf("help lacks --agent:\n%s", stderr)
 	}
-	if strings.Contains(stderr, "\n  -restore") {
-		t.Errorf("help prints single-dash -restore:\n%s", stderr)
+	if strings.Contains(stderr, "\n  -agent") {
+		t.Errorf("help prints single-dash -agent:\n%s", stderr)
 	}
 }
 
@@ -56,20 +56,14 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"restore with page", []string{"--restore", "provider"}, "take no page"},
-		{"revert with page", []string{"--revert", "agents"}, "take no page"},
-		{"restore and revert", []string{"--restore", "--revert"}, "mutually exclusive"},
-		{"restore json with page", []string{"--restore", "--format", "json", "agents"}, "take no page"},
-		{"restore json no page", []string{"--restore", "--format", "json"}, "needs the provider page"},
-		{"revert json with check", []string{"--revert", "--format", "json", "--check"}, "--revert takes only"},
-		{"revert with check", []string{"--revert", "--check"}, "--revert takes only"},
-		{"revert with out", []string{"--revert", "--out", "x.json"}, "--revert takes only"},
-		{"revert with agents", []string{"--revert", "--agents"}, "--revert takes only"},
-		{"out without restore", []string{"--out", "x.json"}, "need --restore"},
-		{"agents without restore", []string{"--agents"}, "need --restore"},
-		{"restore with check", []string{"--restore", "--check"}, "takes no --check or --dry-run"},
-		{"restore with dry-run", []string{"--restore", "--dry-run"}, "takes no --check or --dry-run"},
-		{"out with agents", []string{"--restore", "--agents", "--out", "x.json"}, "never write one"},
+		{"restore with page", []string{"restore", "provider"}, "unexpected argument"},
+		{"revert with page", []string{"revert", "agents"}, "unexpected argument"},
+		{"revert with check", []string{"revert", "--check"}, "revert takes only"},
+		{"revert with out", []string{"revert", "--out", "x.json"}, "revert takes only"},
+		{"out without restore", []string{"--out", "x.json"}, "needs restore or fmt"},
+		{"restore with check", []string{"restore", "--check"}, "takes no --check or --dry-run"},
+		{"restore with dry-run", []string{"restore", "--dry-run"}, "takes no --check or --dry-run"},
+		{"out with agents", []string{"restore", "--agent", "all", "--out", "x.json"}, "never writes one"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -84,15 +78,15 @@ func TestConfigureRestoreRejectsBadCombos(t *testing.T) {
 	}
 }
 
-// TestConfigureRestoreResetsSettingsAfterBackup: bare --restore copies settings.json aside, then writes the render.
+// TestConfigureRestoreResetsSettingsAfterBackup: bare restore copies settings.json aside, then writes the render.
 func TestConfigureRestoreResetsSettingsAfterBackup(t *testing.T) {
 	live := filepath.Join(resetEnv(t), "settings.json")
 	if err := os.WriteFile(live, []byte(`{"stale":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"--restore"}) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"restore"}) })
 	if code != 0 {
-		t.Fatalf("bare --restore exit %d: %s", code, stderr)
+		t.Fatalf("bare restore exit %d: %s", code, stderr)
 	}
 	if got, _ := os.ReadFile(live); strings.Contains(string(got), "stale") || !strings.Contains(string(got), "--safety-scan") {
 		t.Fatalf("settings.json is not the render:\n%s", got)
@@ -107,14 +101,14 @@ func TestConfigureRestoreResetsSettingsAfterBackup(t *testing.T) {
 	}
 }
 
-// TestConfigureRestoreAgentsNeverTouchesSettings: --agents/--agent render only the agent configs.
+// TestConfigureRestoreAgentsNeverTouchesSettings: --agent <name|all> renders only the agent configs.
 func TestConfigureRestoreAgentsNeverTouchesSettings(t *testing.T) {
 	dir := resetEnv(t)
 	live := filepath.Join(dir, "settings.json")
 	if err := os.WriteFile(live, []byte(`{"model":"mine"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"--restore", "--agents", "--agent", "codex"}, {"--restore", "--agent", "codex"}} {
+	for _, args := range [][]string{{"restore", "--agent", "all"}, {"restore", "--agent", "codex"}} {
 		if code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(args) }); code != 0 {
 			t.Fatalf("%v exit %d: %s", args, code, stderr)
 		}
@@ -127,7 +121,7 @@ func TestConfigureRestoreAgentsNeverTouchesSettings(t *testing.T) {
 
 func TestConfigureRestoreRejectsUnknownAgent(t *testing.T) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return run([]string{"--restore", "--agents", "--agent", "x"})
+		return run([]string{"restore", "--agent", "x"})
 	})
 	if code != 1 {
 		t.Errorf("exit %d, want 1", code)
@@ -167,8 +161,6 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 		want string
 	}{
 		{"two profiles", []string{"provider", "--all", "a", "b"}, "at most one <profile> (got 2)"},
-		{"with --list", []string{"provider", "--all", "--list"}, "cannot be combined with --list or --profile"},
-		{"with --profile", []string{"provider", "--all", "--profile", "x"}, "cannot be combined with --list or --profile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
@@ -179,15 +171,15 @@ func TestConfigureAllArgumentLimits(t *testing.T) {
 	}
 }
 
-// TestConfigureAuthRejectedOutsideGithubPage: --auth is refused before the restore and list branches can drop it.
+// TestConfigureAuthRejectedOutsideGithubPage: --auth is refused before the restore branch can drop it.
 func TestConfigureAuthRejectedOutsideGithubPage(t *testing.T) {
 	resetEnv(t)
 	cases := []struct {
 		name string
 		args []string
 	}{
-		{"restore", []string{"--restore", "--auth", "follow"}},
-		{"revert", []string{"--revert", "--auth", "follow"}},
+		{"restore", []string{"restore", "--auth", "follow"}},
+		{"revert", []string{"revert", "--auth", "follow"}},
 		{"json list", []string{"provider", "--auth", "follow", "--format", "json"}},
 	}
 	for _, tc := range cases {
@@ -200,18 +192,14 @@ func TestConfigureAuthRejectedOutsideGithubPage(t *testing.T) {
 	}
 }
 
-// TestConfigureAuthRejectedWithRestore: on the github page --auth with --restore or --revert fails, not dropped.
-func TestConfigureAuthRejectedWithRestore(t *testing.T) {
+// TestConfigureRemovedFormsExitTwoWithHint: a retired flag exits 2 and names its replacement.
+func TestConfigureRemovedFormsExitTwoWithHint(t *testing.T) {
 	resetEnv(t)
-	for _, flagName := range []string{"--restore", "--revert"} {
-		t.Run(flagName, func(t *testing.T) {
-			code, _, stderr := hosttest.CaptureOutput(t, func() int {
-				return run([]string{"github", "--auth", "follow", flagName})
-			})
-			if code != 1 || !strings.Contains(stderr, "--auth cannot be combined with --restore or --revert") {
-				t.Errorf("exit %d, stderr %q; want 1 and the combination refusal", code, stderr)
-			}
-		})
+	for flagName, use := range removedForms {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{flagName}) })
+		if code != 2 || !strings.Contains(stderr, "`claude-code "+use+"`") {
+			t.Errorf("%s: exit %d, stderr %q lacks %q", flagName, code, stderr, use)
+		}
 	}
 }
 
@@ -468,16 +456,16 @@ func TestConfigureFmtReordersLiveOnlyAndKeepsStrictCheck(t *testing.T) {
 	if err := os.WriteFile(live, []byte(bad), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := fmtExit(t, "--fmt", "--check"); code != 1 {
-		t.Fatalf("--fmt --check on out-of-order file exit %d, want 1", code)
+	if code, _ := fmtExit(t, "fmt", "--check"); code != 1 {
+		t.Fatalf("fmt --check on out-of-order file exit %d, want 1", code)
 	}
-	code, stdout := fmtExit(t, "--fmt")
+	code, stdout := fmtExit(t, "fmt")
 	_, bk, _ := strings.Cut(strings.TrimSpace(stdout), "backup at ")
 	if old, err := os.ReadFile(bk); code != 0 || err != nil || string(old) != bad {
 		t.Fatalf("--fmt exit %d, backup %q (err %v):\n%s", code, bk, err, stdout)
 	}
-	if code, _ := fmtExit(t, "--fmt", "--check"); code != 0 {
-		t.Errorf("still out of order after --fmt, exit %d", code)
+	if code, _ := fmtExit(t, "fmt", "--check"); code != 0 {
+		t.Errorf("still out of order after fmt, exit %d", code)
 	}
 	if got, _ := os.ReadFile(live); strings.Index(string(got), `"sonnet"`) > strings.Index(string(got), `"opus"`) || strings.Index(string(got), `"z"`) > strings.Index(string(got), `"a"`) {
 		t.Errorf("fallbackModel priority order changed:\n%s", got)
@@ -490,7 +478,7 @@ func TestConfigureFmtLeavesUnparsableFileUntouched(t *testing.T) {
 	if err := os.WriteFile(live, []byte(`{"model":`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, _ := fmtExit(t, "--fmt")
+	code, _ := fmtExit(t, "fmt")
 	got, _ := os.ReadFile(live)
 	if code == 0 || string(got) != `{"model":` {
 		t.Errorf("unparsable file: exit %d, content %q", code, got)

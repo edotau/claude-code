@@ -37,7 +37,7 @@ func syncProbeScript() string {
 }
 
 const (
-	SyncOffMsg       = "memory sync is off on this machine: claude-code vault env set NETWORK_MEMORY on"
+	SyncOffMsg       = "memory sync is off on this machine: claude-code vault set env NETWORK_MEMORY on"
 	syncProbeTimeout = 30 * time.Second
 	syncRefusalHold  = 24 * time.Hour
 	syncNoLogin      = "no login from this machine"

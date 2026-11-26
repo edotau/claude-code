@@ -28,7 +28,7 @@ var hashCacheRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompi
 type foldMove struct {
 	From, To    string
 	Secret, Dup bool     // From holds an M2M secret; Dup: To holds one too (dropped if equal, compared at apply)
-	Pins        []string // "agent <name>" / "pin <key>" re-pointed From -> To
+	Pins        []string // "agent <name>[ field]" re-pointed From -> To
 }
 
 // foldPlan is every change --fold-legacy makes; Kept names the m2m rows that stay and why.
@@ -274,11 +274,6 @@ func pinsOf(tx *vault.Tx, id string) ([]string, error) {
 			out = append(out, "agent "+n+f)
 		}
 	}
-	for k, v := range tx.All(vault.Pins) {
-		if strings.TrimSpace(v) == id {
-			out = append(out, "pin "+k)
-		}
-	}
 	slices.Sort(out)
 	return out, nil
 }
@@ -349,19 +344,10 @@ func repoint(tx *vault.Tx, from, to string) error {
 			next[n], changed = moved, true
 		}
 	}
-	if changed {
-		if err := tx.PutAgentRecords(next); err != nil {
-			return err
-		}
+	if !changed {
+		return nil
 	}
-	for k, v := range tx.All(vault.Pins) {
-		if strings.TrimSpace(v) == from {
-			if err := tx.Put(vault.Pins, k, to); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return tx.PutAgentRecords(next)
 }
 
 // repointRecord moves Databricks route profiles and legacy model prefixes, preserving each route's other keys.

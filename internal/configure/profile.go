@@ -275,7 +275,7 @@ func setAgentProfile(ctx context.Context, w io.Writer, name, profile string) err
 	fmt.Fprintf(w, "%s: now on %s; relaunch `claude-code %s` to apply\n", name, profile, name)
 	preflight.Warm(ctx, w, reg, time.Now())
 	if name == "codex" {
-		fmt.Fprintln(w, "plain codex: run `claude-code configure --restore --agents` to re-render config.toml")
+		fmt.Fprintln(w, "plain codex: run `claude-code configure restore --agent all` to re-render config.toml")
 	}
 	return nil
 }

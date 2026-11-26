@@ -11,11 +11,9 @@ import (
 
 // Doc is the non-secret vault view (no secrets, no providers.prev); Agents carries "records" (D-a).
 type Doc struct {
-	Pins      map[string]string `json:"pins"`
 	Env       map[string]string `json:"env"`
 	Providers json.RawMessage   `json:"providers"`
 	Agents    json.RawMessage   `json:"agents"`
-	Settings  json.RawMessage   `json:"settings"`
 	Vault     struct {
 		KeyCommand string `json:"key_command"`
 	} `json:"vault"`
@@ -23,8 +21,8 @@ type Doc struct {
 
 // docFrom builds the doc inside an open transaction; it never opens the vault itself.
 func docFrom(t *vault.Tx) (Doc, error) {
-	d := Doc{Pins: t.All(vault.Pins), Env: t.All(vault.Env)}
-	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "agents": &d.Agents, "settings": &d.Settings} {
+	d := Doc{Env: t.All(vault.Env)}
+	for name, dst := range map[string]*json.RawMessage{"providers": &d.Providers, "agents": &d.Agents} {
 		if raw, ok := t.Get(vault.Overlay, name); ok {
 			if !json.Valid([]byte(raw)) {
 				return Doc{}, fmt.Errorf("vault overlay/%s: invalid JSON", name)

@@ -92,7 +92,7 @@ func TestCompletionExact(t *testing.T) {
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
 		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
-		{"theme flags", []string{"theme", "--"}, []string{"--palettes", "--reset"}},
+		{"theme flags", []string{"configure", "theme", "--"}, []string{"--palettes", "--reset"}},
 		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
 			"--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
@@ -123,10 +123,10 @@ func TestCompletionContains(t *testing.T) {
 		{"completion --install", []string{"completion", "--"}, []string{"--install"}},
 		{"usage --show", []string{"usage", "--"}, []string{"--show"}},
 		{"models preflight --live", []string{"models", "preflight", "--"}, []string{"--live"}},
-		{"configure --restore", []string{"configure", "--"}, []string{"--restore"}},
+		{"configure --agent", []string{"configure", "--a"}, []string{"--agent", "--all"}},
 		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
 		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},
-		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
+		{"theme values", []string{"configure", "theme", ""}, append([]string{"apply", "statusline"}, theme.GradientNames()...)},
 		{"network subverbs", []string{"network", ""}, []string{"browser", "pki", "websearch", "remote"}},
 		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
 		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
@@ -474,14 +474,13 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	tree := specTree()
 	for verb, want := range map[string][]string{
-		"vault":   {"ls", "set", "get", "delete", "env", "overlay", "import", "export", "rotate-secret"},
+		"vault":   {"ls", "set", "get", "rm", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "upgrade", "extract"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
 		"workflow": {"skeleton", "lint", "sync"},
-		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
@@ -850,8 +849,8 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
-		"hook": true, "clip": true, "configure --history diff": true, "workflow lint": true, "workflow sync": true,
-		"vault delete": true, "vault overlay ls": true, "test ramdisk": true, "memory init": true,
+		"hook": true, "clip": true, "configure history diff": true, "workflow lint": true, "workflow sync": true,
+		"test ramdisk": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}

@@ -47,21 +47,24 @@ func cmdHook(args []string) int {
 	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
-// configurePage: --profile picks the profile that serves model calls; --agent scopes to one agent CLI's own setup.
+// configurePage: --agent scopes to one agent CLI's own setup (all: every agent CLI).
 var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
-		"claude-code configure --restore|--revert [flags]\n" +
-		"claude-code configure --fmt [--check] [--out FILE]\n" +
+		"claude-code configure restore [--agent <name|all>] [--out FILE]\n" +
+		"claude-code configure revert [--agent <name|all>] [--dry-run]\n" +
+		"claude-code configure fmt [--check] [--out FILE]\n" +
 		"claude-code configure agents <agent> key=value... [--dry-run]\n" +
 		"claude-code configure provider --all [<profile>] [--check]\n" +
 		"claude-code configure provider <profile> options.<key>=<value>...",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
 		"(agents, tools, settings), else walks every page in order. " +
-		"--restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
-		"with --agents or --agent it renders only the agent configs and leaves settings.json alone. " +
-		"--revert puts agent configs back from their backups. --fmt reorders settings.json (or --out) to schemastore " +
-		"order and sorts env and string lists; --fmt --check writes nothing and exits 1 at the first misplaced path. --format json applies to provider --list " +
-		"and --all only. With --restore or --revert, --agent is a comma list without claude.",
+		"restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
+		"with --agent it renders only the agent configs and leaves settings.json alone (all: every one). " +
+		"revert puts agent configs back from their backups. fmt reorders settings.json (or --out) to schemastore " +
+		"order and sorts env and string lists; fmt --check writes nothing and exits 1 at the first misplaced path. " +
+		"With restore or revert, --agent is a comma list without claude. " +
+		"provider --list shows credential state and --format json applies to it and --all; " +
+		"switch <profile> picks the session profile.",
 	Commands: [][2]string{
 		{"provider", "pick the session profile; --list shows credential state"},
 		{"models", "pin models (live catalog: claude-code models --live)"},
@@ -72,42 +75,56 @@ var configurePage = helptext.Page{
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
-		{"--theme", "status line palette, tool themes (see --theme -h)"},
-		{"--vscode", "merge VS Code settings, keybindings, chat models"},
-		{"--history", "config snapshots: snapshot, log, diff (see --history -h)"},
+		{"theme", "status line palette, tool themes (see theme -h)"},
+		{"vscode", "merge VS Code settings, keybindings, chat models"},
+		{"history", "config snapshots: snapshot, log, diff (see history -h)"},
+		{"restore", "reset settings.json to the template (backup first)"},
+		{"revert", "put agent configs back from their backups"},
+		{"fmt", "reorder settings.json to schemastore order (--check: report)"},
 	},
 }
 
-// configureOpts are cmdConfigure's flag values.
+// configureOpts are cmdConfigure's flag values; restore, revert and allAgents come from the page word and --agent all.
 type configureOpts struct {
-	provider, agent, out, auth             string
-	authSet                                bool
-	dryRun, check, restore, revert, agents bool
-	fmtSettings                            bool
-	list, all                              bool
-	format                                 *string
+	agent, out, auth               string
+	authSet                        bool
+	dryRun, check, restore, revert bool
+	allAgents, list, all           bool
+	format                         *string
 }
 
 func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs := helptext.NewFlagSet("configure", configurePage)
 	o := &configureOpts{}
-	fs.StringVar(&o.provider, "profile", "", "select the session profile non-interactively")
-	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini")
+	fs.StringVar(&o.agent, "agent", "", "set up one CLI: claude|codex|copilot|opencode|gemini, or all")
 	fs.StringVar(&o.auth, "auth", "", "with github: pin a GitHub account (login), or follow")
-	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with --restore)")
-	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (no --restore/--revert)")
-	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
-	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
-	fs.BoolVar(&o.fmtSettings, "fmt", false, "reorder settings.json to schemastore order (--check: report)")
-	fs.StringVar(&o.out, "out", "", "with --restore|--fmt: act on this file, not settings.json")
-	fs.BoolVar(&o.agents, "agents", false, "with --restore: agent configs only, even off ~/.claude")
+	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with restore)")
+	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (not with restore|revert)")
+	fs.StringVar(&o.out, "out", "", "with restore|fmt: act on this file, not settings.json")
 	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
 	o.format = helptext.FormatFlag(fs)
 	return fs, o
 }
 
-// cmdConfigure is the guided setup: every section in order, or the one named; list prints `provider --list`.
+// removedForms maps each retired flag to the form that replaces it.
+var removedForms = map[string]string{
+	"--history": "configure history", "--theme": "configure theme", "--vscode": "configure vscode",
+	"--restore": "configure restore", "--revert": "configure revert", "--fmt": "configure fmt",
+	"--agents": "configure restore --agent all", "--profile": "switch <profile>",
+}
+
+// removedForm returns the first retired flag in args and its replacement, or "".
+func removedForm(args []string) (arg, use string) {
+	for _, a := range args {
+		if use, ok := removedForms[strings.SplitN(a, "=", 2)[0]]; ok {
+			return a, use
+		}
+	}
+	return "", ""
+}
+
+// cmdConfigure is the guided setup: every section in order, or the one named.
 func cmdConfigure(args []string) int {
 	if code, ok := configureRoute(args); ok {
 		return code
@@ -125,8 +142,9 @@ func cmdConfigure(args []string) int {
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
 	}
-	if o.fmtSettings {
-		return configureFmt(fs, o, section)
+	o.setMode(section)
+	if section == "fmt" {
+		return configureFmt(fs, o, pos)
 	}
 	if err := checkAuthFlag(fs, o, section); err != nil {
 		return helptext.Fail("configure: %v", err)
@@ -134,19 +152,31 @@ func cmdConfigure(args []string) int {
 	return configureRun(o, section, pos)
 }
 
-// configureRoute sends `--history|--theme|--vscode ...` to their handlers; ok is false for every other form.
+// setMode derives restore, revert and allAgents from the page word and --agent all.
+func (o *configureOpts) setMode(section string) {
+	if o.allAgents = o.agent == "all"; o.allAgents {
+		o.agent = ""
+	}
+	o.restore, o.revert = section == "restore", section == "revert"
+}
+
+// configureRoute runs `desktop|history|theme|vscode ...` or refuses a retired flag; ok is false otherwise.
 func configureRoute(args []string) (code int, ok bool) {
-	if len(args) > 0 && args[0] == "desktop" {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "desktop":
 		return configureDesktop(args[1:]), true
+	case "history":
+		return cmdHistory(args[1:]), true
+	case "theme":
+		return cmdTheme(args[1:]), true
+	case "vscode":
+		return vscode.Run(args[1:]), true
 	}
-	if i := slices.Index(args, "--history"); i >= 0 {
-		return cmdHistory(slices.Concat(args[:i], args[i+1:])), true
-	}
-	if i := slices.Index(args, "--theme"); i >= 0 {
-		return cmdTheme(slices.Concat(args[:i], args[i+1:])), true
-	}
-	if i := slices.Index(args, "--vscode"); i >= 0 {
-		return vscode.Run(slices.Concat(args[:i], args[i+1:])), true
+	if arg, use := removedForm(args); arg != "" {
+		return helptext.FailUsage("configure: %s is removed; use `claude-code %s`", arg, use), true
 	}
 	return 0, false
 }
@@ -156,9 +186,6 @@ func checkAuthFlag(fs *flag.FlagSet, o *configureOpts, section string) error {
 	fs.Visit(func(f *flag.Flag) { o.authSet = o.authSet || f.Name == "auth" })
 	if o.authSet && section != "github" {
 		return errors.New("--auth needs the github page")
-	}
-	if o.authSet && (o.restore || o.revert) {
-		return errors.New("--auth cannot be combined with --restore or --revert")
 	}
 	return nil
 }
@@ -171,8 +198,8 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 	switch {
 	case section != "provider":
 		return "", errors.New("--all needs the provider page")
-	case o.list || o.provider != "":
-		return "", errors.New("--all cannot be combined with --list or --profile")
+	case o.list:
+		return "", errors.New("--all cannot be combined with --list")
 	case len(pos) > 1:
 		return "", fmt.Errorf("--all takes at most one <profile> (got %d)", len(pos))
 	case len(pos) == 0:
@@ -201,10 +228,9 @@ func (o *configureOpts) wantsList() bool {
 	return o.list || *o.format != helptext.Text && !o.all
 }
 
-// listsInstead: off the provider page --format joins --revert and a paged --restore; page-less --restore fails.
+// listsInstead: with a restore/revert page word only --list lists (and fails there), never --format.
 func (o *configureOpts) listsInstead(section string) bool {
-	render := o.restore || o.revert
-	return o.wantsList() && (!render || section == "provider" || o.restore && section == "")
+	return o.wantsList() && (!o.restore && !o.revert || section == "provider" || o.list)
 }
 
 // isAgentRecord is true for `configure agents <name> key=value ...`.
@@ -225,7 +251,7 @@ func configureAssignment(o *configureOpts, section string, pos []string) (rc int
 
 // liftAgentName makes `configure agents <agent>` mean --agent <agent>, so one agent is set up, not all.
 func liftAgentName(o *configureOpts, section string, pos []string) error {
-	if section != "agents" || len(pos) == 0 || o.restore || o.revert {
+	if section != "agents" || len(pos) == 0 {
 		return nil
 	}
 	if len(pos) > 1 || o.agent != "" && o.agent != pos[0] {
@@ -250,17 +276,17 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 		return configureList(section, pos, *o.format)
 	}
 	if o.restore || o.revert {
-		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents)
+		return configureRender(o, section, pos)
 	}
-	if o.out != "" || o.agents {
-		return helptext.Fail("configure: --out and --agents need --restore")
+	if o.out != "" {
+		return helptext.Fail("configure: --out needs restore or fmt")
 	}
 	return configureMenu(o, section, profile)
 }
 
 func configureMenu(o *configureOpts, section, profile string) int {
 	return menu.Run(menu.Options{
-		Provider: o.provider, Agent: o.agent, Auth: o.auth, AuthSet: o.authSet, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
+		Agent: o.agent, Auth: o.auth, AuthSet: o.authSet, DryRun: o.dryRun, Check: o.check, All: o.all, Profile: profile,
 		JSON: *o.format == helptext.JSON, Interactive: proc.IsTerminal(os.Stdin) && proc.IsTerminal(os.Stderr),
 	}, section)
 }
@@ -283,16 +309,16 @@ func wireConfigure() {
 	}
 }
 
-// configureFmt is the owner-run `configure --fmt [--check]`: nothing else rewrites settings.json's order.
-func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
-	invalid := section != ""
+// configureFmt is the owner-run `configure fmt [--check]`: nothing else rewrites settings.json's order.
+func configureFmt(fs *flag.FlagSet, o *configureOpts, pos []string) int {
+	invalid := len(pos) > 0
 	fs.Visit(func(f *flag.Flag) {
-		if !slices.Contains([]string{"fmt", "check", "out"}, f.Name) {
+		if !slices.Contains([]string{"check", "out"}, f.Name) {
 			invalid = true
 		}
 	})
 	if invalid {
-		return helptext.Fail("configure: --fmt takes only --check and --out")
+		return helptext.Fail("configure: fmt takes only --check and --out")
 	}
 	file := o.out
 	if file == "" {
@@ -301,11 +327,11 @@ func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
 	if o.check {
 		data, err := os.ReadFile(file)
 		if err != nil {
-			return helptext.Fail("configure --fmt: %v", err)
+			return helptext.Fail("configure fmt: %v", err)
 		}
 		path, err := settings.Unformatted(data)
 		if err != nil {
-			return helptext.Fail("configure --fmt: %s: %v", file, err)
+			return helptext.Fail("configure fmt: %s: %v", file, err)
 		}
 		if path != "" {
 			fmt.Fprintf(os.Stderr, "%s: out of order at %s\n", file, path)
@@ -316,7 +342,7 @@ func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
 	}
 	backup, err := settings.FormatFile(file)
 	if err != nil {
-		return helptext.Fail("configure --fmt: %v", err)
+		return helptext.Fail("configure fmt: %v", err)
 	}
 	if backup != "" {
 		fmt.Fprintf(os.Stdout, "%s: reordered to schema order; backup at %s\n", file, backup)
@@ -385,18 +411,18 @@ func configureDesktopOptions(opts desktop.Options, profile string) int {
 	return 0
 }
 
-// configureRender runs --restore / --revert; the agent flag is a comma list there.
-func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents bool) int {
-	if err := renderModeConflict(restore, revert, section); err != nil {
-		return helptext.Fail("%v", err)
+// configureRender runs restore / revert; the agent flag is a comma list there.
+func configureRender(o *configureOpts, section string, pos []string) int {
+	if len(pos) > 0 {
+		return helptext.Fail("configure %s: unexpected argument %q", section, pos[0])
 	}
-	if revert {
-		return configureRevert(agents, dryRun, check || out != "" || renderAgents)
+	if o.revert {
+		return configureRevert(o.agent, o.dryRun, o.check || o.out != "")
 	}
-	if check || dryRun {
-		return helptext.Fail("configure: --restore takes no --check or --dry-run")
+	if o.check || o.dryRun {
+		return helptext.Fail("configure: restore takes no --check or --dry-run")
 	}
-	return configureRestore(agents, out, renderAgents)
+	return configureRestore(o.agent, o.out, o.allAgents)
 }
 
 func configureRestore(agents, out string, renderAgents bool) int {
@@ -412,38 +438,26 @@ func configureRestore(agents, out string, renderAgents bool) int {
 	return 0
 }
 
-// restoreConflict names the --restore flag combination that cannot run, or "".
+// restoreConflict names the restore flag combination that cannot run, or "".
 func restoreConflict(agents, out string, renderAgents bool) string {
-	agentsGiven := renderAgents || agents != ""
-	switch {
-	case out != "" && agentsGiven:
-		return "configure: --out resets a settings file; --agents and --agent never write one"
+	if out != "" && (renderAgents || agents != "") {
+		return "configure: --out resets a settings file; --agent never writes one"
 	}
 	return ""
 }
 
-// configureRevert runs --revert; extras is true when a flag that only --restore takes was given.
+// configureRevert runs revert; extras is true when a flag that only restore takes was given.
 func configureRevert(agents string, dryRun, extras bool) int {
 	if extras {
-		return helptext.Fail("configure: --revert takes only --agent and --dry-run")
+		return helptext.Fail("configure: revert takes only --agent and --dry-run")
 	}
 	if err := unknownAgent(agents); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	if err := configure.Revert(os.Stdout, agents, dryRun); err != nil {
-		return helptext.Fail("configure --revert: %v", err)
+		return helptext.Fail("configure revert: %v", err)
 	}
 	return 0
-}
-
-func renderModeConflict(restore, revert bool, section string) error {
-	switch {
-	case restore && revert:
-		return errors.New("configure: --restore and --revert are mutually exclusive")
-	case section != "":
-		return fmt.Errorf("configure: --restore/--revert take no page (got %q)", section)
-	}
-	return nil
 }
 
 // unknownAgent rejects a typo before the engine runs: off ~/.claude it returns before its own name check.
@@ -456,8 +470,8 @@ func unknownAgent(agents string) error {
 	return nil
 }
 
-// agentNames are the agent CLIs `configure --agent` can scope to: the agents plus claude itself.
-func agentNames() []string { return append([]string{"claude"}, agent.DefaultAgents...) }
+// agentNames are the values `configure --agent` takes: claude, the agents, and all.
+func agentNames() []string { return append([]string{"claude", "all"}, agent.DefaultAgents...) }
 
 // authNames are the GitHub accounts, plus "follow", for `configure github --auth`.
 func authNames() []string {
@@ -476,8 +490,8 @@ func sections() []string {
 // configureSpec is the completion node for the configure verb.
 func configureSpec() *helptext.Node {
 	fs, _ := configureFlags()
-	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: helptext.FlagsOf(fs,
-		map[string]func() []string{"profile": providers.ProfileNames, "agent": agentNames, "auth": authNames}),
-		Sub: map[string]*helptext.Node{"--history": historySpec(), "--theme": configureThemeSpec(),
-			"--vscode": vscode.Spec()}}
+	flags := helptext.FlagsOf(fs, map[string]func() []string{"agent": agentNames, "auth": authNames})
+	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: flags,
+		Sub: map[string]*helptext.Node{"history": historySpec(), "theme": themeSpec(), "vscode": vscode.Spec(),
+			"restore": {Flags: flags}, "revert": {Flags: flags}, "fmt": {Flags: flags}}}
 }

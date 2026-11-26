@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -35,10 +34,10 @@ func TestCodexOwnModelSkipsMultilineValues(t *testing.T) {
 	}
 }
 
-// Each record extra reaches config.toml; the record beats the legacy overlay, which still fills what it leaves unset.
+// Each record extra reaches config.toml; a leftover legacy codex-settings overlay is ignored.
 func TestCodexConfigFromRecordExtras(t *testing.T) {
 	vaulttest.Use(t)
-	putCodexOverlay(t, map[string]string{codexEffortKey: "medium", extraVerbosity: "high"})
+	vaulttest.Put(t, vault.Overlay, "codex-settings", `{"model_reasoning_effort":"medium","model_verbosity":"high"}`)
 	putCodexRecord(t, vault.AgentRecord{Effort: "max", Extras: map[string]string{
 		extraApprovalPolicy: "on-request", extraSandboxMode: "workspace-write", extraVerbosity: "low"}})
 	keys, err := codexPermissionKeys("", io.Discard)
@@ -64,26 +63,22 @@ func TestCodexConfigFromRecordExtras(t *testing.T) {
 		}
 	}
 	putCodexRecord(t, vault.AgentRecord{})
-	if prefs, err = LoadCodexPreferences(); err != nil || prefs[codexEffortKey] != "medium" || prefs[extraVerbosity] != "high" {
-		t.Errorf("overlay-only preferences = %v (%v), want the overlay's", prefs, err)
+	if prefs, err = LoadCodexPreferences(); err != nil || len(prefs) != 0 {
+		t.Errorf("empty-record preferences = %v (%v), want none (legacy overlay ignored)", prefs, err)
 	}
 }
 
-// A preferences save lands in the codex record and empties the legacy overlay; an untouched max effort stays max.
+// A preferences save lands in the codex record; an untouched max effort stays max.
 func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	vaulttest.Use(t)
-	putCodexOverlay(t, map[string]string{extraVerbosity: "high"})
-	putCodexRecord(t, vault.AgentRecord{Effort: "max", Route: route.Route{Profile: "chatgpt"}})
+	putCodexRecord(t, vault.AgentRecord{Effort: "max", Route: route.Route{Profile: "chatgpt"},
+		Extras: map[string]string{extraVerbosity: "high"}})
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string { return p }); err != nil {
 		t.Fatal(err)
 	}
 	rec := vault.GetAgentRecord("codex")
 	if rec.Effort != "max" || rec.Route.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
-		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high moved in", rec)
-	}
-	var ov map[string]string
-	if err := vault.View(func(tx *vault.Tx) (e error) { ov, e = loadCodexOverlay(tx); return e }); err != nil || len(ov) != 0 {
-		t.Errorf("legacy overlay after save = %v (%v), want empty", ov, err)
+		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high", rec)
 	}
 	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string {
 		delete(p, codexEffortKey)
@@ -94,17 +89,6 @@ func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
 	}
 	if rec = vault.GetAgentRecord("codex"); rec.Effort != "" || rec.Extras[extraVerbosity] != "low" {
 		t.Errorf("record after edit = %+v, want effort cleared and verbosity low", rec)
-	}
-}
-
-func putCodexOverlay(t *testing.T, ov map[string]string) {
-	t.Helper()
-	raw, err := json.Marshal(ov)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, codexOverlayKey, string(raw)) }); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -324,8 +308,9 @@ func TestEffortOneVocabulary(t *testing.T) {
 		for _, e := range append(agentid.EffortNames(), "turbo") {
 			canonical := slices.Contains(agentid.EffortNames(), e)
 			for surface, err := range surfaces(name, e) {
-				if canonical != (err == nil) || err != nil && !strings.Contains(err.Error(), want) {
-					t.Errorf("%s %s: %q = %v, want accepted=%v with %q", name, surface, e, err, canonical, want)
+				w := effortWant(surface, want)
+				if canonical != (err == nil) || err != nil && !strings.Contains(err.Error(), w) {
+					t.Errorf("%s %s: %q = %v, want accepted=%v with %q", name, surface, e, err, canonical, w)
 				}
 			}
 		}
@@ -336,6 +321,14 @@ func TestEffortOneVocabulary(t *testing.T) {
 			t.Errorf("render %s = %q (%v), want %s", e, out, err, want)
 		}
 	}
+}
+
+// effortWant is the refusal text a surface gives: record and overlay share route.AgentSettings' wording.
+func effortWant(surface, perAgent string) string {
+	if surface == "record" || surface == "overlay" {
+		return "is not one of " + strings.Join(agentid.EffortNames(), "|")
+	}
+	return perAgent
 }
 
 // surfaces runs effort e through the record, overlay, ValidEffort and codex page checks.

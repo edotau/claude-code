@@ -175,7 +175,7 @@ func daemonTargets() []target {
 			name: "settings-backups", doc: "state/harness/backups: setup, temp-dir copies, CLI backups",
 			globs: func() []string {
 				return append([]string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}, tempBackupGlobs()...)
-			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
+			}, // the rest of state/harness/backups is the only agent-config history (configure revert)
 		},
 		{
 			// Every plugin update leaves the previous version dir behind

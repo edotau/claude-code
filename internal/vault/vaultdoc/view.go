@@ -22,7 +22,7 @@ import (
 )
 
 // Sections is every `vault ls` section, in print order.
-var Sections = []string{"secrets", "pins", "env", "agents", "providers", "routing", "settings", "vault"}
+var Sections = []string{"secrets", "env", "agents", "providers", "routing", "vault"}
 
 // List writes the selected sections to out in format (helptext.JSON or helptext.Text); secrets stay masked.
 func List(out *os.File, format string, sel []string) error {

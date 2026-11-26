@@ -13,7 +13,7 @@ import (
 )
 
 func (o *configureOpts) conflictsWithAssignment() bool {
-	return o.all || o.list || o.restore || o.revert || o.out != "" || o.agents || o.provider != "" || o.agent != ""
+	return o.all || o.list || o.out != "" || o.agent != "" || o.allAgents
 }
 
 func configureProviderOptions(o *configureOpts, pos []string) int {

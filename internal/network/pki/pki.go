@@ -76,7 +76,7 @@ func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network pki", helptext.Page{
 		Usage: "claude-code network pki [flags]",
 		About: "Fetch the corporate root and issuing CA, pin the root by SHA-256, verify the chain and write a CA bundle.\n" +
-			"Required (process env, `claude-code vault env set`, or ./.env): " + strings.Join(requiredKeys, ", ") + ".\n" +
+			"Required (process env, `claude-code vault set env`, or ./.env): " + strings.Join(requiredKeys, ", ") + ".\n" +
 			"Optional: " + envUA + ", " + envSites + " (" + sitesShape + ", comma list), " + envPipRepo + ", " + envProxy + ", " + envNoProxy + ". Values are never printed."})
 	o := addFlags(fs)
 	if code, done := helptext.Parse(fs, args); done {
@@ -130,7 +130,7 @@ func loadConfig(get func(string) string) (config, error) {
 		}
 	}
 	if len(missing) > 0 {
-		return config{}, fmt.Errorf("missing %s: set them with `claude-code vault env set` or in ./.env", strings.Join(missing, ", "))
+		return config{}, fmt.Errorf("missing %s: set them with `claude-code vault set env` or in ./.env", strings.Join(missing, ", "))
 	}
 	c := config{url: get(envURL), pin: normalizePin(get(envPin)), ua: get(envUA)}
 	var err error

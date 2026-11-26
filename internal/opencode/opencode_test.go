@@ -406,7 +406,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	fake := pathstest.FakeVendor(t, "opencode", "")
 
-	vaulttest.Put(t, vault.Overlay, "agents", `{"agents":{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}}`)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, `{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}`)
 	// A sign-in subcommand takes the plain plan, the only launch that skips routing.
 	plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth", "arg"})
 	if err != nil {
@@ -424,7 +424,7 @@ func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
 	}
 
 	// No overlay: the built-in default still applies.
-	vaulttest.Put(t, vault.Overlay, "agents", "")
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "")
 	plan, err = agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth"})
 	if err != nil {
 		t.Fatal(err)
