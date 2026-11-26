@@ -26,15 +26,15 @@ const cannedBench = `{"commit":"abc1234","cpus":8,"noisy_load":false,"packages":
 "hook_baseline":{"commit":"def5678","flags":{"PromptRecall/bank-8":"","Noisy-8":"","Still-8":""}},
 "benchmarks":[
 {"name":"PromptRecall/bank-8","deltas":{"allocs/op":{"change":"-12.00%","p":"p=0.000 n=5","significant":true},
-"sec/op":{"change":"-3.00%","p":"p=0.010 n=5","significant":true}}},
-{"name":"Noisy-8","flags":["noisy"],"deltas":{"sec/op":{"change":"+9.00%","p":"p=0.020","significant":true}}},
+"sec/op":{"change":"-13.00%","p":"p=0.010 n=5","significant":true}}},
+{"name":"Noisy-8","flags":["noisy"],"deltas":{"sec/op":{"change":"+19.00%","p":"p=0.020","significant":true}}},
 {"name":"Still-8","deltas":{"sec/op":{"change":"~","p":"p=1.000","significant":false}}}]}]}`
 
 func TestBenchNoticeLines(t *testing.T) {
 	got := benchNoticeLines([]byte(cannedBench))
 	want := []string{
 		"bench abc1234 vs def5678 internal/memory: Noisy inconclusive (noisy); rerun wanted",
-		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns -3.00% (p=0.010)",
+		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns -13.00% (p=0.010)",
 		"bench abc1234 vs def5678 internal/memory: Still not judged (no significant change)",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -901,7 +901,7 @@ func TestBenchCoverageCounts(t *testing.T) {
 	if err := paths.WriteJSON(filepath.Join(state, merge+".marker"), benchMarker{Status: "done", Exit: &code}); err != nil {
 		t.Fatal(err)
 	}
-	writeBenchFixture(t, filepath.Join(state, merge+".json"), strings.ReplaceAll(cannedBench, "-3.00%", "+3.00%"))
+	writeBenchFixture(t, filepath.Join(state, merge+".json"), strings.ReplaceAll(cannedBench, "-13.00%", "+13.00%"))
 	writeBenchFixture(t, filepath.Join(state, benched+".job.json"), "{}")
 	failed := 1
 	if err := paths.WriteJSON(filepath.Join(state, base+".marker"), benchMarker{Status: "failed", Exit: &failed}); err != nil {
@@ -909,7 +909,7 @@ func TestBenchCoverageCounts(t *testing.T) {
 	}
 	got, ok := BenchCoverage(context.Background(), dir, 10)
 	want := "last 4 commits: 1 benched, 1 failed, 1 queued, 0 skipped, 1 without benchmarks; latest regression: " +
-		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns +3.00% (p=0.010)"
+		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns +13.00% (p=0.010)"
 	if got != want || ok {
 		t.Fatalf("coverage = %q ok=%v\nwant %q, not ok", got, ok, want)
 	}
@@ -926,5 +926,52 @@ func TestBenchFailureReported(t *testing.T) {
 	benchReportRegressions([]byte(cannedBench), "/r.json") // the noisy comparison is inconclusive
 	if got, _, _ := worktree.FailuresSince(worktree.FailuresDir(), "t", 5); len(got) != 1 {
 		t.Fatalf("inconclusive run reported: %+v", got)
+	}
+}
+
+func TestBenchCoalesceKeepsNewestPerRepo(t *testing.T) {
+	state := t.TempDir()
+	var bases []string
+	for _, c := range []struct{ sha, top string }{{"a", "/r1"}, {"b", "/r2"}, {"c", "/r1"}, {"d", "/r1"}} {
+		base := filepath.Join(state, strings.Repeat(c.sha, 40))
+		raw, _ := json.Marshal(benchJob{Top: c.top, SHA: strings.Repeat(c.sha, 40)})
+		writeBenchFixture(t, base+".job.json", string(raw))
+		writeBenchFixture(t, base+".marker", "running")
+		bases = append(bases, base)
+	}
+	got := benchCoalesce(bases)
+	if len(got) != 2 || got[0] != bases[1] || got[1] != bases[3] {
+		t.Fatalf("kept %v, want newest of each repo", got)
+	}
+	for _, i := range []int{0, 2} {
+		if _, err := os.Stat(bases[i] + ".job.json"); !os.IsNotExist(err) {
+			t.Errorf("superseded job %d still queued: %v", i, err)
+		}
+	}
+}
+
+func TestBenchWorkerSkipsCommitThatDoesNotBuild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix locks")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubBenchWorkers(t)
+	benchBusy = func() bool { return false }
+	benchRun = func([]string, string, *os.File) int { return benchSkipExit }
+	sha := strings.Repeat("e", 40)
+	base := filepath.Join(paths.StateDir(), "bench", "post-commit", sha)
+	benchStart(context.Background(), core.ParseInput(strings.NewReader(`{"session_id":"s"}`)), t.TempDir(), sha, nil)
+	_ = os.MkdirAll(filepath.Dir(base), 0o700)
+	raw, _ := json.Marshal(benchJob{Top: t.TempDir(), SHA: sha, SessionID: "s"})
+	writeBenchFixture(t, base+".job.json", string(raw))
+	benchWorker(base, false)
+	m := readBenchMarker(t, base)
+	if m.Status != "skipped" || m.Notice != "skipped" || benchPending(base) {
+		t.Fatalf("marker = %+v, want skipped and settled", m)
+	}
+	var tally benchTally
+	tally.add(base)
+	if tally.skipped != 1 || tally.failed != 0 {
+		t.Fatalf("tally = %+v", tally)
 	}
 }

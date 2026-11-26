@@ -8,6 +8,7 @@ internal/hooks/docs/benchrun.go:benchFinish	unversioned: marker: post-commit ben
 internal/hooks/docs/benchrun.go:benchLock	unversioned: marker: uid-scoped machine-wide benchmark measurement lock
 internal/hooks/docs/benchrun.go:benchReconcile	unversioned: marker: abandoned post-commit benchmarks requeued for detached recovery
 internal/hooks/docs/benchrun.go:benchRecover	unversioned: marker: config-local benchmark consumer lock
+internal/hooks/docs/benchrun.go:benchSkip	unversioned: marker: post-commit bench run record closed as skipped because the commit does not build
 internal/hooks/docs/benchrun.go:benchSnapshot	unversioned: marker: benchstat wrapper and immutable compared baselines, pruned after 7 days
 internal/hooks/docs/benchrun.go:benchWorker	unversioned: marker: post-commit benchmark running and completed lifecycle, pruned after 7 days
 internal/hooks/docs/decided.go:strikeDecided	unversioned: marker: per-session count of DECISION events already struck into plans

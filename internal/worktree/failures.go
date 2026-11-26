@@ -68,7 +68,7 @@ var FailureKinds = []FailureKind{FailAudit, FailLaneGate, FailPlanCheck, FailBen
 	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded, FailOverlayKey}
 
 // DirectiveKinds reach a main session as a fix-now directive; a kind joins this closed list once it is logged.
-var DirectiveKinds = []FailureKind{FailAudit, FailLaneGate, FailBench, FailProxyDown, FailProxy5xx, FailContract}
+var DirectiveKinds = []FailureKind{FailAudit, FailLaneGate, FailProxyDown, FailProxy5xx, FailContract}
 
 // Failure is one broadcast record; Time is unix seconds; Seq grows by one per appended record.
 type Failure struct {

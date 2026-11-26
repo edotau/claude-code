@@ -38,6 +38,7 @@ const (
 	benchMaxLines  = 4
 	benchRetention = 7 * 24 * time.Hour
 	benchDeadline  = 45 * time.Minute
+	benchSkipExit  = 97 // keep equal to the script's exit; the commit does not build: nothing to measure, so no failure report
 )
 
 // A private detached entry bypasses the hook dispatcher's five-second handler deadline.
@@ -81,7 +82,8 @@ trap '[ -z "${w:-}" ] || { git -C "$top" worktree remove --force "$w" >/dev/null
 w=$(mktemp -d "$r.wt.XXXXXX") || { echo "bench worker: mktemp failed" >"$r.err"; exit 1; }
 git -C "$top" worktree add -q --detach "$w" "$sha" >"$r.err" 2>&1 && cd "$w" ||
   { echo "bench worker: git worktree add $sha failed" >>"$r.err"; exit 1; }
-HARNESS_BENCH_UNDER_LOAD=$load nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
+go build ./... >>"$r.err" 2>&1 || { echo "bench worker: $sha does not build" >>"$r.err"; exit 97; }
+HARNESS_BENCH_UNDER_LOAD=$load nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>>"$r.err"
 exit $?`
 
 type benchJob struct {
@@ -244,7 +246,7 @@ func benchRecover(state string) bool {
 // benchConsume makes one pass over the queue; the first run's load gate is read once, and only when a retry is due.
 func benchConsume(state string) {
 	quiet := sync.OnceValue(func() bool { return !benchBusy() })
-	for _, base := range benchQueued(state) {
+	for _, base := range benchCoalesce(benchQueued(state)) {
 		if benchPending(base) {
 			benchWorker(base, false)
 		} else if job, ok := benchUndelivered(base); ok {
@@ -252,6 +254,43 @@ func benchConsume(state string) {
 		} else if benchRetryDue(base) && quiet() {
 			benchWorker(base, true)
 		}
+	}
+}
+
+// benchCoalesce keeps the newest pending job per repo; older ones are superseded unrun.
+func benchCoalesce(bases []string) []string {
+	newest := map[string]string{} // repo -> newest pending base; bases arrive oldest first
+	tops := make([]string, len(bases))
+	for i, base := range bases {
+		if !benchPending(base) || benchOwned(base) {
+			continue
+		}
+		var job benchJob
+		if raw, err := os.ReadFile(base + ".job.json"); err == nil && json.Unmarshal(raw, &job) == nil && plans.ValidSHA(job.SHA) {
+			tops[i], newest[job.Top] = job.Top, base
+		}
+	}
+	kept := bases[:0:0]
+	for i, base := range bases {
+		if top := tops[i]; top != "" && newest[top] != base {
+			benchSupersede(base)
+			continue
+		}
+		kept = append(kept, base)
+	}
+	return kept
+}
+
+// benchOwned is a job another live worker is measuring right now.
+func benchOwned(base string) bool {
+	m, ok := benchReadMarker(base)
+	return ok && m.Exit == nil && m.PID > 0 && m.PID != os.Getpid() && proc.Alive(m.PID)
+}
+
+// benchSupersede drops a job a newer commit replaced: with no job file the coverage row counts it skipped.
+func benchSupersede(base string) {
+	for _, f := range []string{base + ".job.json", base + ".marker", base + ".in.json", base + ".baseline"} {
+		_ = os.RemoveAll(f)
 	}
 }
 
@@ -357,7 +396,7 @@ func benchReconcile(state string) {
 			m.Status, m.PID, m.Exit = "queued", 0, nil
 			_ = paths.WriteJSON(file, m)
 		}
-		if (m.Status == "done" || m.Status == "failed") && !m.End.IsZero() && time.Since(m.End) > benchRetention {
+		if (m.Status == "done" || m.Status == "failed" || m.Status == "skipped") && !m.End.IsZero() && time.Since(m.End) > benchRetention {
 			benchPrune(strings.TrimSuffix(file, ".marker"))
 		}
 	}
@@ -425,6 +464,10 @@ func benchWorker(base string, rerun bool) {
 		return
 	}
 	code := benchMeasure(base, job, lock, busy)
+	if code == benchSkipExit {
+		benchSkip(base, m)
+		return
+	}
 	m.Retry = benchNextRetry(m.Retry, code, base)
 	if benchComplete(base, m, code) != nil {
 		return
@@ -432,6 +475,13 @@ func benchWorker(base string, rerun bool) {
 	benchDeliver(base, job)
 	err = lock.Close()
 	_ = benchDecideLoop(base, job, err)
+}
+
+// benchSkip records a commit that does not build: no failure, nothing delivered.
+func benchSkip(base string, m benchMarker) {
+	zero := 0
+	m.Status, m.End, m.Notice, m.Exit = "skipped", time.Now().UTC(), "skipped", &zero
+	_ = paths.WriteJSON(base+".marker", m)
 }
 
 // The marker is the worker's only log: one loop decision per measured job, never a path or command.
@@ -893,7 +943,7 @@ func benchFinish(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	raw, _ := os.ReadFile(result)
-	lines := benchNoticeLines(raw)
+	lines := slices.DeleteFunc(benchNoticeLines(raw), func(l string) bool { r := benchNoticeRank(l); return r == 0 || r == 3 })
 	if *m.Exit == 0 {
 		benchReportRegressions(raw, result)
 	}
@@ -904,7 +954,7 @@ func benchFinish(in *core.Input) core.Result {
 		lines = []string{fmt.Sprintf("bench %s vs unknown: inconclusive (run failed, exit %d)", in.Nested(benchField, "sha"), *m.Exit)}
 	}
 	if len(lines) == 0 {
-		lines = []string{fmt.Sprintf("bench %s vs unknown: inconclusive (result unavailable or empty); rerun wanted", in.Nested(benchField, "sha"))}
+		lines = []string{fmt.Sprintf("bench %s: no benchmark moved %.0f%% or more", in.Nested(benchField, "sha"), benchMinChange)}
 	}
 	m.Notice = "delivered"
 	for _, line := range lines {
@@ -1031,6 +1081,15 @@ func benchQuietReason(noisyRun bool, flags []string) string {
 }
 
 // The same evidence gate covers every metric and both directions.
+// benchMinChange is the smallest move, in percent, a notice or failure report names (owner, 2026-11-26).
+const benchMinChange = 10.0
+
+// benchBigChange reports whether change ("+8.06%", "-12.5%") moves at least benchMinChange either way.
+func benchBigChange(change string) bool {
+	v, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(change), "%"), 64)
+	return err == nil && math.Abs(v) >= benchMinChange
+}
+
 func benchParts(noisyRun bool, flags []string, deltas map[string]benchDelta) []string {
 	if reason := benchQuietReason(noisyRun, flags); reason != "" {
 		return []string{"inconclusive (" + reason + "); rerun wanted"}
@@ -1041,7 +1100,7 @@ func benchParts(noisyRun bool, flags []string, deltas map[string]benchDelta) []s
 	var parts []string
 	for _, u := range []struct{ unit, label string }{{"allocs/op", "allocs"}, {"B/op", "B"}, {"sec/op", "ns"}} {
 		d, ok := deltas[u.unit]
-		if !ok || !d.Significant {
+		if !ok || !d.Significant || !benchBigChange(d.Change) {
 			continue
 		}
 		pv, _, _ := strings.Cut(d.P, " ")
@@ -1089,6 +1148,10 @@ func BenchCoverage(ctx context.Context, top string, n int) (detail string, ok bo
 // add counts one benched commit; commits arrive newest first, so the first regression found is the latest.
 func (t *benchTally) add(base string) {
 	m, ok := benchReadMarker(base)
+	if ok && m.Status == "skipped" {
+		t.skipped++
+		return
+	}
 	switch {
 	case ok && m.Exit != nil && *m.Exit != 0:
 		t.failed++
