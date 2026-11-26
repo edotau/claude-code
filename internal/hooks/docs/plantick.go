@@ -85,7 +85,7 @@ func Tick(in *core.Input) core.Result {
 		return res
 	}
 	ready := plans.ReadyInput{Root: main, Slots: freeSlots(), Claims: func() map[string][]string { return readyClaims(in) }}
-	res.Context = core.JoinContext(res.Context, strings.Join(plans.FillNotice(plans.AutofillInput{ReadyInput: ready, Session: in.SessionID}), "\n"))
+	res.Context = core.JoinContext(res.Context, strings.Join(plans.Autofill(plans.AutofillInput{ReadyInput: ready, Session: in.SessionID}).Lines, "\n"))
 	return res
 }
 

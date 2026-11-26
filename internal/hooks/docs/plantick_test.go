@@ -514,7 +514,7 @@ func TestClaimPlanTaskUsesPrefetchedLookup(t *testing.T) {
 	}
 }
 
-func TestPlanDoneTickPrintsReadyNotice(t *testing.T) {
+func TestPlanDoneTickRunsFill(t *testing.T) {
 	plan, _, _ := tickFixture(t)
 	repo := filepath.Join(os.Getenv("HOME"), "widgets")
 	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "- [x] Phase 1.1 — base\n"+
@@ -528,8 +528,8 @@ func TestPlanDoneTickPrintsReadyNotice(t *testing.T) {
 		return runDocs(t, Tick, map[string]any{"hook_event_name": "PostToolUse", "session_id": "r1", "tool_name": "Bash", "cwd": repo,
 			"tool_input": map[string]string{"command": cmd}, "tool_response": map[string]string{"stdout": "ok"}})
 	}
-	if got := run("claude-code plan task 'Phase 1.1' --done --sha abc1234"); !strings.Contains(got, "Phase 1.2: claude-code agents brief --path codex") {
-		t.Fatalf("a tick must list the ready task, got %q", got)
+	if got := run("claude-code plan task 'Phase 1.1' --done --sha abc1234"); !strings.Contains(got, "Phase 1.2") {
+		t.Fatalf("a tick must run the fill for the ready task, got %q", got)
 	}
 	other := filepath.Join(t.TempDir(), "other")
 	hosttest.In(t, filepath.Dir(other), "init", "-q", other)

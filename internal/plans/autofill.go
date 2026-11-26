@@ -20,8 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
 // AutofillEnv is the vault env key whose off|false|0 stops automatic fill without a build.
@@ -55,9 +53,6 @@ type AutofillInput struct {
 // AutofillResult names each task sent ("<plan-slug> <id>") and each held back with why; Lines are its notices.
 type AutofillResult struct {
 	Sent, Held, Lines []string
-	Report            ReadyReport // the one ready scan of this run, valid when Scanned
-	Scanned, TimedOut bool
-	Errored           bool // the ready scan failed; nothing more reads the plans this run
 }
 
 // autofillTiers is each leaf agent's sonnet-tier model first, then the lower ones a line may name (R35, 11.5).
@@ -76,13 +71,12 @@ var (
 	idUnsafe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9._-]+`) })
 )
 
-// Seams: the detached spawn, the binary it runs, and the spend cap check ("" while under every cap).
+// Seams: the detached spawn and the binary it runs.
 var (
 	autofillSpawn = func(bin string, args []string, dir string, out *os.File) int {
 		return proc.SpawnDetachedPID(bin, args, dir, out)
 	}
-	autofillBin   = paths.SelfBinary
-	autofillSpent = spendCapHit
+	autofillBin = paths.SelfBinary
 )
 
 // autofillOff is the off key; any other value, unset included, leaves automatic fill on (owner, 2026-11-26).
@@ -129,29 +123,7 @@ func Autofill(in AutofillInput) AutofillResult {
 	case res := <-done:
 		return res
 	case <-ctx.Done():
-		return AutofillResult{TimedOut: true, Lines: []string{"plans: autofill stopped: past its " + autofillDeadline.String() + " deadline"}}
-	}
-}
-
-// FillNotice is the fill's lines plus the ready notice from its one scan; past autofillDeadline, no notice.
-func FillNotice(in AutofillInput) []string {
-	fill := Autofill(in)
-	if fill.TimedOut || fill.Errored {
-		return fill.Lines
-	}
-	slots := in.Slots - len(fill.Sent)
-	if fill.Scanned {
-		return append(fill.Lines, noticeOf(fill.Report, slots, fill.Sent))
-	}
-	ready := in.ReadyInput
-	ready.Slots = slots
-	done := make(chan string, 1)
-	go func() { done <- ReadyNotice(ready) }()
-	select {
-	case n := <-done:
-		return append(fill.Lines, n)
-	case <-time.After(autofillDeadline):
-		return append(fill.Lines, "plans: ready notice stopped: past its "+autofillDeadline.String()+" deadline")
+		return AutofillResult{Lines: []string{"plans: autofill stopped: past its " + autofillDeadline.String() + " deadline"}}
 	}
 }
 
@@ -307,10 +279,8 @@ func autofillLocked(ctx context.Context, in AutofillInput) AutofillResult {
 	rep, err := Ready(in.ReadyInput)
 	if err != nil {
 		res.Lines = append(res.Lines, "plans: autofill stopped: "+err.Error())
-		res.Errored = true
 		return res
 	}
-	res.Report, res.Scanned = rep, true
 	slots := in.Slots - recentSpawns()
 	if slots <= 0 {
 		return res
@@ -327,9 +297,10 @@ func autofillLocked(ctx context.Context, in AutofillInput) AutofillResult {
 		}
 		if why != "" {
 			res.Held = append(res.Held, j.key+": "+why)
-			if r.Brief != NeedsBrief { // the ready line already names the brief command
-				res.Lines = append(res.Lines, "plans: autofill held "+j.key+": "+why)
+			if r.Brief == NeedsBrief {
+				why += ": " + r.Command
 			}
+			res.Lines = append(res.Lines, "plans: autofill held "+j.key+": "+why)
 			continue
 		}
 		chosen = append(chosen, r.Owns...)
@@ -376,9 +347,6 @@ type autofillJob struct {
 // autofillJobFor builds r's job, or why it is held; stop means nothing more may go out (spend cap, degraded).
 func autofillJobFor(in AutofillInput, r ReadyTask) (autofillJob, string, bool) {
 	j := autofillJob{root: in.Root, task: r, key: strings.TrimSuffix(filepath.Base(r.Plan), ".md") + " " + r.ID}
-	if spent := autofillSpent(in.Session); spent != "" {
-		return j, spent, true
-	}
 	t, leaf, ok := planLine(r)
 	if !ok {
 		return j, "its task is gone from the plan", false
@@ -575,23 +543,4 @@ func (j autofillJob) start(ctx context.Context, id, batch string) error {
 	// never an error now: the run is live, so its claim must stay; a missing pid only matters past autofillStale
 	_ = os.WriteFile(filepath.Join(dir, id+".pid"), []byte(strconv.Itoa(pid)), 0o600)
 	return nil
-}
-
-// spendCapHit names the session or day cap already spent; "" under both or unreadable (fails open, as the proxy).
-func spendCapHit(session string) string {
-	reg, err := providers.LoadShared()
-	if err != nil || !reg.Routing.SpendCap.On() {
-		return ""
-	}
-	c := reg.Routing.SpendCap
-	sess, day, err := tokenledger.SpendTotals(session, time.Now())
-	switch {
-	case err != nil:
-		return ""
-	case c.SessionUSD != nil && session != "" && sess >= *c.SessionUSD:
-		return "session spend " + providers.FormatUSD(sess) + " reached the sessionUSD cap"
-	case c.DayUSD != nil && day >= *c.DayUSD:
-		return "today's spend " + providers.FormatUSD(day) + " reached the dayUSD cap"
-	}
-	return ""
 }

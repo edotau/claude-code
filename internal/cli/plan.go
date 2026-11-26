@@ -299,7 +299,7 @@ func reportVerifyFailures(plan, top, sha string, tasks []plans.Task, checks map[
 // tickReady is the automatic fill and ready-task lines a written tick frees; a seam so a test needs no live slots.
 var tickReady = func(session, top string) []string {
 	ready := plans.ReadyInput{Root: top, Slots: freeSlots(), Claims: readyClaims}
-	return plans.FillNotice(plans.AutofillInput{ReadyInput: ready, Session: session}) // claims before it sends
+	return plans.Autofill(plans.AutofillInput{ReadyInput: ready, Session: session}).Lines // claims before it sends
 }
 
 // tickGreen ticks the green tasks on sha and posts their notices; 1 means the plan write failed.

@@ -44,12 +44,11 @@ func autofillFixture(t *testing.T, leaf, brief string, health DispatchState) (Au
 	}
 	writeFile(t, plan, line+"\n")
 	var spawned []autofillSpawned
-	oldSpawn, oldBin, oldSpent, oldHealth := autofillSpawn, autofillBin, autofillSpent, DispatchHealth
+	oldSpawn, oldBin, oldHealth := autofillSpawn, autofillBin, DispatchHealth
 	t.Cleanup(func() {
-		autofillSpawn, autofillBin, autofillSpent, DispatchHealth = oldSpawn, oldBin, oldSpent, oldHealth
+		autofillSpawn, autofillBin, DispatchHealth = oldSpawn, oldBin, oldHealth
 	})
 	autofillBin = func() (string, error) { return "/bin/true", nil }
-	autofillSpent = func(string) string { return "" }
 	DispatchHealth = func(TaskKey) DispatchState { return health }
 	autofillSpawn = func(_ string, args []string, _ string, _ *os.File) int {
 		p, _ := Parse(plan)
@@ -97,18 +96,14 @@ func TestAutofillHolds(t *testing.T) {
 		health                       DispatchState
 	}{
 		{"attempts", "claude", "x\n", "", "held " + fillKey + ": 2 failed attempts", DispatchState{Attempts: 2}},
-		{"needs brief", "claude", "", "", "", DispatchState{}},
+		{"needs brief", "claude", "", "", "needs a brief", DispatchState{}},
 		{"over tier leaf", "claude opus", "x\n", "", "asks for opus", DispatchState{}},
 		{"over tier family", "gemini gemini-4-pro", "x\n", "", "asks for gemini-4-pro", DispatchState{}},
 		{"over tier brief", "claude", "Tier: claude opus\nx\n", "", "asks for opus", DispatchState{}},
-		{"spend cap", "claude", "x\n", "", "stopped: day cap", DispatchState{}},
 		{"off", "claude", "x\n", "off", "", DispatchState{}},
 	} {
 		in, spawned := autofillFixture(t, tc.leaf, tc.brief, tc.health)
 		t.Setenv(AutofillEnv, tc.off)
-		if tc.name == "spend cap" {
-			autofillSpent = func(string) string { return "day cap" }
-		}
 		res := Autofill(in)
 		if len(res.Sent) != 0 || len(*spawned) != 0 {
 			t.Errorf("%s: sent %v", tc.name, res.Sent)
@@ -262,7 +257,7 @@ func slowAutofill(t *testing.T) {
 	t.Cleanup(func() {
 		_ = paths.WithFileLockWithin(filepath.Join(autofillDir(), "run"), 5*time.Second, func() error { return nil })
 	})
-	autofillSpent = func(string) string { time.Sleep(300 * time.Millisecond); return "" }
+	autofillSpawn = func(string, []string, string, *os.File) int { time.Sleep(300 * time.Millisecond); return 0 }
 }
 
 // a run past its deadline returns one notice instead of waiting.
@@ -312,24 +307,6 @@ func TestAutofillPruneKeepsOtherRepo(t *testing.T) {
 	}
 }
 
-// FillNotice leaves a task it just sent out of the notice (one scan), and prints no notice past the deadline.
-func TestFillNotice(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
-	lines := strings.Join(FillNotice(in), "\n")
-	if len(*spawned) != 1 || !strings.Contains(lines, "autofill sent") || strings.Contains(lines, "ready,") {
-		t.Fatalf("spawned %d, lines %q, want a sent line and no ready notice for it", len(*spawned), lines)
-	}
-	in2, _ := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
-	old := autofillDeadline
-	t.Cleanup(func() { autofillDeadline = old })
-	autofillDeadline = 20 * time.Millisecond
-	slowAutofill(t)
-	got := FillNotice(in2)
-	if len(got) != 1 || !strings.Contains(got[0], "deadline") {
-		t.Fatalf("got %v, want the one deadline line and no notice", got)
-	}
-}
-
 // two ready tasks owning one file send one task per run; the other waits for the next.
 func TestAutofillSkipsOverlappingOwns(t *testing.T) {
 	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
@@ -354,16 +331,6 @@ func TestAutofillCancelledContextDoesNothing(t *testing.T) {
 	job := autofillJob{root: in.Root, task: ReadyTask{Plan: in.Plans[0], ID: "Phase 1.1"}, planID: "1.1", key: fillKey}
 	if why := job.launch(ctx); !strings.Contains(why, "deadline") || len(*spawned) != 0 {
 		t.Fatalf("launch on a done context: %q, spawns %d", why, len(*spawned))
-	}
-}
-
-// a failed ready scan is the whole notice: no second scan adds an empty line.
-func TestFillNoticeReadyErrorNoRescan(t *testing.T) {
-	in, _ := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
-	in.Plans = []string{filepath.Join(t.TempDir(), "missing.md")}
-	got := FillNotice(in)
-	if len(got) != 1 || !strings.Contains(got[0], "autofill stopped") {
-		t.Fatalf("got %q, want only the stopped line", got)
 	}
 }
 
