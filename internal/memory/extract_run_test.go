@@ -57,6 +57,8 @@ func extractRunFixture(t *testing.T) (string, ExtractOptions) {
 	extractRunOK(t, os.MkdirAll(filepath.Join(paths.ConfigDir(), "plans"), 0o700))
 	extractTestGit(t, root, "config", "user.name", "Fixture")
 	extractTestGit(t, root, "config", "user.email", "fixture@example.invalid")
+	extractTestGit(t, root, "config", "maintenance.auto", "false")
+	extractTestGit(t, root, "config", "gc.auto", "0")
 	extractTestGit(t, root, "add", "--all")
 	extractTestGit(t, root, "commit", "-m", "seed extract fixture")
 	return root, ExtractOptions{Now: now, AccessLogs: []string{accessLogPath()}}

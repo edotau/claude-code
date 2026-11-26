@@ -473,9 +473,25 @@ func TestEmbedQueryHonoursCallerCancellation(t *testing.T) {
 	}
 }
 
+// lateDeadline reports DeadlineExceeded once done closes.
+type lateDeadline struct {
+	context.Context
+	done chan struct{}
+}
+
+func (d lateDeadline) Done() <-chan struct{} { return d.done }
+func (d lateDeadline) Err() error {
+	select {
+	case <-d.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
 // A caller's cancel or deadline mid-request says nothing about the endpoint, so it writes no backoff marker.
 func TestEmbedQueryCallerEndDoesNotPause(t *testing.T) {
-	for name, budget := range map[string]time.Duration{"cancelled": time.Minute, "deadline": 30 * time.Millisecond} {
+	for _, name := range []string{"cancelled", "deadline"} {
 		t.Run(name, func(t *testing.T) {
 			isolatedConfig1(t)
 			prevWait, prev := embedRecallWait, openEmbedClient
@@ -499,10 +515,14 @@ func TestEmbedQueryCallerEndDoesNotPause(t *testing.T) {
 					return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 				}}, nil
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), budget)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			if name == "cancelled" {
 				go func() { <-hit; cancel() }()
+			} else { // the deadline fires only once the request reached the endpoint, however loaded the machine
+				late := lateDeadline{Context: context.Background(), done: make(chan struct{})}
+				ctx = late
+				go func() { <-hit; close(late.done) }()
 			}
 			if _, err := embedQuery(ctx, "q"); err == nil {
 				t.Fatal("embedQuery succeeded, want the caller's end")
