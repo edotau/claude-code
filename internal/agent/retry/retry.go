@@ -121,6 +121,8 @@ type Error struct {
 	ShouldRetry ShouldRetry
 	// Cancelled: the client cancelled (context.Canceled or a 499); nothing re-dispatches and no account cools.
 	Cancelled bool
+	// Budget names the limit that ended this attempt; set where the limit is known, never retried or re-sent.
+	Budget Budget
 }
 
 // ShouldRetry is the typed x-should-retry response header: absent, true or false.
@@ -225,7 +227,7 @@ func (e *Error) AttemptMessage() string {
 
 // retryable is true for rate-limit and transient failures that have not streamed output.
 func (e *Error) retryable() bool {
-	return !e.Progressed && !e.Terminal && !e.PolicyRefusal && e.ShouldRetry != ShouldRetryNo && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
+	return !e.Progressed && !e.Terminal && !e.PolicyRefusal && !IsBudget(e) && e.ShouldRetry != ShouldRetryNo && (e.Kind == KindRateLimit || e.Kind == KindTransient || e.Kind == KindAuth)
 }
 
 // StatusClientClosed is the proxy's 499: the client cancelled; Fatal, never retried, no account cooldown.
@@ -309,17 +311,20 @@ func IsClientCancel(err error) bool {
 	return false
 }
 
-// MayRedispatch is false for a client cancel: no next hop, policy or overflow re-pick, family or workspace move.
-func MayRedispatch(err error) bool {
+// MayRedispatch is false for a client cancel or a budget end: no next hop, re-pick, family or workspace move.
+func MayRedispatch(err error) bool { return !IsCancelled(err) && !IsBudget(err) }
+
+// IsCancelled is true for a client cancel, by context, a 499 or a classified Cancelled flag.
+func IsCancelled(err error) bool {
 	if IsClientCancel(err) {
-		return false
+		return true
 	}
 	for e, ok := errors.AsType[*Error](err); ok; e, ok = errors.AsType[*Error](e.Err) {
 		if e.Cancelled {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // clientCancel makes e Fatal with no retry, reroute, proxy hop, account mark or policy verdict on a client cancel.
@@ -710,8 +715,11 @@ func (p Policy) terminal(ctx context.Context, last *Error, attemptErr error) boo
 		return true
 	}
 	// The attempt hit its own AttemptTimeout, not the parent ctx: retrying would burn another full timeout, so it ends.
-	if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) {
+	if p.AttemptTimeout > 0 && errors.Is(attemptErr, context.DeadlineExceeded) && !IsAdmission(last) {
 		last.Kind = KindFatal
+		if last.Budget == BudgetNone {
+			last.Budget = BudgetDeadline
+		}
 		last.Err = fmt.Errorf("timed out after %s: %w", p.AttemptTimeout, last.Err)
 		return true
 	}

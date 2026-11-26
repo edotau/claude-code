@@ -112,7 +112,8 @@ func workingOf(ids []string) []string {
 // resendLeaf hands lost leaf k to a fresh dispatch once; a leaf already re-sent, or one that cannot be, fails.
 func resendLeaf(ctx context.Context, k contract.Contract, send sendFunc, tries map[string]int) {
 	holder := k.Holders[len(k.Holders)-1]
-	if len(k.Holders) > 1 {
+	rec, lerr := agent.LoadRecord(holder)
+	if len(k.Holders) > 1 || lerr == nil && rec.LostBudgetEnd(time.Now()) { // a budget end is never re-sent
 		failLeaf(k.ID, holder)
 		return
 	}

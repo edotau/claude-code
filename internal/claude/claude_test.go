@@ -955,3 +955,15 @@ func TestMaxBudgetResultIsNamedError(t *testing.T) {
 		t.Fatal("usage kept")
 	}
 }
+
+func TestResultFailureCapsAreCostBudget(t *testing.T) {
+	for _, sub := range []string{"error_max_budget_usd", "error_max_turns"} {
+		err := resultFailure(claudeEvent{Subtype: sub, Result: "cap"})
+		if retry.BudgetOf(err) != retry.BudgetCost || retry.MayRedispatch(err) || !agent.IsResultError(err) {
+			t.Errorf("%s: budget %q result-error %v", sub, retry.BudgetOf(err), agent.IsResultError(err))
+		}
+	}
+	if err := resultFailure(claudeEvent{Subtype: "error_during_execution", Result: "x"}); retry.IsBudget(err) {
+		t.Errorf("a plain failure is no budget end: %v", err)
+	}
+}

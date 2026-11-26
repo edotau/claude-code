@@ -2,7 +2,6 @@ package retry
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -100,7 +99,7 @@ func (l *Limiter) acquire(ctx context.Context, account string) (release func(), 
 	defer cancel()
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("admission for account %q waited %s: %w", account, time.Since(started).Round(time.Millisecond), err)
+			err = &AdmissionError{Account: account, Waited: time.Since(started).Round(time.Millisecond), Err: err}
 		}
 	}()
 	if l.limits.Total <= 0 {

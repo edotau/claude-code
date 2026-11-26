@@ -91,10 +91,10 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	if rctx.Err() == nil || err == nil {
 		rctx = sctx // a run that finished gets the settle gate's time
 	} else if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-		err = fmt.Errorf("dispatch deadline passed: %w (%w)", context.DeadlineExceeded, err) // kind timeout, not fatal
+		err = retry.WithBudget(fmt.Errorf("dispatch deadline passed: %w (%w)", context.DeadlineExceeded, err), retry.BudgetDeadline) // kind timeout, not fatal
 		a.timedOut = true
 	}
-	settleHeld(rctx, p, total, err) // the record still runs, so no reaper takes the contract meanwhile
+	err = settleHeld(rctx, p, total, err) // the record still runs, so no reaper takes the contract meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if held != nil {
@@ -133,8 +133,8 @@ func (h *resultHold) Emit(ev wire.Event) error {
 // emitFinal sends the one result event of a stream: the last attempt's own, or the aggregate once the run moved.
 func (a *armRetry) emitFinal(h *resultHold, p *agent.Prepared, res wire.Result, err error) {
 	ev := h.ev
-	if len(a.tried) > 1 || ev == nil || a.timedOut {
-		env := wire.NewEnvelope(res, err, p.Record.ID)
+	if len(a.tried) > 1 || ev == nil || a.timedOut || answeredBeforeContractEnd(err) { // a held ok event predates the end
+		env := agent.EnvelopeOf(res, err, p.Record.ID)
 		env.RanOn = ranOn(res)
 		e := wire.ResultEvent(env)
 		ev = &e

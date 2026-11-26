@@ -491,6 +491,9 @@ func (t *piTurn) text() string {
 	return strings.TrimSpace(strings.Join(append(slices.Clone(t.answer), t.cur.String()), "\n"))
 }
 
+// stopLength is pi-ai's stop reason for the output token limit.
+const stopLength = "length"
+
 // stopFailure accepts only pi-ai's stop reason "stop"; unknown reasons fail.
 func stopFailure(reason, errMsg string) string {
 	switch reason {
@@ -500,7 +503,7 @@ func stopFailure(reason, errMsg string) string {
 		return cmp.Or(errMsg, "pi request failed")
 	case "aborted":
 		return cmp.Or(errMsg, "pi request aborted")
-	case "length":
+	case stopLength:
 		return "pi response truncated: the model reached its output token limit"
 	case "toolUse":
 		return "pi stopped with a tool call pending"
@@ -545,5 +548,14 @@ func (t *piTurn) finish(settled bool) error {
 	if msg == errNoAnswer.Error() {
 		cause = errNoAnswer
 	}
-	return retry.Classify("pi", cause, t.progressed)
+	e := retry.Classify("pi", cause, t.progressed)
+	if t.truncated() {
+		e.Budget = retry.BudgetOutput // always a budget end, progress or not (A2)
+	}
+	return e
+}
+
+// truncated is a clean-looking run that stopped at the model's output token limit.
+func (t *piTurn) truncated() bool {
+	return t.assistant && !t.aborted && len(t.open) == 0 && t.stop == stopLength
 }

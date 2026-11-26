@@ -862,6 +862,7 @@ type tally struct {
 	wire.Sink
 	live                                   *activityLog
 	tools, geminiTools, toolProgress, text atomic.Int64
+	last                                   atomic.Value // the last event's type, with its tool name: where a budget end stopped
 	mu                                     sync.Mutex
 	stats                                  map[string]ToolStat
 }
@@ -903,7 +904,17 @@ func (t *tally) toolStats() ToolStats {
 	return maps.Clone(t.stats)
 }
 
+func (t *tally) lastEvent() string {
+	s, _ := t.last.Load().(string)
+	return cmp.Or(s, "none")
+}
+
 func (t *tally) Emit(ev wire.Event) error {
+	last := ev.Type
+	if ev.Tool != nil && ev.Tool.Name != "" {
+		last += " " + ev.Tool.Name
+	}
+	t.last.Store(last)
 	switch ev.Type {
 	case wire.EventToolResult:
 		t.addStat(ev)

@@ -141,6 +141,7 @@ func (s *codexStreamState) observe(ev codexEvent) {
 		}
 	}
 	if len(s.running) > 0 { // a long tool call emits nothing until it ends
+		s.idle.ToolCall()
 		s.idle.Pause()
 		return
 	}

@@ -96,8 +96,8 @@ var Reap = func() func() { return func() {} }
 
 // envFallback is the process or vault fallback mode; unset reads as none.
 func envFallback(ctx context.Context) string {
-	mode, _ := router.FallbackSetting(ctx, "")
-	return router.ParseFallback(mode)
+	mode, _ := router.EffectiveFallback(ctx, "", providers.CustomEnv())
+	return mode
 }
 
 // runCtx is Cmd under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
@@ -109,7 +109,7 @@ func runCtx(ctx context.Context, args []string, out io.Writer) (exit int) {
 	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = envFallback(ctx)
-		if !slices.Contains(route.FallbackModes, f.fallback) {
+		if !router.ValidFallback(f.fallback) {
 			return failAskCode(f.format, f.name, fmt.Errorf("%s=%q unknown (%s)", router.EnvFallback, f.fallback, strings.Join(route.FallbackModes, "|")), 2)
 		}
 	}

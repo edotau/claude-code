@@ -230,7 +230,7 @@ func (r remoteEngine) remoteOutcome(ctx context.Context, env *wire.Envelope, str
 	case env != nil:
 		res = resultFromEnvelope(*env, r.agent, dropped)
 		if env.Error != nil {
-			e := &retry.Error{Kind: wire.KindOf(env.Error.Kind), Agent: r.agent, Progressed: streamed,
+			e := &retry.Error{Kind: wire.KindOf(env.Error.Kind), Agent: r.agent, Progressed: streamed, Budget: retry.Budget(env.BudgetKind),
 				Err: wire.RemoteError{Kind: env.Error.Kind, Msg: "remote " + r.host + ": " + env.Error.Message}}
 			return res, e
 		}

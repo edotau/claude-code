@@ -3,6 +3,7 @@ package ask
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +13,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/serve"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
@@ -346,5 +350,60 @@ func TestFencedWorkspaceIsTheConfinementOfAProviderOnlyAsk(t *testing.T) {
 	}
 	if got := fencedWorkspace(ctx, &askFlags{provider: "databricks", profile: "dev"}); got != "" {
 		t.Errorf("a typed profile keeps its own lead, got %q", got)
+	}
+}
+
+func TestTakeoverDecisionSkipsBudgetEnd(t *testing.T) {
+	child := agent.Record{ID: "c", Status: "stalled", Cutoff: agent.CutoffIdle, BudgetKind: "idle"}
+	take, why := takeoverDecision(child, true, "all", false)
+	if take || why == "" {
+		t.Fatalf("a budget end must not be taken over by Pi: take=%v why=%q", take, why)
+	}
+	child.BudgetKind = ""
+	if take, _ := takeoverDecision(child, true, "all", false); !take {
+		t.Fatal("a stall before any output keeps its Pi takeover")
+	}
+}
+
+func TestContractBudgetMarksLimitAndDeadline(t *testing.T) {
+	run := errors.New("cut")
+	for _, why := range []contract.Reason{contract.ReasonLimit, contract.ReasonDeadline} {
+		if got := contractBudget(contract.Contract{Failed: why}, run); retry.BudgetOf(got) != retry.BudgetContract {
+			t.Errorf("%s: budget %q", why, retry.BudgetOf(got))
+		}
+	}
+	if got := contractBudget(contract.Contract{Failed: contract.ReasonOwnerDead}, run); retry.IsBudget(got) {
+		t.Error("owner-dead is not a budget end")
+	}
+}
+
+// An answered run whose contract then fails on its limit ends as a contract budget failure that keeps the answer.
+func TestContractBudgetAfterAnswerKeepsResult(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_KEYRING", "off")
+	err := contractBudget(contract.Contract{ID: "k", Failed: contract.ReasonLimit}, nil)
+	if retry.BudgetOf(err) != retry.BudgetContract || !answeredBeforeContractEnd(err) {
+		t.Fatalf("answered run lost its contract end: %v", err)
+	}
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	res := wire.Result{Agent: "claude", Answer: "done"}
+	_ = rec.Conclude(res, err, agent.RunRecordedOpts{}) // returns err itself; the saved record is what counts
+	saved, lerr := agent.LoadRecord(rec.ID)
+	env := agent.EnvelopeOf(res, err, rec.ID)
+	if lerr != nil || saved.Status != "error" || saved.BudgetKind != "contract" || !strings.HasPrefix(agent.ResumeHint(saved), "Budget end:") {
+		t.Fatalf("record: %v %+v", lerr, saved)
+	}
+	if env.Answer != "done" || env.BudgetKind != "contract" || env.Status != wire.StatusError {
+		t.Fatalf("envelope: %+v", env)
+	}
+}
+
+func TestMoveOffCutoffSkipsBudgetRecord(t *testing.T) {
+	rec := agent.Record{ID: "d", Cutoff: agent.CutoffDeadline, BudgetKind: "deadline"}
+	if !rec.CutOff() {
+		t.Fatal("fixture must be a cutoff")
+	}
+	if moveOffCutoff(nil, nil, rec, nil, " (1m ago)") {
+		t.Fatal("a budget end moved to another agent")
 	}
 }

@@ -408,6 +408,9 @@ func takeoverDecision(child agent.Record, found bool, policy string, modelTyped 
 	if !found || !child.CutOff() && child.Status != wire.StatusPartial && child.Status != wire.StatusStalled {
 		return false, ""
 	}
+	if child.BudgetKind != "" { // only a stall before any output is transport; a budget end is handed back, never re-sent
+		return false, fmt.Sprintf("%s ended on its %s budget; no Pi takeover. %s", child.ID, child.BudgetKind, child.TakeOverHint())
+	}
 	if policy == route.FallbackNone && modelTyped {
 		return false, fmt.Sprintf("%s was cut off (%s); no Pi takeover: --fallback none with a typed model", child.ID, cmp.Or(child.Cutoff, child.Status))
 	}
@@ -543,6 +546,7 @@ func finishCarry(ctx context.Context, rec, final agent.Record, found bool, code 
 		}
 		r.Status, r.Error, r.FailKind, r.Cutoff = final.Status, final.Error, final.FailKind, final.Cutoff
 		r.Wrote, r.PreDirtyTouched, r.TreeChanged = final.Wrote, final.PreDirtyTouched, final.TreeChanged
+		r.BudgetKind, r.StoppedAt, r.Changed = final.BudgetKind, final.StoppedAt, final.Changed
 		r.Provider, r.Model, r.Invoked, r.RanRoute = final.Provider, final.Model, final.Invoked, final.RanRoute
 		r.Type, r.Runner = final.Type, final.Runner
 		if who := cmp.Or(final.RanAs, final.Agent); who != r.Agent { // a child's fallback, or the Pi takeover, answered

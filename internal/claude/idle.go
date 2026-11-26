@@ -168,6 +168,7 @@ func (w *idleWatch) trackTools(msg anthropic.Message, answered bool) {
 			delete(w.tools, b.ToolUseID)
 		} else if b.Type == "tool_use" {
 			w.tools[b.ID] = openTool{name: b.Name, deadline: time.Now().Add(toolPauseCeiling)}
+			w.ToolCall()
 		}
 	}
 	if w.pending == 0 {

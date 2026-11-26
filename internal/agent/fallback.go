@@ -262,7 +262,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	if auto {
 		limit = max(0, MaxAutoRepicks-lreq.Repicks)
 	}
-	for len(tried) < limit {
+	for len(tried) < limit && !retry.IsBudget(err) {
 		ran := ranModel(disp, lreq, res)
 		plan := planRepick(ctx, refusedHop{disp, lreq, res, err, hops})
 		next := cmp.Or(plan.pick(), retryModel(ctx, disp, lreq, ran, err))
@@ -284,6 +284,9 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
 		res.Invoked = invoked
+		if plan.model != "" && overflowRefusal(err) != "" { // a second overflow after the one window re-pick ends the task
+			err = retry.WithBudget(err, retry.BudgetContext)
+		}
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
 			noteFailure(disp, lreq, ran, first)
 		}

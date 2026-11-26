@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -854,5 +855,14 @@ func TestAssistantCollectorKeepsSuccessfulFileEdits(t *testing.T) {
 	col.onEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionCompleteData{Success: false, FileEdits: edits}})
 	if got := col.writtenPaths(); len(got) != 1 || got[0] != "/m/r.md" {
 		t.Fatalf("writtenPaths = %v, want [/m/r.md]", got)
+	}
+}
+
+func TestTruncationErrorLengthIsOutputBudget(t *testing.T) {
+	if err := truncationError(Result{FinishReason: "length"}); retry.BudgetOf(err) != retry.BudgetOutput {
+		t.Fatalf("length: budget %q", retry.BudgetOf(err))
+	}
+	if err := truncationError(Result{ContentFiltered: true}); err == nil || retry.IsBudget(err) {
+		t.Fatalf("content filter is policy, not a budget: %v", err)
 	}
 }

@@ -379,7 +379,7 @@ func classifyRunning(r Record, now time.Time, lim WatchLimits, rel relayState) (
 // recoverable reports whether r's event log holds text or tool events, so `ask --retry --recover` has a log to resume.
 func recoverable(r Record) bool {
 	_, err := recoveryLog(r.EventsPath())
-	return err == nil
+	return err == nil && r.BudgetKind == "" // a budget end is taken over, never recovered
 }
 
 // recoverArgs is the suggested (never auto-run) `ask --retry --recover` argv for r.

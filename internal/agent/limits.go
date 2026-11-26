@@ -49,7 +49,7 @@ func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, e
 	if max := dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens); max > 0 {
 		root, spent, unknown := dispatchTreeUsage(rec.Parent)
 		if spent >= max {
-			return Record{}, &retry.Error{Kind: retry.KindFatal, Terminal: true, Agent: name,
+			return Record{}, &retry.Error{Kind: retry.KindFatal, Terminal: true, Agent: name, Budget: retry.BudgetTokens,
 				Err: fmt.Errorf("%w %d tokens spent under root %s (%d counted; %d records without usage); set %s (0 = no cap)", ErrTreeBudget, max, root, spent, unknown, maxTreeTokensEnv)}
 		}
 	}

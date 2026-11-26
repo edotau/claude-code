@@ -680,10 +680,19 @@ func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 	return nil
 }
 
+// The result subtypes of claude's own cost and turn caps.
+const (
+	subtypeMaxBudget = "error_max_budget_usd"
+	subtypeMaxTurns  = "error_max_turns"
+)
+
 // resultFailure is a failed result; a credential-helper failure is auth, so it reads as availability, not quality.
 func resultFailure(ev claudeEvent) error {
 	detail := cmp.Or(ev.Result, strings.Join(ev.Errors, "; "))
 	err := wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, detail))
+	if ev.Subtype == subtypeMaxBudget || ev.Subtype == subtypeMaxTurns { // the agent's own cost or turn cap: never re-sent
+		err = retry.WithBudget(err, retry.BudgetCost)
+	}
 	if strings.Contains(ev.Result, "apiKeyHelper") || strings.Contains(strings.Join(ev.Errors, "; "), "apiKeyHelper") {
 		return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Err: err}
 	}

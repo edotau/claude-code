@@ -527,7 +527,7 @@ func agyPrintTimeoutErr(err error, r agyRequest, stderr string, took time.Durati
 	if missing {
 		streamed = answered
 	}
-	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: streamed, Err: &agyTimeoutError{after: r.PrintTimeout}}
+	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: streamed, Budget: retry.BudgetDeadline, Err: &agyTimeoutError{after: r.PrintTimeout}}
 }
 
 func agyModelLimit(text string) bool {

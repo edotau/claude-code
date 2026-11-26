@@ -34,6 +34,7 @@ type loopResult struct {
 	Part       loopPart `json:"part"`
 	Status     string   `json:"status"`
 	Kind       string   `json:"kind,omitempty"`
+	Budget     string   `json:"budget_kind,omitempty"` // the limit that ended the part: never retried, the main session takes it over
 	Ran        string   `json:"ran,omitempty"`
 	Dispatches []string `json:"dispatch_ids"`
 	Answer     string   `json:"answer,omitempty"`

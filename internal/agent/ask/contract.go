@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/contract"
@@ -809,8 +810,10 @@ func runHeld(ctx context.Context, cl *agent.Client, p *agent.Prepared, isJob boo
 	res, err := cl.Exec(rctx, p, held, attempt)
 	if rctx.Err() == nil || err == nil {
 		rctx = sctx // a run that finished gets the settle's time
+	} else if errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		err = retry.WithBudget(err, retry.BudgetDeadline)
 	}
-	settleHeld(rctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
+	err = settleHeld(rctx, p, res, err) // settled before Conclude by design: the hold keeps the record running meanwhile
 	opts.Notify = cl.Notify
 	err = p.Record.Conclude(res, err, opts)
 	if format == agent.FormatStreamJSON {
@@ -828,11 +831,11 @@ func abandonOnPanic(id, holder string) {
 	}
 }
 
-// settleHeld settles the working contract p's dispatch holds from its held result; a cancelled ctx fails it instead.
-func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr error) {
+// settleHeld settles p's held contract; it returns runErr marked a contract budget end on a limit or deadline failure.
+func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr error) error {
 	id := heldID(p.Record)
 	if id == "" {
-		return
+		return runErr
 	}
 	var got contract.Contract
 	var err error
@@ -841,7 +844,7 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 		if ctx.Err() == nil { // a cancel during the settle gate is a cancel, not an unmet gate
 			got, err = settleContract(id, p.Record.ID, ret)
 			reportSettled(id, got, err)
-			return
+			return contractBudget(got, runErr)
 		}
 	}
 	why := contract.ReasonCancelled
@@ -850,6 +853,34 @@ func settleHeld(ctx context.Context, p *agent.Prepared, res wire.Result, runErr 
 	}
 	got, err = abandonContract(id, p.Record.ID, why)
 	reportSettled(id, got, err)
+	return contractBudget(got, runErr)
+}
+
+// contractBudget marks the run a contract budget end when c failed on its token limit or deadline, answered or not.
+func contractBudget(c contract.Contract, runErr error) error {
+	if c.Failed != contract.ReasonLimit && c.Failed != contract.ReasonDeadline {
+		return runErr
+	}
+	if runErr == nil {
+		runErr = &contractEnd{id: c.ID, why: c.Failed}
+	}
+	return retry.WithBudget(runErr, retry.BudgetContract)
+}
+
+// contractEnd is a run that answered before its contract failed on a limit; the answer is kept, the end is a failure.
+type contractEnd struct {
+	id  string
+	why contract.Reason
+}
+
+func (e *contractEnd) Error() string {
+	return fmt.Sprintf("contract %s failed (%s) after the run answered; the answer is kept", e.id, e.why)
+}
+
+// answeredBeforeContractEnd reports err as the contract end of a run whose answer succeeded.
+func answeredBeforeContractEnd(err error) bool {
+	_, ok := errors.AsType[*contractEnd](err)
+	return ok
 }
 
 // retryableCancellation preserves the first fleet cancel for one automatic or --retry <id> --recover re-send.

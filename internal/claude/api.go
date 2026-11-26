@@ -231,9 +231,11 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string, 
 		*served = chunk.Model
 	}
 	chunk.foldUsage(usage)
+	limit := false
 	for _, c := range chunk.Choices {
 		if c.FinishReason != "" {
 			*finished = true
+			limit = limit || c.FinishReason == "length"
 		}
 		if c.Delta.Content == "" {
 			continue
@@ -242,7 +244,16 @@ func applyChatLine(line []byte, w io.Writer, usage *wire.Usage, served *string, 
 			return false, err
 		}
 	}
+	if limit {
+		return false, outputLimit()
+	}
 	return false, nil
+}
+
+// outputLimit is the failure of a direct API answer cut off at the model's output token limit.
+func outputLimit() error {
+	return &retry.Error{Kind: retry.KindFatal, Agent: "claude", Budget: retry.BudgetOutput,
+		Err: errors.New("claude answer cut off at the output token limit")}
 }
 
 func parseChatStream(r io.Reader, w io.Writer) (wire.Usage, string, error) {
@@ -332,6 +343,9 @@ func applyMessageEvent(ev any, res *wire.Usage, model *string, w io.Writer) erro
 		}
 	case anthropic.MessageDeltaEvent:
 		foldDeltaUsage(res, ev.Usage)
+		if ev.Delta.StopReason == anthropic.StopReasonMaxTokens {
+			return outputLimit()
+		}
 	}
 	return nil
 }

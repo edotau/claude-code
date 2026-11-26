@@ -1018,7 +1018,7 @@ func TestFinishKeepsCutoffStatus(t *testing.T) {
 
 // Each cutoff has its own kind, recorded by Finish; a model refusal has none.
 func TestCutoffOfNamesEachKind(t *testing.T) {
-	deadline := fmt.Errorf("timed out after 15m0s: %w", errors.New("signal: killed"))
+	deadline := retry.WithBudget(fmt.Errorf("timed out after 15m0s: %w", errors.New("signal: killed")), retry.BudgetDeadline)
 	authLoop := fmt.Errorf("claude: no model output: 3 API retries (401) in 1m30s: %w", ErrStalled)
 	for _, tc := range []struct {
 		err  error

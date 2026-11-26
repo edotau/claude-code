@@ -377,3 +377,14 @@ func TestBodyErrorCodeAndHintReachClassify(t *testing.T) {
 		t.Errorf("typed code not classified: %+v", e)
 	}
 }
+
+func TestApplyChatLineLengthIsOutputBudget(t *testing.T) {
+	var usage wire.Usage
+	var served string
+	finished := false
+	line := []byte(`data: {"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}` + "\n")
+	_, err := applyChatLine(line, io.Discard, &usage, &served, &finished)
+	if retry.BudgetOf(err) != retry.BudgetOutput {
+		t.Fatalf("length finish: %v", err)
+	}
+}

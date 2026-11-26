@@ -23,6 +23,7 @@ type IdleTimeout struct {
 	due     time.Time // the current window's end, so a fire that raced a Reset cannot trip the newer window
 	last    string
 	spoke   bool // the child produced model output: a later trip is ErrSilent, not ErrStalled
+	tooled  bool // a tool call ran (ToolCall): a trip is a budget end even before any model text
 	tripped bool
 	done    bool
 	deliver bool // the child already delivered its final result: a later trip only bounds a lingering child
@@ -131,6 +132,16 @@ func (w *IdleTimeout) Pause() {
 	w.armed = false
 }
 
+// ToolCall marks that the child started a tool call, so a later trip is a budget end even before any model text.
+func (w *IdleTimeout) ToolCall() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.tooled = true
+	w.mu.Unlock()
+}
+
 // Spoke marks the child's first model output, so a later trip reads as a mid-stream ErrSilent.
 func (w *IdleTimeout) Spoke() {
 	if w == nil {
@@ -186,5 +197,9 @@ func (w *IdleTimeout) Err() error {
 	if w.spoke {
 		sentinel = ErrSilent
 	}
-	return retry.Fatal(w.name, fmt.Errorf("%w: %s was silent for %s (last event: %s)", sentinel, w.name, w.d, w.last))
+	e := &retry.Error{Kind: retry.KindFatal, Agent: w.name, Err: fmt.Errorf("%w: %s was silent for %s (last event: %s)", sentinel, w.name, w.d, w.last)}
+	if w.spoke || w.tooled { // a stall before any output or tool call stays transport (A1)
+		e.Budget = retry.BudgetIdle
+	}
+	return e
 }

@@ -119,8 +119,13 @@ func ContractEnv() contract.Env {
 // resendHolder is the new dispatch of c's lost holder, "" when it cannot be re-sent (c is then failed owner-dead).
 func resendHolder(c contract.Contract) string {
 	holder := c.Holders[len(c.Holders)-1]
-	if rec, err := agent.LoadRecord(holder); err == nil && rec.Status == wire.StatusOK {
-		return "" // it finished: only its settle failed, and a re-run would repeat its edits
+	if rec, err := agent.LoadRecord(holder); err == nil {
+		if rec.Status == wire.StatusOK {
+			return "" // it finished: only its settle failed, and a re-run would repeat its edits
+		}
+		if rec.LostBudgetEnd(time.Now()) {
+			return "" // lost past its own deadline is a budget end, not a lost process (A4)
+		}
 	}
 	next, err := agent.Resend(context.Background(), holder)
 	if err != nil {
@@ -235,20 +240,34 @@ func settleDead(cur agent.Record) (agent.Record, string) {
 		cur.Finish(envelopeResult(env), nil, time.Duration(env.DurationMs)*time.Millisecond)
 		return cur, "finished dispatch (result saved before the process left)"
 	}
-	if ok && env.Error != nil && cur.Error == "" {
-		cur.Error = textutil.RedactSecrets(env.Error.Message)
-	}
-	if ok && cur.Usage == nil && env.Usage != nil {
-		cur.Usage = env.Usage
-	}
-	if ok && cur.DurationMs == 0 {
-		cur.DurationMs = env.DurationMs
+	if ok {
+		cur = keepSaved(cur, env)
 	}
 	cur.Status = "error"
 	if cur.Error == "" {
 		cur.Error = agent.LostError + cur.LostProcessDetail()
 	}
+	if cur.SettleLostPastDeadline(reapNow()) {
+		return cur, "dispatch (" + cur.BudgetKind + " budget end)"
+	}
 	return cur, "dispatch"
+}
+
+// keepSaved fills cur's unset error, usage, duration and budget end from the envelope the run saved.
+func keepSaved(cur agent.Record, env wire.Envelope) agent.Record {
+	if cur.BudgetKind == "" && env.BudgetKind != "" {
+		cur.BudgetKind, cur.StoppedAt, cur.Changed = env.BudgetKind, env.StoppedAt, env.Changed
+	}
+	if env.Error != nil && cur.Error == "" {
+		cur.Error = textutil.RedactSecrets(env.Error.Message)
+	}
+	if cur.Usage == nil && env.Usage != nil {
+		cur.Usage = env.Usage
+	}
+	if cur.DurationMs == 0 {
+		cur.DurationMs = env.DurationMs
+	}
+	return cur
 }
 
 // envelopeResult is the part of env that Record.Finish reads back.

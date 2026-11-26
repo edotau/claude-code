@@ -561,7 +561,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	res.Written = col.writtenPaths()
 	// the partial text and session id still ride back, so a caller can hand the task off
 	if sendErr != nil {
-		return res, fmt.Errorf("send prompt: %w", sendErr)
+		return res, fmt.Errorf("send prompt: %w", errors.Join(sendErr, col.limitError(), truncationError(res)))
 	}
 	return res, errors.Join(col.limitError(), truncationError(res))
 }
@@ -595,8 +595,8 @@ func (c *assistantCollector) limitError() error {
 	if c.limit == nil {
 		return nil
 	}
-	return fmt.Errorf("copilot budgetCredits cap reached (%.4g of %.4g AI credits used)",
-		c.limit.UsedAiCredits, c.limit.MaxAiCredits)
+	return &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Budget: retry.BudgetCost,
+		Err: fmt.Errorf("copilot budgetCredits cap reached (%.4g of %.4g AI credits used)", c.limit.UsedAiCredits, c.limit.MaxAiCredits)}
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
@@ -631,6 +631,7 @@ func (c *assistantCollector) watch(ev copilot.SessionEvent) {
 	switch d := ev.Data.(type) {
 	case *copilot.ToolExecutionStartData:
 		c.openTools++
+		c.idle.ToolCall()
 		c.idle.Pause()
 		return
 	case *copilot.ToolExecutionCompleteData:
@@ -703,7 +704,8 @@ func truncationError(r Result) error {
 	case r.ContentFiltered || r.FinishReason == "content_filter":
 		return errors.New("copilot answer blocked or truncated by the content filter")
 	case r.FinishReason == "length":
-		return errors.New("copilot answer cut off at the output token limit (finish_reason=length)")
+		return &retry.Error{Kind: retry.KindFatal, Agent: "copilot", Budget: retry.BudgetOutput,
+			Err: errors.New("copilot answer cut off at the output token limit (finish_reason=length)")}
 	}
 	return nil
 }

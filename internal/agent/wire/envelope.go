@@ -108,15 +108,26 @@ type Envelope struct {
 	Emulated        []string        `json:"emulated,omitempty"`         // flags the harness shimmed because the agent has no channel
 	Handoff         string          `json:"handoff"`
 	Transport       *Transport      `json:"transport"`
-	TaskID          string          `json:"task_id,omitempty"`    // ask --batch: the task's id
-	BatchID         string          `json:"batch_id,omitempty"`   // ask --batch: the id shared by every task of the run
-	Hops            []Hop           `json:"hops,omitempty"`       // every dispatch tried, in order
-	Type            string          `json:"type,omitempty"`       // the agent type of the model that ran (models.AgentType)
-	Runner          string          `json:"runner,omitempty"`     // the runner that carried Agent's run, "pi"; absent when Agent ran itself
-	RanOn           string          `json:"ran_on,omitempty"`     // the one-line "ran on" summary of the dispatch that answered
-	Structured      json.RawMessage `json:"structured,omitempty"` // --output-schema: the answer as JSON satisfying the schema
-	Verify          *VerifyResult   `json:"verify,omitempty"`     // --spec verify: what the harness ran after the answer
-	Handback        *Handback       `json:"handback,omitempty"`   // the run's typed outcome, from a pi run's handback call
+	TaskID          string          `json:"task_id,omitempty"`     // ask --batch: the task's id
+	BatchID         string          `json:"batch_id,omitempty"`    // ask --batch: the id shared by every task of the run
+	Hops            []Hop           `json:"hops,omitempty"`        // every dispatch tried, in order
+	Type            string          `json:"type,omitempty"`        // the agent type of the model that ran (models.AgentType)
+	Runner          string          `json:"runner,omitempty"`      // the runner that carried Agent's run, "pi"; absent when Agent ran itself
+	RanOn           string          `json:"ran_on,omitempty"`      // the one-line "ran on" summary of the dispatch that answered
+	Structured      json.RawMessage `json:"structured,omitempty"`  // --output-schema: the answer as JSON satisfying the schema
+	Verify          *VerifyResult   `json:"verify,omitempty"`      // --spec verify: what the harness ran after the answer
+	Handback        *Handback       `json:"handback,omitempty"`    // the run's typed outcome, from a pi run's handback call
+	BudgetKind      string          `json:"budget_kind,omitempty"` // the limit that ended the run (retry.Budget); never re-sent
+	StoppedAt       *StoppedAt      `json:"stopped_at,omitempty"`  // a budget end: the last event, tool calls and text streamed
+	Lane            string          `json:"lane,omitempty"`        // a budget end: the directory to take over
+	Changed         []string        `json:"changed,omitempty"`     // a budget end: files the run changed there
+}
+
+// StoppedAt is where a budget end left the run: the last event seen, tool calls made, bytes of text streamed.
+type StoppedAt struct {
+	Event     string `json:"event"`
+	ToolCalls int64  `json:"tool_calls"`
+	TextBytes int64  `json:"text_bytes"`
 }
 
 // Handback is the typed outcome a run reports; the answer's footer is only its rendering (Footer).
@@ -234,6 +245,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Turns: res.Turns, ContextWindow: res.ContextWindow, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked, Verify: res.Verify, Handback: res.Handback}
 	env.Type, env.Runner = res.Type, res.Runner
+	env.BudgetKind = string(retry.BudgetOf(err))
 	env.FallbackKind = res.FallbackKind
 	if res.Runner != "" {
 		env.Agent = cmp.Or(res.Asked, res.Agent)
@@ -253,6 +265,9 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	}
 	if err != nil {
 		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: textutil.RedactSecrets(err.Error())}
+		if env.Status == StatusOK { // an answer a later step failed, such as a contract end, is not ok
+			env.Status = StatusError
+		}
 	}
 	env.Route = RouteObject(res.Provider)
 	env.RequestedRoute = res.RequestedRoute

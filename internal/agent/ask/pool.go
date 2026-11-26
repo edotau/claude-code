@@ -330,7 +330,7 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 		b.logf(t.ID, "%s", droppedNote(d, res.Agent))
 	}
 	b.logf(t.ID, "dispatch %s", rec.ID)
-	env = wire.NewEnvelope(res, err, res.DispatchID)
+	env = agent.EnvelopeOf(res, err, res.DispatchID)
 	env.TaskID = t.ID
 	return env, err == nil && env.Status == wire.StatusOK
 }

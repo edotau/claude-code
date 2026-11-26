@@ -499,6 +499,7 @@ func (t *toolIdle) beat(ev piEvent) {
 	switch ev.Type {
 	case "tool_execution_start":
 		t.active[ev.ToolCallID] = true
+		t.idle.ToolCall()
 		t.idle.Pause()
 	case "tool_execution_end":
 		delete(t.active, ev.ToolCallID) // an end with no start changes nothing

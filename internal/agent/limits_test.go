@@ -252,3 +252,14 @@ func TestTreeTokensDefaultIs20MAndZeroDisables(t *testing.T) {
 		t.Errorf("env 0 = %d, want 0 (no cap)", got)
 	}
 }
+
+func TestTreeBudgetRefusalIsTokensBudget(t *testing.T) {
+	setConfigDir(t)
+	seedLimitRecord(t, Record{ID: limitRoot, Status: "ok", Usage: &wire.Usage{InputTokens: 5}})
+	seedLimitRecord(t, Record{ID: limitParent, Parent: limitRoot, Status: "ok"})
+	ctx := proc.WithValues(t.Context(), proc.Values{maxTreeTokensEnv: "1", maxDispatchChildrenEnv: "0"})
+	_, err := claimLimitedRecord(ctx, "codex", Record{ID: "kid", Parent: limitParent, Status: "running", Time: time.Now()})
+	if retry.BudgetOf(err) != retry.BudgetTokens || retry.MayRedispatch(err) {
+		t.Fatalf("tree cap: budget %q err %v", retry.BudgetOf(err), err)
+	}
+}

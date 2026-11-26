@@ -218,10 +218,10 @@ func reportAsk(out io.Writer, format, save string, p *agent.Prepared, res wire.R
 	return 0
 }
 
-// reportSaved saves a successful run's answer and, in text format, prints its head; a failed run saves nothing.
+// reportSaved saves an answered run's answer and, in text format, prints its head; a failed run saves nothing.
 func reportSaved(out io.Writer, format, save string, res wire.Result, runErr error) error {
 	var saveErr error
-	if runErr == nil {
+	if runErr == nil || answeredBeforeContractEnd(runErr) {
 		saveErr = saveAnswer(save, res)
 	}
 	if format != helptext.Text {
@@ -256,7 +256,7 @@ func reportAskResult(out io.Writer, format string, res wire.Result, err error) e
 		fmt.Fprintf(os.Stderr, "ask: %s\n", droppedNote(d, res.Agent))
 	}
 	if format == helptext.JSON {
-		env := wire.NewEnvelope(res, err, res.DispatchID)
+		env := agent.EnvelopeOf(res, err, res.DispatchID)
 		env.RanOn = ranOn(res)
 		return writeEnvelope(out, env)
 	}

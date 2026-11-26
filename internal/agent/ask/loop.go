@@ -322,7 +322,7 @@ func derefUsage(u *wire.Usage) wire.Usage {
 }
 
 func resultOf(p loopPart, env wire.Envelope) loopResult {
-	r := loopResult{Part: p, Status: cmp.Or(env.Status, wire.StatusError), Ran: cmp.Or(env.Runner, env.Agent), Dispatches: []string{},
+	r := loopResult{Part: p, Status: cmp.Or(env.Status, wire.StatusError), Ran: cmp.Or(env.Runner, env.Agent), Budget: env.BudgetKind, Dispatches: []string{},
 		Answer: textutil.TruncateRunes(env.Answer, loopDigestChars), Ms: env.DurationMs}
 	if env.DispatchID != "" {
 		r.Dispatches = append(r.Dispatches, env.DispatchID)
@@ -344,6 +344,11 @@ func (d *loopDriver) retryFailed(ctx context.Context, round int, rd *loopRound) 
 	for i := range rd.Parts {
 		r := &rd.Parts[i]
 		if r.Status == wire.StatusOK || r.Status == statusNeedsMain {
+			continue
+		}
+		if r.Budget != "" {
+			d.logf("R%d.%s %s: not retried (%s budget); take over its lane", round, r.Part.ID, r.Status, r.Budget)
+			r.Status = statusNeedsMain
 			continue
 		}
 		if why := d.keep(*r); why != "" {

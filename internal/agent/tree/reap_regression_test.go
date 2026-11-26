@@ -2,6 +2,7 @@ package tree
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 )
@@ -141,5 +145,40 @@ func TestReapReportsMarkerDirectoryStatFailure(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), "marker dir:") {
 		t.Fatalf("stderr = %q, want marker directory error", &errw)
+	}
+}
+
+// A holder lost past its own attempt deadline is a budget end: no re-send, before or after the reap marks it (A4).
+func TestResendHolderSkipsHolderPastDeadline(t *testing.T) {
+	reapSocketConfig(t)
+	rec := saveReapRecord(t, deadPID, time.Now().Add(-2*agent.AttemptTimeoutFor(agent.RunOptions{})))
+	if got := resendHolder(contract.Contract{Holders: []string{rec.ID}}); got != "" {
+		t.Fatalf("resent a holder past its deadline as %q", got)
+	}
+	if n, code := reapRecords([]agent.Record{rec}, false, "reaped", &bytes.Buffer{}, &bytes.Buffer{}); n != 1 || code != 0 {
+		t.Fatalf("reap: n=%d code=%d", n, code)
+	}
+	reaped, err := agent.LoadRecord(rec.ID)
+	if err != nil || reaped.BudgetKind != "deadline" || !strings.HasPrefix(agent.ResumeHint(reaped), "Budget end:") {
+		t.Fatalf("reaped past its deadline without a budget end: %v %+v", err, reaped)
+	}
+	if got := resendHolder(contract.Contract{Holders: []string{rec.ID}}); got != "" {
+		t.Fatalf("resent a reaped holder past its deadline as %q", got)
+	}
+}
+
+// A run that saved a budget-ended result before its process left keeps that kind when reaped, however short it ran.
+func TestReapKeepsSavedBudgetKind(t *testing.T) {
+	reapSocketConfig(t)
+	rec := saveReapRecord(t, deadPID, time.Now().Add(-time.Minute))
+	env := wire.NewEnvelope(wire.Result{Agent: "claude", DurationMs: time.Second.Milliseconds()}, retry.WithBudget(errors.New("quiet"), retry.BudgetIdle), rec.ID)
+	events := wire.NewEventLog(rec.EventsPath(), rec.ID)
+	_ = events.Emit(wire.Event{Type: wire.EventStart})
+	_ = events.Emit(wire.ResultEvent(env))
+	events.Close()
+	reapRecords([]agent.Record{rec}, false, "reaped", &bytes.Buffer{}, &bytes.Buffer{})
+	got, err := agent.LoadRecord(rec.ID)
+	if err != nil || got.BudgetKind != "idle" || resendHolder(contract.Contract{Holders: []string{rec.ID}}) != "" {
+		t.Fatalf("saved budget kind lost on reap: %v %+v", err, got)
 	}
 }

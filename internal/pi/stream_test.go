@@ -517,3 +517,15 @@ func TestGuardHandbackEnumsMatchContract(t *testing.T) {
 		}
 	}
 }
+
+// The output token limit is a budget end even when nothing streamed (A2); a clean cut stream is not one.
+func TestParseEventsLengthStopIsOutputBudget(t *testing.T) {
+	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}` + "\n"
+	_, _, _, err := parseFixture(t, text+msgEnd("length", "")+settled)
+	if retry.BudgetOf(err) != retry.BudgetOutput || retry.MayRedispatch(err) {
+		t.Fatalf("length stop: budget %q err %v", retry.BudgetOf(err), err)
+	}
+	if _, _, _, err = parseFixture(t, text+msgEnd("stop", "")); retry.IsBudget(err) {
+		t.Fatalf("a stream cut without a cutoff stays an error: %v", err)
+	}
+}

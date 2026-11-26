@@ -116,6 +116,11 @@ type Record struct {
 	Usage         *wire.Usage `json:"usage,omitempty"`
 
 	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"` // files dirty before the run that differ after it; advisory
+
+	stopped    *wire.StoppedAt // where the last run attempt stopped, kept for a budget mark added after it returned
+	BudgetKind string          `json:"budget_kind,omitempty"` // the limit that ended the run (retry.Budget); never re-sent
+	StoppedAt  *wire.StoppedAt `json:"stopped_at,omitempty"`  // a budget end: the last event, tool calls and text streamed
+	Changed    []string        `json:"changed,omitempty"`     // a budget end: files changed in the lane at settle
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
@@ -145,6 +150,9 @@ func ResumeHint(r Record) string {
 		return ""
 	case "running":
 		return "Resume with: claude-code agents wait " + r.ID
+	}
+	if r.BudgetKind != "" {
+		return "Budget end: " + r.TakeOverHint()
 	}
 	return "Resume with: claude-code agents ask --retry " + r.ID
 }
@@ -637,7 +645,10 @@ func (r Record) LogLine() string {
 
 // Finish records the outcome of the run.
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
-	r.FailKind, r.Cutoff = "", ""
+	r.FailKind, r.Cutoff, r.BudgetKind = "", "", ""
+	if err == nil {
+		r.StoppedAt, r.Changed = nil, nil
+	}
 	if j := takeJev(r.ID); j != nil {
 		r.Jev = j
 	}
@@ -666,89 +677,11 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
 		r.Cutoff = CutoffOf(err)
+		r.settleBudget(err)
 		if slices.Contains([]string{wire.StatusPartial, wire.StatusStalled, wire.StatusQuota}, res.Status) {
 			r.Status = res.Status // envelope's cutoff status: a timeout reads apart from a bad flag
 		}
 	}
-}
-
-// Cutoff values: how a run was cut off, recorded alongside fail_kind.
-const (
-	CutoffDeadline  = "deadline"   // the attempt deadline (--timeout or the tools default)
-	CutoffStall     = "stall"      // no output before the first model output
-	CutoffIdle      = "idle"       // silent after output had started
-	CutoffCancelled = "cancelled"  // stopped from outside: a signal or `agents cancel`
-	CutoffAuthRetry = "auth-retry" // stalled on API retries, which are not output (claude's "no model output")
-)
-
-// CutOff reports a run a limit ended (deadline, stall, silence, API retries), not a signal or a plain failure.
-func (r Record) CutOff() bool {
-	switch r.Cutoff {
-	case CutoffDeadline, CutoffStall, CutoffIdle, CutoffAuthRetry:
-		return true
-	}
-	return false
-}
-
-// CutoffOf names how err cut a run off, "" when it did not; claude's idle.go has no sentinel, so its text is matched.
-func CutoffOf(err error) string {
-	if err == nil {
-		return ""
-	}
-	msg := err.Error()
-	switch {
-	case errors.Is(err, ErrStalled) && strings.Contains(msg, " API retries ("), strings.Contains(msg, "login rejected ("):
-		return CutoffAuthRetry
-	case errors.Is(err, ErrStalled):
-		return CutoffStall
-	case errors.Is(err, ErrSilent):
-		return CutoffIdle
-	case errors.Is(err, context.DeadlineExceeded), strings.Contains(msg, "timed out after"),
-		strings.Contains(msg, "context deadline exceeded"):
-		return CutoffDeadline
-	case errors.Is(err, context.Canceled):
-		return CutoffCancelled
-	}
-	return ""
-}
-
-// cutoffError wraps err with one line naming what was lost and the command that continues; deadlines and stalls only.
-type cutoffError struct {
-	err  error
-	hint string
-}
-
-func (e *cutoffError) Error() string { return e.hint + ": " + e.err.Error() }
-func (e *cutoffError) Unwrap() error { return e.err }
-
-// withCutoffHint adds the continue line to a deadline or stall error; any other error comes back as it was.
-func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration, t *tally) error {
-	kind := CutoffOf(err)
-	if kind == "" || kind == CutoffCancelled {
-		return err
-	}
-	who := cmp.Or(res.Agent, rec.Agent)
-	next := "claude-code agents ask --retry " + rec.ID
-	if res.SessionID != "" {
-		next = "claude-code agents ask --agent " + who + " --session " + res.SessionID + " 'finish from what you have'"
-	}
-	lost := "no answer"
-	if n := t.text.Load(); n > 0 {
-		lost = fmt.Sprintf("%d B of text streamed", n)
-	}
-	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
-		who, kind, took.Round(time.Second), t.toolCount(), lost, next)
-	if rec.RanIdentity == "" {
-		rec.RanIdentity = ranIdentityOf(rec.ID)
-	}
-	if rec.RanIdentity != "" {
-		hint += "; ran as the " + rec.RanIdentity + " identity"
-	}
-	hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
-	if who == "gemini" {
-		hint += "; agy log: " + AgyLogPath(rec.ID)
-	}
-	return &cutoffError{err: err, hint: hint}
 }
 
 // ranRoute is the final hop's row, the value the ran-on line prints; zero when no row ran.
@@ -1046,7 +979,10 @@ func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunR
 		}
 	}
 	// the result event lands before the record leaves running, so a tail follower never exits without it
-	if rerr := emit(wire.ResultEvent(wire.NewEnvelope(res, err, r.ID))); rerr != nil && err == nil {
+	r.settleBudget(err)
+	env := wire.NewEnvelope(res, err, r.ID)
+	r.stampBudget(&env)
+	if rerr := emit(wire.ResultEvent(env)); rerr != nil && err == nil {
 		err = rerr
 	}
 	r.finishSave(res, err, took, o.Notify)
@@ -1136,7 +1072,9 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	if log, err := os.ReadFile(rec.LogPath()); err == nil {
 		res.Answer = string(log)
 	}
-	return wire.NewEnvelope(res, runErr, rec.ID)
+	out := wire.NewEnvelope(res, runErr, rec.ID)
+	rec.stampBudget(&out)
+	return out
 }
 
 // ClaimAskRecord is a new ask's claimed record: depth, width and tree-token caps, owner, tree and an unheld id.

@@ -374,7 +374,7 @@ func validateAskFlags(format, fallback string) error {
 	if !slices.Contains(agent.Formats, format) {
 		return fmt.Errorf("--format %q unknown (text|json|stream-json)", format)
 	}
-	if !slices.Contains(route.FallbackModes, fallback) {
+	if !router.ValidFallback(fallback) {
 		return fmt.Errorf("--fallback %q unknown (%s)", fallback, strings.Join(route.FallbackModes, "|"))
 	}
 	return nil
@@ -676,7 +676,7 @@ func keepReason(typedModel, noFallback bool, ran string) string {
 // moveOffCutoff sends a cut-off run's retry to claude when nothing typed pins the route, else says how to move.
 func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) (moved bool) {
 	ran := cmp.Or(rec.RanAs, rec.Agent)
-	if !rec.CutOff() || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent
+	if !rec.CutOff() || rec.BudgetKind != "" || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent; a budget end never moves
 		return false
 	}
 	auto := agent.IsAuto(*s.Model) // typed auto asks for rotation, not a pin

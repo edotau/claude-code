@@ -185,3 +185,25 @@ type codedOverflow struct{}
 
 func (codedOverflow) Error() string     { return "stream error" }
 func (codedOverflow) ErrorCode() string { return "context_length_exceeded" }
+
+// A second overflow after the one window re-pick is a context budget end: no further hop re-sends it.
+func TestRepickSecondOverflowIsContextBudget(t *testing.T) {
+	autoFixture(t)
+	eng := &failRunner{fakeRunner{name: "pi"}, errors.New(overflowMsg)}
+	disp := Dispatch{Agent: eng, Account: router.ProviderAccount("dev")}
+	_, _, _, err := repick(context.Background(), disp, overflowCell, wire.Result{Model: overflowCell.Model}, errors.New(overflowMsg), wire.Discard, nil)
+	if retry.BudgetOf(err) != retry.BudgetContext || retry.MayRedispatch(err) || len(eng.seen) != 1 {
+		t.Fatalf("budget %q redispatch %v runs %d: want context, no re-send, one re-pick", retry.BudgetOf(err), retry.MayRedispatch(err), len(eng.seen))
+	}
+}
+
+// failRunner fails every run with err.
+type failRunner struct {
+	fakeRunner
+	err error
+}
+
+func (f *failRunner) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
+	f.seen = append(f.seen, req)
+	return wire.Result{Model: req.Model}, f.err
+}
