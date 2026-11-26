@@ -269,6 +269,8 @@ task
   `claude-code agents result -f <id>`; no `sudo` or `git switch`; read history with `git show <rev>:<path>` or `git log`.
 - No `sleep` polling loop: wait with `run_in_background` and its notification, or Monitor.
 - Always end with SubagentHandback when the host offers it, on every brief, audits included.
+- Before adding a function, variable, flag, env var or config key, search for an existing or similar one and extend
+  it; never a new `HARNESS_*` name; say in the hand-back what you reused or why nothing fit.
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
 - Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
@@ -321,6 +323,8 @@ task
   `claude-code agents result -f <id>`; no `sudo` or `git switch`; read history with `git show <rev>:<path>` or `git log`.
 - No `sleep` polling loop: wait with `run_in_background` and its notification, or Monitor.
 - Always end with SubagentHandback when the host offers it, on every brief, audits included.
+- Before adding a function, variable, flag, env var or config key, search for an existing or similar one and extend
+  it; never a new `HARNESS_*` name; say in the hand-back what you reused or why nothing fit.
 - Write file content that names a blocked command with the Write or Edit tool, never a shell heredoc.
 - Never wipe or rewrite the dispatch env (`env -i`, `env -u HARNESS_DISPATCH_*`, an interpreter clearing its env):
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
