@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -151,6 +152,11 @@ func ParseAgentRecords(doc []byte) (map[string]AgentRecord, error) {
 		out = map[string]AgentRecord{}
 	}
 	return out, nil
+}
+
+// CheckRecordKeys refuses the first record key AgentRecord lacks; a stored record still loads (doctor names it).
+func CheckRecordKeys(doc []byte) error {
+	return route.CheckKeys(doc, reflect.TypeFor[map[string]AgentRecord]()) // a malformed doc: ParseAgentRecords reports it
 }
 
 // AgentRecords decodes the stored records; absent is empty.

@@ -48,7 +48,7 @@ const keyName = "TAVILY_API_KEY"
 const mintHint = "mint one at app.tavily.com → API keys"
 
 func keyHint() string {
-	return fmt.Sprintf("run `claude-code vault set %s` (%s)", keyName, mintHint)
+	return fmt.Sprintf("run `claude-code vault set secrets %s` (%s)", keyName, mintHint)
 }
 
 // ResolveKey returns the Tavily API key (vault, then env); an unreadable vault is its own error, never "unset".

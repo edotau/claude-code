@@ -178,7 +178,7 @@ func runCustomEnv(d *dialog) {
 			name = names[idx]
 		}
 		if name == fallbackEnv {
-			if e, ok := pickFallbackMode(d, env[fallbackEnv]); ok {
+			if e, ok := pickFallbackMode(d, env); ok {
 				stageEnvEdit(edits, fallbackEnv, e)
 			}
 			continue
@@ -209,12 +209,10 @@ var fallbackModes = [][2]string{
 	{route.FallbackAll, "then every agent, ending in claude"},
 }
 
-// fallbackMode is the shown mode of a stored value, parsed as the router reads it.
-func fallbackMode(raw string) string { return router.ParseFallback(raw) }
-
-// pickFallbackMode asks for a mode; ok is false when dismissed or it is already the shown one.
-func pickFallbackMode(d *dialog, raw string) (envEdit, bool) {
-	cur := fallbackMode(raw)
+// pickFallbackMode asks for a mode, marking the effective one and its source; ok is false when dismissed or unchanged.
+func pickFallbackMode(d *dialog, env map[string]string) (envEdit, bool) {
+	cur, origin := router.EffectiveFallback(context.Background(), "", env)
+	stored := router.ParseFallback(env[fallbackEnv])
 	rows := make([][2]string, len(fallbackModes))
 	cursor := 0
 	for i, m := range fallbackModes {
@@ -224,8 +222,8 @@ func pickFallbackMode(d *dialog, raw string) (envEdit, bool) {
 			cursor = i
 		}
 	}
-	idx, err := d.shell().Pick(fallbackEnv+" — on a failed dispatch", rows, cursor)
-	if err != nil || idx < 0 || idx >= len(fallbackModes) || fallbackModes[idx][0] == cur {
+	idx, err := d.shell().Pick(fallbackEnv+" — on a failed dispatch (effective "+cur+", from "+origin+")", rows, cursor)
+	if err != nil || idx < 0 || idx >= len(fallbackModes) || fallbackModes[idx][0] == stored {
 		return envEdit{}, false
 	}
 	return envEdit{raw: fallbackModes[idx][0]}, true
@@ -383,7 +381,7 @@ func runRemote(d *dialog) {
 	case configure.HasAdminCredential():
 		d.printf("admin api   credential present\n")
 	default:
-		d.printf("admin api   credential absent → claude-code vault set TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
+		d.printf("admin api   credential absent → claude-code vault set secrets TAILSCALE_OAUTH_CLIENT_ID|_SECRET\n")
 	}
 	machines, err := tailscale.Machines(ctx)
 	switch online := onlineNames(machines); {

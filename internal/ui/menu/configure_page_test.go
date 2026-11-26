@@ -55,7 +55,7 @@ func TestCheckPipedReportsAbsentKeysAndExitsOne(t *testing.T) {
 	if rc != 1 {
 		t.Errorf("rc = %d, want 1; output:\n%s", rc, out.String())
 	}
-	for _, want := range []string{"== keys ==", "ABSENT", "claude-code vault set OPENAI_API_KEY"} {
+	for _, want := range []string{"== keys ==", "ABSENT", "claude-code vault set secrets OPENAI_API_KEY"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}

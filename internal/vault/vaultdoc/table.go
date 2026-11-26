@@ -3,6 +3,7 @@ package vaultdoc
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -40,7 +42,7 @@ func Text(doc Doc, recs Records, sel []string, width int, color bool) string {
 		"cache":     func() string { return vaultCacheText(recs.Cache, width) },
 		"env":       func() string { return vaultSection("ENV", EnvRows(doc.Env), width) },
 		"providers": func() string { return vaultProvidersText(doc.Providers, width) },
-		"routing":   func() string { return vaultRoutingText(doc.Providers, width) },
+		"routing":   func() string { return vaultRoutingText(doc.Providers, doc.Env, width) },
 		"agents":    func() string { return vaultAgentsText(doc.Agents, width, color) },
 		"vault":     func() string { return vaultSection("VAULT", vaultVaultRows(doc.Vault.KeyCommand), width) },
 	}
@@ -328,19 +330,21 @@ func presetEnvs(names []string) string {
 	return strings.Join(parts, " ")
 }
 
-// vaultRoutingText renders the providers overlay's routing object as dotted-path rows.
-func vaultRoutingText(raw json.RawMessage, width int) string {
-	reg, head, done := overlayRegistry("ROUTING", raw, width)
-	if done {
-		return head
-	}
-	rb, err := json.Marshal(reg.Routing)
-	if err != nil {
-		return head + table.Truncate("  error  "+err.Error(), width) + "\n"
-	}
-	rows := vaultFlattenSection(rb)
-	if len(rows) == 0 {
-		return head + "  (none)\n"
+// vaultRoutingText renders the effective fallback mode and source, then the overlay's routing object as dotted rows.
+func vaultRoutingText(raw json.RawMessage, env map[string]string, width int) string {
+	mode, origin := router.EffectiveFallback(context.Background(), "", env)
+	rows := [][2]string{{"fallback", mode + " (" + origin + ")"}}
+	head := "ROUTING\n"
+	if !isBlankJSON(raw) {
+		reg, h, done := overlayRegistry("ROUTING", raw, width)
+		if done {
+			return h
+		}
+		rb, err := json.Marshal(reg.Routing)
+		if err != nil {
+			return head + table.Truncate("  error  "+err.Error(), width) + "\n"
+		}
+		rows = append(rows, vaultFlattenSection(rb)...)
 	}
 	return head + strings.TrimPrefix(vaultSection("", rows, width), "\n")
 }
@@ -357,16 +361,31 @@ func overlayRegistry(title string, raw json.RawMessage, width int) (reg provider
 	return reg, head, false
 }
 
-// vaultRoutingJSON is `vault ls --format json`'s "routing" value: the overlay's routing object, or null.
-func vaultRoutingJSON(providersRaw json.RawMessage) (json.RawMessage, error) {
-	if isBlankJSON(providersRaw) {
-		return json.RawMessage("null"), nil
+// vaultRoutingJSON is `vault ls --format json`'s "routing" value: the overlay's routing object plus effective_fallback.
+func vaultRoutingJSON(providersRaw, envRaw json.RawMessage) (json.RawMessage, error) {
+	var env map[string]string
+	if !isBlankJSON(envRaw) {
+		if err := json.Unmarshal(envRaw, &env); err != nil {
+			return nil, err
+		}
 	}
-	var reg providers.Registry
-	if err := json.Unmarshal(providersRaw, &reg); err != nil {
-		return nil, err
+	fields := map[string]any{}
+	if !isBlankJSON(providersRaw) {
+		var reg providers.Registry
+		if err := json.Unmarshal(providersRaw, &reg); err != nil {
+			return nil, err
+		}
+		rb, err := json.Marshal(reg.Routing)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(rb, &fields); err != nil {
+			return nil, err
+		}
 	}
-	return json.Marshal(reg.Routing)
+	mode, origin := router.EffectiveFallback(context.Background(), "", env)
+	fields["effective_fallback"] = map[string]string{"mode": mode, "source": origin}
+	return json.Marshal(fields)
 }
 
 // Per-column max widths for the PROVIDERS table; a longer cell is clipped with "…" (0 = no cap).

@@ -79,6 +79,25 @@ func testPolicySources(t *testing.T) {
 	}
 }
 
+func TestEffectiveFallback(t *testing.T) {
+	vaultEnv := map[string]string{EnvFallback: "agents"}
+	for _, c := range []struct {
+		overlay, proc string
+		env           map[string]string
+		mode, origin  string
+	}{
+		{"all", "pin", vaultEnv, "all", "overlay"},
+		{"", "pin", vaultEnv, "pin", "process env"},
+		{"", "", vaultEnv, "agents", "vault env"},
+		{"", "", nil, "none", "default"},
+	} {
+		t.Setenv(EnvFallback, c.proc)
+		if mode, origin := EffectiveFallback(context.Background(), c.overlay, c.env); mode != c.mode || origin != c.origin {
+			t.Errorf("EffectiveFallback(%q, %q, %v) = %s, %s; want %s, %s", c.overlay, c.proc, c.env, mode, origin, c.mode, c.origin)
+		}
+	}
+}
+
 func testPolicySetting(t *testing.T) {
 	vaulttest.Use(t)
 	for _, tt := range []struct {

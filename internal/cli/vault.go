@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-// vaultWriteSections are the sections `vault set` and `vault rm` take; secrets is the default for set.
+// vaultWriteSections are the sections `vault set` and `vault rm` take.
 var vaultWriteSections = []string{"secrets", "env", "overlay"}
 
 func vaultSections() []string { return append(slices.Clone(vaultdoc.Sections), "all", "overlays") }
@@ -46,10 +46,11 @@ func vaultSpec() *helptext.Node {
 var vaultPage = helptext.Page{
 	Usage: "claude-code vault [<command>] [flags]",
 	About: "The encrypted store (state/vault.db): sealed secrets, pins, env, and the\n" +
-		"profile and agent overlays. Values print only through get.",
+		"profile and agent overlays. Values print only through get.\n" +
+		"Interactive editor: claude-code configure.",
 	Commands: [][2]string{
 		{"ls", "everything stored (masked); bare vault runs it; ls overlays"},
-		{"set", "[secrets|env|overlay] NAME: store; --tailscale; bare: dialog"},
+		{"set", "<secrets|env|overlay> NAME: store; --tailscale; bare: dialog"},
 		{"get", "print secrets redacted; --secret for values, --key for master"},
 		{"rm", "<secrets|env|overlay> NAME: remove one entry"},
 		{"import", "seal every NAME=value line of a .env file"},
@@ -106,7 +107,7 @@ func vaultUsageErr(sub string, args []string) int {
 // cmdVaultSet stores a secret (default section), an env value or an overlay document; --tailscale adds a credential.
 func cmdVaultSet(args []string) int {
 	fs := helptext.NewFlagSet("vault set", helptext.Page{
-		Usage: "claude-code vault set [secrets|env|overlay] [flags] [NAME [VALUE]]",
+		Usage: "claude-code vault set [<secrets|env|overlay> NAME [VALUE]] [flags]",
 		About: "secrets NAME: sealed; value from a hidden prompt or stdin (bare: dialog).\n" +
 			"env NAME VALUE: plain value injected into launches.\n" +
 			"overlay KEY --file PATH|-: validated document. " + vaultOverlaySetAbout,
@@ -121,7 +122,14 @@ func cmdVaultSet(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	section, words := splitVaultSection(words)
+	section := "secrets" // bare `vault set` (dialog) and --tailscale name no section
+	if len(words) > 0 {
+		if !slices.Contains(vaultWriteSections, words[0]) {
+			fmt.Fprintln(os.Stderr, "vault set NAME is gone; use claude-code vault set secrets NAME")
+			return 2
+		}
+		section, words = words[0], words[1:]
+	}
 	switch {
 	case section == "env" && len(words) == 2:
 		return vaultEnvSet(words[0], words[1], *dryRun, *yes)
@@ -134,15 +142,7 @@ func cmdVaultSet(args []string) int {
 	return vaultSetSecrets(words, *ts, *apiKey, *dryRun)
 }
 
-// splitVaultSection peels a leading section word; secrets is the default.
-func splitVaultSection(words []string) (string, []string) {
-	if len(words) > 0 && slices.Contains(vaultWriteSections, words[0]) {
-		return words[0], words[1:]
-	}
-	return "secrets", words
-}
-
-// vaultSetSecrets is `vault set [secrets] [NAME]` and the --tailscale credentials.
+// vaultSetSecrets is `vault set secrets NAME`, the bare dialog and the --tailscale credentials.
 func vaultSetSecrets(names []string, ts, apiKey, dryRun bool) int {
 	if ts {
 		if len(names) > 0 {
@@ -160,7 +160,7 @@ func vaultSetSecrets(names []string, ts, apiKey, dryRun bool) int {
 		return menu.Secrets(menu.Options{In: os.Stdin, Out: os.Stdout, Interactive: true})
 	}
 	if len(names) != 1 {
-		return helptext.FailUsage("vault set: usage: claude-code vault set [secrets] NAME")
+		return helptext.FailUsage("vault set: usage: claude-code vault set secrets NAME")
 	}
 	return vaultSetSecret(names[0], dryRun)
 }

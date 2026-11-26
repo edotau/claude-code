@@ -223,7 +223,7 @@ func loginSP(p *providers.Provider, dryRun bool) int {
 			"or pass --as user for a browser login", p.Name)
 	}
 	if providers.HasSecret(secret) == "" {
-		return fail("login: %s: no service-principal secret; run `claude-code vault set %s`", p.Name, secret)
+		return fail("login: %s: no service-principal secret; run `claude-code vault set secrets %s`", p.Name, secret)
 	}
 	if dryRun {
 		fmt.Printf("identity sp: would mint a token for %s as the service principal %s; no browser, nothing written\n",
@@ -236,7 +236,7 @@ func loginSP(p *providers.Provider, dryRun bool) int {
 	tok, err := providers.Refresh(ctx, p)
 	if err != nil {
 		if oauth.IsRejected(err) {
-			return fail("login: %v; replace the secret with `claude-code vault set %s`", err, secret)
+			return fail("login: %v; replace the secret with `claude-code vault set secrets %s`", err, secret)
 		}
 		return fail("login: %v", err)
 	}

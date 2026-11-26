@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -18,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
 // vaultCheck is one vault-health row; a failed Gate row fails doctor --secrets, the rest only advise.
@@ -36,7 +38,48 @@ func vaultChecks(reg *providers.Registry) []vaultCheck {
 	out = append(out, checkRetiredKeys()...)
 	out = append(out, checkKeyNames(reg)...)
 	out = append(out, checkMisfiled()...)
+	out = append(out, checkLegacy()...)
 	return append(out, checkKeyringTool())
+}
+
+// checkLegacy names each stored overlay section nothing reads and a stored record key no field takes (advisory).
+func checkLegacy() []vaultCheck {
+	var docs map[string]string
+	if err := vault.View(func(t *vault.Tx) error { docs = t.All(vault.Overlay); return nil }); err != nil {
+		return nil // the master key row reports an unreadable vault
+	}
+	var out []vaultCheck
+	for _, k := range vaultdoc.LegacyOverlayKeys {
+		doc, ok := docs[k]
+		if !ok {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal([]byte(doc), &m) // not a JSON object: counts 0 keys
+		out = append(out, vaultCheck{Name: "vault legacy overlay " + k, Detail: fmt.Sprintf("overlay %s: %d keys "+
+			"ignored since 243830d0e; move them with `claude-code configure agents` or remove with "+
+			"`claude-code vault rm overlay %s`", k, leafKeys(m), k)})
+	}
+	if err := vault.CheckRecordKeys([]byte(docs[vault.AgentRecordsKey])); err != nil {
+		out = append(out, vaultCheck{Name: "vault legacy record key", Detail: "agent-records: " + err.Error() +
+			" is ignored and dropped by the next record write; set its value under a valid key with " +
+			"`claude-code configure agents`, or store a cleaned copy with " +
+			"`claude-code vault set overlay agent-records --file PATH`"})
+	}
+	return out
+}
+
+// leafKeys counts the non-object values under every key of m, nested objects included.
+func leafKeys(m map[string]any) int {
+	n := 0
+	for _, v := range m {
+		if sub, ok := v.(map[string]any); ok {
+			n += leafKeys(sub)
+		} else {
+			n++
+		}
+	}
+	return n
 }
 
 // permsGOOS decides whether mode bits mean anything; a seam so tests run the Windows branch on any host.

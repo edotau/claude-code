@@ -45,7 +45,7 @@ func loginTokenServer(t *testing.T, ok bool) *atomic.Int32 {
 func TestVaultSetLoginVerifiesAndSeals(t *testing.T) {
 	hits := loginTokenServer(t, true)
 	withStdin(t, `{"refresh":"hand-refresh-token"}`+"\n")
-	code, _, stderr := vaultRun(t, "set", loginSecret)
+	code, _, stderr := vaultRun(t, "set", "secrets", loginSecret)
 	if code != 0 || hits.Load() != 1 || !strings.Contains(stderr, "hand: stored login verified and sealed · token expires in ") {
 		t.Fatalf("exit %d, token hits %d, stderr %q; want one refresh and the sealed line", code, hits.Load(), stderr)
 	}
@@ -57,7 +57,7 @@ func TestVaultSetLoginVerifiesAndSeals(t *testing.T) {
 func TestVaultSetLoginRefusedStaysStoredAndNamesTheCommand(t *testing.T) {
 	loginTokenServer(t, false)
 	withStdin(t, `{"refresh":"hand-refresh-token"}`+"\n")
-	code, stdout, stderr := vaultRun(t, "set", loginSecret)
+	code, stdout, stderr := vaultRun(t, "set", "secrets", loginSecret)
 	if code != 0 || !strings.Contains(stderr, "rejected it") || !strings.Contains(stderr, "`"+providers.LoginCommand("hand")+"`") {
 		t.Fatalf("exit %d, stderr %q; want the rejection line naming the sign-in command", code, stderr)
 	}
@@ -72,7 +72,7 @@ func TestVaultSetLoginRefusedStaysStoredAndNamesTheCommand(t *testing.T) {
 func TestVaultSetLoginBareTokenIsRefusedBeforeAnyWrite(t *testing.T) {
 	hits := loginTokenServer(t, true)
 	withStdin(t, "bare-refresh-token\n")
-	code, stdout, stderr := vaultRun(t, "set", loginSecret)
+	code, stdout, stderr := vaultRun(t, "set", "secrets", loginSecret)
 	if code == 0 || !strings.Contains(stderr, `{"refresh":"<refresh token>"}`) || strings.Contains(stdout+stderr, "bare-refresh-token") {
 		t.Errorf("exit %d, stderr %q; want a refusal naming the record shape, without the value", code, stderr)
 	}
@@ -84,7 +84,7 @@ func TestVaultSetLoginBareTokenIsRefusedBeforeAnyWrite(t *testing.T) {
 func TestVaultSetLoginDryRunReportsWithoutANetworkCall(t *testing.T) {
 	hits := loginTokenServer(t, true)
 	withStdin(t, `{"refresh":"hand-refresh-token"}`+"\n")
-	code, stdout, _ := vaultRun(t, "set", loginSecret, "--dry-run")
+	code, stdout, _ := vaultRun(t, "set", "secrets", loginSecret, "--dry-run")
 	if code != 0 || !strings.Contains(stdout, "would verify and seal") || hits.Load() != 0 {
 		t.Errorf("exit %d, stdout %q, token hits %d; want the note and no call", code, stdout, hits.Load())
 	}
@@ -96,7 +96,7 @@ func TestVaultSetLoginDryRunReportsWithoutANetworkCall(t *testing.T) {
 func TestVaultSetOtherSecretMakesNoTokenCall(t *testing.T) {
 	hits := loginTokenServer(t, true)
 	withStdin(t, "plain-value\n")
-	code, _, stderr := vaultRun(t, "set", "SOME_OTHER_SECRET")
+	code, _, stderr := vaultRun(t, "set", "secrets", "SOME_OTHER_SECRET")
 	if code != 0 || hits.Load() != 0 || strings.Contains(stderr, "verified") {
 		t.Errorf("exit %d, token hits %d, stderr %q; an ordinary secret is never verified", code, hits.Load(), stderr)
 	}

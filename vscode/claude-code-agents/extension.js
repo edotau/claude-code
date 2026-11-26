@@ -345,7 +345,7 @@ class TasksViewProvider {
     this.worktrees = []; // `claude-code worktree list --format json` for the first workspace folder
     this.worktreesAt = 0;
     this.exec = (binary, argv, cwd) => runBinary(binary, [binary, ...argv], cwd); // seam for tests
-    this.storeSecret = (binary, name, value) => runBinary(binary, [binary, 'vault', 'set', name], undefined, value); // seam for tests
+    this.storeSecret = (binary, name, value) => runBinary(binary, [binary, 'vault', 'set', 'secrets', name], undefined, value); // seam for tests
     this.viewModes = (context && context.workspaceState.get('tasks.viewModes')) || {}; // source → list|board
     this.mergeMethods = {}; // repo label → {merge, squash, rebase}
     this.assignable = {}; // repo label → logins

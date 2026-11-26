@@ -81,6 +81,9 @@ func validateAgentRecords(doc []byte) error {
 	if err != nil { // a decode error would echo the document's keys
 		return errors.New("not a JSON object of agent records")
 	}
+	if err := vault.CheckRecordKeys(doc); err != nil {
+		return err
+	}
 	for _, n := range slices.Sorted(maps.Keys(recs)) {
 		if err = agentpkg.ValidateRecord(n, recs[n]); err != nil {
 			break

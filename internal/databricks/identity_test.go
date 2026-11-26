@@ -20,7 +20,7 @@ func TestIdentityVerbPinsAndRefuses(t *testing.T) {
 		{"user keeps the pair", "sp", true, true, []string{"-p", "dbx-sp", "user"}, 0, "identity sp → user", "user"},
 		{"dry-run writes nothing", "auto", true, true, []string{"-p", "dbx-sp", "sp", "--dry-run"}, 0, "would set", "auto"},
 		{"sp, unpaired", "auto", false, false, []string{"-p", "dbx-sp", "sp"}, 1, "identity sp needs a service principal client id", "auto"},
-		{"sp, no secret", "auto", true, false, []string{"-p", "dbx-sp", "sp"}, 1, "`claude-code vault set DATABRICKS_DBX_SP_M2M`", "auto"},
+		{"sp, no secret", "auto", true, false, []string{"-p", "dbx-sp", "sp"}, 1, "`claude-code vault set secrets DATABRICKS_DBX_SP_M2M`", "auto"},
 		{"bad mode", "auto", true, true, []string{"-p", "dbx-sp", "bogus"}, 2, "", "auto"},
 		{"no profile", "auto", true, true, []string{"sp"}, 2, "", "auto"},
 		{"not a databricks profile", "auto", true, true, []string{"-p", "nope", "sp"}, 1, `"nope" is not a Databricks profile`, "auto"},

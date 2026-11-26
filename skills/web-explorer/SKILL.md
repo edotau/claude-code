@@ -50,7 +50,7 @@ tvly search 'Go 1.26 release date' --depth advanced --time-range year --include-
   1-2 work without it.
 - Key missing or auth error: stop and give the user these steps, never answer from memory as if you had searched:
   sign in at <https://app.tavily.com> (free tier), copy the key from API Keys, run
-  `! claude-code vault set TAVILY_API_KEY` and paste it at the prompt, never in chat.
+  `! claude-code vault set secrets TAVILY_API_KEY` and paste it at the prompt, never in chat.
 - Codex (and any agent with an offline shell): use its built-in web search instead, cite title + URL, say so.
 
 ## Write the query

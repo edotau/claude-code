@@ -10,8 +10,11 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// OverlayKeys are removable overlays: documents that only override a default.
-var OverlayKeys = []string{"proxy-teams"}
+// LegacyOverlayKeys are sections nothing reads since 243830d0e; doctor names any still stored.
+var LegacyOverlayKeys = []string{"agents", "codex-settings", "settings"}
+
+// OverlayKeys are removable overlays: documents that only override a default, and the legacy ones.
+var OverlayKeys = append([]string{"proxy-teams"}, LegacyOverlayKeys...)
 
 // SettableOverlayKeys excludes backups such as providers.prev.
 var SettableOverlayKeys = []string{"proxy-teams", "providers", "agent-records", "opencode-models"}

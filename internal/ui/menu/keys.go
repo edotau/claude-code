@@ -337,7 +337,7 @@ func secretsLoop(d *dialog) int {
 // editSecret offers mint, login, paste, and vault deletion actions for one tracked secret.
 func editSecret(d *dialog, s configure.TrackedSecret) {
 	var acts []shellRow
-	kt := configure.KeyTarget{Label: s.Name, EnvVar: s.Name, FixCmd: "claude-code vault set " + s.Name}
+	kt := configure.KeyTarget{Label: s.Name, EnvVar: s.Name, FixCmd: "claude-code vault set secrets " + s.Name}
 	if s.Name == providers.OAuthTokenEnv {
 		kt.MintArgv = []string{"claude", "setup-token"}
 	}

@@ -1,5 +1,3 @@
-{{define "landed"}}{{/* fields: Detail Lane Removed */}}lane {{.Lane}} landed{{if .Detail}}: {{.Detail}}{{end}}; {{if .Removed}}worktree removed, branch kept until your commit has the changes (then claude-code worktree clean {{.Lane}}){{else}}worktree kept, remove it with claude-code worktree clean {{.Lane}}{{end}}{{end}}
-
 {{define "queue-line"}}{{/* fields: Branch Detail Lane Next Reason */}}land queue: {{.Lane}}{{if .Branch}} ({{.Branch}}){{end}} {{.Reason}}{{if .Detail}}: {{.Detail}}{{end}}; next: {{.Next}}{{end}}
 
 {{define "queue-more"}}{{/* fields: Count */}}land queue: {{.Count}} more lanes; claude-code worktree list shows each{{end}}

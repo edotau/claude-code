@@ -81,7 +81,7 @@ func missingKeyNote(ctx context.Context, p *providers.Provider) string {
 	if _, err := vault.HasSecretErr(name); err != nil || providers.CredentialPresent(p) {
 		return "this profile's API key could not be read; check the vault with `claude-code doctor`"
 	}
-	return "no API key stored for this profile; add one with `claude-code vault set " + name + "`"
+	return "no API key stored for this profile; add one with `claude-code vault set secrets " + name + "`"
 }
 
 // discoverUsable is p's live listing, or a skip note when p has no API key or its account lists nothing.

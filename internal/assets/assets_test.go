@@ -382,8 +382,6 @@ func planHookRenderCases() []renderCase {
 		{"HookMemoryStoreName", "", func() string { return HookMemoryStoreName("/a", "/b") }},
 		{"HookLaneQueueLine", "", func() string { return HookLaneQueueLine("l", "b", "r", "d", "n") }},
 		{"HookLaneQueueMore", "", func() string { return HookLaneQueueMore(5) }},
-		{"HookLaneLanded", "removed", func() string { return HookLaneLanded("l", "d", true) }},
-		{"HookLaneLanded", "kept", func() string { return HookLaneLanded("l", "d", false) }},
 	}
 }
 

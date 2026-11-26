@@ -142,7 +142,7 @@ func anthropicSecret(o anthropicOptions, store func(name string) int) (string, e
 	} else if v != "" {
 		return v, nil
 	}
-	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set %s`", o.Name, o.Name)
+	missing := fmt.Errorf("%s is not in the vault; store it with `claude-code vault set secrets %s`", o.Name, o.Name)
 	if o.PrintEnv || !tui.StdinIsTerminal() || !proc.IsTerminal(os.Stderr) {
 		return "", missing
 	}

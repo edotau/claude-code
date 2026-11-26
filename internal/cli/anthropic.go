@@ -81,5 +81,5 @@ func cmdAnthropic(args []string) int {
 	if len(args) == 1 && args[0] == helptext.DocsFlag {
 		return helptext.WrappedDocs("claude")
 	}
-	return claude.LaunchAnthropic(args, func(name string) int { return cmdVault([]string{"set", name}) })
+	return claude.LaunchAnthropic(args, func(name string) int { return cmdVault([]string{"set", "secrets", name}) })
 }

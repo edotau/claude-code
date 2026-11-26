@@ -247,12 +247,12 @@ func TestAnthropicSecretMissingOffTTYNamesVaultSet(t *testing.T) {
 	for _, mode := range []string{authOAuth, authAPIKey} {
 		o := anthropicOptions{Mode: mode, Name: "MISSING_KEY_FOR_TEST"}
 		_, err := anthropicSecret(o, failStore) // go test has no TTY on stdin: must error, never prompt
-		if err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
+		if err == nil || !strings.Contains(err.Error(), "claude-code vault set secrets MISSING_KEY_FOR_TEST") {
 			t.Errorf("%s: err = %v", mode, err)
 		}
 	}
 	o := anthropicOptions{Mode: authOAuth, Name: "MISSING_KEY_FOR_TEST", PrintEnv: true}
-	if _, err := anthropicSecret(o, failStore); err == nil || !strings.Contains(err.Error(), "claude-code vault set MISSING_KEY_FOR_TEST") {
+	if _, err := anthropicSecret(o, failStore); err == nil || !strings.Contains(err.Error(), "claude-code vault set secrets MISSING_KEY_FOR_TEST") {
 		t.Errorf("--print-env: err = %v", err)
 	}
 }

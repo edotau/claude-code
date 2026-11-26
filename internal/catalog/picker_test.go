@@ -43,7 +43,7 @@ func TestDiscoverPickerProfilesSkipsUnusableRows(t *testing.T) {
 		wantDiscovered int
 	}{
 		// never reaches the stub: "keyless" would be a 503 error
-		{keyless, "skipped", "vault set ANTHROPIC_KEYLESS_KEY", 0},
+		{keyless, "skipped", "vault set secrets ANTHROPIC_KEYLESS_KEY", 0},
 		{gh("empty"), "skipped", "no models", 0},
 		{gh("listed"), "preview", "", 2},
 		{gh("down"), "error", "HTTP 503", 0},

@@ -236,7 +236,7 @@ func keyRow(d *dialog, label, provider, desc string) billingRow {
 			d.printf("%s: no %s provider registered\n", label, provider)
 			return false
 		}
-		kt := configure.KeyTarget{Label: label, EnvVar: p.Auth.Env, FixCmd: "claude-code vault set " + p.Auth.Env, Provider: p}
+		kt := configure.KeyTarget{Label: label, EnvVar: p.Auth.Env, FixCmd: "claude-code vault set secrets " + p.Auth.Env, Provider: p}
 		return ensureKey(d, kt, ok)
 	}}
 }
@@ -585,7 +585,7 @@ func copilotKeyRow(d *dialog) billingRow {
 	_, src, ok := vault.Get(env)
 	stored := ok && src != "env"
 	return billingRow{modeAPIKey, "GitHub token (" + env + ") " + bracket(stored, "token set", "no token"), modeAPIKey, func() bool {
-		kt := configure.KeyTarget{Label: "copilot", EnvVar: env, FixCmd: "claude-code vault set " + env}
+		kt := configure.KeyTarget{Label: "copilot", EnvVar: env, FixCmd: "claude-code vault set secrets " + env}
 		if stored {
 			return ensureKey(d, kt, true)
 		}

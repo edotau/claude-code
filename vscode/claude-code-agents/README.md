@@ -97,7 +97,7 @@ credentials (`<binary> vault get --secret BITBUCKET_TOKEN` / `JIRA_TOKEN` via `e
 
 Chrome, top to bottom: a source bar (one square button per visible source), an availability banner
 (not signed in / no token, with a Sign in / Set token action that runs `gh auth login` or
-`claude-code vault set BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
+`claude-code vault set secrets BITBUCKET_TOKEN|JIRA_TOKEN` in the shared terminal), a repo multi-select (GitHub), preset
 chips (click applies; **right-click makes it the default** for that source), type/state dropdowns, the
 query input (Enter applies, X clears), "New issue" (GitHub) and Refresh. The list is a sticky-header grid
 with sticky ID and Title columns under horizontal scroll — issues: ID · Title · Assignees · Status ·

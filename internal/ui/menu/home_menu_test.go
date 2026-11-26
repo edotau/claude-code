@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -621,12 +622,13 @@ func agentPageRows(d *dialog, name string, m agentMenu) [][2]string {
 // The environment page's fallback row and its mode picker fit 80 columns, and the stored 1 reads as all.
 func TestEnvFallbackRowsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
-	if got := fallbackMode("1"); got != "all" {
-		t.Errorf("fallbackMode(1) = %q, want all", got)
+	t.Setenv(router.EnvFallback, "")
+	if got, _ := router.EffectiveFallback(context.Background(), "", map[string]string{fallbackEnv: "1"}); got != "all" {
+		t.Errorf("effective fallback of 1 = %q, want all", got)
 	}
 	var out bytes.Buffer
 	d := &dialog{out: &out, br: bufio.NewReader(strings.NewReader("1\n\n\n"))}
-	pickFallbackMode(d, "agents")
+	pickFallbackMode(d, map[string]string{fallbackEnv: "agents"})
 	rows := numberedRows(out.String())
 	if len(rows) != 4 || rows[3][0] != "all" {
 		t.Fatalf("mode rows = %q, want none, pin, agents, all", rows)
@@ -657,6 +659,20 @@ func TestProvidersPageRowsMatchVaultRows(t *testing.T) {
 	}
 	if got := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); !slices.Equal(got, want) {
 		t.Fatalf("page rows = %q, want %q", got, want)
+	}
+}
+
+// The providers page numbers the shared rows, shows cred:missing, and a number picks that row's profile.
+func TestProvidersPagePicksByNumber(t *testing.T) {
+	reg := menuTestEnv(t)
+	var out bytes.Buffer
+	d := &dialog{reg: reg, out: &out, br: bufio.NewReader(strings.NewReader("2\n")), o: Options{DryRun: true}}
+	rows := printProviderPicks(d, "")
+	if len(rows) < 2 || !strings.Contains(out.String(), "  1) "+rows[0].Name) || !strings.Contains(out.String(), "cred:missing") {
+		t.Fatalf("picks = %q, want numbered rows with a cred:missing one", out.String())
+	}
+	if !pickProvider(d, rows) || !strings.Contains(out.String(), "would pin profile: "+rows[1].Name) {
+		t.Fatalf("pick 2 = %q, want %s", out.String(), rows[1].Name)
 	}
 }
 

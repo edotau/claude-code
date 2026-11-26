@@ -43,7 +43,7 @@ func setIdentity(reg *providers.Registry, profile, mode string, dryRun bool) (id
 			return ch, fmt.Errorf("%s: cannot read %s: %w", profile, name, err)
 		}
 		if !ok {
-			return ch, fmt.Errorf("%s: SP %s has no secret; seal one with `claude-code vault set %s`, or keep identity %s",
+			return ch, fmt.Errorf("%s: SP %s has no secret; seal one with `claude-code vault set secrets %s`, or keep identity %s",
 				profile, ch.SP, name, old)
 		}
 	}

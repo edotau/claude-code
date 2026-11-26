@@ -20,7 +20,7 @@ func TestVaultEnvSetUnset(t *testing.T) {
 	}{
 		{[]string{"set", "env", "CLAUDE_REMOTE_HOST", "devhost"}, 0, "env CLAUDE_REMOTE_HOST set to devhost (was not set)", "devhost"},
 		{[]string{"set", "env", "--dry-run", "CLAUDE_REMOTE_HOST", "other"}, 0, "dry run: env CLAUDE_REMOTE_HOST changed from devhost to other; nothing written", "devhost"},
-		{[]string{"set", "env", "ANTHROPIC_API_KEY", "qZjnpdhpfohm"}, 1, "use `claude-code vault set ANTHROPIC_API_KEY`", "devhost"},
+		{[]string{"set", "env", "ANTHROPIC_API_KEY", "qZjnpdhpfohm"}, 1, "use `claude-code vault set secrets ANTHROPIC_API_KEY`", "devhost"},
 		{[]string{"set", "env", "CLAUDE_REMOTE_HOST"}, 2, "usage: claude-code vault set", "devhost"},
 		{[]string{"rm", "env", "CLAUDE_REMOTE_HOST"}, 2, "pass --yes to remove it", "devhost"},
 		{[]string{"set", "env", "CLAUDE_REMOTE_HOST", "x"}, 2, "pass --yes to overwrite it", "devhost"},

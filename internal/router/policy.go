@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -116,14 +117,29 @@ func (p Policy) Typed() bool { return p.Source == PolicyTyped || p.Source == Pol
 
 // FallbackSetting reads the raw mode and source in overlay, process env, vault env order.
 func FallbackSetting(ctx context.Context, overlayMode string) (string, PolicySource) {
+	raw, src, _ := FallbackFrom(ctx, overlayMode, providers.CustomEnv())
+	return raw, src
+}
+
+// FallbackFrom is the one resolver: overlay, process env, then env (the vault bucket); origin names the layer.
+func FallbackFrom(ctx context.Context, overlayMode string, env map[string]string) (raw string, src PolicySource, origin string) {
 	if v := strings.TrimSpace(overlayMode); v != "" {
-		return v, PolicyOverlay
+		return v, PolicyOverlay, "overlay"
 	}
 	if v := strings.TrimSpace(proc.Value(ctx, EnvFallback)); v != "" {
-		return v, PolicyEnv
+		return v, PolicyEnv, "process env"
 	}
-	if v := strings.TrimSpace(providers.CustomEnv()[EnvFallback]); v != "" {
-		return v, PolicyEnv
+	if v := strings.TrimSpace(env[EnvFallback]); v != "" {
+		return v, PolicyEnv, "vault env"
 	}
-	return "", PolicyDefault
+	return "", PolicyDefault, "default"
 }
+
+// EffectiveFallback is the parsed mode every reader acts on, with the layer it came from.
+func EffectiveFallback(ctx context.Context, overlayMode string, env map[string]string) (mode, origin string) {
+	raw, _, origin := FallbackFrom(ctx, overlayMode, env)
+	return ParseFallback(raw), origin
+}
+
+// ValidFallback reports a typed mode the router accepts.
+func ValidFallback(mode string) bool { return slices.Contains(route.FallbackModes, mode) }

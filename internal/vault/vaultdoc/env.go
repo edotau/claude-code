@@ -46,10 +46,10 @@ func checkEnvSet(name, value string) error {
 	case value == "":
 		return fmt.Errorf("%s: empty value; `vault rm env %s` removes it", name, name)
 	case secretEnvName(name):
-		return fmt.Errorf("%s is a secret name; the env bucket is not sealed, use `claude-code vault set %s`", name, name)
+		return fmt.Errorf("%s is a secret name; the env bucket is not sealed, use `claude-code vault set secrets %s`", name, name)
 	case providers.LooksLikeSecret(value):
 		return fmt.Errorf("%s: the value looks like a credential; the env bucket is not sealed, "+
-			"use `claude-code vault set %s`", name, name)
+			"use `claude-code vault set secrets %s`", name, name)
 	}
 	if _, ref := providers.SecretRefName(name, value); ref {
 		return fmt.Errorf("%s: an %s value seals a secret; add it in `claude-code configure` → environment",

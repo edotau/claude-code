@@ -248,10 +248,6 @@ memory-store-name: /a → /b
 land queue: l (b) r: d; next: n
 == HookLaneQueueMore ==
 land queue: 5 more lanes; claude-code worktree list shows each
-== HookLaneLanded (removed) ==
-lane l landed: d; worktree removed, branch kept until your commit has the changes (then claude-code worktree clean l)
-== HookLaneLanded (kept) ==
-lane l landed: d; worktree kept, remove it with claude-code worktree clean l
 == BriefBody (pi) ==
 Agent: pi
 Owned: own

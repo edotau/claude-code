@@ -142,7 +142,7 @@ func sectionJSON(s string, doc map[string]json.RawMessage) ([]byte, error) {
 	val := doc[s]
 	switch s {
 	case "routing":
-		v, err := vaultRoutingJSON(doc["providers"])
+		v, err := vaultRoutingJSON(doc["providers"], doc["env"])
 		if err != nil {
 			return nil, err
 		}

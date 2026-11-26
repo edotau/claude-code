@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -93,7 +94,7 @@ func resolveOne(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 
 // checkFallback rejects a --fallback mode the router does not know; empty means unset.
 func checkFallback(mode string) error {
-	if mode == "" || slices.Contains(route.FallbackModes, mode) {
+	if mode == "" || router.ValidFallback(mode) {
 		return nil
 	}
 	return fmt.Errorf("--fallback %q unknown (%s)", mode, strings.Join(route.FallbackModes, "|"))

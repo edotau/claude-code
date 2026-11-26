@@ -89,6 +89,22 @@ func TestCheckMasterKeyEmptyVault(t *testing.T) {
 	}
 }
 
+// A stored legacy overlay and an unknown record key each get a row; none stored, no row.
+func TestCheckLegacy(t *testing.T) {
+	doctorTestVault(t)
+	vaulttest.Put(t, vault.Overlay, "proxy-teams", `{}`)
+	if rows := checkLegacy(); len(rows) != 0 {
+		t.Fatalf("checkLegacy = %+v, want none", rows)
+	}
+	vaulttest.Put(t, vault.Overlay, "agents", `{"guardRules":{"deny":["x"]},"agents":{"codex":{"sandboxMode":"y"}}}`)
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, `{"codex":{"fallback_mode":"pin"}}`)
+	rows := checkLegacy()
+	if len(rows) != 2 || !strings.Contains(rows[0].Detail, "overlay agents: 2 keys ignored") ||
+		!strings.Contains(rows[1].Detail, `codex: unknown key "fallback_mode" (nearest valid key: fallbackRoute)`) {
+		t.Fatalf("checkLegacy = %+v, want the agents row then the record-key row", rows)
+	}
+}
+
 func TestDoctorMasterKeySources(t *testing.T) {
 	for _, source := range []string{"env", "keyring"} {
 		t.Run(source, func(t *testing.T) {

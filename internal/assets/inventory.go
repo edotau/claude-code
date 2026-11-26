@@ -123,7 +123,7 @@ var inventory = []struct {
 	{"files/hooks/review-fix-head.txt", "txt", "HookReviewFixHead", func() []byte { return read("files/hooks/review-fix-head.txt") }},
 	{"files/hooks/review-no-line.txt", "txt", "HookReviewNoLine", func() []byte { return read("files/hooks/review-no-line.txt") }},
 	{"files/memory/prompts/replacement-unavailable.txt", "txt", "MemoryReplacementUnavailable", func() []byte { return read("files/memory/prompts/replacement-unavailable.txt") }},
-	{"files/hooks/lane.tmpl", "tmpl", "HookLaneLanded,HookLaneQueueLine,HookLaneQueueMore", func() []byte { return read("files/hooks/lane.tmpl") }},
+	{"files/hooks/lane.tmpl", "tmpl", "HookLaneQueueLine,HookLaneQueueMore", func() []byte { return read("files/hooks/lane.tmpl") }},
 	{"files/brief/brief.tmpl", "tmpl", "BriefBody", func() []byte { return read("files/brief/brief.tmpl") }},
 	{"files/brief/review-loop.txt", "txt", "ReviewLoop", func() []byte { return read("files/brief/review-loop.txt") }},
 	{"files/brief/loop-planner.tmpl", "tmpl", "LoopPlanner", func() []byte { return read("files/brief/loop-planner.tmpl") }},

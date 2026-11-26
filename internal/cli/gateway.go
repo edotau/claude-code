@@ -355,9 +355,8 @@ func gatewayRoute(args []string) int {
 		return helptext.FailUsage(name+": %v", err)
 	}
 	if !helptext.Explicit(fs, "fallback") {
-		mode, _ := router.FallbackSetting(context.Background(), "")
-		q.Fallback = router.ParseFallback(mode)
-		if !slices.Contains(route.FallbackModes, q.Fallback) {
+		q.Fallback, _ = router.EffectiveFallback(context.Background(), "", providers.CustomEnv())
+		if !router.ValidFallback(q.Fallback) {
 			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(route.FallbackModes, "|"))
 		}
 	}
@@ -419,7 +418,7 @@ func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentc
 }
 
 // checkOverlayFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.
-func checkOverlayFlags(ctx context.Context, name, confinement, profile, format, fallback, want, model string) (context.Context, int) {
+func checkOverlayFlags(ctx context.Context, name string, confinement route.Route, profile, format, fallback, want, model string) (context.Context, int) {
 	ctx, err := ask.ApplyRouteOverlay(ctx, confinement, profile, want, model, fallback)
 	if err != nil {
 		helptext.Fail(name+": %v", err)
@@ -428,7 +427,7 @@ func checkOverlayFlags(ctx context.Context, name, confinement, profile, format, 
 	if err := helptext.CheckFormat(format); err != nil {
 		return ctx, helptext.BadFormat(name, err)
 	}
-	if !slices.Contains(route.FallbackModes, fallback) {
+	if !router.ValidFallback(fallback) {
 		return ctx, helptext.Fail(name+": --fallback %q unknown (%s)", fallback, strings.Join(route.FallbackModes, "|"))
 	}
 	if want != "" && !slices.Contains(router.TableAgents, want) {

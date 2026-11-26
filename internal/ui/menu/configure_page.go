@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -243,26 +244,32 @@ func runProvider(d *dialog) bool {
 	if d.interactive() {
 		return runAgentMenu(d, "claude", claudeMenu(d))
 	}
-	names := d.reg.Names()
 	cur := configure.CurrentProvider(d.reg)
 	if !printProviderRows(d) {
 		return false
 	}
+	rows := printProviderPicks(d, cur)
 	if !d.o.Interactive || d.o.Check || d.o.DryRun {
 		printProviderStatus(d, cur)
-		return !d.o.Check || allCredsPresent(d.reg, names)
+		return !d.o.Check || !slices.ContainsFunc(rows, func(e vaultdoc.ProviderEntry) bool { return !e.Credential })
 	}
-	return pickProvider(d, names)
+	return pickProvider(d, rows)
 }
 
-// allCredsPresent is the --check verdict: every registry profile has its credential.
-func allCredsPresent(reg *providers.Registry, names []string) bool {
-	for _, n := range names {
-		if !providers.CredentialPresent(reg.Providers[n]) {
-			return false
+// printProviderPicks numbers the `vault ls providers --format json` rows: * marks cur, cred is present or missing only.
+func printProviderPicks(d *dialog, cur string) []vaultdoc.ProviderEntry {
+	rows, _ := vaultdoc.ProviderRows(d.reg, "") // errs only for a named provider
+	for i, e := range rows.List {
+		mark, cred := " ", "cred:missing"
+		if e.Name == cur {
+			mark = "*"
 		}
+		if e.Credential {
+			cred = "cred:ok"
+		}
+		d.printf("%s %d) %-13s %s\n", mark, i+1, e.Name, cred)
 	}
-	return true
+	return rows.List
 }
 
 func printProviderStatus(d *dialog, cur string) {
@@ -293,11 +300,14 @@ func applyNamedProvider(d *dialog, name string) bool {
 	return applyProvider(d, name)
 }
 
-func pickProvider(d *dialog, names []string) bool {
-	fmt.Fprint(d.out, "pick a profile by name (blank = keep current): ")
+func pickProvider(d *dialog, rows []vaultdoc.ProviderEntry) bool {
+	fmt.Fprint(d.out, "pick a profile by number or name (blank = keep current): ")
 	line := strings.TrimSpace(readLine(d.br))
 	if line == "" {
 		return true
+	}
+	if idx, err := strconv.Atoi(line); err == nil && idx >= 1 && idx <= len(rows) {
+		line = rows[idx-1].Name
 	}
 	return applyNamedProvider(d, line)
 }

@@ -50,8 +50,11 @@ func parseRecordPairs(agent string, words []string) (map[string]string, error) {
 		} else if _, declared := agentpkg.SchemaFor(agent).CLI.Extras[key]; declared && field == "" {
 			field = configure.ExtraPrefix + key
 		}
-		if !ok || field == "" {
+		switch {
+		case !ok:
 			return nil, fmt.Errorf("%q is not <key>=<value> with key one of %s", w, strings.Join(recordKeyNames(agent), ", "))
+		case field == "":
+			return nil, route.UnknownKey(key, recordKeyNames(agent))
 		}
 		set[field] = strings.TrimSpace(val)
 	}

@@ -113,7 +113,8 @@ func TestCmdVault(t *testing.T) {
 		{"overlay removed", []string{"overlay", "ls"}, 2, "vault ls overlays"},
 		{"rotate-key removed", []string{"rotate-key"}, 2, ""},
 		{"key removed", []string{"key", "show"}, 2, ""},
-		{"set bare", []string{"set"}, 2, "claude-code vault set [secrets]"},
+		{"set bare", []string{"set"}, 2, "claude-code vault set secrets NAME"},
+		{"set NAME retired", []string{"set", "VAULT_TEST_DUMMY"}, 2, "use claude-code vault set secrets NAME"},
 		{"set NAME --tailscale", []string{"set", "VAULT_TEST_DUMMY", "--tailscale"}, 2, ""},
 		{"export to stdout", []string{"export", "--out", "-"}, 2, "vault get"},
 		{"get --key with a name", []string{"get", "--key", "ALPHA"}, 2, ""},
@@ -256,7 +257,7 @@ func TestVaultSetDryRunStoresNothing(t *testing.T) {
 	}{
 		{"tailscale", []string{"set", "--tailscale", "--dry-run"}, []string{"id-value", "secret-value"},
 			[]string{"would add TAILSCALE_OAUTH_CLIENT_ID (8 chars)", "would add TAILSCALE_OAUTH_CLIENT_SECRET (12 chars)"}},
-		{"name", []string{"set", "VAULT_TEST_DUMMY", "--dry-run"}, []string{"obviously-fake-dry-run"},
+		{"name", []string{"set", "secrets", "VAULT_TEST_DUMMY", "--dry-run"}, []string{"obviously-fake-dry-run"},
 			[]string{"would add VAULT_TEST_DUMMY"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -341,7 +342,7 @@ func TestVaultSetRefusesMalformedShape(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			vaulttest.UseFreshKey(t)
 			withStdin(t, tc.input)
-			code, _, stderr := vaultRun(t, "set", tc.name)
+			code, _, stderr := vaultRun(t, "set", "secrets", tc.name)
 			if code == 0 || !strings.Contains(stderr, tc.refusal) {
 				t.Fatalf("set %s: exit %d, stderr = %q, want the %q refusal", tc.name, code, stderr, tc.refusal)
 			}

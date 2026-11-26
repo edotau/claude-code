@@ -177,7 +177,7 @@ func Open(ctx context.Context) (Host, error) {
 		return nil, fmt.Errorf("BITBUCKET_TOKEN: %w", err)
 	}
 	if token == "" {
-		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set BITBUCKET_TOKEN`")
+		return nil, errors.New("BITBUCKET_TOKEN is not set; run `claude-code vault set secrets BITBUCKET_TOKEN`")
 	}
 	base := bitbucketURL()
 	if base == "" { // the ssh port is not the HTTP port; an http(s) remote keeps its own host:port

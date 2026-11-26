@@ -16,6 +16,17 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// TestVaultRoutingShowsFallback: the routing section names the effective fallback mode and its source.
+func TestVaultRoutingShowsFallback(t *testing.T) {
+	t.Setenv("AGENT_ERROR_FALLBACK", "")
+	if got := vaultRoutingText(nil, nil, 80); !strings.Contains(got, "none (default)") {
+		t.Errorf("unset fallback row missing:\n%s", got)
+	}
+	if got := vaultRoutingText(nil, map[string]string{"AGENT_ERROR_FALLBACK": "pin"}, 80); !strings.Contains(got, "pin (vault env)") {
+		t.Errorf("stored fallback row missing:\n%s", got)
+	}
+}
+
 // TestVaultProvidersGroupsPresetRows: preset rows collapse into one row listing each env with its credential mark.
 func TestVaultProvidersGroupsPresetRows(t *testing.T) {
 	old := credOK

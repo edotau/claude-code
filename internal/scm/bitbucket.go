@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 )
 
-const authHint = "Bitbucket rejected the token; run `claude-code vault set BITBUCKET_TOKEN`"
+const authHint = "Bitbucket rejected the token; run `claude-code vault set secrets BITBUCKET_TOKEN`"
 
 const forbiddenHint = "Bitbucket denied access: the token lacks permission on this repository"
 

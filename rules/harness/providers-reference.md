@@ -110,16 +110,16 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 ## Credentials
 
 First non-empty source wins, name by name: the canonical secret name (`ANTHROPIC_KEY`) as **process env**, then in the
-**vault** (`claude-code vault set <KEY>`, AES-256-GCM); then `auth.env` (`ANTHROPIC_API_KEY`) the same way; then
-**`auth.file`** → **`auth.command`** (prints the credential; cached `auth.ttl` seconds, default 300, re-run on 401).
-Sealed `oauth`/`m2m`/`pat` credentials come from the vault only; `cli` profiles use the CLI's own login.
+**vault** (`claude-code vault set secrets <KEY>`, AES-256-GCM); then `auth.env` (`ANTHROPIC_API_KEY`) the same way;
+then **`auth.file`** → **`auth.command`** (prints the credential; cached `auth.ttl` seconds, default 300, re-run on
+401). Sealed `oauth`/`m2m`/`pat` credentials come from the vault only; `cli` profiles use the CLI's own login.
 
 Example: `"auth": {"type": "key", "command": "op read op://Private/example/credential", "ttl": 3600}`.
 `claude-code resolve --secret --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in
 `settings.json`; without `--secret` it prints `<redacted: N bytes>` and, to a pipe, exits 1.
 
 ```bash
-claude-code vault set [KEY]            # bare on a terminal = guided dialog
+claude-code vault set [secrets KEY]    # bare on a terminal = guided dialog
 claude-code vault get KEY... [--secret [--export]]   # redacted without --secret (main session only)
 claude-code vault import keys.env      # then delete the plaintext file
 claude-code vault get --secret KEY... | ssh box claude-code vault import - --yes

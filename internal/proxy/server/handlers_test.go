@@ -43,7 +43,7 @@ func TestAuthHintByAuthType(t *testing.T) {
 		},
 		"key": {
 			providers.Provider{Name: "k", Auth: providers.Auth{Type: providers.AuthKey, Env: "K_KEY"}},
-			"claude-code vault set K_KEY",
+			"claude-code vault set secrets K_KEY",
 		},
 		"command": {
 			providers.Provider{Name: "c", Auth: providers.Auth{Type: providers.AuthKey, Command: "op read x"}},
@@ -580,11 +580,11 @@ func TestRejectedKeyHintsVaultSetNotDatabricksLogin(t *testing.T) {
 
 	resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1"}`, nil)
 	b := body(t, resp)
-	if resp.StatusCode != 401 || !strings.Contains(b, "run `claude-code vault set UP1_KEY`") ||
+	if resp.StatusCode != 401 || !strings.Contains(b, "run `claude-code vault set secrets UP1_KEY`") ||
 		strings.Contains(b, "databricks") {
 		t.Fatalf("status %d body %s, want 401 with the vault set hint", resp.StatusCode, b)
 	}
-	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "vault set UP1_KEY") {
+	if reason, ok := g.marked("up1"); !ok || !strings.Contains(reason, "vault set secrets UP1_KEY") {
 		t.Fatalf("mark = %q, %v; want the vault set hint", reason, ok)
 	}
 }

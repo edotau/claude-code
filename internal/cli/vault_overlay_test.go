@@ -17,6 +17,22 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// An unknown record key is refused by both writers with the one shared message naming the nearest key.
+func TestUnknownRecordKeyRefused(t *testing.T) {
+	const want = `unknown key "fallback_mode" (nearest valid key: fallback`
+	_, cfgErr := parseRecordPairs("codex", []string{"fallback_mode=pin"})
+	setErr := validateAgentRecords([]byte(`{"codex":{"fallback_mode":"pin"}}`))
+	if cfgErr == nil || setErr == nil || cfgErr.Error() != want+")" || !strings.Contains(setErr.Error(), want+"Route)") {
+		t.Fatalf("configure agents: %v; vault set overlay: %v; want both %q", cfgErr, setErr, want)
+	}
+	if err := validateAgentRecords([]byte(`{"codex":{"Model":"m","route":{"provider":"p","profile":"q"}}}`)); err != nil {
+		t.Fatalf("a known-key record (any case, as json decodes it) = %v, want accepted", err)
+	}
+	if err := validateAgentRecords([]byte(`{"codex":{"launch":{"bogus":true},"launch":{}}}`)); err == nil {
+		t.Fatal("an unknown key in a duplicate member was accepted")
+	}
+}
+
 // vault rm overlay: off a terminal it needs --yes, --dry-run writes nothing, an unknown key is refused.
 func TestVaultOverlayUnset(t *testing.T) {
 	vaulttest.Use(t)

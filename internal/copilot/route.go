@@ -67,8 +67,8 @@ func copilotGate(ctx context.Context, reg *providers.Registry, t providers.Targe
 
 // fallbackMode is the run's AGENT_ERROR_FALLBACK mode (process, run values, then vault env).
 func fallbackMode(ctx context.Context) string {
-	mode, _ := router.FallbackSetting(ctx, "")
-	return router.ParseFallback(mode)
+	mode, _ := router.EffectiveFallback(ctx, "", providers.CustomEnv())
+	return mode
 }
 
 // pinHop is copilot's record profile as a target other than t's row; false when the pin is t, unset or unusable.

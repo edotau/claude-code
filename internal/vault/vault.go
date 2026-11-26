@@ -203,7 +203,7 @@ func initVaultFile(tmp string) error {
 		return err
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range []string{Pins, Env, Overlay, Secrets, Meta} {
+		for _, b := range []string{Env, Overlay, Secrets, Meta} { // Pins: old vaults keep theirs, new ones get none
 			if _, err := tx.CreateBucketIfNotExists([]byte(b)); err != nil {
 				return err
 			}

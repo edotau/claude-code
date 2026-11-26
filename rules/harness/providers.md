@@ -9,16 +9,16 @@ paths:
 ---
 # Providers, Models, Credentials
 
-| To…                                           | Run                                                                                                                                                                   |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets`                                                                                          |
-| See providers and credential state            | `claude-code vault ls providers [<name>]`                                                                                                                             |
-| Set a credential                              | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command`                                                                   |
-| Inspect or edit the vault                     | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret` (`get` redacts; `--secret` prints, main session only); env and overlays: `claude-code configure` |
-| Switch the session profile                    | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>`                                                                                  |
-| Set claude's models                           | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews)                                                                            |
-| List what a provider serves                   | `claude-code models --live [--profile <p>]`                                                                                                                           |
-| Run the model proxy                           | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` · standing: `--serve --scope <team>@<id>`                           |
+| To…                                           | Run                                                                                                                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets`                                                                                      |
+| See providers and credential state            | `claude-code vault ls providers [<name>]`                                                                                                                         |
+| Set a credential                              | `claude-code vault set secrets NAME` (bare on a terminal = guided dialog), or a provider's `auth.command`                                                         |
+| Inspect or edit the vault                     | `claude-code vault [ls]\|get\|rm\|import\|export\|rotate-secret` (`get` redacts; `--secret` prints, main session only); env and overlays: `claude-code configure` |
+| Switch the session profile                    | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>`                                                                              |
+| Set claude's models                           | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews)                                                                        |
+| List what a provider serves                   | `claude-code models --live [--profile <p>]`                                                                                                                       |
+| Run the model proxy                           | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` · standing: `--serve --scope <team>@<id>`                       |
 
 - Transcript cleanup: `claude-code doctor --secrets --fix` masks idle Claude and harness transcript stores in place at
   the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.

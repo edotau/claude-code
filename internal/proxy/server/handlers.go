@@ -468,7 +468,7 @@ func authHint(p *providers.Provider) string {
 	case a.Command != "":
 		return "check the provider's auth.command"
 	case (a.Type == providers.AuthKey || a.Type == providers.AuthPAT) && a.Env != "":
-		return "run `claude-code vault set " + a.Env + "`"
+		return "run `claude-code vault set secrets " + a.Env + "`"
 	}
 	return "run `claude-code vault ls providers " + p.Name + "`"
 }
