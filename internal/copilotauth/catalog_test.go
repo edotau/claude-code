@@ -86,3 +86,62 @@ func TestIDsFollowTheSelectedRow(t *testing.T) {
 		t.Errorf("account-b ids after account-a's listing = %v, want its own snapshot kept", got)
 	}
 }
+
+// loginScratch is a hermetic vault and fake gh, with gh's active account and copilot's stored login when non-empty.
+func loginScratch(t *testing.T, gh, copilot string) {
+	t.Helper()
+	hosttest.PinScratch(t)
+	vaulttest.UseKeyring(t)
+	ghDir, cpDir, bin := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", ghDir)
+	t.Setenv("COPILOT_HOME", cpDir)
+	for _, key := range TokenEnvs {
+		t.Setenv(key, "")
+	}
+	write(t, filepath.Join(bin, "gh"), "#!/bin/sh\necho tok\n")
+	if err := os.Chmod(filepath.Join(bin, "gh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	if gh != "" {
+		write(t, filepath.Join(ghDir, "hosts.yml"), fmt.Sprintf(
+			"github.com:\n    users:\n        %[1]s:\n            oauth_token: x\n    user: %[1]s\n", gh))
+	}
+	if copilot != "" {
+		write(t, filepath.Join(cpDir, "config.json"), `{"lastLoggedInUser":{"login":"`+copilot+`"}}`)
+	}
+}
+
+// A pin is used as is; unpinned, copilot's own login beats the vault token, which beats gh's active account.
+func TestAuthSourceForOrder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a shell script")
+	}
+	cases := []struct {
+		name, pin, gh, copilot, envTok string
+		vaultTok                       bool
+		want                           Source
+		account                        string
+	}{
+		{name: "pinned", pin: "pin_user", gh: "pin_user", copilot: "cp_user", vaultTok: true, want: SrcPinned, account: "pin_user"},
+		{name: "copilot login", gh: "gh_user", copilot: "cp_user", vaultTok: true, want: SrcCopilot, account: "cp_user"},
+		{name: "vault token", vaultTok: true, want: SrcStoredToken},
+		{name: "gh active", gh: "gh_user", want: SrcActive, account: "gh_user"},
+		{name: "env shadows copilot login", copilot: "cp_user", envTok: "GH_TOKEN", want: "GH_TOKEN"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			loginScratch(t, c.gh, c.copilot)
+			if c.vaultTok {
+				vaulttest.Secret(t, providers.CopilotTokenEnv, "ghp_stored")
+			}
+			if c.envTok != "" {
+				t.Setenv(c.envTok, "ghp_env")
+			}
+			a, ok := AuthSourceFor(c.pin)
+			if !ok || a.Source != c.want || a.Account != c.account {
+				t.Errorf("AuthSourceFor(%q) = %s/%s ok=%v, want %s/%s", c.pin, a.Account, a.Source, ok, c.account, c.want)
+			}
+		})
+	}
+}

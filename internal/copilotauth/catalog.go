@@ -43,7 +43,7 @@ func ReadSnapshot[M any](auth Auth, tok string) (Snapshot[M], bool) {
 	}
 	var s Snapshot[M]
 	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() ||
-		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != textutil.SHA256Hex([]byte(tok)) {
+		s.Account != auth.Account || s.Source != string(auth.Source) || s.TokenHash != textutil.SHA256Hex([]byte(tok)) {
 		return Snapshot[M]{}, false
 	}
 	return s, true

@@ -35,7 +35,7 @@ var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
 	ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
 	PromptVia: agent.PromptArgv, OwnLoginProfile: OwnLogin, PinIDs: providers.RouteOpencodeSubIDs, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
-	ConfigureHint: "run `opencode auth login` (opencode Go) or `claude-code configure github` (Copilot)",
+	ConfigureHint: "run `opencode auth login` and pick opencode Go or GitHub Copilot",
 	CatalogUsage:  "model menu: list|add|remove|import|reset|check|sync",
 	CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",
 }}

@@ -29,10 +29,10 @@ func copilotLaunchTokenFor(login string) (string, error) {
 	tok, how := copilotauth.ResolveToken(a)
 	if a.Source == copilotauth.SrcPinned && tok == "" {
 		return "", fmt.Errorf("copilot: no gh token for pinned GitHub user %s (`gh auth token -u` failed "+
-			"or timed out); when it is signed out, run `claude-code configure github`", a.Account)
+			"or timed out); when it is signed out, run `gh auth login`", a.Account)
 	}
 	fmt.Fprintf(os.Stderr, "copilot: GitHub account %s (%s)\n", cmp.Or(a.Account, "from token"), how)
-	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, a.Source), how)
+	audit.Log(audit.CopilotAuth, cmp.Or(a.Account, string(a.Source)), how)
 	return tok, nil
 }
 
@@ -111,7 +111,29 @@ func pinnedHeadroom(ctx context.Context, login string) (detail string, ok bool) 
 	if err != nil {
 		return "cannot read the provider registry to check the pinned GitHub account: " + err.Error(), false
 	}
+	if pin == "" {
+		return ownLoginHeadroom(ctx)
+	}
 	return copilotHeadroom(ctx, pin)
+}
+
+// ownLoginHeadroom gates copilot's stored login unpinned: its credits when gh holds it, else workable unverified.
+func ownLoginHeadroom(ctx context.Context) (detail string, ok bool) {
+	a, found := copilotauth.AuthSource()
+	switch {
+	case !found || a.Source != copilotauth.SrcCopilot:
+		return copilotHeadroom(ctx, "")
+	case slices.Contains(github.GHAccounts(), a.Account) && creditsKeyedTo(a.Account):
+		return copilotHeadroom(ctx, a.Account)
+	}
+	// tried first per the owner's order; an auth or quota error fails over like any hop
+	return a.Account + " unverified (copilot's own login; no gh credit reading for it)", true
+}
+
+// creditsKeyedTo: login's route-account key reads login's own credits, not a profile named login with another Login.
+func creditsKeyedTo(login string) bool {
+	reg, _ := providers.Load()
+	return providers.GithubAccountLogin(reg, providers.GithubAccountName(reg, login)) == login
 }
 
 // AuthStatus is copilotauth.AuthSource, offline: a token-only source leaves Account for Plan's lookup.
@@ -120,7 +142,7 @@ func (copilotEngine) AuthStatus() providers.AuthState {
 	if !ok {
 		return providers.AuthState{Err: err}
 	}
-	return providers.AuthState{Present: true, Account: a.Account, Source: a.Source, Method: copilotMethod(a.Source), Err: err}
+	return providers.AuthState{Present: true, Account: a.Account, Source: string(a.Source), Method: copilotMethod(a.Source), Err: err}
 }
 
 func (copilotEngine) Presence(_ context.Context, cell router.Cell) error {
@@ -138,7 +160,7 @@ func (copilotEngine) Presence(_ context.Context, cell router.Cell) error {
 }
 
 // copilotMethod: only copilot's own stored login has a sign-in to re-run; gh and pasted tokens are PATs.
-func copilotMethod(src string) string {
+func copilotMethod(src copilotauth.Source) string {
 	switch src {
 	case copilotauth.SrcCopilot:
 		return providers.AuthCLI
@@ -158,6 +180,12 @@ func (copilotEngine) Plan(_ context.Context, st providers.AuthState) providers.S
 	account := cmp.Or(st.Account, a.Account)
 	if account == "" && tok != "" {
 		account = github.GitHubLogin(tok)
+	}
+	// a tokenless lookup asks as gh's active account, so copilot's own login asks with its gh token or not at all
+	if a.Source == copilotauth.SrcCopilot && tok == "" {
+		if tok = github.GHToken(account); tok == "" {
+			return providers.Subscription{Account: account}
+		}
 	}
 	raw := copilotRawPlan(account, tok)
 	return providers.Subscription{Raw: raw, Name: providers.CopilotPlanName(raw), Account: account}

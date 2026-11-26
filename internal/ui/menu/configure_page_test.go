@@ -114,8 +114,8 @@ func TestVendorOnOwnConfigReadsAbsentUnderNewChain(t *testing.T) {
 	if strings.Contains(out.String(), "google/gemini-3.8-flash") {
 		t.Errorf("the retired own-config dispatch must not appear in output:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "claude-code configure github") {
-		t.Errorf("fix command must name `claude-code configure github`:\n%s", out.String())
+	if !strings.Contains(out.String(), "opencode auth login") {
+		t.Errorf("fix command must name `opencode auth login`:\n%s", out.String())
 	}
 }
 

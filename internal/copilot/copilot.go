@@ -515,7 +515,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	CatalogTitle: "GitHub Copilot catalog", ProviderVerb: true,
 	LoginArgv:     []string{"copilot", "login"},
-	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic key",
+	ConfigureHint: "sign in on `claude-code configure agents --agent copilot` (Copilot) or set an Anthropic key",
 	// the CLI's own mode names, not validated here
 	Extras: map[string][]string{extraDefaultPermissionMode: nil},
 }}

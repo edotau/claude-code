@@ -131,7 +131,7 @@ func refreshCatalog(ctx context.Context, login string) ([]SDKModel, error) {
 	if !ok {
 		return list, nil
 	}
-	snap := copilotauth.Snapshot[SDKModel]{Schema: 1, Account: auth.Account, Source: auth.Source, TokenHash: textutil.SHA256Hex([]byte(tok)),
+	snap := copilotauth.Snapshot[SDKModel]{Schema: 1, Account: auth.Account, Source: string(auth.Source), TokenHash: textutil.SHA256Hex([]byte(tok)),
 		DiscoveredAt: time.Now().UTC(), Models: list}
 	if err := saveCatalogSnapshot(snap); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: catalog snapshot not saved: %v\n", err)

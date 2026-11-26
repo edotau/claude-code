@@ -452,3 +452,33 @@ func TestOfflineRouteAllowsMCPInstructions(t *testing.T) {
 		}
 	}
 }
+
+// Unpinned, copilot's own stored login (not in gh) is the first hop; with no login the route falls back as before.
+func TestUnpinnedOwnLoginRoute(t *testing.T) {
+	for _, c := range []struct {
+		login string
+		want  string
+	}{{"cp_user", agent.RouteCopilotLogin}, {"", agent.RouteDatabricks}} {
+		t.Run(c.want, func(t *testing.T) {
+			macFallbackScratch(t)
+			vaulttest.SetRecord(t, "copilot", "profile", "copilot")
+			if c.login != "" {
+				cfg := `{"lastLoggedInUser":{"login":"` + c.login + `"}}`
+				if err := os.WriteFile(filepath.Join(os.Getenv("COPILOT_HOME"), "config.json"), []byte(cfg), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reg, err := providers.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ri := describeCopilotRoute(t.Context(), reg); ri.Route != c.want {
+				t.Errorf("route = %s (%s), want %s", ri.Route, ri.Reason, c.want)
+			}
+			got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: reg.Providers["copilot"]}, false, "")
+			if kept := err == nil && got.Provider == reg.Providers["copilot"]; kept != (c.login != "") {
+				t.Errorf("gate kept the github row = %v (err %v), want %v", kept, err, c.login != "")
+			}
+		})
+	}
+}
