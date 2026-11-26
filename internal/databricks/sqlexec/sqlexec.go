@@ -256,6 +256,11 @@ func (c *client) call(ctx context.Context, method, path string, body []byte, out
 		Authorize:   func(h http.Header) error { authErr = providers.Authorize(ctx, c.p, h); return authErr },
 		DecodeError: func(err error) error { decodeErr = true; return fmt.Errorf("sql statement: decode reply: %w", err) },
 	}, out)
+	return callResult(ctx, status, err, authErr, decodeErr, data)
+}
+
+// callResult maps the outcome of one DoJSON exchange to the error returned to callers.
+func callResult(ctx context.Context, status int, err, authErr error, decodeErr bool, data []byte) error {
 	var rerr *httpx.RetryError
 	retryWait := errors.As(err, &rerr)
 	switch {
@@ -263,14 +268,27 @@ func (c *client) call(ctx context.Context, method, path string, body []byte, out
 		return fmt.Errorf("sql statement: authorize: %w", authErr)
 	case retryWait:
 		return fmt.Errorf("sql statement: %w", err)
-	case status == 0 && ctx.Err() != nil:
-		return fmt.Errorf("sql statement: %w", ctx.Err())
 	case status == 0:
-		return transportError(err)
+		return statusZeroError(ctx, err)
 	case status/100 != 2:
 		return statusError(status, data)
 	case decodeErr:
 		return err
+	}
+	return readError(err)
+}
+
+// statusZeroError reports a request that produced no HTTP status.
+func statusZeroError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("sql statement: %w", ctx.Err())
+	}
+	return transportError(err)
+}
+
+// readError reports a failed body read on a 2xx reply, or nil.
+func readError(err error) error {
+	switch {
 	case errors.Is(err, httpx.ErrTooLarge):
 		return errors.New("sql statement: reply too large")
 	case err != nil:

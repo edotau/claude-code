@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,8 @@ var (
 	// mappingPair is one 'name': 'path' pair, either quote style, of a setuptools editable finder's MAPPING table.
 	mappingPair = regexp.MustCompile(`(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")`)
 	unescapePy  = strings.NewReplacer(`\\`, `\`, `\'`, `'`, `\"`, `"`)
+	// envPython is a `#!/usr/bin/env python[3[.x]]` shebang start, which PATH would resolve outside the lane venv.
+	envPython = regexp.MustCompile(`^#!\s*/usr/bin/env\s+(-S\s+)?python(?:3(?:\.[0-9]+)?)?(\s|$)`)
 )
 
 // overlayVenv builds the lane's own venv at target that reuses the primary venv's packages but imports lane source.
@@ -115,19 +118,71 @@ func writeOverlayPth(source, target, lane string) error {
 	if err := os.WriteFile(filepath.Join(lsp, "b-primary-deps.pth"), []byte(psp+"\n"), 0o644); err != nil {
 		return err
 	}
-	for name, dst := range links {
-		link := filepath.Join(lsp, name)
-		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			return err
-		}
-		if err := os.Symlink(dst, link); err != nil {
+	for _, name := range slices.Sorted(maps.Keys(links)) {
+		if err := linkMapping(lsp, filepath.Join(lsp, name), links[name]); err != nil {
 			return err
 		}
 	}
 	// bytecode of the shared packages must not be written into the primary venv
 	cache := fmt.Sprintf("import sys; sys.pycache_prefix = %q\n", filepath.Join(target, "pycache"))
-	body := cache + nspkgLines(psp) + strings.Join(roots, "\n") + "\n"
+	body := cache + nspkgLines(psp) + dropPreloaded(links) + strings.Join(roots, "\n") + "\n"
 	return os.WriteFile(filepath.Join(lsp, "a-lane-roots.pth"), []byte(body), 0o644)
+}
+
+// linkMapping links one editable mapping under lsp; a mapped `__init__.py` replaces the synthetic one.
+func linkMapping(lsp, link, target string) error {
+	if err := makeSyntheticParents(lsp, filepath.Dir(link)); err != nil {
+		return err
+	}
+	if filepath.Base(link) == "__init__.py" {
+		if err := os.Remove(link); err != nil {
+			return err
+		}
+	}
+	return os.Symlink(target, link)
+}
+
+// makeSyntheticParents makes dir's levels regular extend_path packages; a bare namespace dir loses to a regular one.
+func makeSyntheticParents(root, dir string) error {
+	const initBody = "__path__ = __import__('pkgutil').extend_path(__path__, __name__)\n"
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." {
+		return err
+	}
+	cur := root
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("editable mappings overlap at %s", cur)
+		}
+		if err := os.MkdirAll(cur, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(cur, "__init__.py"), []byte(initBody), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropPreloaded is a .pth row that unloads a namespace (and its children) a primary *-nspkg.pth preloaded.
+func dropPreloaded(links map[string]string) string {
+	var parents []string
+	for name := range links {
+		parts := strings.Split(filepath.Dir(name), string(filepath.Separator))
+		for i := range parts {
+			if parts[i] != "." {
+				parents = append(parents, strconv.Quote(strings.Join(parts[:i+1], ".")))
+			}
+		}
+	}
+	if len(parents) == 0 {
+		return ""
+	}
+	slices.Sort(parents)
+	p := "(" + strings.Join(slices.Compact(parents), ", ") + ",)"
+	return "import sys; [sys.modules.pop(n, None) for n in list(sys.modules) if n in " + p +
+		" or n.startswith(tuple(q + '.' for q in " + p + "))]\n"
 }
 
 // nspkgLines are the primary's *-nspkg.pth rows, with the site dir they read from pinned to the primary's.
@@ -161,7 +216,7 @@ func copyScripts(source, target string) error {
 		if _, err := os.Lstat(dst); err == nil || e.IsDir() {
 			continue // python and activate come with the new venv
 		}
-		if err := copyScript(filepath.Join(source, "bin", e.Name()), dst, rep); err != nil {
+		if err := copyScript(filepath.Join(source, "bin", e.Name()), dst, filepath.Join(laneBin, "python"), rep); err != nil {
 			return err
 		}
 	}
@@ -169,7 +224,7 @@ func copyScripts(source, target string) error {
 }
 
 // copyScript writes dst as src with the primary bin path in its first three rows swapped, or links a non-script.
-func copyScript(src, dst string, rep *strings.Replacer) error {
+func copyScript(src, dst, lanePy string, rep *strings.Replacer) error {
 	f, err := os.Open(src)
 	if err != nil {
 		return os.Symlink(src, dst)
@@ -193,7 +248,21 @@ func copyScript(src, dst string, rep *strings.Replacer) error {
 			}
 		}
 	}
-	return os.WriteFile(dst, append([]byte(rep.Replace(string(data[:cut]))), data[cut:]...), 0o755)
+	head := laneShebang(rep.Replace(string(data[:cut])), lanePy)
+	return os.WriteFile(dst, append([]byte(head), data[cut:]...), 0o755)
+}
+
+// laneShebang points an `env python` shebang at lanePy, keeping `env -S`; an unsafe path leaves the row alone.
+func laneShebang(head, lanePy string) string {
+	m := envPython.FindStringSubmatchIndex(head)
+	if m == nil || strings.ContainsAny(lanePy, " \t$\"'\\`") {
+		return head
+	}
+	prefix := "#!"
+	if m[2] >= 0 {
+		prefix = "#!/usr/bin/env -S "
+	}
+	return prefix + lanePy + head[m[4]:]
 }
 
 // editableRoots mirrors the primary's editable installs (path .pth lines, finder MAPPING tables) under lane.

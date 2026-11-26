@@ -371,10 +371,15 @@ func addPrimaryExtras(t *testing.T, main, dest string) {
 	mustWriteFile(t, filepath.Join(sp, "__editable__.ns-0.pth"), "import __editable___ns_0_finder; __editable___ns_0_finder.install()\n")
 	mustWriteFile(t, filepath.Join(sp, "nspk", "mod.py"), "X = 7\n")
 	mustWriteFile(t, filepath.Join(sp, "x-nspkg.pth"), nspkgRow)
+	mustWriteFile(t, filepath.Join(sp, "y-nspkg.pth"), strings.ReplaceAll(nspkgRow, "nspk", "ns"))
 	script := "#!" + filepath.Join(venv, "bin", "python") + "\nimport pkg\nprint('script', pkg.VALUE)\n"
 	mustWriteFile(t, filepath.Join(venv, "bin", "tool"), script)
-	if err := os.Chmod(filepath.Join(venv, "bin", "tool"), 0o755); err != nil {
-		t.Fatal(err)
+	mustWriteFile(t, filepath.Join(venv, "bin", "envtool"), "#!/usr/bin/env python\nimport pkg\nprint('env', pkg.VALUE)\n")
+	mustWriteFile(t, filepath.Join(sp, "ns", "__init__.py"), "SHADOW = True\n")
+	for _, name := range []string{"tool", "envtool"} {
+		if err := os.Chmod(filepath.Join(venv, "bin", name), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -408,7 +413,41 @@ func TestSeedLaneVenvDottedNamespaceAndScripts(t *testing.T) {
 	if got := run(filepath.Join(dest, ".venv", "bin", "python"), "-c", "import ns.sub, nspk.mod;print(ns.sub.VALUE, ns.sub.__file__, nspk.mod.X)"); !strings.HasPrefix(got, "2 ") || !strings.Contains(got, filepath.Base(dest)) || !strings.HasSuffix(strings.TrimSpace(got), " 7") {
 		t.Fatalf("dotted or namespace import = %q", got)
 	}
-	if got := run(filepath.Join(dest, ".venv", "bin", "tool")); strings.TrimSpace(got) != "script 2" {
-		t.Fatalf("lane console script = %q, want it to run lane code", got)
+	requireLaneScripts(t, dest, run)
+}
+
+// requireLaneScripts runs the primary's scripts from the lane; only a rewritten shebang finds envtool's lane venv.
+func requireLaneScripts(t *testing.T, dest string, run func(...string) string) {
+	t.Helper()
+	for tool, want := range map[string]string{"tool": "script 2", "envtool": "env 2"} {
+		if got := run(filepath.Join(dest, ".venv", "bin", tool)); strings.TrimSpace(got) != want {
+			t.Fatalf("lane script %s = %q, want %q", tool, got, want)
+		}
+	}
+}
+
+func TestCopyScriptRewritesEnvPythonShebang(t *testing.T) {
+	dir := t.TempDir()
+	rep := strings.NewReplacer()
+	for head, want := range map[string]string{
+		"#!/usr/bin/env python3.12\n":    "#!/l/bin/python\n",
+		"#!/usr/bin/env -S python3 -u\n": "#!/usr/bin/env -S /l/bin/python -u\n",
+		"#!/usr/bin/env python2\n":       "#!/usr/bin/env python2\n",
+	} {
+		src, dst := filepath.Join(dir, "s"), filepath.Join(dir, "d")
+		mustWriteFile(t, src, head+"x\n")
+		if err := copyScript(src, dst, "/l/bin/python", rep); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(dst); string(got) != want+"x\n" {
+			t.Fatalf("%q -> %q, want %q", head, got, want)
+		}
+		_ = os.Remove(dst)
+	}
+}
+
+func TestLaneShebangKeepsHeadForUnsafePath(t *testing.T) {
+	if got := laneShebang("#!/usr/bin/env python\n", "/a$b/bin/python"); got != "#!/usr/bin/env python\n" {
+		t.Fatalf("spaced path rewrote the shebang: %q", got)
 	}
 }

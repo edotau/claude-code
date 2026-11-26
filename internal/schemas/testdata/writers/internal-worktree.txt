@@ -14,4 +14,5 @@ internal/worktree/sessions.go:Append	notices
 internal/worktree/sessions.go:capInbox	notices
 internal/worktree/venvoverlay.go:copyScript	unversioned: text: console script copied into a lane venv
 internal/worktree/venvoverlay.go:inheritSystemSitePackages	unversioned: text: pyvenv.cfg of a lane venv
+internal/worktree/venvoverlay.go:makeSyntheticParents	unversioned: text: __init__.py of a synthetic package in a lane venv
 internal/worktree/venvoverlay.go:writeOverlayPth	unversioned: text: .pth files of a lane venv
