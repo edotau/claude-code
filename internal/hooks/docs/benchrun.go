@@ -222,6 +222,7 @@ func benchEnqueue(top string, jobs []benchJob) {
 			_ = paths.WriteJSON(base+".job.json", job)
 		}
 	}
+	benchCoalesce(benchQueued(state)) // the new commit replaces a job of its repo still waiting in the queue
 }
 
 // One persistent detached consumer per config reclaims jobs even when no later commit arrives; true asks a restart.

@@ -828,25 +828,24 @@ func TestBenchLandedQueuesEveryBenchedCommit(t *testing.T) {
 		got = append(got, filepath.Base(b))
 	}
 	slices.Sort(got)
-	want := []string{benched, merge}
-	slices.Sort(want)
-	if spawned != 1 || !slices.Equal(got, want) {
-		t.Fatalf("spawned %d, queued %v; want one consumer and %v (plain %s skipped)", spawned, got, want, plain)
+	// one waiting job per repo: the landing's newest benched commit replaces the older one (owner, 2026-11-26)
+	if spawned != 1 || len(got) != 1 || got[0] != benched && got[0] != merge {
+		t.Fatalf("spawned %d, queued %v; want one consumer and one of %s, %s (plain %s skipped)", spawned, got, benched, merge, plain)
 	}
 	BenchLanded(context.Background(), dir, base, merge, "s1") // a repeated landing queues nothing new
-	if n := len(benchQueued(state)); n != 2 {
-		t.Fatalf("repeat landing queued %d jobs, want 2", n)
+	if n := len(benchQueued(state)); n != 1 {
+		t.Fatalf("repeat landing queued %d jobs, want 1", n)
 	}
 	benchGit(t, dir, "checkout", "-qb", "lane")
 	BenchLanded(context.Background(), dir, "", benchCommit(t, dir, "pkg/w.go"), "s1")
-	if n := len(benchQueued(state)); n != 2 {
+	if n := len(benchQueued(state)); n != 1 {
 		t.Fatalf("a commit off the trunk was queued: %d jobs", n)
 	}
 	benchGit(t, dir, "checkout", "-q", "main")
 	assertLongLandingQueued(t, dir, merge, state)
 }
 
-// assertLongLandingQueued lands 21 benched commits then a benchmark deletion: each is judged in its own tree.
+// assertLongLandingQueued lands 21 benched commits then a benchmark deletion: only the newest stays queued.
 func assertLongLandingQueued(t *testing.T, dir, from, state string) {
 	t.Helper()
 	for i := range 21 {
@@ -855,8 +854,8 @@ func assertLongLandingQueued(t *testing.T, dir, from, state string) {
 	benchGit(t, dir, "rm", "-q", "pkg/x_test.go")
 	benchGit(t, dir, "commit", "-qm", "drop benchmarks")
 	BenchLanded(context.Background(), dir, from, benchGit(t, dir, "rev-parse", "HEAD"), "s1")
-	if n := len(benchQueued(state)); n != 2+21 {
-		t.Fatalf("long landing queued %d jobs, want 23", n)
+	if n := len(benchQueued(state)); n != 1 {
+		t.Fatalf("long landing queued %d jobs, want the newest only", n)
 	}
 }
 
@@ -947,6 +946,22 @@ func TestBenchCoalesceKeepsNewestPerRepo(t *testing.T) {
 		if _, err := os.Stat(bases[i] + ".job.json"); !os.IsNotExist(err) {
 			t.Errorf("superseded job %d still queued: %v", i, err)
 		}
+	}
+}
+
+// enqueueing a commit replaces the job its repo already has waiting, so the queue holds one per repo.
+func TestBenchEnqueueReplacesWaitingJob(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	spawn := benchSpawn
+	t.Cleanup(func() { benchSpawn = spawn })
+	benchSpawn = func([]string, string) int { return 1 }
+	state := filepath.Join(paths.StateDir(), "bench", "post-commit")
+	for _, sha := range []string{"a", "b"} {
+		benchEnqueue("/r1", []benchJob{{Top: "/r1", SHA: strings.Repeat(sha, 40)}})
+	}
+	got, _ := filepath.Glob(filepath.Join(state, "*.job.json"))
+	if len(got) != 1 || !strings.Contains(got[0], strings.Repeat("b", 40)) {
+		t.Fatalf("queued %v, want only the newest commit", got)
 	}
 }
 
