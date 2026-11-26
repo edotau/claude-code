@@ -119,8 +119,8 @@ func TestCodexIdleWatch(t *testing.T) {
 	if err := runIdleScript(t, time.Second, steady); err != nil {
 		t.Fatalf("steady events: %v", err)
 	}
-	tool := emit(evThread, evToolA) + "sleep 0.4\n" + emit(evToolZ, evMsg, evDone)
-	if err := runIdleScript(t, 150*time.Millisecond, tool); err != nil {
+	tool := emit(evThread, evToolA) + "sleep 1\n" + emit(evToolZ, evMsg, evDone)
+	if err := runIdleScript(t, 600*time.Millisecond, tool); err != nil {
 		t.Fatalf("long tool call: %v", err)
 	}
 	loop := emit(evThread, evMsg) + strings.Repeat("sleep 0.05\n"+emit(evRetry), 8) + emit(evDone)

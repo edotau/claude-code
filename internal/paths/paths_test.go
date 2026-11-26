@@ -743,3 +743,19 @@ func TestGlobMatchFoldsCase(t *testing.T) {
 		foldGlobCase = old
 	}
 }
+
+// The audit queue's store, its sidecars and the dirs holding it are protected; its logs and a look-alike are not.
+func TestProtectedAuditDB(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	db := AuditDBPath()
+	for _, p := range []string{db, db + "-wal", db + "-shm", filepath.Dir(db), StateDir()} {
+		if !Protected(p) {
+			t.Errorf("Protected(%s) = false", p)
+		}
+	}
+	for _, p := range []string{db + "-old", filepath.Join(filepath.Dir(db), "run-1-abcdef01.log")} {
+		if Protected(p) {
+			t.Errorf("Protected(%s) = true", p)
+		}
+	}
+}

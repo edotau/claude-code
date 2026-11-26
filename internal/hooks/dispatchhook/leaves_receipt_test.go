@@ -158,10 +158,10 @@ func TestRanOnReceiptFromReviewAndFailedAsk(t *testing.T) {
 		isErr, wantNote                      bool
 	}{
 		{"review printed its envelope", "copilot", "claude-code copilot review --commit 994c08b1 --model gpt --format json", envelope(cp), cp, false, false},
-		{"ask exited 1 after running", "gemini", "claude-code gemini ask --tools - < /tmp/b.md", failedAsk, gm, true, false},
+		{"ask exited 1 after running", "gemini", "claude-code agents ask --agent gemini --tools - < /tmp/b.md", failedAsk, gm, true, false},
 		{"guard: review envelope names no record", "copilot", "claude-code copilot review --commit 994c08b1 --format json", envelope(cp), "", false, true},
 		{"guard: review prints no receipt", "copilot", "claude-code copilot review --commit 994c08b1", "findings only", cp, false, true},
-		{"guard: failed ask prints no receipt", "gemini", "claude-code gemini ask - < /tmp/b.md", "Exit code 1\nboom", gm, true, true},
+		{"guard: failed ask prints no receipt", "gemini", "claude-code agents ask --agent gemini - < /tmp/b.md", "Exit code 1\nboom", gm, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -367,12 +367,12 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 		{"flag after the task", "claude-code agents ask --agent codex mine --timeout 1m", "mine", true},
 		{"flag value is no task", "claude-code agents ask --agent codex mine --timeout 1m", "wait 1m for it", false},
 		{"task after --", `claude-code agents ask --agent codex --timeout 1m -- "-x run"`, "-x run", true},
-		{"whitespace normalized", "claude-code codex ask 'a   b'", "a b", true},
+		{"whitespace normalized", "claude-code agents ask --agent codex 'a   b'", "a b", true},
 		{"substring of the prompt", "claude-code agents ask --agent codex audit", "audit alpha", false},
 		{"stdin task", "claude-code agents ask --agent codex -", "-", false},
 		{"brief file equal", "claude-code agents ask --agent codex --background - < " + brief, "audit alpha", true},
 		{"brief file is only a substring", "claude-code agents ask --agent codex - < " + brief, "audit alpha beta", false},
-		{"trailing 2>&1 and tail", `claude-code codex ask --tools -- "audit alpha" 2>&1 | tail -40`, "audit alpha" + recall, true},
+		{"trailing 2>&1 and tail", `claude-code agents ask --agent codex --tools -- "audit alpha" 2>&1 | tail -40`, "audit alpha" + recall, true},
 		{"other agent", `claude-code agents ask --agent gemini "audit alpha"`, "audit alpha", false},
 	} {
 		if got := askTied(c.cmd, rec(c.prompt)); got != c.want {

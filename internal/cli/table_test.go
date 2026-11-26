@@ -54,9 +54,9 @@ func sortedSubwords(n *helptext.Node) []string {
 	return out
 }
 
-// vendorSubwords is "ask" plus every vendor subverb page, sorted.
+// vendorSubwords is every vendor subverb page, sorted.
 func vendorSubwords() []string {
-	out := []string{"ask"}
+	var out []string
 	for sub := range agentSubPages {
 		out = append(out, sub)
 	}
@@ -90,7 +90,7 @@ func TestCompletionExact(t *testing.T) {
 		{"vault subcommand", []string{"vault", "s"}, []string{"set"}},
 		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
-		{"gemini ask despite bare launcher", []string{"gemini", "a"}, []string{"ask"}},
+		{"gemini catalog despite bare launcher", []string{"gemini", "ca"}, []string{"catalog"}},
 		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
 		{"theme flags", []string{"configure", "theme", "--"}, []string{"--palettes", "--reset"}},
 		{"doctor flags", []string{"doctor", "--"}, []string{"--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
@@ -119,7 +119,6 @@ func TestCompletionContains(t *testing.T) {
 		words []string
 		want  []string
 	}{
-		{"gemini ask shares --agent", []string{"gemini", "ask", "--"}, []string{"--agent"}},
 		{"completion --install", []string{"completion", "--"}, []string{"--install"}},
 		{"usage --show", []string{"usage", "--"}, []string{"--show"}},
 		{"models preflight --live", []string{"models", "preflight", "--"}, []string{"--live"}},
@@ -444,7 +443,7 @@ func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 	}
 }
 
-// TestVendorCompletionOffersEverySubverb: `<vendor> <tab>` offers "ask" plus every vendor subverb page.
+// TestVendorCompletionOffersEverySubverb: `<vendor> <tab>` offers every vendor subverb page.
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	want := vendorSubwords()
 	for _, vendor := range agent.Names() {

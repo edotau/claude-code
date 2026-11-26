@@ -649,15 +649,9 @@ func TestDivergedCheckDueRateLimitsPerSession(t *testing.T) {
 func TestBusyReportsFinishedAuditOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(worktreeModeEnv, "off")
-	dir := filepath.Join(paths.StateDir(), "worktree", "audit")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	row := worktree.AuditRow{SHA: "abcdef0123456789", Repo: "/x", Queued: 1, State: worktree.AuditDone, Ended: time.Now().Unix(), Log: "/x/abcdef01.log", Code: 1, Secs: 42}
+	if err := worktree.WriteAuditSnapshot([]worktree.AuditRow{row}); err != nil {
 		t.Fatal(err)
-	}
-	rec := `{"sha":"abcdef0123456789","repo":"/x","log":"/x/abcdef01.log","started":1}`
-	for name, body := range map[string]string{"abcdef01.json": rec, "abcdef01.exit": "1 42\n"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 	in := &core.Input{SessionID: "s1", CWD: t.TempDir()}
 	if got := Busy(in).Context; !strings.Contains(got, "audit of abcdef01 FAILED (exit 1) in /x: /x/abcdef01.log") {

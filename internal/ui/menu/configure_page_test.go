@@ -3,14 +3,18 @@ package menu
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	_ "github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -18,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -334,4 +339,160 @@ func TestEditRoutingTextReasksOnInvalid(t *testing.T) {
 	if !ok || got != "0.5" {
 		t.Fatalf("editRoutingText = %q, %v; want 0.5, true (output %q)", got, ok, out.String())
 	}
+}
+
+// lsRows is the `vault ls` section as cell rows, laid out by the function `vault ls` prints through.
+func lsRows(t *testing.T, section string) [][]string {
+	t.Helper()
+	raw, err := vaultdoc.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc vaultdoc.Doc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := vault.ListStored(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := vaultdoc.Text(doc, vaultdoc.Records{Secrets: stored}, []string{section}, 200, false)
+	var rows [][]string
+	for _, line := range strings.Split(text, "\n")[1:] {
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+		rows = append(rows, regexp.MustCompile(`\s{2,}`).Split(strings.TrimSpace(line), -1))
+	}
+	return rows
+}
+
+// lineHas reports a line holding want's key and value as whole tokens; want is "key" or "key<TAB>value".
+func lineHas(line, want string) bool {
+	token := func(s string) bool {
+		return s == "" || regexp.MustCompile(`(?:^|\s)`+regexp.QuoteMeta(s)+`(?:\s|$)`).MatchString(line)
+	}
+	key, val, _ := strings.Cut(want, "\t")
+	return token(key) && token(val)
+}
+
+// pageMisses lists the wants no line of page holds.
+func pageMisses(page string, wants []string) []string {
+	var miss []string
+	for _, w := range wants {
+		if !slices.ContainsFunc(strings.Split(page, "\n"), func(l string) bool { return lineHas(l, w) }) {
+			miss = append(miss, w)
+		}
+	}
+	return miss
+}
+
+// pageCheck fails unless the page holds every want; the same page minus the first want's lines must fail it.
+func pageCheck(t *testing.T, page string, wants []string) {
+	t.Helper()
+	if len(wants) == 0 {
+		t.Fatal("no vault ls rows to check")
+	}
+	if miss := pageMisses(page, wants); len(miss) != 0 {
+		t.Errorf("page lacks vault ls rows %q:\n%s", miss, page)
+	}
+	var kept []string
+	for l := range strings.SplitSeq(page, "\n") {
+		if !lineHas(l, wants[0]) {
+			kept = append(kept, l)
+		}
+	}
+	if len(pageMisses(strings.Join(kept, "\n"), wants[:1])) == 0 {
+		t.Errorf("negative control: dropping the %q row still passed", wants[0])
+	}
+}
+
+func pageTestEnv(t *testing.T) *providers.Registry {
+	t.Helper()
+	t.Setenv("HARNESS_KEYRING", "off")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", t.TempDir())
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+// Every `vault ls routing` row but the fallback mode (the environment page owns it) is on the routing page.
+func TestRoutingPageShowsVaultLsRows(t *testing.T) {
+	pageTestEnv(t)
+	// gap: no weights.headroom row on the page, so no weights are seeded (overlay plan)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"routing":{"servedAware":true,"spendCap":{"dayUSD":5.25},"opencode":{"freeTiers":["haiku"],"freeFirstOutput":"45s"}}}`)
+	d, out := newDialog("")
+	d.o.Interactive = false
+	if !runRouting(d) {
+		t.Fatalf("runRouting failed: %s", out)
+	}
+	var wants []string
+	for _, r := range lsRows(t, "routing") {
+		// gap: the routing page has no fallback row (the environment page owns it)
+		if len(r) != 2 {
+			t.Fatalf("routing row %q, want key and value", r)
+		}
+		if r[0] != "fallback" {
+			wants = append(wants, regexp.MustCompile(`\[\d+\]$`).ReplaceAllString(r[0], "")+"\t"+r[1])
+		}
+	}
+	pageCheck(t, out.String(), wants)
+}
+
+// Every `vault ls secrets` name is on the secrets page, which also lists the expected absent ones.
+func TestSecretsPageShowsVaultLsRows(t *testing.T) {
+	reg := pageTestEnv(t)
+	vaulttest.Secret(t, "PAGE_ONE_SECRET", "x")
+	vaulttest.Secret(t, "PAGE_TWO_SECRET", "x")
+	d, out := newDialog("")
+	d.reg = reg
+	secretsLoop(d)
+	var wants []string
+	for _, r := range lsRows(t, "secrets") {
+		wants = append(wants, r[0])
+	}
+	if len(wants) != 2 {
+		t.Fatalf("vault ls secrets rows = %q, want the two seeded", wants)
+	}
+	tracked := configure.TrackedSecrets(reg)
+	if len(tracked) <= len(wants) {
+		t.Fatalf("tracked secrets = %d, want expected absent ones beyond the stored", len(tracked))
+	}
+	for _, s := range tracked {
+		wants = append(wants, s.Name)
+	}
+	pageCheck(t, out.String(), wants)
+}
+
+// Every `vault ls agents` table row of an agent the page covers (not claude) is on the agents page, profile included.
+func TestAgentsPageShowsVaultLsRows(t *testing.T) {
+	reg := pageTestEnv(t)
+	vaulttest.SetRecord(t, "codex", "profile", "ultra")
+	vaulttest.SetRecord(t, "gemini", "profile", "ultra")
+	d, out := newDialog("")
+	d.o.Interactive = false
+	d.o.DryRun = true
+	d.o.Home = os.Getenv("HOME")
+	d.reg = reg
+	runAgents(d)
+	var wants []string
+	for _, r := range lsRows(t, "agents") {
+		name := strings.TrimSuffix(r[0], " (off)")
+		// gap: the page omits claude; overlay rows follow the table's blank line, where lsRows stops (overlay plan)
+		if !slices.Contains(agent.DefaultAgents, name) {
+			continue
+		}
+		if slices.Contains(r[1:], "ultra") { // the page shows the resolved profile, not the record's model
+			name += "\tultra"
+		}
+		wants = append(wants, name)
+	}
+	pageCheck(t, out.String(), wants)
 }

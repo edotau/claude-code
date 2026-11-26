@@ -9,13 +9,6 @@ import (
 
 func TestBriefTextMatchesOldLiterals(t *testing.T) {
 	const clean = "VERDICT: no actionable findings"
-	const exploreBase = "Read-only: never modify, create or delete a file.\n" +
-		"Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.\n" +
-		"Cite file:line for every claim about the code."
-	const exploreWeb = "\nThen research the relevant libraries, APIs and prior art on the web, citing a URL for every claim.\n" +
-		"If a source can't be reached, say so instead of guessing."
-	const exploreTail = "\nOutput exactly these five sections, each a few bullets: Structure, Conventions, Dependencies, Prior art,\n" +
-		"Open questions. Stop once two more lookups wouldn't change the brief.\n\nQuestion: "
 	checkFrames(t, []frameCase{
 		{"review-loop", ReviewLoop(), "Review loop (standing rule): after your change, get an other-family review that lists every finding; fix\n" +
 			"every finding yourself, any severity, then review again, until a review finds nothing. Three rounds in a row that each\n" +
@@ -37,8 +30,6 @@ func TestBriefTextMatchesOldLiterals(t *testing.T) {
 			"Read every file named below that you need, and batch all of those independent reads into one response.\n"+
 			"Keep it small: read only what the task or the partial output names, never survey the repository to start over.\n\n"+
 			"Task:\n%s\n\nPartial output (last %d bytes):\n%s\n", "codex", "deadline", "the task", 4, "tail")},
-		{"explore", ExplorePrompt("q", false), exploreBase + exploreTail + "q"},
-		{"explore-web", ExplorePrompt("q", true), exploreBase + exploreWeb + exploreTail + "q"},
 		{"planner", LoopPlanner("G", 2, 4, 12, 40, 1500, ""), "You are the planner of an orchestrator loop. Goal:\n\nG\n\n" +
 			"This is round 2 of at most 4. Decide what must still be done and answer with the JSON the schema asks for.\n\n" +
 			"Rules for the parts you plan:\n" +

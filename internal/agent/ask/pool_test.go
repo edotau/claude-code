@@ -987,7 +987,7 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	var n atomic.Int32
 	out, _ := runPool(t, poolOptions{Jobs: 1},
-		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n, 300*time.Millisecond)),
+		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n, time.Second)),
 		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())

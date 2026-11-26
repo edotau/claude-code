@@ -392,8 +392,6 @@ func briefRenderCases() []renderCase {
 		{"LoopPlanner", "", func() string { return LoopPlanner("goal", 2, 5, 3, 9, digestLimit, two) }},
 		{"ReviewAdversarial", "", func() string { return ReviewAdversarial("clean") }},
 		{"TakeoverBrief", "", func() string { return TakeoverBrief("codex", "cut", "task", 12, two) }},
-		{"ExplorePrompt", "web", func() string { return ExplorePrompt("q", true) }},
-		{"ExplorePrompt", "noweb", func() string { return ExplorePrompt("q", false) }},
 		{"SafetyMessage", "pattern", func() string { return SafetyMessage("BLOCKED", "what", "pat", "cmd", "hint") }},
 		{"SafetyMessage", "nopattern", func() string { return SafetyMessage("ASK", "what", "", "cmd", "hint") }},
 		{"SafetyNoAsk", "", func() string { return SafetyNoAsk("codex") }},

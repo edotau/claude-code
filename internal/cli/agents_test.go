@@ -243,7 +243,7 @@ func writeDispatch(t *testing.T, id, status string, pid int, age time.Duration) 
 
 // The core sub-verbs stay routed (presence, not exact membership): a renamed or dropped one silently stops routing.
 func TestVendorSubverbsCoverContractVerbs(t *testing.T) {
-	for _, w := range []string{"setup", "catalog", "review", "transfer", "profile", "explore"} {
+	for _, w := range []string{"setup", "catalog", "review", "transfer", "profile"} {
 		if _, ok := agentSubPages[w]; !ok {
 			t.Errorf("vendorSubverbs missing %q", w)
 		}
@@ -267,6 +267,12 @@ func TestVendorVerbRouting(t *testing.T) {
 	}{
 		{"double dash forces launch", notAVendor, []string{"--", "status"}, -1, false, false, "unknown agent", notAVendor + " status:"},
 		{"profile", notAVendor, []string{"profile"}, -1, false, false, notAVendor + " profile:", ""},
+		{"ask is retired", "codex", []string{"ask", "x"}, 2, false, false, `codex: unknown subcommand "ask"`, ""},
+		{"explore is retired", "codex", []string{"explore", "x"}, 2, false, false, `codex: unknown subcommand "explore"`, ""},
+		{"retired after profile", "copilot", []string{"--profile", "dev", "ask", "x"}, 2, false, false, `copilot: unknown subcommand "ask"`, ""},
+		{"retired after launch flags", "codex", []string{"--model", "gpt", "--print-env", "--profile=dev", "explore"}, 2, false, false,
+			`codex: unknown subcommand "explore"`, ""},
+		{"native flag stops the scan", notAVendor, []string{"--native", "ask"}, -1, false, false, "unknown agent", "unknown subcommand"},
 		{"bare word launches", notAVendor, []string{"--native-flag", "x"}, -1, false, false, "unknown agent", ""},
 		{"setup", notAVendor, []string{"setup"}, -1, true, false, notAVendor + "  agent  fail", ""},
 		{"catalog extra arg", "codex", []string{"catalog", "unexpected"}, 2, false, false, "codex catalog: unexpected argument", ""},
@@ -1123,8 +1129,8 @@ func TestAgentProviderArgs(t *testing.T) {
 		{"owner", "copilot", []string{"databricks", "-p", "dev", "-p", "this is a prompt"}, []string{"--profile", "dev", "-p", "this is a prompt"}, ""},
 		{"equals", "copilot", []string{"databricks", "--profile=dev"}, []string{"--profile", "dev"}, ""},
 		{"long", "codex", []string{"databricks", "--profile", "qa"}, []string{"--profile", "qa"}, ""},
-		{"ask profile", "copilot", []string{"databricks", "-p", "dev", "ask", "x"}, []string{"ask", "--profile", "dev", "x"}, ""},
-		{"ask provider", "copilot", []string{"databricks", "ask", "x"}, []string{"ask", "--provider", "databricks", "x"}, ""},
+		{"words after profile", "copilot", []string{"databricks", "-p", "dev", "review", "x"}, []string{"--profile", "dev", "review", "x"}, ""},
+		{"no profile", "copilot", []string{"databricks", "ask", "x"}, nil, "copilot databricks: name a profile: -p"},
 		{"bare", "copilot", []string{"databricks"}, nil, "copilot databricks: name a profile: -p"},
 		{"missing", "copilot", []string{"databricks", "-p"}, nil, "requires a profile name"},
 		{"missing long", "copilot", []string{"databricks", "--profile"}, nil, "requires a profile name"},
