@@ -33,7 +33,7 @@ claude-code agents ask --background --agent gemini --tools --timeout 60m - < PAT
 
 No `--provider`, `--profile` or `--model`: the ask runs agy on gemini's own pin (`claude-code gateway resolve gemini`,
 Google first-party) and the model comes from the brief's `Tier:` line, else its wording. Databricks only when the owner
-names it for a dispatch (`--provider databricks`, R20); the receipt names what ran. Role rotation covers gemini's
+names it for a dispatch (`--provider databricks --profile <p>`, R20); the receipt names what ran. Role rotation covers gemini's
 models too.
 
 ## Owns

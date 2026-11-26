@@ -70,7 +70,7 @@ The gate is opt-in and not in the seeded `settings.json`; higher levels catch mo
 - **Level 3, git:** `.git/hooks/pre-commit` = `#!/bin/sh` + `exec claude-code review gate`, then `chmod +x`.
 - **Level 3, PreToolUse:** add a hook per `rules/harness/change-protocol.md` (an entry in
   `internal/settings/hookspec.go` plus a handler in `internal/hooks/dispatch.go`) that runs
-  `claude-code review gate`; the owner runs `claude-code configure --restore` (or edits `settings.json`).
+  `claude-code review gate`; the owner runs `claude-code configure restore` (or edits `settings.json`).
 - **Level 4:** parse the JSON verdict, e.g.
   `claude-code review complexity $(git diff --name-only origin/main...HEAD) --json | jq -e '.verdict != "FAIL"'`
   (exits 2 on an empty list or any non-source path: filter the list to supported extensions first and skip when it

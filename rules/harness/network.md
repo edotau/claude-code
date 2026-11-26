@@ -17,6 +17,19 @@ paths:
 | Least-busy Databricks workspace, requests through the other machine                                        | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"`; `--host auto` runs the whole ask on that machine                                                                                                  |
 | Send Databricks requests out through a host                                                                | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart --if-changed` (add `--force` with requests in flight) stops the tunnels after an actual restart; plain `--restart` leaves them running |
 
+## Corporate CA (`network pki`)
+
+`claude-code network pki` writes the pinned corporate bundle to `state/certs/corp-ca-bundle.pem`, with `root.pem` and
+`issuing.pem` beside it (`--trust` reads them there). Every `claude-code` process exports `SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS` to that bundle when it exists and the variable is
+unset or empty, so no shell export is needed; a non-empty value you set wins. Overlays refuse `SSL_CERT_FILE`,
+`SSL_CERT_DIR` and `NODE_EXTRA_CA_CERTS`. A bundle at the old `$XDG_DATA_HOME/claude-code/certs/` (default
+`~/.local/share/claude-code/certs/`) is copied once (when running from the install clone) and never deleted.
+`doctor` row `ca bundle` shows age, the earliest CA expiry (fails inside 30 days) and export status.
+`--node-services` for a unit that runs as another user needs `--out` in a readable path if that user cannot
+traverse `state/certs/` (for example when `state/` is `0700`). Other harness-managed certificates go under
+`state/certs/<area>/` (unless overridden with `--out` or installed to the system trust store via `--trust`).
+
 - `--remote` keeps this machine's config, vault and code and sets `HARNESS_EGRESS_HOST`. Requests to
   `*.cloud.databricks.com`, `*.azuredatabricks.net` and `*.gcp.databricks.com` go through one ssh SOCKS5 tunnel per host
   (record in `state/harness/ssh/`; a recorded tunnel is reused only while its pid is still our `ssh -N -D` on that
@@ -41,7 +54,7 @@ paths:
   mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
   workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked
   (`state/harness/router/route-auto.json`), then name order. Never name a profile `auto`: it cannot be addressed.
-  `ask --provider databricks` with no `--profile` is the same pick; a `--batch` picks per line, each line counted as
+  a `--batch` picks per line, each line counted as
   load for the next. A typed model no workspace serves fails before launch naming up to five served ids, unless
   `--fallback` was typed as `pin`, `agents` or `all` (an env default never allows the swap).
 - On a 429 before any answer, the pick is cooled and the agent retries on the next workspace until one answers or none

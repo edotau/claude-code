@@ -28,7 +28,7 @@ The one ask (PATH is the file `claude-code agents brief --path copilot` prints; 
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent copilot --codemode on --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent copilot --codemode on --provider databricks --profile qa --tools --timeout 60m - < PATH
 ```
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else

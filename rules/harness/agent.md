@@ -11,7 +11,7 @@ paths:
 
 - Agent CLI configs are merged, never replaced (`~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
   Codex/Copilot hooks); keys are referenced by env var and exported only by a routed launch. Each overwrite keeps 5
-  timestamped backups; `configure --revert [--agent a]` steps back one.
+  timestamped backups; `configure revert [--agent a]` steps back one.
 - pi runs from a harness-generated private agent dir (`PI_CODING_AGENT_DIR` under the harness state dir); nothing is
   written to `~/.pi`.
 - opencode's `~/.config/opencode/` gets only the theme file and `agents sync`'s agent files; model/MCP/theme config

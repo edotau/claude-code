@@ -41,7 +41,7 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   There is no `/claude`: the name could collide.
 - `/coworker` (same flags plus `[--codemode on|only]`) — Pi in code mode: the session runs `agents ask --background
-  --agent pi --provider databricks --codemode on [flags] --tools --autonomous - < brief` plain (`--carry` refuses
+  --agent pi --provider databricks --profile <p> --codemode on [flags] --tools --autonomous - < brief` plain (`--carry` refuses
   pi), then `agents result -f <id>`; `--provider`/`--profile` replace the Databricks default. The run is typed
   `coworker` (receipt `coworker via pi`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
   There is no `/pi`. A route that travels whole (provider, profile, host, remote) is `agents ask --overlay`; workflow
@@ -57,7 +57,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 - External work agents run directly from the main session via carried asks
   (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20), or as the Agent tool's
   `codex`, `copilot`, `gemini`, `opencode`, `coworker` types: a Haiku worker that runs the one typed
-  `agents ask --agent <type> --provider databricks` its file bakes, waits and checks the result; the vendor verbs
+  `agents ask --agent <type> --provider databricks --profile <p>` its file bakes,
+  waits and checks the result; the vendor verbs
   (`claude-code codex …`) and overlay `{"runner":"own"}` keep each CLI on its own login;
   an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
   runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer opens through `agents ask

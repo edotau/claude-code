@@ -24,15 +24,15 @@ agent (claude|codex|copilot|gemini|opencode|pi)
   `options.wire` is refused.
 - Credentials sit only in the encrypted vault or a provider's `auth.command`, never in a file or a log line.
 - Every agent shares one proxy, the `shared` team on the daemon (`claude-code doctor` shows `teams: 1 teams`).
-  More teams are data: `claude-code vault overlay set proxy-teams --file <f>` checks the document (`reserved` ≤ 16)
-  and `vault overlay unset proxy-teams --yes` goes back.
+  More teams are data: `claude-code vault set overlay proxy-teams --file <f>` checks the document (`reserved` ≤ 16)
+  and `vault rm overlay proxy-teams --yes` goes back.
 
 ## Which profile runs
 
 First match wins; the full ladder is in `rules/harness/providers.md` (Routing precedence).
 
 1. `--profile <p>` or an overlay `profile` (a model name never carries a profile).
-2. `--provider databricks`: the pool rotates over the workspaces (vault order dev, prod, qa). `--model auto`
+2. `--provider databricks --profile <p>`: the pool rotates over the workspaces (vault order dev, prod, qa). `--model auto`
    rotates models only, on the workspace the route names.
 3. The session profile, then the agent's pin (`claude-code switch <profile>` sets the session one).
 
@@ -80,7 +80,7 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
   the auto pool honours it). Lift it with `--undrop <id> --apply`.
   Still finish with a real call: `claude-code agents ask --agent <a> --profile dev --model <id> -- "say pong"`.
 - Do not hand-edit generated agent menus: Codex catalog, OpenCode menu, Copilot catalog, Pi `models.json`.
-  Change the source (discover, drop, the vault overlay), then `claude-code configure --restore --agents`
+  Change the source (discover, drop, the vault overlay), then `claude-code configure restore --agent all`
   (one agent: `--agent <a>`). Codex and Pi also rebuild theirs at launch from the cached listing.
 - Refresh a stale listing: `claude-code doctor --refresh` or `claude-code models preflight --live`.
 

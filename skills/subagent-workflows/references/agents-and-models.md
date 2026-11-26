@@ -74,6 +74,6 @@ package when a task depends on a boundary.
 ## Per-call routes
 
 `--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin
-(`auto`, `--remote`, `--host`: `rules/harness/network.md`); `--provider databricks` is the same with the profile
+(`auto`, `--remote`, `--host`: `rules/harness/network.md`); `--provider databricks --profile <p>` is the same with the profile
 picked ([cost-routing.md](cost-routing.md) → Databricks and local routes). Report the actual run receipt, not a
 planned model.

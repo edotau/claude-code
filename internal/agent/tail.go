@@ -94,10 +94,26 @@ func openTail(ctx context.Context, rec Record, follow bool, path func(Record) st
 	return rec, f, err
 }
 
+// tailIdleCap bounds the delay before the first new output after an idle spell.
+const tailIdleCap = 250 * time.Millisecond
+
+// nextTailPoll doubles the wait only on silence; output restores the original polling interval.
+func nextTailPoll(poll time.Duration, n int) time.Duration {
+	if n > 0 {
+		return tailPoll
+	}
+	cap := min(tailIdleCap, tailBeat) // keep short test heartbeats responsive too
+	if poll < cap {
+		return min(poll*2, cap)
+	}
+	return poll
+}
+
 // followTail polls cp until rec leaves running; beat runs after each pass and returns the new lastBeat.
 func followTail(ctx context.Context, rec Record, follow bool, cp func() (int, error),
 	beat func(Record, int, time.Time, time.Time) (time.Time, error)) (Record, error) {
 	lastOut, lastBeat := time.Now(), time.Time{}
+	poll := tailPoll
 	for {
 		n, err := cp()
 		if err != nil || !follow {
@@ -109,9 +125,13 @@ func followTail(ctx context.Context, rec Record, follow bool, cp func() (int, er
 		if !rec.Alive() { // the writer is gone, and rec was reloaded before this copy
 			return rec, nil
 		}
-		if err := sleepCtx(ctx, tailPoll); err != nil {
+		if n > 0 {
+			poll = tailPoll
+		}
+		if err := sleepCtx(ctx, poll); err != nil {
 			return rec, err
 		}
+		poll = nextTailPoll(poll, n)
 		rec = reloaded(rec)
 		if lastBeat, err = beat(rec, n, lastOut, lastBeat); err != nil {
 			return rec, err

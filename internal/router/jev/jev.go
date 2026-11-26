@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,11 +42,13 @@ var (
 	ErrBadResponse = errors.New("jev: bad response")
 )
 
-// Result is the tier Open-Jev picked, its top probability and the call's duration.
+// Result is the tier Open-Jev picked, its top probability, the call's duration and, when it answered, the agent type.
 type Result struct {
-	Pick       string
-	Confidence float64
-	Ms         int64
+	Pick            string
+	Confidence      float64
+	Ms              int64
+	Agent           string
+	AgentConfidence float64
 }
 
 // Class is the short error class of err, "" for nil.
@@ -68,11 +71,59 @@ type answer struct {
 	Probabilities map[string]float64 `json:"probabilities"`
 }
 
-// Tier classifies the first 3500 characters of brief; it always returns within the timeout.
+// Agents is the fixed list the agent question picks from.
+var Agents = []string{"claude", "codex", "copilot", "gemini", "opencode", "pi", "local"}
+
+const agentQuestion = `{"type":"choice","instructions":"Pick the agent type best suited to this coding-agent task by vendor strength.","criteria":{` +
+	`"claude":"Careful multi-file engineering, review, planning and judgment.",` +
+	`"codex":"Focused code edits and refactors with clear acceptance checks.",` +
+	`"copilot":"Small routine edits, tests and docs in a known repo.",` +
+	`"gemini":"Wide codebase sweeps, long-context reading and security-sensitive review.",` +
+	`"opencode":"Routine scoped edits that a cheaper model can do.",` +
+	`"pi":"Predetermined mechanical edits, renames, gate runs and lane work.",` +
+	`"local":"Short, low-risk tasks that need no hosted model."}}`
+
+const needsQuestion = `{"type":"choice","instructions":"Does task B need the result of task A before it can start?","criteria":{` +
+	`"yes":"B reads, builds on or edits what A produces, or must run after A finishes.",` +
+	`"no":"B can start now: it touches different files and needs nothing A produces."}}`
+
+// Tier classifies the first 3500 characters of brief: tier, plus the agent type when answered.
 func Tier(ctx context.Context, brief string) (Result, error) {
+	qs := map[string]json.RawMessage{"tier": assets.JevTier(), "agent": json.RawMessage(agentQuestion)}
+	res, body, err := ask(ctx, clip(brief), qs)
+	if err != nil {
+		return res, err
+	}
+	a, err := parse(body, "tier", "fast", "standard", "deep")
+	if err != nil {
+		return res, err
+	}
+	res.Pick, res.Confidence = a.Choice, topProb(a)
+	if g, err := parse(body, "agent", Agents...); err == nil {
+		res.Agent, res.AgentConfidence = g.Choice, topProb(g)
+	}
+	return res, nil
+}
+
+// Needs asks whether task b needs task a's result first; Pick is "yes" or "no".
+func Needs(ctx context.Context, a, b string) (Result, error) {
+	state := "Task A:\n" + clip(a) + "\n\nTask B:\n" + clip(b)
+	res, body, err := ask(ctx, state, map[string]json.RawMessage{"needs": json.RawMessage(needsQuestion)})
+	if err != nil {
+		return res, err
+	}
+	n, err := parse(body, "needs", "yes", "no")
+	if err != nil {
+		return res, err
+	}
+	res.Pick, res.Confidence = n.Choice, topProb(n)
+	return res, nil
+}
+
+func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Result, []byte, error) {
 	base := strings.TrimRight(proc.Value(ctx, urlEnv), "/")
 	if base == "off" || base == "" && testing.Testing() { // a test binary never reaches the real server
-		return Result{}, ErrOff
+		return Result{}, nil, ErrOff
 	}
 	if base == "" {
 		base = defaultURL
@@ -80,28 +131,24 @@ func Tier(ctx context.Context, brief string) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	start := time.Now()
-	body, err := post(ctx, base+"/v1/systemone", request(brief))
-	res := Result{Ms: time.Since(start).Milliseconds()}
-	if err != nil {
-		return res, err
-	}
-	a, err := parse(body)
-	if err != nil {
-		return res, err
-	}
-	for _, p := range a.Probabilities {
-		res.Confidence = max(res.Confidence, p)
-	}
-	res.Pick = a.Choice
-	return res, nil
+	payload, _ := json.Marshal(map[string]any{"state": state, "questions": qs})
+	body, err := post(ctx, base+"/v1/systemone", payload)
+	return Result{Ms: time.Since(start).Milliseconds()}, body, err
 }
 
-func request(brief string) []byte {
-	if r := []rune(brief); len(r) > maxBrief {
-		brief = string(r[:maxBrief])
+func clip(s string) string {
+	if r := []rune(s); len(r) > maxBrief {
+		return string(r[:maxBrief])
 	}
-	b, _ := json.Marshal(map[string]any{"state": brief, "questions": map[string]json.RawMessage{"tier": assets.JevTier()}})
-	return b
+	return s
+}
+
+func topProb(a answer) float64 {
+	top := 0.0
+	for _, p := range a.Probabilities {
+		top = max(top, p)
+	}
+	return top
 }
 
 func post(ctx context.Context, url string, payload []byte) ([]byte, error) {
@@ -131,22 +178,18 @@ func post(ctx context.Context, url string, payload []byte) ([]byte, error) {
 	return body, nil
 }
 
-func parse(body []byte) (answer, error) {
+func parse(body []byte, name string, choices ...string) (answer, error) {
 	var out struct {
-		Answers struct {
-			Tier answer `json:"tier"`
-		} `json:"answers"`
+		Answers map[string]json.RawMessage `json:"answers"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		return answer{}, ErrBadResponse
 	}
-	a := out.Answers.Tier
-	switch a.Choice {
-	case "fast", "standard", "deep":
-	default:
+	var a answer
+	if err := json.Unmarshal(out.Answers[name], &a); err != nil {
 		return answer{}, ErrBadResponse
 	}
-	if len(a.Probabilities) == 0 {
+	if !slices.Contains(choices, a.Choice) || len(a.Probabilities) == 0 {
 		return answer{}, ErrBadResponse
 	}
 	for _, p := range a.Probabilities {

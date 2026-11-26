@@ -28,7 +28,7 @@ The one ask (PATH is the file `claude-code agents brief --path opencode` prints;
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent opencode --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent opencode --provider databricks --profile dev --tools --timeout 60m - < PATH
 ```
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
@@ -40,7 +40,7 @@ opencode's models too.
 **Code mode** (only when the brief says so) — the same ask with `--codemode on`:
 
 ```bash
-claude-code agents ask --background --agent opencode --codemode on --provider databricks --tools --timeout 60m - < PATH
+claude-code agents ask --background --agent opencode --codemode on --provider databricks --profile qa --tools --timeout 60m - < PATH
 ```
 
 It sets `CODEMODE=on` and opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`, so rtk is off inside the run. `--codemode only`

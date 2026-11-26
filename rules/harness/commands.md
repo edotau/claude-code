@@ -45,8 +45,8 @@ claude-code configure codex           # codex effort, verbosity, config_route (v
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure provider <p> options.warehouse_id=<id> options.prices='{"<model>":{"input":0,...}}'
                                       # a Databricks profile's cost keys (USD per million tokens)
-claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
-claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
+claude-code configure restore [--agent a|all]   # reset settings.json to the template (backup first) + agent configs
+claude-code configure revert [--agent a,b]        # restore agent CLI configs from backup
 ```
 
 - `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
@@ -54,7 +54,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
   `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
 - Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
 - From a worktree, reset only that checkout:
-  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
+  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure restore --out "$PWD/settings.json"`
   (`--out` never renders agent CLI configs, and `--out` with `--agents` is refused).
 
 - `~/.claude` already exists: clone into `~/.claude.stage`, then `rtk make -C ~/.claude.stage adopt` (backs up
@@ -100,7 +100,7 @@ fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in
 
 ## Status line
 
-`claude-code configure --theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
+`claude-code configure theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
 `twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
 minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
 `"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
@@ -110,9 +110,12 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 ## Layout
 
 `bin/.hookd` is the hooks-only binary beside `bin/claude-code`; `bin/.build-stamp` records their shared build stamp.
-`CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/harness/<owner>/` (versioned per the
-`internal/schemas` registry; formats migrate on read, `doctor` reports `formats`),
-`state/harness/backups/` (every plaintext backup, via `paths.Backup`);
+`CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/certs/` (CA bundle, `paths.CertsDir`),
+`state/harness/<owner>/` (versioned per the `internal/schemas` registry; formats migrate on read, `doctor` reports
+`formats`), `state/harness/backups/` (every plaintext backup, via `paths.Backup`). Outside `state/` on purpose: the
+bench lock in `/tmp/claude-code-bench-<uid>` (machine-wide across config roots), verify trees in
+`$TMPDIR/claude-code-verify` (outside the module), `~/.claude/run/clip.sock` (the SSH `RemoteForward` target), `bin/`, `plans/`,
+`memory/`, `settings.json` and vendor homes.
 `docs/templates/` indexes every embedded (`//go:embed`) template.
 `container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
 root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
@@ -134,14 +137,14 @@ latest note, plus the free dirty files (`agents tree --files`; plain rows on an 
 | What an agent changed, including pre-dirty files touched outside --path with --verify, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]`                                                                                                                                                   |
 | Search repo code deterministically (tracked and new files, never ignored ones)                                         | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]`                                                                               |
 | Merge another machine's memory, try on a copy                                                                          | `claude-code memory import --host <peer>` · `memory sandbox`                                                                                                                                                          |
-| Sync memory with peers (off by default)                                                                                | `claude-code vault env set NETWORK_MEMORY on` to opt in · `claude-code memory import --sync [--host <peer>]`                                                                                                          |
+| Sync memory with peers (off by default)                                                                                | `claude-code vault set env NETWORK_MEMORY on` to opt in · `claude-code memory import --sync [--host <peer>]`                                                                                                          |
 | Run an agent on another tailnet box                                                                                    | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status`                                                                                                                |
 | Browsers, web search                                                                                                   | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q`                                                                                                                                 |
 | Tailnet status                                                                                                         | `claude-code tailscale` (modes below)                                                                                                                                                                                 |
 | Read Databricks metadata (a GET, no `curl`)                                                                            | `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user\|sp]`                                                                                                                                 |
 | Lint a workflow script                                                                                                 | `claude-code workflow lint` · `workflow skeleton <pattern>`                                                                                                                                                           |
-| Housekeeping                                                                                                           | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure --history snapshot\|log\|diff` · `doctor --mcp` |
-| Theme, VS Code                                                                                                         | `claude-code configure --theme [--palettes\|--reset] [<palette>]` · `configure --theme apply` · `configure --vscode [--check\|--dry-run]`                                                                             |
+| Housekeeping                                                                                                           | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure history snapshot\|log\|diff` · `doctor --mcp` |
+| Theme, VS Code                                                                                                         | `claude-code configure theme [--palettes\|--reset] [<palette>]` · `configure theme apply` · `configure vscode [--check\|--dry-run]`                                                                             |
 
 `claude-code tailscale` accepts one mode at a time: `--machines`, `--connect`, `--token [--secret|--save]`,
 `--exit-node on|off|approve`, `--subnet <cidr>[,…]|approve|off`, or `--route <peer>|off`.

@@ -75,7 +75,7 @@ only the config files. Vetoes: already wrapped, any `git` in a linked worktree, 
 (`--porcelain`, `--json`), value subcommands (`rev-parse`), `go vet` and `go test` with `-v`/`-list` (rtk 1.1.0 reports
 a failed vet as "No issues found" and drops `-v`/`-list` test output). Exact bytes: `rtk bypass <cmd>` (or the pinned
 path when PATH resolves another rtk); `HARNESS_RTK_BIN` overrides. A bare `rtk hook claude` entry in settings is stale
-and removed by hand or explicit `configure --restore`. Auto permission mode skips the rewrite: its classifier gives no
+and removed by hand or explicit `configure restore`. Auto permission mode skips the rewrite: its classifier gives no
 verdict on a hook-changed input, so the call would bounce for a verbatim resend
 
 ## docs-placement

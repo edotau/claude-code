@@ -65,3 +65,40 @@ func TestJevOff(t *testing.T) {
 		t.Fatalf("class %q", Class(err))
 	}
 }
+
+func TestJevNeeds(t *testing.T) {
+	serve(t, reply(`{"answers":{"needs":{"type":"choice","choice":"yes","probabilities":{"yes":0.9,"no":0.1}}}}`))
+	r, err := Needs(context.Background(), "write the parser", "test the parser")
+	if err != nil || r.Pick != "yes" || r.Confidence != 0.9 {
+		t.Fatalf("got %+v, %v", r, err)
+	}
+	serve(t, reply(`{"answers":{"needs":{"choice":"maybe","probabilities":{"maybe":1}}}}`))
+	if _, err := Needs(context.Background(), "a", "b"); Class(err) != ClassBadResponse {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestJevAgent(t *testing.T) {
+	serve(t, reply(`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.9,"standard":0.1}},"agent":{"choice":"pi","probabilities":{"pi":0.8,"claude":0.2}}}}`))
+	r, err := Tier(context.Background(), "rename x")
+	if err != nil || r.Agent != "pi" || r.AgentConfidence != 0.8 {
+		t.Fatalf("got %+v, %v", r, err)
+	}
+}
+
+func TestJevBadAgentKeepsTier(t *testing.T) {
+	serve(t, reply(`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.9}},"agent":{"choice":42}}}`))
+	r, err := Tier(context.Background(), "x")
+	if err != nil || r.Pick != "fast" || r.Agent != "" {
+		t.Fatalf("got %+v, %v", r, err)
+	}
+}
+
+func TestJevHelper(t *testing.T) {
+	s := httptest.NewServer(reply(`{"choices":[{"message":{"content":"{\"tier\":\"fast\"}"}}]}`))
+	t.Cleanup(s.Close)
+	t.Setenv(qwenEnv, s.URL)
+	if got, err := Helper(context.Background(), "rename x"); err != nil || got != "fast" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}

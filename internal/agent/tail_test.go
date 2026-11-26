@@ -90,6 +90,35 @@ func finishLater(rec Record, d time.Duration) <-chan error {
 	return done
 }
 
+// TestTailBackoffCapAndReset checks the polling bound and the first interval after output.
+func TestTailBackoffCapAndReset(t *testing.T) {
+	origPoll, origBeat := tailPoll, tailBeat
+	tailPoll, tailBeat = 25*time.Millisecond, 15*time.Second
+	t.Cleanup(func() { tailPoll, tailBeat = origPoll, origBeat })
+	poll := tailPoll
+	for _, want := range []time.Duration{50, 100, 200, 250, 250} {
+		poll = nextTailPoll(poll, 0)
+		if poll != want*time.Millisecond {
+			t.Fatalf("idle poll = %s, want %dms", poll, want)
+		}
+	}
+	poll = nextTailPoll(poll, 1)
+	if poll != tailPoll {
+		t.Fatalf("poll after output = %s, want %s", poll, tailPoll)
+	}
+	if poll = nextTailPoll(poll, 0); poll != 50*time.Millisecond {
+		t.Fatalf("first idle poll after output = %s, want 50ms", poll)
+	}
+	tailBeat = 30 * time.Millisecond
+	if poll = nextTailPoll(poll, 0); poll != 50*time.Millisecond {
+		t.Fatalf("poll above shortened heartbeat cap changed to %s", poll)
+	}
+	poll = tailPoll
+	if poll = nextTailPoll(poll, 0); poll != 30*time.Millisecond {
+		t.Fatalf("poll with short heartbeat = %s, want 30ms", poll)
+	}
+}
+
 // TestTailFinishedOK: a non-follow tail of a finished job prints the log and returns its ok record.
 func TestTailFinishedOK(t *testing.T) {
 	setConfigDir(t)

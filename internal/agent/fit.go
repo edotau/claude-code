@@ -50,3 +50,22 @@ func fitOutcome(r Record) (catalog.Outcome, bool) {
 	}
 	return o, true
 }
+
+// JevLabel is one training row for Open-Jev: a brief and the tier and agent type that finished it well.
+type JevLabel struct {
+	Brief string `json:"brief"`
+	Tier  string `json:"tier"`
+	Agent string `json:"agent"`
+}
+
+// JevLabels is one training row per successful dispatch: its brief without `Tier:` lines, requested tier and agent.
+func JevLabels(recs []Record) []JevLabel {
+	var out []JevLabel
+	for _, r := range recs {
+		brief := tierLineRe().ReplaceAllString(jevBrief(r.Request.Prompt), "")
+		if tier := tierName(r.Request.Prompt); r.Status == "ok" && tier != "" && r.Agent != "" && brief != "" {
+			out = append(out, JevLabel{Brief: strings.TrimSpace(brief), Tier: tier, Agent: r.Agent})
+		}
+	}
+	return out
+}

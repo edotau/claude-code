@@ -47,6 +47,8 @@ BENCHSTAT_VERSION ?= v0.0.0-20261117185222-4febdb082b2c
 # Markdown linter/fixer, installed to bin/ by `make install`; its pkg/markdown is the Go code's parser too.
 MDSMITH_VERSION ?= v0.57.0
 MDSMITH         := bin/mdsmith
+# markdownlint-cli2: VS Code's engine, pinned to match the extension bundle (make lint-docs CHECK=1 runs it).
+MARKDOWNLINT_VERSION ?= 0.24.2
 RTK_VERSION     ?= 1.1.0
 TYPOS_VERSION   := v1.52.2
 # TypeScript compiler for the mods under mods/ (`tsc -p mods/<name>`); `make toolchain` installs it.
@@ -90,7 +92,7 @@ check-clean:
 
 .PHONY: install
 install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
-	@$(MAKE) compile mdsmith rtk typos
+	@$(MAKE) compile mdsmith markdownlint rtk typos
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@dest="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}/bin"; mkdir -p "$$dest"; \
 		if [ -f bin/typos ] && ! [ bin/typos -ef "$$dest/typos" ]; then install -m 0755 bin/typos "$$dest/typos"; fi
@@ -319,14 +321,22 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 		elif ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt $(YAML_FILES); fi ;; \
 	help) ;; \
-	docs) if [ "$(CHECK)" = 1 ]; then $(BIN) agents diff --check --all --gates docs; else rc=0; $(MDSMITH) fix || rc=1; \
-		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
+	docs) live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
+		if [ "$(CHECK)" = 1 ]; then rc=0; $(BIN) agents diff --check --all --gates docs || rc=1; \
+			mdl="state/harness/markdownlint"; [ -d "$$mdl/node_modules" ] || mdl="$$live/$$mdl"; \
+			[ ! -f "$$mdl/node_modules/markdownlint-cli2/package.json" ] || \
+				grep -qF '"version": "$(MARKDOWNLINT_VERSION)"' "$$mdl/node_modules/markdownlint-cli2/package.json" || \
+				echo -e "$(C_NOTE)markdownlint-cli2 in $$mdl is not $(MARKDOWNLINT_VERSION): run make markdownlint"; \
+			if [ -x "$$mdl/node_modules/.bin/markdownlint-cli2" ] && command -v node >/dev/null 2>&1; then \
+				git ls-files -z --cached --others --exclude-standard '*.md' | xargs -0 "$$mdl/node_modules/.bin/markdownlint-cli2" || rc=1; \
+			else echo -e "$(C_NOTE)markdownlint-cli2 skipped: needs node and make markdownlint"; fi; exit $$rc; \
+	else rc=0; $(MDSMITH) fix || rc=1; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
 			$(BIN) memory fmt || rc=1; \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc; fi ;; \
 	js) $(BIN) workflow lint ;; \
-	settings) $(BIN) configure --fmt ;; \
+	settings) $(BIN) configure fmt ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 	@$(if $(filter help,$*),$(MAKE) --no-print-directory help-check)
@@ -342,6 +352,18 @@ help-check:
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
 	@if ! $(MDSMITH) version 2>/dev/null | grep -qF '$(MDSMITH_VERSION)'; then \
 		GOBIN=$(CURDIR)/bin $(GO) install github.com/jeduden/mdsmith/cmd/mdsmith@$(MDSMITH_VERSION); fi
+
+.PHONY: markdownlint
+markdownlint:  # (folded into `install`) pinned markdownlint-cli2 under state/harness/markdownlint; a warning, never a failure
+	@command -v npm >/dev/null 2>&1 || { echo -e "$(C_NOTE)markdownlint skipped: npm not found (it ships as an npm package)"; exit 0; }; \
+		target="state/harness/markdownlint"; installed="$$target/node_modules/.bin/markdownlint-cli2"; \
+		if [ -x "$$installed" ] && grep -qF '"version": "$(MARKDOWNLINT_VERSION)"' "$$target/node_modules/markdownlint-cli2/package.json" 2>/dev/null; then \
+			exit 0; \
+		fi; \
+		mkdir -p "$$target" && \
+		{ npm install --prefix "$$target" --no-fund --no-audit --save-exact "markdownlint-cli2@$(MARKDOWNLINT_VERSION)" && \
+			echo -e "$(C_OK)installed markdownlint-cli2@$(MARKDOWNLINT_VERSION) -> $$target"; } || \
+			echo -e "$(C_NOTE)markdownlint-cli2 install failed: npm install error"
 
 .PHONY: rtk
 rtk:  # (folded into `install`) pinned rtk release in bin/; a warning, never a failure
@@ -400,7 +422,7 @@ image-shell:  ## Open a shell in the built image (no rebuild)
 statusline: BIN := bin/.lint/$(BINARY)
 statusline: compile  ## Render a sample statusline (COLS=…)
 	@echo '{"model":{"id":"claude-sonnet-5","display_name":"Sonnet 5"},"workspace":{"current_dir":"'$(CURDIR)'"},"transcript_path":"/tmp/x","context_window":{"context_window_size":1000000,"used_percentage":42}}' \
-		| COLUMNS=$${COLS:-120} $(BIN) theme statusline
+		| COLUMNS=$${COLS:-120} $(BIN) configure theme statusline
 
 ##@ Quick Reference
 # The help text, shared by `help` and `help-check`: one shell group, every line continued.

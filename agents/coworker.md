@@ -32,7 +32,7 @@ The one ask (PATH is the file `claude-code agents brief --path pi` prints; add `
 has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent pi --provider databricks --tools --codemode on --timeout 60m - < PATH
+claude-code agents ask --background --agent pi --provider databricks --profile prod --tools --codemode on --timeout 60m - < PATH
 ```
 
 `--codemode only` routes every tool through scripts; use it only when the brief says so. No `--profile` and no

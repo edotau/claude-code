@@ -109,7 +109,7 @@ func scope(root string) (mdsmithConfig, []string, error) {
 		return cfg, nil, err
 	}
 	var lines []string
-	for _, l := range strings.Split(string(raw), "\n") {
+	for l := range strings.SplitSeq(string(raw), "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(l), "//") {
 			lines = append(lines, l)
 		}
@@ -169,7 +169,7 @@ func storeDrift(root string) ([]string, error) {
 // checkOverride diffs the child .markdownlint.json mirroring an mdsmith override against its resolved rules.
 func checkOverride(ctx context.Context, root, glob string, orule map[string]any, rules map[string]any) ([]string, error) {
 	var parts []string
-	for _, p := range strings.Split(filepath.ToSlash(glob), "/") {
+	for p := range strings.SplitSeq(filepath.ToSlash(glob), "/") {
 		if strings.ContainsAny(p, "*?[") {
 			break
 		}
@@ -196,9 +196,7 @@ func checkOverride(ctx context.Context, root, glob string, orule map[string]any,
 		return nil, fmt.Errorf("%s/%s: %w", base, RulesFile, err)
 	}
 	merged := make(map[string]any, len(rules)+len(overlay))
-	for k, v := range rules {
-		merged[k] = v
-	}
+	maps.Copy(merged, rules)
 	maps.Copy(merged, overlay)
 	delete(merged, "extends")
 	mergedBytes, _ := json.Marshal(merged)
@@ -228,7 +226,7 @@ func convertRules(ctx context.Context, rules []byte) (map[string]any, []string, 
 	if err != nil {
 		return nil, nil, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	src := filepath.Join(dir, RulesFile)
 	if err = errors.Join(os.WriteFile(src, rules, 0o600), os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Parity\n"), 0o600)); err != nil {
 		return nil, nil, err
@@ -238,7 +236,7 @@ func convertRules(ctx context.Context, rules []byte) (map[string]any, []string, 
 		return nil, nil, err
 	}
 	var notes []string
-	for _, line := range strings.Split(string(stderr), "\n") {
+	for line := range strings.SplitSeq(string(stderr), "\n") {
 		if _, note, ok := strings.Cut(line, "note:"); ok && !slices.ContainsFunc(noAnalog, func(a string) bool { return strings.Contains(note, a) }) {
 			notes = append(notes, "converter: "+strings.TrimSpace(note))
 		}

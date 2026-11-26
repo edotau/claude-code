@@ -13,6 +13,10 @@ type JevShadow struct {
 	Pick       string  `json:"pick,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 	Ms         int64   `json:"ms,omitempty"`
+	Agent      string  `json:"agent,omitempty"` // Open-Jev's agent type pick
+	AgentConf  float64 `json:"agent_conf,omitempty"`
+	Helper     string  `json:"helper,omitempty"`  // local Qwen's tier, asked only when Open-Jev is unsure
+	Final      string  `json:"final,omitempty"`   // Open-Jev if confident, else fast when Qwen says fast, else keyword
 	Keyword    string  `json:"keyword,omitempty"` // TaskTier's pick for the same brief: fast | standard | deep
 	Error      string  `json:"error,omitempty"`   // down | timeout | bad-response | off
 }
@@ -27,8 +31,7 @@ var jevPending sync.Map // record id -> *jevCall, taken by Record.Finish
 
 // startJev asks Open-Jev about prompt in the background so the launch never waits on it.
 func startJev(ctx context.Context, id, prompt string) {
-	text, _, _ := strings.Cut(WithoutReviewLoop(prompt), "\n## Leaf rules")
-	text = strings.TrimSpace(boilerRe().ReplaceAllString(text, ""))
+	text := jevBrief(prompt)
 	if id == "" || text == "" {
 		return
 	}
@@ -37,7 +40,12 @@ func startJev(ctx context.Context, id, prompt string) {
 	jevPending.Store(id, call)
 	go func() {
 		res, err := jev.Tier(ctx, text)
-		call.done <- JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: call.keyword, Error: jev.Class(err)}
+		j := JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Agent: res.Agent, AgentConf: res.AgentConfidence, Keyword: call.keyword, Error: jev.Class(err)}
+		if res.Confidence < jev.Confident {
+			j.Helper, _ = jev.Helper(ctx, text)
+		}
+		j.Final = j.final()
+		call.done <- j
 	}()
 }
 
@@ -53,7 +61,7 @@ func takeJev(id string) *JevShadow {
 	case j := <-call.done:
 		return &j
 	default:
-		return &JevShadow{Keyword: call.keyword, Error: jev.ClassTimeout}
+		return &JevShadow{Keyword: call.keyword, Final: call.keyword, Error: jev.ClassTimeout}
 	}
 }
 
@@ -73,4 +81,43 @@ func tierName(brief string) string {
 		}
 	}
 	return ""
+}
+
+// JevPair is Open-Jev's shadow answer to "does B need A's result first?"; it changes no dispatch order.
+type JevPair struct {
+	A          int     `json:"a"`
+	B          int     `json:"b"`
+	Needs      string  `json:"needs,omitempty"` // yes | no
+	Confidence float64 `json:"confidence,omitempty"`
+	Ms         int64   `json:"ms,omitempty"`
+	Error      string  `json:"error,omitempty"`
+}
+
+// JevPairs asks about every ordered pair (i<j) of tasks, one call each, in order.
+func JevPairs(ctx context.Context, tasks []string) []JevPair {
+	var out []JevPair
+	for i := range tasks {
+		for j := i + 1; j < len(tasks); j++ {
+			res, err := jev.Needs(ctx, tasks[i], tasks[j])
+			out = append(out, JevPair{A: i, B: j, Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Error: jev.Class(err)})
+		}
+	}
+	return out
+}
+
+// jevBrief is the part of a dispatch prompt Open-Jev judges: no review-loop goal, leaf rules or boilerplate.
+func jevBrief(prompt string) string {
+	text, _, _ := strings.Cut(WithoutReviewLoop(prompt), "\n## Leaf rules")
+	return strings.TrimSpace(boilerRe().ReplaceAllString(text, ""))
+}
+
+// final is the pick R5's rule would act on: a confident Open-Jev, else fast on Qwen's say-so, else the keywords.
+func (j JevShadow) final() string {
+	switch {
+	case j.Error == "" && j.Confidence >= jev.Confident:
+		return j.Pick
+	case j.Helper == "fast":
+		return "fast"
+	}
+	return j.Keyword
 }
