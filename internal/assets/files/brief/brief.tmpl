@@ -21,7 +21,7 @@ Task:
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
 - CLAUDE.md: main session only (`safety-scan` blocks a leaf's write). Hand the change back to the main session (or
   message it) with the exact file path and the edit to make.
-- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutate only a copy under `$TMPDIR`;
+- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 - A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.
 - Every `rm` names a literal path: no `$(...)`, unquoted variable or glob; never `rm` in `bash -c`/`sh -c`.
@@ -30,10 +30,9 @@ Task:
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
   before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence in the full report (JSON lines, Go reads it there), e.g. {"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}; need more, say why.
-{{if .Rtk}}- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go build`; one file
+{{if .Rtk}}- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
   is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
-{{end}}- Order: format → lint → live check → Skill(simplify); write tests, do not run them; the collector runs them (R37).
-- List every test you wrote or changed by exact name in your report; do not run them: the main session runs them in the collector.
+{{end}}- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
 - Code leaves run on the Databricks arm (the coworker overlay `{"provider":"databricks","profile":"auto",
@@ -44,7 +43,7 @@ Task:
 {{if .Report}}Write the full report to the Report path above.
 {{else}}Write the full report with `claude-code memory report --job $HARNESS_DISPATCH_ID --kind review|implementation|audit|research --stdin`
 (body on stdin; it prints the path); with no dispatch id, to {{.ReportsDir}}/YYYY-MM-DD-<name>.md.
-{{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth (written, unrun),
+{{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.

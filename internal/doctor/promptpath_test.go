@@ -164,6 +164,7 @@ func TestH7ForeignHomePathsSkipped(t *testing.T) {
 		{"windows skips /Users", "windows", "/Users/edotau/gone.md", 0},
 		{"darwin own home checked", "darwin", home + "/gone.md", 1},
 		{"linux own home checked", "linux", home + "/gone.md", 1},
+		{"own worktrees skipped", "darwin", home + "/worktrees/claude/wave22", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := missingPathsOn("memory-start", "see `"+tc.path+"` now", tc.goos, home); len(got) != tc.want {

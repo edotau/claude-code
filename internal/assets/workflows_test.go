@@ -30,7 +30,7 @@ func TestWorkflowBlockBytes(t *testing.T) {
 		name, source, want string
 	}{
 		{"stepof", WorkflowStepOfSource(), "ea52e6fe4265e5e78e4573d20046cf1113c3241e6115b8b7a82daadb030ed7a2"},
-		{"stages", WorkflowStagesSource(), "ce8ec92c5e0c9cddeef925f8bb438dd7b10c6a31ae918f10fab86da580183611"},
+		{"stages", WorkflowStagesSource(), "c7a83d75762a9961fe3d7c337389bca8906bc97b6124f12991877f7171c4d31c"},
 	} {
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(tc.source))); got != tc.want {
 			t.Errorf("%s: sha256 %s, want pre-migration %s", tc.name, got, tc.want)

@@ -49,22 +49,21 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 
 ## Verification Order — lint first, always
 
-| #   | Step                                                                                                                                                                          | When                                                                                                                                                |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Parse/compile + **lint** (`ruff`, `go vet`, `claude-code agents diff --check --path <files>`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted                                                                                                                              |
-| 2   | **Live check** — run the verb, endpoint or flow on real input                                                                                                                 | Every change with a runnable surface, before any new test                                                                                           |
-| 3   | The one thing changed — targeted assertion, negative control: a leaf writes them, never runs them                                                                             | Every edit; the collector runs them                                                                                                                 |
-| 4   | Scoped tests for the packages you touched, named explicitly                                                                                                                   | In the sign-off driver (`worktree land`), never by a leaf; a leaf writes tests and does not run them                                                |
-| 5   | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code                                                                                     | Every code change, and at the end of every wave over its merged diff                                                                                |
-| 6   | Full suite + gate chain (format → lint → test → security)                                                                                                                     | **Once** at wrap-up, **only with the user's approval**; a leaf never runs a chain target that runs tests (`make test`, `make audit`, `make verify`) |
+| #   | Step                                                                                                                                                                          | When                                                                                                            |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 1   | Parse/compile + **lint** (`ruff`, `go vet`, `claude-code agents diff --check --path <files>`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted                                                                                          |
+| 2   | **Live check** — run the verb, endpoint or flow on real input                                                                                                                 | Every change with a runnable surface, before any new test                                                       |
+| 3   | The one thing changed — targeted assertion, negative control                                                                                                                  | Every edit                                                                                                      |
+| 4   | Scoped tests for the packages you touched, named explicitly                                                                                                                   | In the sign-off driver (`worktree land`), not by a leaf; a leaf runs only the test it wrote or repairs          |
+| 5   | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code                                                                                     | Every code change, and at the end of every wave over its merged diff                                            |
+| 6   | Full suite + gate chain (format → lint → test → security)                                                                                                                     | **Once** at wrap-up, **only with the user's approval**; a leaf runs a chain target only when its brief names it |
 
 `rtk make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and
 fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
 call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main), never one call per file (each
 re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
-tree. A leaf may run `make lint`, `make compile` and `agents diff --check`, never `make audit`; the audit after a
-worktree land runs on the lane's rebased head (HEAD plus the landed diff) and at session end on clean main,
-automatically.
+tree. A leaf may run them too; the audit after a worktree land runs on the lane's rebased head (HEAD plus the
+landed diff) and at session end on clean main, automatically.
 
 Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes
 (rare exception: the main session may ask the owner when the fix is disproportionate, one line vs a mountain of code;
@@ -96,10 +95,9 @@ decision; it never asks the owner) and relays only the outcome.
 Every dispatched code task carries this goal (`agents ask` adds it to every brief that can write code; a
 review-only task reports findings instead).
 
-**Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small,
-else by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or
-a code-fix leaf. A leaf repairs a test by reading the collector's failure output, without running it (R37); the
-collector re-runs it. A test failing in the collector is triaged by the main session: a minor cause it fixes itself;
-a real defect goes back to the lane or a new subagent with the failure output, repaired without running tests; after a
-repair the main session reruns every package the repair or the failing lanes touched. Never delete or skip a test;
-under heavy concurrent load the repair queues.
+**Broken tests (R29):** when a change breaks a test, a wrong test is repaired at once by the same agent when small, else
+by a test-repair leaf (`skills/subagent-workflows/SKILL.md`); a real regression goes back to the implementer or a
+code-fix leaf; a leaf runs only the test it repairs, by exact name. A test failing in the collector is triaged by the
+main session: a minor cause it fixes itself; a real defect goes back to the lane or a new subagent with the failure
+output; after a repair the main session reruns every package the repair or the failing lanes touched. Never delete or
+skip a test; under heavy concurrent load the repair queues.

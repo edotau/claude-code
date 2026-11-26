@@ -366,6 +366,9 @@ func missingPathsOn(hook, ctx, goos, home string) []string {
 		if foreignHome(p, home, goos) {
 			continue // a shared memory bank names the other OS's home (WSL /home on macOS, /Users on Linux)
 		}
+		if home != "" && strings.HasPrefix(p, strings.TrimSuffix(home, "/")+"/worktrees/") {
+			continue // a linked worktree is removed when its lane lands; a note that names one is not stale
+		}
 		if top, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/"); func() bool { _, err := os.Stat("/" + top); return err != nil }() {
 			continue // a URL route like /serving-endpoints or /chat/completions, not a filesystem path
 		}

@@ -276,7 +276,7 @@ task
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
 - CLAUDE.md: main session only (`safety-scan` blocks a leaf's write). Hand the change back to the main session (or
   message it) with the exact file path and the edit to make.
-- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutate only a copy under `$TMPDIR`;
+- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 - A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.
 - Every `rm` names a literal path: no `$(...)`, unquoted variable or glob; never `rm` in `bash -c`/`sh -c`.
@@ -285,10 +285,9 @@ task
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
   before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence in the full report (JSON lines, Go reads it there), e.g. {"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}; need more, say why.
-- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go build`; one file
+- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
   is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
-- Order: format → lint → live check → Skill(simplify); write tests, do not run them; the collector runs them (R37).
-- List every test you wrote or changed by exact name in your report; do not run them: the main session runs them in the collector.
+- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
 - Code leaves run on the Databricks arm (the coworker overlay `{"provider":"databricks","profile":"auto",
@@ -297,7 +296,7 @@ task
 ## Reporting contract
 
 Write the full report to the Report path above.
-Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth (written, unrun),
+Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.
@@ -329,7 +328,7 @@ task
   `safety-scan` blocks it for a leaf; hand the exact command back for the main session to run.
 - CLAUDE.md: main session only (`safety-scan` blocks a leaf's write). Hand the change back to the main session (or
   message it) with the exact file path and the edit to make.
-- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutate only a copy under `$TMPDIR`;
+- Edit source with Edit or Write, never a splice script, `sed -i` or `perl -pi`; mutation-test a copy under `$TMPDIR`;
   no `rm -rf` outside `$TMPDIR` or scratch dirs; never print a credential variable, even piped to `grep`.
 - A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.
 - Every `rm` names a literal path: no `$(...)`, unquoted variable or glob; never `rm` in `bash -c`/`sh -c`.
@@ -338,8 +337,7 @@ task
   not own is reported, not fixed.
 - Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
   before/after run; other cases are proposals in the hand-back, as a ```proposed_tests fence in the full report (JSON lines, Go reads it there), e.g. {"pkg":"internal/x","case":"empty input → error","reason":"guards the nil path","runtime":"<5ms"}; need more, say why.
-- Order: format → lint → live check → Skill(simplify); write tests, do not run them; the collector runs them (R37).
-- List every test you wrote or changed by exact name in your report; do not run them: the main session runs them in the collector.
+- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
 - Code leaves run on the Databricks arm (the coworker overlay `{"provider":"databricks","profile":"auto",
@@ -348,7 +346,7 @@ task
 ## Reporting contract
 
 Write the full report to the Report path above.
-Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth (written, unrun),
+Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.
@@ -487,7 +485,7 @@ Verify: ver
 Tier: standard
 
 Task:
-Make BenchX in pkg perform the same work faster; hand back uncommitted; the before/after numbers come from the main session.
+Make BenchX in pkg perform the same work faster; hand back uncommitted with before/after numbers.
 Work in the lane /w. Candidate cause (a hypothesis to verify): cause
 
 ## Measurement evidence
@@ -495,15 +493,15 @@ Work in the lane /w. Candidate cause (a hypothesis to verify): cause
 1ns
 
 Before run file: /b
-Read that evidence before editing. You are a leaf (R37): run no test or benchmark command. Make the change and name this command for the main session to run on the unchanged code and the fix:
+Read that evidence before editing. Measure the unchanged code and the fix with the same command and inputs:
 
 ```bash
 cd '/w'
 go test
 ```
 
-The main session records ns/op, B/op, allocs/op, spawn counts, sample count, noise and the before/after delta; those measured numbers are not yours.
-A noisy run cannot establish a win. The driver performs the final interleaved A/B run.
+Record ns/op, B/op, allocs/op and any spawn counts available, sample count, noise, and the numeric before/after delta.
+Defer when the machine is busy; a noisy run cannot establish a win. The driver performs the final interleaved A/B run.
 
 ## Preserve behaviour
 
@@ -516,19 +514,14 @@ If a safe fix needs files outside Owned, stop and report the blocker.
 
 ## Verification
 
-Format only owned Go files, then lint; run only these:
+Format only owned Go files, then lint; live-check output identity before scoped tests:
 
 ```bash
 cd '/w'
 go vet 'pkg'
-rtk git diff --no-ext-diff --no-textconv HEAD
-```
-
-Name these commands in your report for the main session to run (output identity, then scoped tests); do not run them:
-
-```bash
 id
 ver
+rtk git diff --no-ext-diff --no-textconv HEAD
 ```
 
 Check successful and failing inputs, errors, side effects, and cancellation against the parent, not just timing.
@@ -549,7 +542,7 @@ Inspect the entire lane diff for ownership and unchanged benchmarks. Run Skill(s
 ## Reporting contract
 
 Return the full report in your final answer, opening with DONE, DONE_WITH_CONCERNS, or BLOCKED.
-Include absolute files with numstat, commands run and exit codes, the commands left for the main session, output-identity evidence to come from it,
+Include absolute files with numstat, commands and exit codes, before/after numbers, output-identity evidence,
 checks preserved, cache/concurrency risks, gross production lines added/deleted, and anything blocked.
 Name the unchanged benchmark epoch evidence and what the driver needs for its interleaved run and Opus review.
 
@@ -560,7 +553,7 @@ Verify: ver
 Tier: standard
 
 Task:
-Make BenchX in pkg perform the same work faster; hand back uncommitted; the before/after numbers come from the main session.
+Make BenchX in pkg perform the same work faster; hand back uncommitted with before/after numbers.
 Work in the lane /w. Candidate cause (a hypothesis to verify): cause
 
 ## Measurement evidence
@@ -568,15 +561,15 @@ Work in the lane /w. Candidate cause (a hypothesis to verify): cause
 1ns
 
 Before run file: /b
-Read that evidence before editing. You are a leaf (R37): run no test or benchmark command. Make the change and name this command for the main session to run on the unchanged code and the fix:
+Read that evidence before editing. Measure the unchanged code and the fix with the same command and inputs:
 
 ```bash
 cd '/w'
 go test
 ```
 
-The main session records ns/op, B/op, allocs/op, spawn counts, sample count, noise and the before/after delta; those measured numbers are not yours.
-A noisy run cannot establish a win. The driver performs the final interleaved A/B run.
+Record ns/op, B/op, allocs/op and any spawn counts available, sample count, noise, and the numeric before/after delta.
+Defer when the machine is busy; a noisy run cannot establish a win. The driver performs the final interleaved A/B run.
 
 ## Preserve behaviour
 
@@ -589,19 +582,14 @@ If a safe fix needs files outside Owned, stop and report the blocker.
 
 ## Verification
 
-Format only owned Go files, then lint; run only these:
+Format only owned Go files, then lint; live-check output identity before scoped tests:
 
 ```bash
 cd '/w'
 go vet 'pkg'
-git diff --no-ext-diff --no-textconv HEAD
-```
-
-Name these commands in your report for the main session to run (output identity, then scoped tests); do not run them:
-
-```bash
 id
 ver
+git diff --no-ext-diff --no-textconv HEAD
 ```
 
 Check successful and failing inputs, errors, side effects, and cancellation against the parent, not just timing.
@@ -621,7 +609,7 @@ Inspect the entire lane diff for ownership and unchanged benchmarks. Run Skill(s
 ## Reporting contract
 
 Return the full report in your final answer, opening with DONE, DONE_WITH_CONCERNS, or BLOCKED.
-Include absolute files with numstat, commands run and exit codes, the commands left for the main session, output-identity evidence to come from it,
+Include absolute files with numstat, commands and exit codes, before/after numbers, output-identity evidence,
 checks preserved, cache/concurrency risks, gross production lines added/deleted, and anything blocked.
 Name the unchanged benchmark epoch evidence and what the driver needs for its interleaved run and Opus review.
 
@@ -661,11 +649,6 @@ Check the complete lane diff, not just the supplied excerpt, against the named p
 ```bash
 cd '/w'
 rtk git diff --no-ext-diff --no-textconv HEAD
-```
-
-You are a leaf (R37): run no test command. Name these commands for the main session to run; the measured numbers come from it:
-
-```bash
 id
 ver
 ```
@@ -728,11 +711,6 @@ Check the complete lane diff, not just the supplied excerpt, against the named p
 ```bash
 cd '/w'
 git diff --no-ext-diff --no-textconv HEAD
-```
-
-You are a leaf (R37): run no test command. Name these commands for the main session to run; the measured numbers come from it:
-
-```bash
 id
 ver
 ```

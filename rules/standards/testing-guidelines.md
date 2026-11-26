@@ -28,8 +28,7 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 
 A repair executor owns only the named existing test files; the brief supplies failures and intended behavior.
 
-1. Read the collector's failure output for the touched packages (the brief supplies it); never run a test yourself
-   (R37) and do not infer failures from a diff.
+1. Run touched-package tests, never the full suite, and capture actual failures; do not infer them from a diff.
 2. Group failures by cause, not file, and classify each group with evidence:
    - **Test wrong:** the contract deliberately changed; update the expectation while keeping the test's intent.
    - **Code wrong:** the asserted contract was not meant to change; report the regression, do not edit the test.
@@ -38,7 +37,7 @@ A repair executor owns only the named existing test files; the brief supplies fa
    assertion, intended contract and observed behavior: repair only when behavior matches the contract and the
    assertion does not. If uncertain, name the missing evidence and return it to the caller.
 4. Repair only test-wrong groups; check every moved/renamed subject still has a real assertion.
-5. Report the evidence and verdict per group; write tests, do not run them; the collector re-runs the scoped tests.
+5. Re-run the scoped tests and report before/after counts from actual output, with the evidence and verdict per group.
 
 Never change product code to green a repair, delete a test to clear a failure, or invent a framework when none exists.
 Recommend a justified deletion instead; report a missing suite or failed dispatch to the caller.
@@ -76,10 +75,9 @@ See `rules/standards/quality.md` for size caps.
   local model on 10100, Jev, Tailscale, ssh) or DNS. Network, proxy, server and remote code is validated live and by
   hand (Live first, above); its unit and regression tests run on mocks: an in-process `httptest` server or a stubbed
   transport or dialer the test owns, with the remote's replies written in the test (owner, 2026-11-25).
-- **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (the collector
-  measures before and after): no sleep, real network, vault, daemon or spawned binary, and never the test binary
-  (`os.Executable()` is `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed
-  fixtures directly.
+- **Fast first** — a new test runs in milliseconds and its package gets at most 0.5 s slower (measure before and
+  after): no sleep, real network, vault, daemon or spawned binary, and never the test binary (`os.Executable()` is
+  `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
   feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
   decide; judge proposals by speed first, then teeth, then no overlap. The implementer writes its feature's basic tests.

@@ -18,6 +18,7 @@ type fakeExportDB struct {
 	root       string
 	docs, last map[string]string
 	conflicts  []string
+	hook       func(op, rel string) error // "import" runs after the file is read, "render" before the db side is returned
 }
 
 func (f *fakeExportDB) Walk() ([]string, error) {
@@ -45,7 +46,14 @@ func (f *fakeExportDB) Paths() ([]string, error) {
 	return out, nil
 }
 
-func (f *fakeExportDB) Render(rel string) ([]byte, error) { return []byte(f.docs[rel]), nil }
+func (f *fakeExportDB) Render(rel string) ([]byte, error) {
+	if f.hook != nil {
+		if err := f.hook("render", rel); err != nil {
+			return nil, err
+		}
+	}
+	return []byte(f.docs[rel]), nil
+}
 
 func (f *fakeExportDB) Rendered(rel string) (string, error) { return f.last[rel], nil }
 
@@ -59,6 +67,9 @@ func (f *fakeExportDB) RecordConflict(rel, kind string) error {
 func (f *fakeExportDB) Import(rel, _ string) error {
 	b, err := os.ReadFile(filepath.Join(f.root, filepath.FromSlash(rel)))
 	f.docs[rel], f.last[rel] = string(b), sha256Hex(b)
+	if err == nil && f.hook != nil {
+		err = f.hook("import", rel)
+	}
 	return err
 }
 

@@ -95,7 +95,7 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 		"- A `python3` heredoc that rewrites a file is a splice script; write a helper script with Write, not heredoc + chmod.\n" +
 			"- Every `rm` names a literal path: no `$(...)`, unquoted variable or glob; never `rm` in `bash -c`/`sh -c`.\n" +
 			"- Never read/export live vault or provider config (`vault ls`, `vault get`) unless the brief names it; use fixtures.",
-		"other cases are proposals in the hand-back", "Order: format → lint → live check → Skill(simplify); write tests, do not run them"} {
+		"other cases are proposals in the hand-back", "Order: format → lint → live check → only a test you wrote or repair"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing restored rule %q", want)
 		}

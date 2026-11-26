@@ -737,3 +737,45 @@ func pinFilesTruth(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBankStoreLoadAmbiguousRefHasNoVersion(t *testing.T) {
+	root := t.TempDir()
+	writeShadowStore(t, root, false)
+	body := "# Progress\n\n## In Progress\n\n- Dup\n- Dup\n- Solo\n"
+	if err := os.WriteFile(filepath.Join(root, "progress.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openShadowDB(t, nil)
+	if _, err := shadowRebuild(context.Background(), db, root); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSQLBankStore(db)
+	docs, v, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dups []string // refs as the store keys them, ids included
+	solo := ""
+	for _, e := range docs["progress.md"].Entries {
+		switch strings.TrimSpace(strings.Join(e.Lines, "\n")) {
+		case "- Dup":
+			dups = append(dups, e.Ref())
+		case "- Solo":
+			solo = e.Ref()
+		}
+	}
+	if len(dups) != 2 || dups[0] != dups[1] || solo == "" {
+		t.Fatalf("want two Dup entries sharing one ref and a Solo entry, got %q and %q", dups, solo)
+	}
+	dup := dups[0]
+	if got, ok := v[dup]; !ok || got != "" {
+		t.Errorf("duplicate ref version = %q, %v; want empty", got, ok)
+	}
+	if v[solo] == "" {
+		t.Error("unique ref has no version")
+	}
+	// an empty base version means no read guard, so the refusal must come from ApplyDocs
+	if _, err := s.Apply(memory.Batch{Ops: []memory.Op{{Op: "update", ID: dup, Text: "x"}}}, v, storeNow); err == nil {
+		t.Error("an update on an ambiguous ref was applied")
+	}
+}

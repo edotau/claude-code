@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -214,5 +215,163 @@ func TestBankStoreLoadVersions(t *testing.T) {
 	}
 	if v[contentRef("- Solo")] == "" {
 		t.Error("unique ref has no version")
+	}
+}
+
+// docDBStore is a db store over fakeExportDB: Apply writes the db only, the export belongs to the production path.
+type docDBStore struct {
+	db      *fakeExportDB
+	applied atomic.Bool
+}
+
+// Load returns docs only; version rules belong to the real store (shadow.TestBankStoreLoadAmbiguousRefHasNoVersion).
+func (s *docDBStore) Load() (map[string]Doc, Versions, error) {
+	docs := map[string]Doc{}
+	for _, name := range bankFiles {
+		docs[name] = ParseDoc(name, []byte(s.db.docs[name]))
+	}
+	return docs, nil, nil
+}
+
+func (s *docDBStore) Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) {
+	b, err := withBase(b, base)
+	if err != nil {
+		return nil, err
+	}
+	docs, _, _ := s.Load()
+	out, rs, err := ApplyDocs(docs, b, now)
+	if err != nil {
+		return rs, err
+	}
+	for _, name := range bankFiles {
+		s.db.docs[name] = string(out[name].Render())
+	}
+	s.applied.Store(true)
+	return rs, nil
+}
+
+// dbBank is a bank in db truth whose decisionLog and conventions are batchStore's fixtures, imported into the db.
+func dbBank(t *testing.T) (*fakeExportDB, *docDBStore) {
+	t.Helper()
+	t.Setenv("HARNESS_KEYRING", "off")
+	db := dbTruthBank(t)
+	write(t, Path("decisionLog.md"), datedIn)
+	write(t, Path("conventions.md"), bulletsIn)
+	exportGuard(t, db)
+	st := &docDBStore{db: db}
+	old := OpenBankStore
+	OpenBankStore = func(bool) (BankStore, func() error, error) { return st, func() error { return nil }, nil }
+	t.Cleanup(func() { OpenBankStore = old })
+	return db, st
+}
+
+func TestDBStoreApplyTakesBankLock(t *testing.T) {
+	_, st := dbBank(t)
+	shortBankWait(t) // a held lock makes Apply fail after the wait, so no sleep decides the result
+	var err error
+	if lerr := withFlatLock(BankLockWait, func() error {
+		_, err = newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+		return nil
+	}); lerr != nil {
+		t.Fatal(lerr)
+	}
+	if err == nil || st.applied.Load() {
+		t.Fatalf("Apply under a held bank lock: err=%v applied=%v", err, st.applied.Load())
+	}
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil || !st.applied.Load() {
+		t.Fatalf("Apply after release: err=%v applied=%v", err, st.applied.Load())
+	}
+}
+
+func TestApplyTypedDBExportFailureKeepsBatch(t *testing.T) {
+	for name, fail := range map[string]func(db *fakeExportDB){
+		"open": func(*fakeExportDB) {
+			OpenExportDB = func() (ExportDB, func() error, error) { return nil, nil, errors.New("export down") }
+		},
+		"export": func(db *fakeExportDB) { db.hook = func(op, _ string) error { return errors.New("render down") } },
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, _ := dbBank(t)
+			old := OpenExportDB
+			t.Cleanup(func() { OpenExportDB = old })
+			fail(db)
+			rs, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+			if len(rs) != 1 || rs[0].Outcome != DreamOK {
+				t.Errorf("results = %+v, want the op applied", rs)
+			}
+			if !strings.Contains(db.docs["decisionLog.md"], " — n <!-- id:") {
+				t.Errorf("the committed row was undone:\n%s", db.docs["decisionLog.md"])
+			}
+			_, committed := errors.AsType[*committedErr](err)
+			_, after := errors.AsType[*AfterCommitError](err) // committed: never retried, never sent to fallback
+			if !committed || !after {
+				t.Errorf("want a confirmed after-commit error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestApplyTypedDBOutsideEditKept(t *testing.T) {
+	db, _ := dbBank(t)
+	write(t, Path("activeContext.md"), "# Active Context\n\n- first\n") // the guard imports it, then the hook edits another file
+	fired := false
+	db.hook = func(op, rel string) error {
+		if op == "import" && rel == "activeContext.md" && !fired {
+			fired = true
+			write(t, Path("conventions.md"), bulletsIn+"\n- outside\n")
+		}
+		return nil
+	}
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil {
+		t.Fatal(err)
+	}
+	if !fired {
+		t.Fatal("the guard never imported the first edit, so no edit landed inside the export")
+	}
+	if got := mustRead(t, Path("conventions.md")); !strings.Contains(got, "- outside") {
+		t.Errorf("the outside edit was overwritten:\n%s", got)
+	}
+	if !strings.Contains(db.docs["conventions.md"], "- outside") {
+		t.Errorf("the outside edit never reached the db:\n%s", db.docs["conventions.md"])
+	}
+	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") {
+		t.Errorf("the typed apply is not exported:\n%s", got)
+	}
+}
+
+func TestDBStoreApplyRefusesAmbiguousRef(t *testing.T) {
+	db, _ := dbBank(t)
+	db.docs["progress.md"] = "# Progress\n\n## In Progress\n\n- Dup\n- Dup\n- Solo\n"
+	before := db.docs["progress.md"]
+	dup := contentRef("- Dup")
+	// Load gives a duplicate ref the empty version
+	upd := Op{Op: "update", ID: dup, Text: "x"}
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{upd}}, Versions{dup: ""}, testEnv().Now); err == nil || db.docs["progress.md"] != before {
+		t.Errorf("an ambiguous ref was written: err=%v\n%s", err, db.docs["progress.md"])
+	}
+}
+
+func TestWithBaseFillsAndRefusesRead(t *testing.T) {
+	base := Versions{"0a1b2c3d": "z11111111", "skip": ""}
+	b := Batch{Ops: []Op{{Op: "update", ID: "0a1b2c3d", Text: "x"}, {Op: "update", ID: "skip", Text: "y"}}}
+	got, err := withBase(b, base)
+	if err != nil || got.Ops[0].Read != "z11111111" || got.Ops[1].Read != "" {
+		t.Fatalf("fill: %+v err=%v", got.Ops, err)
+	}
+	if b.Ops[0].Read != "" {
+		t.Error("withBase modified its input")
+	}
+	b.Ops[0].Read = "z11111111"
+	if _, err := withBase(b, base); err != nil {
+		t.Errorf("a read equal to base was refused: %v", err)
+	}
+	b.Ops[0].Read = "z00000000"
+	if _, err := withBase(b, base); err == nil || !strings.Contains(err.Error(), "disagrees") {
+		t.Errorf("a read that conflicts with base: err=%v", err)
+	}
+	// no base entry means no guard: the caller's Read stays and the store decides
+	nb := Batch{Ops: []Op{{Op: "update", ID: "absent", Read: "z9", Text: "x"}}}
+	if got, err := withBase(nb, base); err != nil || got.Ops[0].Read != "z9" {
+		t.Errorf("a read with no base entry: %+v err=%v", got.Ops, err)
 	}
 }
