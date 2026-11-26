@@ -160,7 +160,7 @@ func addedTexts(in *core.Input) []addition {
 // patchAdditions are the apply_patch bodies; an update's lines, and those of a rename from it, may already exist.
 func patchAdditions(edits []textutil.FileEdit, cwd string) []addition {
 	var out []addition
-	source := "" // the last updated file: a following Move to renames it
+	source := ""
 	for _, e := range edits {
 		path := paths.AnchorPath(e.Path, cwd)
 		known := func(string) bool { return false }
@@ -203,7 +203,8 @@ func singleFileAdditions(path string, ti map[string]any) []addition {
 		var sb strings.Builder
 		for _, p := range parts {
 			s, _ := p.(string)
-			sb.WriteString(strings.TrimSuffix(s, "\n") + "\n")
+			sb.WriteString(strings.TrimSuffix(s, "\n"))
+			sb.WriteByte('\n')
 		}
 		src = sb.String()
 	} else {
@@ -260,9 +261,13 @@ func existingText(path string) func(string) bool {
 				var one string
 				var many []string
 				if json.Unmarshal(c.Source, &one) == nil {
-					sb.WriteString(one + "\n")
+					sb.WriteString(one)
+					sb.WriteByte('\n')
 				} else if json.Unmarshal(c.Source, &many) == nil {
-					sb.WriteString(strings.Join(many, "") + "\n")
+					for _, s := range many {
+						sb.WriteString(s)
+					}
+					sb.WriteByte('\n')
 				}
 			}
 			known = lineSet(sb.String())
