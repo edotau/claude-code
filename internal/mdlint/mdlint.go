@@ -74,10 +74,10 @@ func Mdsmith() string {
 	return ""
 }
 
-func run(ctx context.Context, root, stdin string, args ...string) ([]byte, error) {
+func run(ctx context.Context, root, stdin string, args ...string) ([]byte, []byte, error) {
 	bin := Mdsmith()
 	if bin == "" {
-		return nil, ErrNoMdsmith
+		return nil, nil, ErrNoMdsmith
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = root
@@ -90,12 +90,12 @@ func run(ctx context.Context, root, stdin string, args ...string) ([]byte, error
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if err != nil && !errors.As(err, &ee) {
-		return nil, fmt.Errorf("mdlint: %w", err)
+		return nil, nil, fmt.Errorf("mdlint: %w", err)
 	}
 	if err != nil && out.Len() == 0 {
-		return nil, fmt.Errorf("mdlint: mdsmith %v: %w: %s", args, err, strings.TrimSpace(errb.String()))
+		return nil, nil, fmt.Errorf("mdlint: mdsmith %v: %w: %s", args, err, strings.TrimSpace(errb.String()))
 	}
-	return out.Bytes(), nil
+	return out.Bytes(), errb.Bytes(), nil
 }
 
 func decode(out []byte) ([]Finding, error) {
@@ -111,7 +111,7 @@ func decode(out []byte) ([]Finding, error) {
 
 // CheckFile lints rel from cwd root, the only form in which .mdsmith.yml overrides apply.
 func CheckFile(ctx context.Context, root, rel string) ([]Finding, error) {
-	out, err := run(ctx, root, "", "check", "-f", "json", "-o", "-", "--no-color", "--", rel)
+	out, _, err := run(ctx, root, "", "check", "-f", "json", "-o", "-", "--no-color", "--", rel)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func CheckFile(ctx context.Context, root, rel string) ([]Finding, error) {
 
 // FixFile rewrites rel in place with mdsmith's autofixes.
 func FixFile(ctx context.Context, root, rel string) error {
-	_, err := run(ctx, root, "", "fix", "--no-color", "--", rel)
+	_, _, err := run(ctx, root, "", "fix", "--no-color", "--", rel)
 	return err
 }
 
@@ -129,7 +129,7 @@ func CheckText(ctx context.Context, root, text string) ([]Finding, error) {
 	if text == "" {
 		text = "\n"
 	}
-	out, err := run(ctx, root, text, "check", "-f", "json", "-o", "-", "--no-color", "-")
+	out, _, err := run(ctx, root, text, "check", "-f", "json", "-o", "-", "--no-color", "-")
 	if err != nil {
 		return nil, err
 	}

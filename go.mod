@@ -6,6 +6,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/github/copilot-sdk/go v1.0.28
 	go.etcd.io/bbolt v1.5.0
+	go.yaml.in/yaml/v4 v4.0.0-rc.2
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.63.0
 )
@@ -36,7 +37,6 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	modernc.org/libc v1.80.1 // indirect
