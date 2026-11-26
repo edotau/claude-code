@@ -48,9 +48,9 @@ func TestFixNowModesOnce(t *testing.T) {
 	if next := Busy(&core.Input{SessionID: "sB", CWD: cwd, Prompt: "ok"}); strings.Contains(next.Context, "audit x") {
 		t.Fatalf("prompt after the stop = %q, want no plain repeat of x", next.Context)
 	}
-	reportFail(t, worktree.FailBench, "y")
+	reportFail(t, worktree.FailLaneGate, "y")
 	present := Busy(&core.Input{SessionID: "sA", CWD: cwd, Prompt: "hello"})
-	if !strings.Contains(present.Context, "fix now: bench y") || !strings.Contains(present.Context, "give the owner options") ||
+	if !strings.Contains(present.Context, "fix now: lane_gate y") || !strings.Contains(present.Context, "give the owner options") ||
 		strings.Contains(present.Context, "fix now: audit x") {
 		t.Fatalf("present prompt = %q, want only y's present directive", present.Context)
 	}

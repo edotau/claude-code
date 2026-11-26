@@ -397,7 +397,7 @@ func benchReconcile(state string) {
 			m.Status, m.PID, m.Exit = "queued", 0, nil
 			_ = paths.WriteJSON(file, m)
 		}
-		if (m.Status == "done" || m.Status == "failed" || m.Status == "skipped") && !m.End.IsZero() && time.Since(m.End) > benchRetention {
+		if slices.Contains([]string{"done", "failed", "skipped"}, m.Status) && !m.End.IsZero() && time.Since(m.End) > benchRetention {
 			benchPrune(strings.TrimSuffix(file, ".marker"))
 		}
 	}
@@ -464,7 +464,11 @@ func benchWorker(base string, rerun bool) {
 	if paths.WriteJSON(base+".marker", m) != nil {
 		return
 	}
-	code := benchMeasure(base, job, lock, busy)
+	benchSettle(base, job, m, lock, benchMeasure(base, job, lock, busy))
+}
+
+// benchSettle records a measured run: a commit that does not build is skipped, else completed, delivered and judged.
+func benchSettle(base string, job benchJob, m benchMarker, lock *os.File, code int) {
 	if code == benchSkipExit {
 		benchSkip(base, m)
 		return
@@ -474,8 +478,7 @@ func benchWorker(base string, rerun bool) {
 		return
 	}
 	benchDeliver(base, job)
-	err = lock.Close()
-	_ = benchDecideLoop(base, job, err)
+	_ = benchDecideLoop(base, job, lock.Close())
 }
 
 // benchSkip records a commit that does not build: no failure, nothing delivered.
@@ -944,7 +947,7 @@ func benchFinish(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	raw, _ := os.ReadFile(result)
-	lines := slices.DeleteFunc(benchNoticeLines(raw), func(l string) bool { r := benchNoticeRank(l); return r == 0 || r == 3 })
+	lines := slices.DeleteFunc(benchNoticeLines(raw), benchQuiet)
 	if *m.Exit == 0 {
 		benchReportRegressions(raw, result)
 	}
@@ -1024,6 +1027,9 @@ func benchReportRegressions(raw []byte, result string) {
 	}
 }
 
+// benchQuiet is an inconclusive or unchanged line, kept in the result file but never noticed.
+func benchQuiet(line string) bool { return benchNoticeRank(line)%3 == 0 }
+
 func benchNoticeRank(line string) int {
 	switch {
 	case strings.Contains(line, "inconclusive"):
@@ -1081,7 +1087,6 @@ func benchQuietReason(noisyRun bool, flags []string) string {
 	return ""
 }
 
-// The same evidence gate covers every metric and both directions.
 // benchMinChange is the smallest move, in percent, a notice or failure report names (owner, 2026-11-26).
 const benchMinChange = 10.0
 
@@ -1091,6 +1096,7 @@ func benchBigChange(change string) bool {
 	return err == nil && math.Abs(v) >= benchMinChange
 }
 
+// The same evidence gate covers every metric and both directions.
 func benchParts(noisyRun bool, flags []string, deltas map[string]benchDelta) []string {
 	if reason := benchQuietReason(noisyRun, flags); reason != "" {
 		return []string{"inconclusive (" + reason + "); rerun wanted"}
@@ -1149,11 +1155,9 @@ func BenchCoverage(ctx context.Context, top string, n int) (detail string, ok bo
 // add counts one benched commit; commits arrive newest first, so the first regression found is the latest.
 func (t *benchTally) add(base string) {
 	m, ok := benchReadMarker(base)
-	if ok && m.Status == "skipped" {
-		t.skipped++
-		return
-	}
 	switch {
+	case m.Status == "skipped":
+		t.skipped++
 	case ok && m.Exit != nil && *m.Exit != 0:
 		t.failed++
 	case ok && m.Exit != nil:
