@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -46,6 +47,22 @@ func (h *LocalHop) hop(agent string) (PlanHop, bool) {
 	return PlanHop{Runner: Runner{Kind: RunnerPi, Agent: agent}, Workspace: h.Workspace}, true
 }
 
+// admitLocal is f plus profile when it is p's admitted last-resort row: only the local hop's token may reach it.
+func (p RoutePlan) admitLocal(f route.Fence, profile string) route.Fence {
+	if h, ok := p.Local.hop(""); ok && h.Workspace.Profile == profile && !f.Open {
+		f.Profiles = append(slices.Clone(f.Profiles), profile)
+	}
+	return f
+}
+
+// localFenced is f, widened to the local hop's own row when profiles is that row alone.
+func localFenced(ctx context.Context, f route.Fence, profiles []string) route.Fence {
+	if plan, ok := PlanOf(ctx); ok && len(profiles) == 1 {
+		return plan.admitLocal(f, profiles[0])
+	}
+	return f
+}
+
 // carries reports d as h's admitted hop: it bills the last-resort row's account.
 func (h *LocalHop) carries(d Dispatch) bool {
 	_, ok := h.hop("")
@@ -60,17 +77,17 @@ func planLocal(_ context.Context, reg *providers.Registry, o RunOptions, p Route
 		return nil
 	}
 	ws := Workspace{Profile: row.Name, Account: router.AccountOf(row)}
-	return &LocalHop{Workspace: ws, Barred: cmp.Or(policyBar(p, row.Name), requestBar(o, row.Name), briefBar(o, p, rule))}
+	return &LocalHop{Workspace: ws, Barred: cmp.Or(policyBar(o, p, row.Name), requestBar(o, row.Name), briefBar(o, p, rule))}
 }
 
-// policyBar is why p's fallback or fence keeps the run off row.
-func policyBar(p RoutePlan, row string) string {
+// policyBar is why p's fallback or fence keeps the run off row; a pin or fence bars it only when typed on this command.
+func policyBar(o RunOptions, p RoutePlan, row string) string {
 	switch {
 	case p.Fallback.Kind == router.PolicyNone:
 		return "--fallback none"
-	case p.Fallback.Kind == router.PolicySameWorkspace && !p.Fallback.Agents:
+	case p.Fallback.Kind == router.PolicySameWorkspace && !p.Fallback.Agents && p.Fallback.Typed():
 		return "--fallback " + p.Fallback.Mode() + " keeps the planned workspace"
-	case !p.Fence.Allows(row):
+	case o.FenceTyped && !p.Fence.Allows(row):
 		return "the fence does not allow " + row
 	}
 	return ""

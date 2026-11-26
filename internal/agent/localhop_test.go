@@ -48,7 +48,7 @@ func TestPlanLocal(t *testing.T) {
 		{name: "none", stage: "last", reg: withRow, p: with(func(p *RoutePlan) { p.Fallback.Kind = router.PolicyNone }), barred: "--fallback none"},
 		{name: "typed model", stage: "last", reg: withRow, p: open,
 			o: RunOptions{Model: "databricks-claude-sonnet-5-5", ModelTyped: true}, barred: "typed model"},
-		{name: "closed fence", stage: "last", reg: withRow, p: with(func(p *RoutePlan) { p.Fence = route.Fence{Profiles: []string{"dev"}} }),
+		{name: "typed fence", stage: "last", reg: withRow, o: RunOptions{FenceTyped: true}, p: with(func(p *RoutePlan) { p.Fence = route.Fence{Profiles: []string{"dev"}} }),
 			barred: "fence"},
 		{name: "tier", stage: "last", reg: withRow, p: with(func(p *RoutePlan) { p.Tier.Asked = models.Opus }), barred: "tier deep"},
 		{name: "cap", stage: "last", reg: withRow, p: open, o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)},
@@ -69,6 +69,35 @@ func TestPlanLocal(t *testing.T) {
 				checkLocalHop(t, l, r.barred, r.hop)
 			}
 		})
+	}
+}
+
+func TestPlanLocalInheritedFence(t *testing.T) {
+	setLocalStage(t, "last")
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"local": {Name: "local", Provider: "magnitude", Options: providers.Options{LastResort: true}}}}
+	fenced := RoutePlan{Agent: "pi", Fence: route.Fence{Profiles: []string{"dev"}}}
+	for _, r := range []struct {
+		name, barred string
+		src          router.PolicySource
+	}{{"arm default pin", "", router.PolicyDefault}, {"env pin", "", router.PolicyEnv}, {"typed pin", "keeps the planned", router.PolicyTyped}} {
+		p := fenced
+		p.Fallback = router.Policy{Kind: router.PolicySameWorkspace, Source: r.src}
+		if l := planLocal(context.Background(), reg, RunOptions{}, p); !strings.Contains(l.Barred, r.barred) || (l.Barred == "") != (r.barred == "") {
+			t.Errorf("%s: Barred = %q, want %q", r.name, l.Barred, r.barred)
+		}
+	}
+	p := fenced
+	p.Local = planLocal(context.Background(), reg, RunOptions{}, p)
+	ctx := withPlan(context.Background(), p)
+	if got, err := TokenScope(ctx, "local"); err != nil || !slices.Equal(got, []string{"local"}) {
+		t.Errorf("TokenScope(local) = %v, %v; want [local]", got, err)
+	}
+	if _, err := TokenScope(ctx, "qa"); err == nil {
+		t.Error("TokenScope(qa) admitted a profile outside the fence")
+	}
+	if f := localFenced(ctx, p.Fence, []string{"local", "dev"}); f.Allows("local") {
+		t.Error("a multi-profile token was widened to the local row")
 	}
 }
 

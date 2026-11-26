@@ -318,7 +318,7 @@ func routerKey(ctx context.Context, routerBase, profile string) (string, error) 
 func TokenScope(ctx context.Context, profile string, extra ...string) ([]string, error) {
 	fence := route.Fence{}
 	if plan, ok := PlanOf(ctx); ok {
-		fence = plan.Fence
+		fence = plan.admitLocal(plan.Fence, profile)
 	} else if f, err := proxy.ConfinementFence(ctx); err != nil {
 		return nil, fmt.Errorf("token scope: %w", err)
 	} else {
@@ -368,6 +368,7 @@ func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider 
 	if err != nil {
 		return "", err
 	}
+	f = localFenced(ctx, f, profiles)
 	fence, open := f.Profiles, f.Open
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
 	ctx = proxy.WithFence(ctx, fence, open)                          // one snapshot for the slot key and the mint
