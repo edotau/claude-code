@@ -115,6 +115,9 @@ func migrateMemoryDB(ctx context.Context, db *sql.DB, opts sqlite.MigrateOptions
 	return sqlite.Migrate(ctx, db, memorySteps, opts)
 }
 
+// SchemaVersion is the newest memory.db version this build knows.
+func SchemaVersion() int { return len(memorySteps) }
+
 // ShadowDBPath is the shadow store; paths.Protected keeps clean away from it and its sidecars.
 func ShadowDBPath() string { return filepath.Join(paths.ConfigDir(), "state", "memory.db") }
 

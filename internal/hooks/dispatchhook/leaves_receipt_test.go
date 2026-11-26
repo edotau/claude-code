@@ -345,7 +345,7 @@ func TestHandbackMissingIDLooksUpRecord(t *testing.T) {
 // A tie is the ask's whole task by ask's grammar: flags may follow it, a `--` task counts, a substring or stdin never.
 func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 	const literal = "audit alpha <memory-recall> marker"
-	const recall = "\n\n<memory-recall>\n- x\nLoad one with: claude-code memory show <id>\n</memory-recall>"
+	const recall = "\n\n<memory-recall>\n- x\nLoad one with: claude-code memory search --id <id>\n</memory-recall>"
 	brief := filepath.Join(t.TempDir(), "brief.md")
 	if err := os.WriteFile(brief, []byte("audit alpha\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -361,6 +361,7 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 	}{
 		{"equal task", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha", true},
 		{"recall block appended", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha" + recall, true},
+		{"legacy recall footer", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha" + strings.ReplaceAll(recall, "memory search --id", "memory show"), true},
 		{"literal marker in brief", `claude-code agents ask --agent codex "` + literal + `"`, literal, true},
 		{"literal marker is not a prefix tie", `claude-code agents ask --agent codex "audit alpha"`, literal, false},
 		{"flag after the task", "claude-code agents ask --agent codex mine --timeout 1m", "mine", true},

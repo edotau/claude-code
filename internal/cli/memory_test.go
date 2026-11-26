@@ -761,3 +761,30 @@ func TestImportReplaceFile(t *testing.T) {
 		t.Fatalf("after a matching hash the note holds %q, want the source's", b)
 	}
 }
+
+// `memory search --id` matches `memory show`: stdout and exit code equal, stderr equal bar the verb's name.
+func TestMemorySearchIDMatchesShow(t *testing.T) {
+	memCfg(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Chdir(t.TempDir())
+	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", body)
+	for _, tc := range []struct {
+		name         string
+		show, search []string
+	}{
+		{"found", []string{"show", "abcd1234"}, []string{"search", "--id", "abcd1234"}},
+		{"unknown id", []string{"show", "ffffffff"}, []string{"search", "--id", "ffffffff"}},
+		{"extra term", []string{"show", "abcd1234", "x"}, []string{"search", "--id", "abcd1234", "x"}},
+		{"no id", []string{"show"}, []string{"search", "--id", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wantCode, wantOut, wantErr := memCLI(t, tc.show...)
+			code, out, errOut := memCLI(t, tc.search...)
+			wantErr = strings.ReplaceAll(wantErr, "memory show", "memory search --id")
+			if code != wantCode || out != wantOut || errOut != wantErr {
+				t.Errorf("search --id = (%d, %q, %q); show = (%d, %q, %q)", code, out, errOut, wantCode, wantOut, wantErr)
+			}
+		})
+	}
+}

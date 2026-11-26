@@ -242,8 +242,8 @@ func applyOp(d Doc, o Op, env Env) (Doc, OpResult) {
 
 func (e DocEntry) block() string { return strings.Join(e.Lines, "\n") }
 
-// refOf is the ref an entry answers to: its stored id, else its contentRef.
-func (e DocEntry) refOf() string {
+// Ref is the ref an entry answers to: its stored id, else its contentRef.
+func (e DocEntry) Ref() string {
 	if e.ID != "" {
 		return e.ID
 	}
@@ -254,6 +254,13 @@ func docEntry(lines []string) DocEntry {
 	e := newEntry(lines[0], 0)
 	e.Lines, e.ID = lines, entryID(lines)
 	return e
+}
+
+// rewritten is e with new lines: it keeps its position and the store row it came from.
+func (e DocEntry) rewritten(lines []string) DocEntry {
+	n := docEntry(lines)
+	n.Seq, n.Row = e.Seq, e.Row
+	return n
 }
 
 func (d Doc) hasID(id string) bool {
@@ -356,7 +363,7 @@ func appendEntry(ents []DocEntry, lines []string) []DocEntry {
 		if n > 1 && endsBlank(ents[n-2].Lines) && !endsBlank(prev) {
 			prev = append(slices.Clone(prev), "")
 		}
-		ents[n-1] = docEntry(slices.Clone(prev))
+		ents[n-1] = ents[n-1].rewritten(slices.Clone(prev))
 	}
 	if tail {
 		lines = append(slices.Clone(lines), "")
@@ -491,7 +498,7 @@ func opAdd(d Doc, o Op, env Env) (Doc, OpResult) {
 		return d, failed("%v", err)
 	}
 	if dup, ok := d.duplicateOf(lines); ok {
-		return d, OpResult{ID: dup.refOf(), Outcome: DreamNoop, Reason: "duplicate"}
+		return d, OpResult{ID: dup.Ref(), Outcome: DreamNoop, Reason: "duplicate"}
 	}
 	if lines, err = d.withID(lines, env); err == nil {
 		d.Entries, err = d.place(slices.Clone(d.Entries), o, lines)
@@ -499,7 +506,7 @@ func opAdd(d Doc, o Op, env Env) (Doc, OpResult) {
 	if err != nil {
 		return d, failed("%v", err)
 	}
-	return d, OpResult{ID: docEntry(lines).refOf(), Outcome: DreamOK}
+	return d, OpResult{ID: docEntry(lines).Ref(), Outcome: DreamOK}
 }
 
 // pointerLines are the supersede and replaced-by lines an update keeps.
@@ -567,10 +574,9 @@ func opUpdate(d Doc, o Op, env Env) (Doc, OpResult) {
 		return d, failed("%v", err)
 	}
 	ents := slices.Clone(d.Entries)
-	ents[i] = docEntry(lines)
-	ents[i].Seq = i
+	ents[i] = ents[i].rewritten(lines)
 	d.Entries = ents
-	return d, OpResult{ID: ents[i].refOf(), Outcome: DreamOK}
+	return d, OpResult{ID: ents[i].Ref(), Outcome: DreamOK}
 }
 
 // markLines strikes an old entry's title and adds its "Replaced by" pointer, as RememberSupersedes does.
@@ -590,19 +596,19 @@ func opSupersede(d Doc, o Op, env Env) (Doc, OpResult) {
 	if isSupersededBlock(old.block()) {
 		return d, failed("already superseded")
 	}
-	lines, err := d.bodyLines(o, env, old.refOf())
+	lines, err := d.bodyLines(o, env, old.Ref())
 	if err != nil {
 		return d, failed("%v", err)
 	}
 	if _, dup := d.duplicateOf(lines); dup {
-		return d, OpResult{ID: old.refOf(), Outcome: DreamNoop, Reason: "duplicate"}
+		return d, OpResult{ID: old.Ref(), Outcome: DreamNoop, Reason: "duplicate"}
 	}
 	if lines, err = d.withID(lines, env); err != nil {
 		return d, failed("%v", err)
 	}
-	newRef := docEntry(lines).refOf()
+	newRef := docEntry(lines).Ref()
 	ents := slices.Clone(d.Entries)
-	ents[i] = docEntry(markLines(old, newRef, env.Now))
+	ents[i] = old.rewritten(markLines(old, newRef, env.Now))
 	if d.Entries, err = d.place(ents, o, lines); err != nil {
 		return d, failed("%v", err)
 	}
@@ -615,7 +621,7 @@ func removeEntry(ents []DocEntry, i int) []DocEntry {
 	gone := ents[i]
 	ents = slices.Delete(ents, i, i+1)
 	if last && i > 0 && endsBlank(gone.Lines) && !endsBlank(ents[i-1].Lines) {
-		ents[i-1] = docEntry(append(slices.Clone(ents[i-1].Lines), ""))
+		ents[i-1] = ents[i-1].rewritten(append(slices.Clone(ents[i-1].Lines), ""))
 	}
 	return reseq(ents)
 }
@@ -637,13 +643,12 @@ func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
 	}
 	ents := slices.Clone(d.Entries)
 	if d.Grammar == GrammarDated {
-		ents[i] = docEntry(markLines(e, o.By, env.Now))
-		ents[i].Seq = i
+		ents[i] = e.rewritten(markLines(e, o.By, env.Now))
 	} else {
 		ents = removeEntry(ents, i)
 	}
 	d.Entries = ents
-	return d, OpResult{ID: e.refOf(), Outcome: DreamOK}
+	return d, OpResult{ID: e.Ref(), Outcome: DreamOK}
 }
 
 // retypeSuperseded turns a dated entry's legacy pointer to o.By into the typed form; other grammars stay refused.
@@ -655,7 +660,7 @@ func retypeSuperseded(d Doc, i int, o Op, env Env) (Doc, OpResult) {
 	if d.Grammar != GrammarDated || ptr == "" || cur.Hex != by.Hex || cur.Derived != by.Derived {
 		return d, failed("already superseded")
 	}
-	same := OpResult{ID: e.refOf(), Outcome: DreamNoop, Reason: "already typed"}
+	same := OpResult{ID: e.Ref(), Outcome: DreamNoop, Reason: "already typed"}
 	if len(e.Lines) > 1 && datedPointerRe.MatchString(strings.TrimSpace(e.Lines[1])) && isSupersededTitle(e.Lines[0]) {
 		return d, same
 	}
@@ -665,10 +670,9 @@ func retypeSuperseded(d Doc, i int, o Op, env Env) (Doc, OpResult) {
 		return d, same
 	}
 	ents := slices.Clone(d.Entries)
-	ents[i] = docEntry(lines)
-	ents[i].Seq = i
+	ents[i] = e.rewritten(lines)
 	d.Entries = ents
-	return d, OpResult{ID: e.refOf(), Outcome: DreamOK}
+	return d, OpResult{ID: e.Ref(), Outcome: DreamOK}
 }
 
 type schemaObj = map[string]any
@@ -812,9 +816,9 @@ func applyBatchLocked(b Batch, base Versions, now time.Time) ([]OpResult, error)
 	if err != nil {
 		return nil, err
 	}
-	results := runBatchOps(docs, b, now)
-	if n := countFailedOps(results); n > 0 {
-		return results, fmt.Errorf("%d of %d ops failed: nothing written", n, len(b.Ops))
+	docs, results, err := ApplyDocs(docs, b, now)
+	if err != nil {
+		return results, err
 	}
 	return results, commitBatchDocs(docs, raw, now)
 }

@@ -65,7 +65,7 @@ func planDate(d Doc) []Op {
 			continue
 		}
 		if date := nearestDate(d.Entries, i); date != "" {
-			ops = append(ops, Op{Op: "date", ID: e.refOf(), Text: date})
+			ops = append(ops, Op{Op: "date", ID: e.Ref(), Text: date})
 		}
 	}
 	return dedupOps(ops)
@@ -94,7 +94,7 @@ func planIdentify(d Doc) []Op {
 	var ops []Op
 	for _, e := range d.Entries {
 		if e.ID == "" && strings.HasPrefix(e.Lines[0], prefix) {
-			ops = append(ops, Op{Op: "identify", ID: e.refOf()})
+			ops = append(ops, Op{Op: "identify", ID: e.Ref()})
 		}
 	}
 	return dedupOps(ops)
@@ -126,13 +126,13 @@ func upgradeOp(d Doc, o Op, env Env) (Doc, []OpResult) {
 		ents = mergeHeading(ents, o.Title)
 	case "date":
 		for i, e := range ents {
-			if e.refOf() == o.ID {
+			if e.Ref() == o.ID {
 				ents[i] = withLines(e, i, dateHeading(e.Lines, o.Text))
 			}
 		}
 	case "identify":
 		for i, e := range ents {
-			if e.refOf() == o.ID {
+			if e.Ref() == o.ID {
 				ents[i] = withLines(e, i, identified(d.Name, i, e.Lines, env))
 			}
 		}

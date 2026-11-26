@@ -60,7 +60,7 @@ func memoryCommandRows() [][2]string {
 
 // memoryPlumbing is the off-menu sub-verbs' {args, blurb} for their own -h pages.
 var memoryPlumbing = map[string][2]string{
-	"search":  {"<terms>", "rank blocks for terms, with scores"},
+	"search":  {"<terms> | --id <id>", "rank blocks for terms, with scores; --id prints one block"},
 	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
 	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
@@ -273,7 +273,7 @@ func memorySpec() *helptext.Node {
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
 		"dream":  {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run"), helptext.Plain("trigger")}},
-		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
+		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.Plain("id"), helptext.CompletionFormatFlag()}},
 		"show":   {},
 		"index":  {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
 		"path":   {},
@@ -332,6 +332,7 @@ type memoryQuery struct {
 	format     *string
 	sub, terms string
 	termCount  int
+	id         *string // search only: --id, which allows an empty query
 }
 
 func newMemoryQuery(sub string, k int) *memoryQuery {
@@ -355,6 +356,10 @@ func (q *memoryQuery) parse(args []string) (code int, done bool) {
 	if err != nil {
 		return helptext.ExitCode(err), true
 	}
+	if helptext.Explicit(q.fs, "id") {
+		q.termCount = len(terms)
+		return 0, false
+	}
 	if len(terms) == 0 {
 		return helptext.Fail("memory %s: no query (usage: %s)", q.sub, memorySubPage(q.sub).Usage), true
 	}
@@ -366,8 +371,12 @@ func (q *memoryQuery) json() bool { return *q.format == helptext.JSON }
 
 func cmdMemorySearch(args []string) int {
 	q := newMemoryQuery("search", 8)
+	q.id = q.fs.String("id", "", "print the one block with this id (as memory show did)")
 	if code, done := q.parse(args); done {
 		return code
+	}
+	if helptext.Explicit(q.fs, "id") {
+		return memoryShowID(*q.id, q.termCount, q.json())
 	}
 	res := memory.Search(memory.SearchOptions{Query: q.terms, K: *q.k, Expand: q.termCount == 1 && !q.json()})
 	if res.Block != "" {
@@ -405,9 +414,21 @@ func cmdMemoryShow(args []string) int {
 	if fs.NArg() != 1 {
 		return helptext.FailUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
 	}
-	path, block, err := memory.Show(fs.Arg(0))
+	return printMemoryID("memory show", fs.Arg(0))
+}
+
+// memoryShowID is `memory search --id`: one id, no query terms; the access still logs as AccessShow.
+func memoryShowID(id string, extra int, json bool) int {
+	if id == "" || extra != 0 || json {
+		return helptext.FailUsage("memory search --id: give one block id (from `memory search` or a MEMORY.md region)")
+	}
+	return printMemoryID("memory search --id", id)
+}
+
+func printMemoryID(verb, id string) int {
+	path, block, err := memory.Show(id)
 	if err != nil {
-		return helptext.Fail("memory show %s: %v", fs.Arg(0), err)
+		return helptext.Fail("%s %s: %v", verb, id, err)
 	}
 	printMemoryBlock(path, block)
 	return 0

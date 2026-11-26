@@ -1022,7 +1022,8 @@ func askTask(seg string) (name, task string) {
 
 func withoutRecall(prompt string) string {
 	// Match AgentRecall's suffix, not a marker mentioned in the task.
-	if strings.HasSuffix(prompt, assets.MemoryRecallFooter()) {
+	legacy := strings.ReplaceAll(assets.MemoryRecallFooter(), "memory search --id", "memory show") // pre-2026-11-25 records
+	if strings.HasSuffix(prompt, assets.MemoryRecallFooter()) || strings.HasSuffix(prompt, legacy) {
 		if i := strings.LastIndex(prompt, "\n\n<memory-recall>\n- "); i >= 0 {
 			prompt = prompt[:i]
 		}

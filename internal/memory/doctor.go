@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/json/jsontext"
@@ -59,6 +60,40 @@ func statBank() bankStat {
 		}
 	}
 	return s
+}
+
+// roundTripProblems names each bank or note file whose ParseDoc then Render is not byte-equal; reads notes once.
+func roundTripProblems(s bankStat) []string {
+	var problems []string
+	check := func(label, name string, data []byte) {
+		if !bytes.Equal(ParseDoc(name, data).Render(), data) {
+			problems = append(problems, "home "+label+": round-trip differs — parse then render is not byte-equal")
+		}
+	}
+	for _, name := range bankFiles {
+		if data, ok := s.data[name]; ok {
+			check(name, name, data)
+		}
+	}
+	for _, dir := range noteDirs {
+		ents, err := os.ReadDir(paths.MemorySubDir(dir))
+		if err != nil {
+			continue
+		}
+		for _, e := range ents {
+			if !e.Type().IsRegular() || filepath.Ext(e.Name()) != ".md" {
+				continue
+			}
+			label := dir + "/" + e.Name()
+			data, err := os.ReadFile(paths.MemorySub(dir, e.Name()))
+			if err != nil {
+				problems = append(problems, "home "+label+" — unreadable, so round-trip not checked")
+				continue
+			}
+			check(label, e.Name(), data)
+		}
+	}
+	return problems
 }
 
 // DefaultStaleDays is the doctor's bank-staleness horizon.
@@ -186,7 +221,9 @@ func doctor(root string, staleDays int, now time.Time) []string {
 
 func doctorBank(root string, staleDays int, now time.Time) []string {
 	problems := indexProblems(now) // first: the session-start notice shows only the first problem
-	problems = append(problems, bankProblems("home", statBank(), staleDays, now)...)
+	stat := statBank()
+	problems = append(problems, bankProblems("home", stat, staleDays, now)...)
+	problems = append(problems, roundTripProblems(stat)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
 	if root != "" {

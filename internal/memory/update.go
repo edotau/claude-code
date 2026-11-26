@@ -797,7 +797,7 @@ func bankListing(historical bool) (string, Versions, error) {
 		}
 		fmt.Fprintf(&sb, "\n%s:\n", d.Name)
 		for _, e := range d.Entries[:min(len(d.Entries), maxListedEntries)] {
-			fmt.Fprintf(&sb, "- %s · %s\n", e.refOf(), textutil.CapRunes(e.Lines[0], maxListedRunes, "…"))
+			fmt.Fprintf(&sb, "- %s · %s\n", e.Ref(), textutil.CapRunes(e.Lines[0], maxListedRunes, "…"))
 		}
 	}
 	return sb.String(), base, nil
@@ -959,4 +959,77 @@ func handoffRunMarker(sessionID string) string {
 // stewardHandoffPath is the one path the steward's handoff for this session is written to.
 func stewardHandoffPath(sessionID string, now time.Time) string {
 	return paths.MemorySub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
+}
+
+// JobDream names the dream job in plan rechecks.
+const JobDream = "dream"
+
+// Failure classes a runner reports; auth and budget need the owner, so no automatic retry repeats them.
+const (
+	JobClassAuth   = "auth"
+	JobClassBudget = "budget"
+	JobClassQuota  = "quota"
+	JobClassFailed = "failed"
+)
+
+// JobResult is what the injected runner says about its run: the route that answered, a failure's class and fix.
+type JobResult struct {
+	Agent, Profile, Model, Class, Fix string
+	Local                             bool // a local-model run: lower trust, same caps and validation
+}
+
+type jobReportKey struct{}
+
+// WithJobReport gives the runner a report slot; the job reads it after o.Run returns.
+func WithJobReport(ctx context.Context) (context.Context, *JobResult) {
+	r := &JobResult{}
+	return context.WithValue(ctx, jobReportKey{}, r), r
+}
+
+// ReportJob fills ctx's report slot; a ctx without one (a test runner) drops it.
+func ReportJob(ctx context.Context, r JobResult) {
+	if p, ok := ctx.Value(jobReportKey{}).(*JobResult); ok {
+		*p = r
+	}
+}
+
+type jobOutputKey struct{}
+
+// WithJobOutput routes the runner's agent output, receipts and notes to w (the job's log tee).
+func WithJobOutput(ctx context.Context, w io.Writer) context.Context {
+	return context.WithValue(ctx, jobOutputKey{}, w)
+}
+
+// JobOutput is the writer set by WithJobOutput, else fallback (the runner's own stdout or stderr).
+func JobOutput(ctx context.Context, fallback io.Writer) io.Writer {
+	if w, ok := ctx.Value(jobOutputKey{}).(io.Writer); ok && w != nil {
+		return w
+	}
+	return fallback
+}
+
+type jobAnswerKey struct{}
+
+type jobAnswer struct {
+	schema string
+	text   *string
+}
+
+// WithJobAnswer asks the runner for one answer matching schema; the job reads *text after o.Run returns.
+func WithJobAnswer(ctx context.Context, schema string) (context.Context, *string) {
+	text := new(string)
+	return context.WithValue(ctx, jobAnswerKey{}, jobAnswer{schema, text}), text
+}
+
+// JobAnswerSchema is the schema ctx asks for; "" means a tools-on run with no structured answer.
+func JobAnswerSchema(ctx context.Context) string {
+	a, _ := ctx.Value(jobAnswerKey{}).(jobAnswer)
+	return a.schema
+}
+
+// AnswerJob fills ctx's answer slot; a ctx without one (a test runner) drops it.
+func AnswerJob(ctx context.Context, text string) {
+	if a, ok := ctx.Value(jobAnswerKey{}).(jobAnswer); ok {
+		*a.text = text
+	}
 }

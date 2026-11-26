@@ -1,3 +1,3 @@
 
-Load one with: claude-code memory show <id>
+Load one with: claude-code memory search --id <id>
 </memory-recall>

@@ -14,17 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-func TestJobToolsUnknownHoldsNone(t *testing.T) {
-	for _, kind := range []string{"digest", "nonsense", ""} {
-		if memory.JobTools(kind) {
-			t.Errorf("JobTools(%q) = true, want false", kind)
-		}
-	}
-	if !memory.JobTools(memory.JobUpdate) || !memory.JobTools(memory.JobDream) {
-		t.Error("update or dream reports no tools")
-	}
-}
-
 // planCall is one plan command a fake dream issues and what the verb does.
 type planCall struct {
 	cmd string

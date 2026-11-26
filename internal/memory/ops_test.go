@@ -181,7 +181,7 @@ func keepsUntouched(t *testing.T, in, out Doc, res []OpResult) {
 		named[r.ID], named[r.Op.ID] = true, true
 	}
 	for i, e := range in.Entries {
-		if named[e.refOf()] || i == len(in.Entries)-1 {
+		if named[e.Ref()] || i == len(in.Entries)-1 {
 			continue
 		}
 		if !slices.ContainsFunc(out.Entries, func(o DocEntry) bool { return slices.Equal(o.Lines, e.Lines) }) {

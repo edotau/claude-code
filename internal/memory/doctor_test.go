@@ -710,3 +710,12 @@ func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
 		}
 	})
 }
+
+func TestDoctorRoundTripRow(t *testing.T) {
+	tempConfig(t)
+	write(t, filepath.Join(paths.MemoryStoreDir(), "progress.md"), "# P\n\n- one\n")
+	write(t, filepath.Join(paths.MemorySubDir("notes"), "n.md"), "---\nname: n\n---\nbody\n")
+	if got := roundTripProblems(statBank()); len(got) != 0 {
+		t.Fatalf("clean store: got %v, want none", got)
+	}
+}

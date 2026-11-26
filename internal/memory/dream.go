@@ -395,7 +395,7 @@ func dreamListing() (string, Versions, map[string]string, map[string]Doc, error)
 			if e.Kind == KindHeading && docs[name].Grammar != GrammarDated {
 				continue
 			}
-			id := e.refOf()
+			id := e.Ref()
 			if _, seen := files[id]; seen {
 				files[id] = "" // ambiguous refs are not writable
 			} else {

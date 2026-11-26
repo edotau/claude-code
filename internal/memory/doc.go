@@ -29,6 +29,7 @@ type DocEntry struct {
 	Kind  Kind
 	Date  string // derived: YYYY-MM-DD of a "## YYYY-MM-DD — …" heading, else ""
 	Seq   int    // derived: 0-based position among the file's entries at parse
+	Row   int64  // the store row the entry was loaded from, kept through rewrites; 0 for none
 	Lines []string
 }
 

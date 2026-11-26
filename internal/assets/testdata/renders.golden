@@ -177,6 +177,10 @@ Peer session (claude pid 42) is editing this checkout (main); message it (find i
 notice (peer): text
 == HookNoticeDrainWarn ==
 notices: WARNING — could not drain this session's inbox (e); notices may be missing or repeat
+== HookFailureLine ==
+failure audit s: boom [claimed by x]
+== HookFailureClaim ==
+claim: claude-code failures claim abc
 == HookFailuresMore ==
 notice (failures): 2 more failures: claude-code failures ls
 == HookFailuresWarn ==
@@ -852,7 +856,7 @@ line two
 In Phase 5b add at most one record (id `fc-rtk-misses`) proposing an rtk rule or rewrite-word change for the top misses: target `rules/standards/rtk.md`, evidence one existing feedback/ or notes/ file about rtk plus `repeats` set to the top count; skip it if no such file exists.
 
 == MemoryBankHead ==
-Search: `claude-code memory search <terms>`
+Search: `claude-code memory search <terms>`; one block: `claude-code memory search --id <id>`
 Layout: one bank for every workspace; fold/ (see router)
 == MemoryMoreEntries ==
 - 4 more: see router, or `claude-code memory search <terms>`
