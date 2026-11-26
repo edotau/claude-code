@@ -1,0 +1,224 @@
+{
+  "claudeCode.useTerminal": true,
+  "claudeCode.claudeProcessWrapper": "__CLAUDE_BIN__/claude",
+  "claudeCode.disableLoginPrompt": true,
+  "claudeCode.hideOnboarding": true,
+  "claudeCode.attachOpenFile": false,
+  "claudeCode.attachSelection": false,
+  "claudeCode.preferredLocation": "sidebar",
+  "chat.useClaudeHooks": true,
+  "chatgpt.cliExecutable": "__CLAUDE_BIN__/codex",
+  "chatgpt.composerEnterBehavior": "cmdIfMultiline",
+  "chatgpt.reviewDelivery": "inline",
+  "chatgpt.followUpQueueMode": "steer",
+  "github.copilot.nextEditSuggestions.enabled": true,
+  "github.copilot.chat.anthropic.tools.websearch.enabled": true,
+  "github.copilot.chat.agent.autoFix": true,
+  "github.copilot.chat.switchAgent.enabled": true,
+  "github.copilot.chat.githubMcpServer.enabled": true,
+  "terminal.integrated.fontSize": 13.5,
+  "terminal.integrated.scrollback": 2000,
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.inheritEnv": false,
+  "terminal.integrated.copyOnSelection": true,
+  "terminal.integrated.sendKeybindingsToShell": false,
+  "terminal.integrated.enableMultiLinePasteWarning": "never",
+  "terminal.integrated.environmentChangesRelaunch": false,
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.persistentSessionReviveProcess": "never",
+  "terminal.integrated.stickyScroll.enabled": false,
+  "terminal.integrated.altClickMovesCursor": false,
+  "terminal.integrated.allowChords": false,
+  "terminal.integrated.profiles.linux": {
+    "bash": {
+      "path": "bash",
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash"
+    },
+    "Claude": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code claude"
+      ],
+      "env": {
+        "CLAUDE_CODE_NO_FLICKER": "1"
+      },
+      "icon": "sparkle",
+      "color": "terminal.ansiYellow"
+    },
+    "Codex": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code codex"
+      ],
+      "icon": "hubot",
+      "color": "terminal.ansiWhite"
+    },
+    "OpenCode": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code opencode"
+      ],
+      "icon": "terminal",
+      "color": "terminal.ansiCyan"
+    },
+    "Gemini": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code gemini"
+      ],
+      "icon": "star-full",
+      "color": "terminal.ansiBlue"
+    },
+    "Copilot": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code copilot"
+      ],
+      "icon": "copilot",
+      "color": "terminal.ansiMagenta"
+    }
+  },
+  "terminal.integrated.profiles.osx": {
+    "bash": {
+      "path": "bash",
+      "args": [
+        "-l"
+      ],
+      "icon": "terminal-bash"
+    },
+    "Claude": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code claude"
+      ],
+      "env": {
+        "CLAUDE_CODE_NO_FLICKER": "1"
+      },
+      "icon": "sparkle",
+      "color": "terminal.ansiYellow"
+    },
+    "Codex": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code codex"
+      ],
+      "icon": "hubot",
+      "color": "terminal.ansiWhite"
+    },
+    "OpenCode": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code opencode"
+      ],
+      "icon": "terminal",
+      "color": "terminal.ansiCyan"
+    },
+    "Gemini": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code gemini"
+      ],
+      "icon": "star-full",
+      "color": "terminal.ansiBlue"
+    },
+    "Copilot": {
+      "path": "bash",
+      "args": [
+        "-lic",
+        "exec __CLAUDE_BIN__/claude-code copilot"
+      ],
+      "icon": "copilot",
+      "color": "terminal.ansiMagenta"
+    }
+  },
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.defaultProfile.osx": "bash",
+  "terminal.integrated.defaultLocation": "editor",
+  "terminal.integrated.rightClickBehavior": "copyPaste",
+  "workbench.colorTheme": "Monokai",
+  "editor.fontSize": 12.5,
+  "editor.wordWrap": "off",
+  "[markdown]": {
+    "editor.wordWrap": "off"
+  },
+  "terminal.external.osxExec": "Ghostty.app",
+  "settingsSync.ignoredSettings": ["terminal.integrated.commandsToSkipShell", "chat.mcp.access", "terminal.external.osxExec"],
+  "terminal.integrated.tabs.title": "${shellType}",
+  "chat.agentFilesLocations": {".github/agents": true, ".claude/agents": true, "~/.copilot/agents": false},
+  "chat.instructionsFilesLocations": {".github/instructions": true, ".claude/rules": true, "~/.copilot/instructions": true, "~/.claude/rules": true},
+  "chat.mcp.discovery.enabled": {"claude-desktop": true},
+  "claudeCode.allowDangerouslySkipPermissions": true,
+  "github.copilot.enable": {"golang": true, "markdown": true, "python": true},
+  "go.alternateTools": {"go": "~/.local/go/bin/go"},
+  "go.toolsEnvVars": {"GOTOOLCHAIN": "auto"},
+  "github.copilot.chat.responsesApiContextManagement.enabled": true,
+  "github.copilot.chat.localeOverride": "en",
+  "terminal.integrated.cursorBlinking": true,
+  "terminal.integrated.gpuAcceleration": "off",
+  "terminal.integrated.macOptionClickForcesSelection": true,
+  "terminal.integrated.mouseWheelScrollSensitivity": 2,
+  "terminal.integrated.persistentSessionScrollback": 5000,
+  "terminal.integrated.showLinkHover": false,
+  "workbench.startupEditor": "terminal",
+  "remote.SSH.enableRemoteCommand": true,
+  "remote.SSH.useCurlAndWgetConfigurationFiles": true,
+  "remote.autoForwardPortsSource": "hybrid",
+  "remote.defaultExtensionsIfInstalledLocally": ["GitHub.copilot", "GitHub.copilot-chat", "GitHub.vscode-pull-request-github"],
+  "remote.portsAttributes": {"443": {"protocol": "https"}, "8443": {"protocol": "https"}},
+  "workbench.colorCustomizations": {
+    "activityBar.background": "#300a24",
+    "editor.background": "#300a24",
+    "editorGroup.border": "#40404055",
+    "editorGroupHeader.tabsBackground": "#300a24",
+    "panel.border": "#40404055",
+    "sideBar.background": "#300a24",
+    "sideBar.border": "#40404055",
+    "sideBarSectionHeader.background": "#300a24",
+    "statusBar.background": "#300a24",
+    "terminal.ansiBlue": "#0b61e2",
+    "terminal.ansiBrightBlack": "#808080",
+    "terminal.ansiBrightBlue": "#0b61e2",
+    "terminal.ansiBrightCyan": "#72e1fa",
+    "terminal.ansiBrightGreen": "#15f306",
+    "terminal.ansiBrightMagenta": "#72e1fa",
+    "terminal.ansiBrightWhite": "#FFFFFF",
+    "terminal.ansiBrightYellow": "#FBF305",
+    "terminal.ansiCyan": "#02ABEA",
+    "terminal.ansiGreen": "#15f306",
+    "terminal.ansiMagenta": "#00d0ff",
+    "terminal.ansiRed": "#15f306",
+    "terminal.ansiWhite": "#C0C0C0",
+    "terminal.ansiYellow": "#FBF305",
+    "terminal.background": "#300a24",
+    "terminal.foreground": "#C0C0C0",
+    "terminal.selectionBackground": "#5f5961",
+    "terminal.selectionForeground": "#FFFFFF",
+    "terminalCursor.background": "#C0C0C0",
+    "terminalCursor.foreground": "#C0C0C0",
+    "titleBar.activeBackground": "#2C0D24"
+  },
+  "workbench.preferredHighContrastColorTheme": "Ubuntu Color Theme",
+  "githubIssues.queries": [
+    {"label": "My Issues", "query": "is:open assignee:${user} repo:${owner}/${repository}"},
+    {"label": "Created Issues", "query": "author:${user} state:open repo:${owner}/${repository} sort:created-desc"}
+  ],
+  "githubPullRequests.queries": [
+    {"label": "Waiting For My Review", "query": "is:open review-requested:${user}"},
+    {"label": "Assigned To Me", "query": "is:open assignee:${user}"},
+    {"label": "Created By Me", "query": "is:open author:${user}"}
+  ],
+  "githubPullRequests.pullBranch": "never",
+  "githubIssues.issueBranchTitle": "${user}/issue${issueNumber}"
+}
