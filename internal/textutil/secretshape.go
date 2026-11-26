@@ -111,6 +111,11 @@ func HasAnyPrefix(v string, prefixes ...string) bool {
 	return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(v, p) })
 }
 
+// ContainsAny reports whether s contains any of subs.
+func ContainsAny(s string, subs ...string) bool {
+	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
+}
+
 // gitHubPrefixes are every GitHub token family: OAuth, PAT, user-to-server, server-to-server, refresh, fine-grained.
 var gitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pat_"}
 

@@ -1,1 +1,1 @@
-internal/agentconfig/project/fresh.go:writeScratch	projections
+internal/agentconfig/project/sync.go:writeScratch	projections

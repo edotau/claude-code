@@ -188,10 +188,6 @@ func configUsage() {
 	fs.Usage()
 }
 
-func findClaude() (string, error) {
-	return paths.NativeClaude()
-}
-
 // rescueDeny is what rescue drops beyond proc.ScrubDeny, so only the scratch settings steer claude.
 var rescueDeny = []string{"HARNESS_*", "ANTHROPIC_*", "CLAUDE_CODE_USE_*", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"}
 
@@ -219,7 +215,7 @@ func rescue(args []string) int {
 		return 2
 	}
 	argv := append([]string{"--settings", file}, fs.Args()...)
-	bin, ferr := findClaude()
+	bin, ferr := paths.NativeClaude()
 	if print {
 		fmt.Printf("# %s\n%s\n# command\nclaude %s\n", file, res.Text, strings.Join(argv, " "))
 		return 0

@@ -212,15 +212,8 @@ func pickOrder(tier string) func(a, b Ranked) int {
 		if tier == "fast" {
 			first, second = second, first
 		}
-		known := cmp.Compare(boolRank(b.Known), boolRank(a.Known))
+		known := cmp.Compare(btoi(b.Known), btoi(a.Known))
 		lift, speed := cmp.Compare(b.lift, a.lift), cmp.Compare(cmp.Or(a.speed, fitNoSpeed), cmp.Or(b.speed, fitNoSpeed))
 		return cmp.Or(known, lift, speed, first, second, cmp.Compare(a.order, b.order), strings.Compare(a.Model, b.Model))
 	}
-}
-
-func boolRank(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

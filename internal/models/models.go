@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // AliasNames are Claude Code's model aliases; each maps to ANTHROPIC_DEFAULT_<SLOT>_MODEL.
@@ -275,7 +277,7 @@ func UseCase(id, name string) string {
 		return useAuto
 	}
 	for _, k := range kindKeywords {
-		if containsAny(s, k.words...) {
+		if textutil.ContainsAny(s, k.words...) {
 			return k.use
 		}
 	}
@@ -283,9 +285,9 @@ func UseCase(id, name string) string {
 		return use
 	}
 	switch {
-	case containsAny(s, "gemini", "gemma"):
+	case textutil.ContainsAny(s, "gemini", "gemma"):
 		return geminiUseCase(s)
-	case containsAny(s, "gpt", "o1", "o3", "o4"):
+	case textutil.ContainsAny(s, "gpt", "o1", "o3", "o4"):
 		return gptUseCase(s)
 	default:
 		return useGeneral
@@ -307,11 +309,11 @@ var familyUse = map[string]string{Fable: useFrontier, Opus: useAgentic, Sonnet: 
 
 func geminiUseCase(s string) string {
 	switch {
-	case containsAny(s, "flash-lite", "gemma", "nano"):
+	case textutil.ContainsAny(s, "flash-lite", "gemma", "nano"):
 		return useHighVol
-	case containsAny(s, "-pro"):
+	case textutil.ContainsAny(s, "-pro"):
 		return useAgentic
-	case containsAny(s, "-flash"):
+	case textutil.ContainsAny(s, "-flash"):
 		return useBalanced
 	default:
 		return useGeneral
@@ -320,22 +322,13 @@ func geminiUseCase(s string) string {
 
 func gptUseCase(s string) string {
 	switch {
-	case containsAny(s, "mini", "nano"):
+	case textutil.ContainsAny(s, "mini", "nano"):
 		return useHighVol
-	case containsAny(s, "o1", "o3", "o4") || containsAny(s, "-pro", "high"):
+	case textutil.ContainsAny(s, "o1", "o3", "o4") || textutil.ContainsAny(s, "-pro", "high"):
 		return useFrontier
 	default:
 		return useAgentic
 	}
-}
-
-func containsAny(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
 }
 
 // Effort tiers; router.EffortTierSignal returns them.
@@ -354,4 +347,57 @@ func AliasModel(alias string) string {
 		return Sonnet
 	}
 	return ""
+}
+
+// Type is the agent type a row, label and receipt show: a fixed name, or else the model's family name.
+type Type string
+
+const (
+	TypeClaude  Type = "claude"
+	TypeCodex   Type = "codex"
+	TypeCopilot Type = "copilot"
+	TypeGemini  Type = "gemini"
+	// TypeCoworker is a Pi code-mode run, shown "coworker".
+	TypeCoworker Type = "coworker"
+)
+
+// openWeightsGPT is the one GPT-prefixed family that is not OpenAI's GPT and keeps its own name.
+const openWeightsGPT = "gpt-oss"
+
+// AgentType is code mode, a GitHub Copilot route, else the model's family; "" when none (the caller's agent then).
+func AgentType(routeProvider, model string, codeMode bool) Type {
+	switch {
+	case codeMode:
+		return TypeCoworker
+	case routeProvider == "github" || routeProvider == "copilot":
+		return TypeCopilot
+	}
+	switch FamilyKind(model) {
+	case FamilyClaude:
+		return TypeClaude
+	case FamilyGemini:
+		return TypeGemini
+	case FamilyGPT:
+		if !strings.HasPrefix(normID(model), openWeightsGPT) {
+			return TypeCodex
+		}
+	}
+	return Type(FamilyName(model))
+}
+
+// FamilyName is the id's family: the catalog's, else the first token; "" for an empty id or a bare version.
+func FamilyName(id string) string {
+	if canonical, _, ok := Resolve(id); ok {
+		if f := load().byID[canonical].Family; f != "" {
+			return f
+		}
+	}
+	n := strings.TrimPrefix(normID(id), "meta-")
+	if strings.HasPrefix(n, openWeightsGPT) {
+		return openWeightsGPT
+	}
+	if i := strings.IndexFunc(n, func(r rune) bool { return r < 'a' || r > 'z' }); i >= 0 {
+		n = n[:i]
+	}
+	return n
 }

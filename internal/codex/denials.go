@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // codexDenial names the layer that refused a failed shell call and its real control.
@@ -33,7 +34,7 @@ func codexDenial(command, output string, tools bool, sandbox string) (permission
 		return denial("os-sandbox", "sandbox network", `relaunch with overlay {"codexNetwork":true} to open sandbox network (all egress)`)
 	case strings.Contains(text, "blocked by policy"):
 		return denial("codex-rules", "$CODEX_HOME/rules", "a rule file outside this dispatch forbids it; edit that rule")
-	case containsAny(text, "operation not permitted", "read-only file system", "denied by sandbox", "sandbox denied"):
+	case textutil.ContainsAny(text, "operation not permitted", "read-only file system", "denied by sandbox", "sandbox denied"):
 		switch {
 		case !tools:
 			return denial("os-sandbox", "read-only sandbox", "relaunch with --tools; the read-only sandbox cannot write")
@@ -43,10 +44,6 @@ func codexDenial(command, output string, tools bool, sandbox string) (permission
 		return denial("os-sandbox", sandbox+" sandbox", "the OS refused beyond the sandbox; no harness control repairs it")
 	}
 	return permission.Denial{}, false
-}
-
-func containsAny(s string, subs ...string) bool {
-	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
 }
 
 // codexShellCommand is the command inside codex's `bash -lc '<cmd>'` wrapper, else command as given.

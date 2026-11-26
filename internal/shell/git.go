@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
@@ -240,8 +242,8 @@ func resolveIn(dir, path string) string {
 
 // FooterFileWritten reports a commit message file that the same command writes a footer line into first.
 func FooterFileWritten(cmd, cwd string) bool {
-	if !containsAny(cmd, "commit", "merge", "tag", "pr") || !containsAny(cmd, ">", "tee", "python", "node", "perl", "ruby", "php") ||
-		!containsAny(cmd, "-F", "--file", "-t", "body-file") {
+	if !textutil.ContainsAny(cmd, "commit", "merge", "tag", "pr") || !textutil.ContainsAny(cmd, ">", "tee", "python", "node", "perl", "ruby", "php") ||
+		!textutil.ContainsAny(cmd, "-F", "--file", "-t", "body-file") {
 		return false
 	}
 	files := map[string]bool{}
@@ -331,10 +333,6 @@ func stringLiterals(on bool, words []string) []string {
 		out = append(out, strings.FieldsFunc(w, func(r rune) bool { return r == '"' || r == '\'' || r == '`' })...)
 	}
 	return out
-}
-
-func containsAny(s string, subs ...string) bool {
-	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
 }
 
 func messageVerb(verb string) bool {

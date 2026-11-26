@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/textutil"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
@@ -159,9 +160,6 @@ func (t *ocTurn) tool(ev openCodeEvent) error {
 
 var openCodeWriteTools = map[string]bool{"write": true, "edit": true, "multiedit": true}
 
-// patchFileRE matches the files an apply_patch envelope adds, updates or moves to.
-var patchFileRE = regexp.MustCompile(`(?m)^\*\*\* (?:Add File|Update File|Move to): (.+?)\s*$`)
-
 // writtenPaths lists the files a completed write, edit or apply_patch call changed.
 func writtenPaths(ev openCodeEvent) []string {
 	in := ev.Part.State.Input
@@ -170,8 +168,10 @@ func writtenPaths(ev openCodeEvent) []string {
 	}
 	if patch, _ := in["patchText"].(string); ev.Part.Tool == "apply_patch" {
 		var out []string
-		for _, m := range patchFileRE.FindAllStringSubmatch(patch, -1) {
-			out = append(out, m[1])
+		for _, e := range textutil.PatchEdits(patch) {
+			if e.Kind != textutil.PatchDelete {
+				out = append(out, e.Path)
+			}
 		}
 		return out
 	}

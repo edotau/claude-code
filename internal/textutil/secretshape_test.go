@@ -162,3 +162,9 @@ func TestValidCredentialNeverEchoesFullValue(t *testing.T) {
 		}
 	}
 }
+
+func TestContainsAny(t *testing.T) {
+	if !ContainsAny("read-only file system", "denied", "only") || ContainsAny("abc", "x", "y") || ContainsAny("abc") {
+		t.Fatal("ContainsAny wrong")
+	}
+}

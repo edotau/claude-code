@@ -51,18 +51,15 @@ func agyLoginGoogleTools(p *providers.Provider, model string, names []string) er
 	if err != nil {
 		return err
 	}
+	profile := ""
+	if p != nil {
+		profile = p.Name
+	}
 	for _, t := range asked {
 		if _, ok := agySettingsKey[t]; !ok {
-			return &agent.PreflightError{Finding: agent.Finding{Check: "google-tools", Profile: profileName(p), Model: model,
+			return &agent.PreflightError{Finding: agent.Finding{Check: "google-tools", Profile: profile, Model: model,
 				Detail: "agy's own login has no setting for google tool " + string(t)}}
 		}
 	}
 	return nil
-}
-
-func profileName(p *providers.Provider) string {
-	if p == nil {
-		return ""
-	}
-	return p.Name
 }

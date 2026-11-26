@@ -227,7 +227,7 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 		if json.Unmarshal(raw, &e) == nil {
 			oe.Code, oe.Desc = e.Error, e.Description
 		} else {
-			oe.Body = clipBody(raw)
+			oe.Body = textutil.CapRunes(textutil.OneLine(string(raw)), 120, "…")
 		}
 		return reply, resp.StatusCode, oe
 	}
@@ -235,11 +235,6 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 		return reply, resp.StatusCode, fmt.Errorf("oauth: %s at %s: response had no access_token", r.op, r.host)
 	}
 	return reply, resp.StatusCode, nil
-}
-
-// clipBody is the first 120 runes of a non-JSON error body on one line, control bytes dropped.
-func clipBody(raw []byte) string {
-	return textutil.CapRunes(textutil.OneLine(string(raw)), 120, "…")
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime, past when it sent <= 0.
