@@ -62,7 +62,6 @@ var inventory = []struct {
 	{"memory/templates/conventions.md", "md", "MemoryConventionsSeed", func() []byte { return []byte(MemoryConventionsSeed()) }},
 	{"memory/templates/decisionLog.md", "md", "MemoryDecisionLogSeed", func() []byte { return []byte(MemoryDecisionLogSeed()) }},
 	{"memory/templates/progress.md", "md", "MemoryProgressSeed", func() []byte { return []byte(MemoryProgressSeed()) }},
-	{"memory/templates/projectContext.md", "md", "MemoryProjectContextSeed", func() []byte { return []byte(MemoryProjectContextSeed()) }},
 	{"memory/templates/sessionHistory.md", "md", "MemorySessionHistorySeed", func() []byte { return []byte(MemorySessionHistorySeed()) }},
 	{"memory/prompts/dream.md", "md", "MemoryDreamProcedure", func() []byte { return read("memory/prompts/dream.md") }},
 	{"memory/prompts/init.md", "md", "MemoryInitProcedure", func() []byte { return read("memory/prompts/init.md") }},

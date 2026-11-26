@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // ExportDB is the db side of the export guard; the shadow package implements it over the shadow store.
@@ -120,8 +122,12 @@ func ExportGuardLocked(db ExportDB, root string) (ExportReport, error) {
 }
 
 func guardEach(db ExportDB, root string, rels []string, inDB map[string]bool, rep *ExportReport) error {
+	holds, err := listHolds()
+	if err != nil {
+		return err
+	}
 	for _, rel := range rels {
-		if err := sweepHolds(db, filepath.Join(root, filepath.FromSlash(rel)), rel, rep); err != nil {
+		if err := sweepHolds(db, filepath.Join(root, filepath.FromSlash(rel)), rel, holds[rel], rep); err != nil {
 			return err
 		}
 		if err := guardOne(db, root, rel, inDB[rel], rep); err != nil {
@@ -171,21 +177,74 @@ func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error
 	if dbbSum == last {
 		return importExport(db, dest, rel, dbbSum, dbb, rep)
 	}
-	return conflictKeep(db, dest, rel, "both-changed", dbb, rep)
+	return bothChanged(db, dest, rel, last, disk, dbb, rep)
 }
 
-// conflictKeep saves the db side beside the file, one file per content, as a rebuild clears the db rows.
+// bothChanged merges an id-keyed log's two sides entry by entry; any other file keeps the db side as a conflict.
+func bothChanged(db ExportDB, dest, rel, last string, disk, dbb []byte, rep *ExportReport) error {
+	merged, ok := mergeSides(rel, historyVersion(storeRootOf(dest, rel), rel, last), disk, dbb)
+	if !ok {
+		return conflictKeep(db, dest, rel, "both-changed", dbb, rep)
+	}
+	if !bytes.Equal(merged, disk) {
+		placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
+		if stranded != "" {
+			return conflictKeepAs(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", dbb, rep)
+		}
+		if err != nil || !placed {
+			return err // an edit landed meanwhile: the db is untouched, so the next pass merges again
+		}
+	}
+	return importExport(db, dest, rel, sha256Hex(dbb), dbb, rep)
+}
+
+// HeldDir is the state folder for the guard's kept copies, mirroring bank-relative paths; never inside the bank.
+func HeldDir() string {
+	d := filepath.Join(paths.MemoryStateDir(), "held")
+	_ = os.MkdirAll(d, 0o700)
+	return d
+}
+
+// heldName is the held-dir name for a kept copy of bank file rel with suffix, its parent folder created.
+func heldName(rel, suffix string) (string, error) {
+	name := filepath.Join(HeldDir(), filepath.FromSlash(rel)) + suffix
+	return name, os.MkdirAll(filepath.Dir(name), 0o700)
+}
+
+// storeRootOf is the store root dest sits in as rel.
+func storeRootOf(dest, rel string) string {
+	return filepath.Clean(strings.TrimSuffix(dest, filepath.FromSlash(rel)))
+}
+
+// conflictKeep keeps the db side in the held dir and records the conflict, unless nothing would be lost.
 func conflictKeep(db ExportDB, dest, rel, kind string, dbb []byte, rep *ExportReport) error {
-	rep.touch(dest)
-	if err := keepSidecar(dest+".db-conflict-"+sha256Hex(dbb)[:12], dest, dbb); err != nil {
+	return conflictKeepAs(db, dest, rel, rel, kind, dbb, rep)
+}
+
+// conflictKeepAs is conflictKeep recording the conflict under doc.
+func conflictKeepAs(db ExportDB, dest, rel, doc, kind string, dbb []byte, rep *ExportReport) error {
+	cur, _ := os.ReadFile(dest) // the bank file as it stands after the write; absent reads as nil
+	if !worthKeeping(storeRootOf(dest, rel), rel, dbb, cur) {
+		if kind == "deleted-outside" { // the deletion itself is unsettled, so it stays listed with no copy
+			return conflict(db, doc, kind, rep)
+		}
+		return nil
+	}
+	name, err := heldName(rel, ".db-conflict-"+sha256Hex(dbb)[:12])
+	if err == nil {
+		err = keepSidecar(name, dbb)
+	}
+	if err != nil {
 		return fmt.Errorf("memory: export guard keep db side of %s: %w", rel, err)
 	}
-	return conflict(db, rel, kind, rep)
+	rep.touch(name)
+	rep.touch(HeldDir())
+	return conflict(db, doc, kind, rep)
 }
 
 // keepSidecar writes data at name only when absent or already equal; an edited sidecar gets a new unique name.
-func keepSidecar(name, dest string, data []byte) error {
-	tmp, err := writeTemp(dest, data)
+func keepSidecar(name string, data []byte) error {
+	tmp, err := writeTemp(name, data)
 	if err != nil {
 		return err
 	}
@@ -228,25 +287,14 @@ func importExport(db ExportDB, dest, rel, want string, dbb []byte, rep *ExportRe
 }
 
 func writeExport(db ExportDB, rel, dest, seen string, data []byte, sum string, rep *ExportReport) error {
-	rep.touch(dest)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-		return fmt.Errorf("memory: export guard mkdir %s: %w", rel, err)
-	}
-	same, err := unchanged(dest, seen)
-	if err != nil {
-		return fmt.Errorf("memory: export guard reread %s: %w", rel, err)
-	}
-	if !same {
-		return conflictKeep(db, dest, rel, "changed-during-export", data, rep)
-	}
-	swapped, stranded, err := swapIn(dest, data, seen)
+	placed, stranded, err := placeFile(dest, rel, seen, data, rep)
 	if stranded != "" {
-		return conflictKeep(db, dest, rel+strings.TrimPrefix(stranded, dest), "stranded-outside-copy", data, rep)
+		return conflictKeepAs(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", data, rep)
 	}
 	if err != nil {
-		return fmt.Errorf("memory: export guard write %s: %w", rel, err)
+		return err
 	}
-	if !swapped {
+	if !placed {
 		return conflictKeep(db, dest, rel, "changed-during-export", data, rep)
 	}
 	if err := db.MarkRendered(rel, sum); err != nil {
@@ -256,8 +304,58 @@ func writeExport(db ExportDB, rel, dest, seen string, data []byte, sum string, r
 	return nil
 }
 
-// swapIn moves dest aside and links the new file in; the kept hold lets sweepHolds catch an old-descriptor write.
-func swapIn(dest string, data []byte, seen string) (swapped bool, stranded string, err error) {
+// placeFile swaps data in at dest while dest still holds seen; placed is false when an outside edit got there first.
+func placeFile(dest, rel, seen string, data []byte, rep *ExportReport) (placed bool, stranded string, err error) {
+	rep.touch(dest)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return false, "", fmt.Errorf("memory: export guard mkdir %s: %w", rel, err)
+	}
+	same, err := unchanged(dest, seen)
+	if err != nil {
+		return false, "", fmt.Errorf("memory: export guard reread %s: %w", rel, err)
+	}
+	if !same {
+		return false, "", nil
+	}
+	hold := ""
+	if seen != "" {
+		if hold, err = heldName(rel, holdMark+seen[:12]); err != nil {
+			return false, "", fmt.Errorf("memory: export guard held dir %s: %w", rel, err)
+		}
+		rep.touch(hold)
+	}
+	swapped, kept, err := swapIn(dest, hold, data, seen)
+	if !swapped && kept != "" {
+		return false, kept, nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("memory: export guard write %s: %w", rel, err)
+	}
+	if kept != "" {
+		return true, "", dropNeedlessHold(dest, rel, kept, data)
+	}
+	return swapped, "", nil
+}
+
+// dropNeedlessHold removes a fresh hold whose bytes git or the new file already has: it would only fill the held dir.
+func dropNeedlessHold(dest, rel, hold string, data []byte) error {
+	old, err := os.ReadFile(hold)
+	if err != nil || worthKeeping(storeRootOf(dest, rel), rel, old, data) {
+		return nil // an unreadable hold stays for the sweep, which reports it
+	}
+	if err := os.Remove(hold); err != nil {
+		return fmt.Errorf("memory: export guard drop hold %s: %w", hold, err)
+	}
+	return nil
+}
+
+// strandedSuffix is a stranded hold's name past its bank file's held path, which conflictsTouch matches.
+func strandedSuffix(stranded, rel string) string {
+	return strings.TrimPrefix(stranded, filepath.Join(HeldDir(), filepath.FromSlash(rel)))
+}
+
+// swapIn moves dest aside to a hold from holdBase, then links data in; kept is the hold left, stranded if !swapped.
+func swapIn(dest, holdBase string, data []byte, seen string) (swapped bool, kept string, err error) {
 	tmp, err := writeTemp(dest, data)
 	if err != nil {
 		return false, "", err
@@ -270,7 +368,7 @@ func swapIn(dest string, data []byte, seen string) (swapped bool, stranded strin
 		ok, err := linkIn(tmp, dest)
 		return ok, "", err
 	}
-	hold, moved, err := holdAside(dest, seen)
+	hold, moved, err := holdAside(dest, holdBase)
 	if !moved {
 		return false, "", err
 	}
@@ -286,12 +384,12 @@ func swapIn(dest string, data []byte, seen string) (swapped bool, stranded strin
 		_ = linkBack(hold, dest) // fails when a newer outside file owns dest; hold keeps only the seen bytes
 		return false, "", err
 	}
-	return true, "", nil
+	return true, hold, nil
 }
 
-// holdAside hard-links dest to a fresh hold name, then drops the dest name unless a newer file took its place.
-func holdAside(dest, seen string) (hold string, moved bool, err error) {
-	hold, err = keepUnique(dest, dest+holdMark+seen[:12])
+// holdAside hard-links dest to a fresh hold name from base, then drops dest unless a newer file took its place.
+func holdAside(dest, base string) (hold string, moved bool, err error) {
+	hold, err = keepUnique(dest, base)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", false, nil
@@ -317,7 +415,7 @@ func holdAside(dest, seen string) (hold string, moved bool, err error) {
 
 const holdMark = ".export-old-"
 
-// keptCopyRE matches the basenames the guard writes for copies it never deletes.
+// keptCopyRE matches the basenames of the copies the guard keeps in the held dir.
 var keptCopyRE = regexp.MustCompile(`^(.+)\.(?:outside-[0-9a-f]{12}-[0-9a-z]+|export-old-[0-9a-f]{12}-[0-9a-z]+|db-conflict-[0-9a-f]{12}(?:-[0-9a-z]+)?)$`)
 
 // KeptCopyBase is the file a kept copy belongs to; ok is false unless the basename is exactly a kept-copy name.
@@ -329,22 +427,41 @@ func KeptCopyBase(rel string) (string, bool) {
 	return path.Join(path.Dir(rel), m[1]), true
 }
 
-// sweepHolds keeps every moved-aside copy; an editor open across an export writes into a kept copy, which is listed.
-func sweepHolds(db ExportDB, dest, rel string, rep *ExportReport) error {
-	entries, err := os.ReadDir(filepath.Dir(dest))
+// heldCopies lists the held dir once, mapping each bank rel to its kept copies' paths.
+func heldCopies() (map[string][]string, error) {
+	root := HeldDir()
+	out := map[string][]string{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if base, ok := KeptCopyBase(filepath.ToSlash(rel)); ok && err == nil {
+			out[base] = append(out[base], p)
+		}
+		return err
+	})
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("memory: export guard list %s: %w", filepath.Dir(dest), err)
+		return nil, fmt.Errorf("memory: export guard list held copies: %w", err)
 	}
+	return out, nil
+}
+
+// listHolds is heldCopies narrowed to the swap holds sweepHolds watches.
+func listHolds() (map[string][]string, error) {
+	all, err := heldCopies()
+	for rel, ps := range all {
+		prefix := path.Base(rel) + holdMark
+		all[rel] = slices.DeleteFunc(ps, func(p string) bool { return !strings.HasPrefix(filepath.Base(p), prefix) })
+	}
+	return all, err
+}
+
+// sweepHolds checks dest's holds: an old-descriptor write is merged into dest when it can be, else kept and listed.
+func sweepHolds(db ExportDB, dest, rel string, holds []string, rep *ExportReport) error {
 	prefix := filepath.Base(dest) + holdMark
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), prefix) {
-			continue
-		}
-		h := filepath.Join(filepath.Dir(dest), e.Name())
-		want, _, _ := strings.Cut(strings.TrimPrefix(e.Name(), prefix), "-")
+	for _, h := range holds {
+		want, _, _ := strings.Cut(strings.TrimPrefix(filepath.Base(h), prefix), "-")
 		cur, err := os.ReadFile(h)
 		if err != nil {
 			return fmt.Errorf("memory: export guard read held copy %s: %w", h, err)
@@ -352,16 +469,48 @@ func sweepHolds(db ExportDB, dest, rel string, rep *ExportReport) error {
 		if strings.HasPrefix(sha256Hex(cur), want) {
 			continue
 		}
-		rep.touch(dest)
-		if _, err := keepUnique(h, dest+".outside-"+sha256Hex(cur)[:12]); err != nil {
-			return fmt.Errorf("memory: export guard keep outside write %s: %w", h, err)
-		}
-		if err := os.Remove(h); err != nil { // the inode lives on under its kept name
-			return fmt.Errorf("memory: export guard release hold %s: %w", h, err)
-		}
-		if err := conflict(db, rel, "changed-during-export", rep); err != nil {
+		if err := releaseHold(db, dest, rel, h, want, cur, rep); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// releaseHold folds a written hold into dest, else keeps it as an outside copy when needed; then drops the hold.
+func releaseHold(db ExportDB, dest, rel, h, want string, cur []byte, rep *ExportReport) error {
+	root := storeRootOf(dest, rel)
+	disk, rerr := os.ReadFile(dest)
+	folded := false
+	if rerr == nil {
+		merged, ok := mergeSides(rel, historyVersion(root, rel, want), disk, cur)
+		if folded = ok && bytes.Equal(merged, disk); ok && !folded {
+			placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
+			if err != nil {
+				return err
+			}
+			folded = placed && stranded == ""
+		}
+	}
+	if folded || !worthKeeping(root, rel, cur, disk) {
+		return removeHold(h)
+	}
+	kept, err := heldName(rel, ".outside-"+sha256Hex(cur)[:12])
+	if err == nil {
+		_, err = keepUnique(h, kept)
+	}
+	if err != nil {
+		return fmt.Errorf("memory: export guard keep outside write %s: %w", h, err)
+	}
+	rep.touch(h)
+	if err := removeHold(h); err != nil { // the inode lives on under its kept name
+		return err
+	}
+	return conflict(db, rel, "changed-during-export", rep)
+}
+
+func removeHold(h string) error {
+	if err := os.Remove(h); err != nil {
+		return fmt.Errorf("memory: export guard release hold %s: %w", h, err)
 	}
 	return nil
 }
@@ -452,4 +601,233 @@ func unionSorted(a, b []string) []string {
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// worthKeeping is false when a copy would save nothing: its bytes are in the store's git history, or cur holds it all.
+func worthKeeping(root, rel string, data, cur []byte) bool {
+	return !entriesHeld(rel, data, cur) && !inHistory(root, rel, data)
+}
+
+// entriesHeld reports whether cur has data's preamble and every one of its entries, by id (by text when unstamped).
+func entriesHeld(rel string, data, cur []byte) bool {
+	if cur == nil {
+		return false
+	}
+	d, c := parseSide(ParseDoc(rel, data)), parseSide(ParseDoc(rel, cur))
+	if d.pre != c.pre {
+		return false
+	}
+	for _, k := range d.keys {
+		if e, ok := c.ents[k]; !ok || e.body != d.ents[k].body {
+			return false
+		}
+	}
+	return true
+}
+
+// historyBlobs lists the blob ids rel had in the store's git history, newest first; none without a repo.
+func historyBlobs(root, rel string) []string {
+	repo := storeRepo{Dir: root}
+	if !repo.Exists() {
+		return nil
+	}
+	out, err := repo.run("log", "--all", "--format=", "--raw", "--no-abbrev", "--", rel)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for _, ln := range splitLines(out) {
+		f := strings.Fields(ln)
+		if len(f) < 5 || !strings.HasPrefix(f[0], ":") {
+			continue
+		}
+		for _, id := range f[2:4] {
+			if strings.Trim(id, "0") != "" && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+// inHistory reports whether data is byte for byte a version of rel in the store's git history.
+func inHistory(root, rel string, data []byte) bool {
+	h := sha1.New()
+	fmt.Fprintf(h, "blob %d\x00", len(data))
+	h.Write(data)
+	return slices.Contains(historyBlobs(root, rel), hex.EncodeToString(h.Sum(nil)))
+}
+
+// historyMax bounds the versions historyVersion reads back.
+const historyMax = 8
+
+// historyVersion is the newest of rel's recent git versions whose sha256 starts with sum, or nil: the merge base.
+func historyVersion(root, rel, sum string) []byte {
+	if sum == "" {
+		return nil
+	}
+	gitDir := filepath.Join(root, ".git")
+	for i, id := range historyBlobs(root, rel) {
+		if i == historyMax {
+			break
+		}
+		out, err := proc.GitRawTimeout(root, "-C", root, "--git-dir="+gitDir, "cat-file", "blob", id)
+		if err == nil && strings.HasPrefix(sha256Hex([]byte(out)), sum) {
+			return []byte(out)
+		}
+	}
+	return nil
+}
+
+// mergeable reports a top-level or archived id-keyed log the grammar orders newest-first or appended.
+func mergeable(rel string) bool {
+	g := GrammarOf(rel)
+	top := !strings.Contains(rel, "/") || strings.HasPrefix(rel, "archive/")
+	return top && (g == GrammarDated || g == GrammarBullets)
+}
+
+// mergeEntry is a merge side entry: text without trailing blank lines, how many it had, whether it ended the file.
+type mergeEntry struct {
+	body string
+	tail int
+	last bool
+}
+
+// mergeSide is one version of a log: its preamble, its entry keys in order ("id:" or "text:"), and the entries.
+type mergeSide struct {
+	doc  Doc
+	pre  string
+	keys []string
+	ents map[string]mergeEntry
+	dup  bool // a key repeats, so entries cannot be matched one to one
+}
+
+func parseSide(d Doc) mergeSide {
+	s := mergeSide{doc: d, ents: map[string]mergeEntry{}}
+	s.pre = strings.TrimRight(strings.Join(slices.Concat(d.Front, []string{d.Header}, d.Hidden), "\n"), "\n")
+	for i, e := range d.Entries {
+		n := len(e.Lines)
+		for n > 1 && e.Lines[n-1] == "" {
+			n--
+		}
+		body := strings.Join(e.Lines[:n], "\n")
+		k := "text:" + body
+		if e.ID != "" {
+			k = "id:" + e.ID
+		}
+		if _, seen := s.ents[k]; seen {
+			s.dup = true
+		}
+		s.keys = append(s.keys, k)
+		s.ents[k] = mergeEntry{body: body, tail: len(e.Lines) - n, last: i == len(d.Entries)-1}
+	}
+	return s
+}
+
+// mergeSides unions a log's entries from file and other in file's order; ok is false on an edit both sides made.
+func mergeSides(rel string, base, file, other []byte) (merged []byte, ok bool) {
+	if !mergeable(rel) {
+		return nil, false
+	}
+	f, o := parseSide(ParseDoc(rel, file)), parseSide(ParseDoc(rel, other))
+	b := mergeSide{ents: map[string]mergeEntry{}, pre: "\x00"} // no base: nothing is known deleted or unedited
+	if base != nil {
+		b = parseSide(ParseDoc(rel, base))
+	}
+	if f.dup || o.dup || b.dup {
+		return nil, false
+	}
+	pre := f.doc
+	if f.pre != o.pre {
+		switch {
+		case f.pre == b.pre:
+			pre = o.doc
+		case o.pre != b.pre:
+			return nil, false
+		}
+	}
+	var out []mergeEntry
+	for _, k := range mergeOrder(f, o) {
+		e, keep, ok := resolveEntry(k, f, o, b)
+		if !ok {
+			return nil, false
+		}
+		if keep {
+			out = append(out, e)
+		}
+	}
+	return renderMerged(pre, out, f, o), true
+}
+
+// resolveEntry picks key k's entry three ways against base b; keep is false for a one-sided delete.
+func resolveEntry(k string, f, o, b mergeSide) (e mergeEntry, keep, ok bool) {
+	fe, inF := f.ents[k]
+	oe, inO := o.ents[k]
+	be, inB := b.ents[k]
+	switch {
+	case inF && inO && (fe.body == oe.body || (inB && oe.body == be.body)):
+		return fe, true, true
+	case inF && inO:
+		return oe, true, inB && fe.body == be.body
+	case inB: // one side dropped it: fine only when the other left it as it was
+		return mergeEntry{}, false, (inF && fe.body == be.body) || (inO && oe.body == be.body)
+	case inF:
+		return fe, true, true
+	}
+	return oe, true, true
+}
+
+// mergeOrder is file's keys, each key only other has placed after the file-only run that follows its shared anchor.
+func mergeOrder(f, o mergeSide) []string {
+	after := map[string][]string{} // shared key, "" for the start, to the other-only keys other has after it
+	var anchors []string
+	anchor := ""
+	for _, k := range o.keys {
+		if _, ok := f.ents[k]; ok {
+			anchor = k
+		} else if after[anchor] = append(after[anchor], k); len(after[anchor]) == 1 {
+			anchors = append(anchors, anchor)
+		}
+	}
+	var out []string
+	flush := func(a string) { out = append(out, after[a]...); delete(after, a) }
+	anchor = ""
+	for _, k := range f.keys {
+		if _, shared := o.ents[k]; shared {
+			flush(anchor)
+			anchor = k
+		}
+		out = append(out, k)
+	}
+	for _, a := range append([]string{anchor}, anchors...) { // the tail run, then any anchor file orders differently
+		flush(a)
+	}
+	return out
+}
+
+// renderMerged writes the entries under pre's preamble, separated as file separates them and ending as file ends.
+func renderMerged(pre Doc, ents []mergeEntry, f, o mergeSide) []byte {
+	sep, end := 0, 1
+	if pre.Grammar == GrammarDated {
+		sep = 1
+	}
+	for _, s := range []mergeSide{o, f} { // file's habits win over other's
+		if n := len(s.keys); n > 0 {
+			end = s.ents[s.keys[n-1]].tail
+			if n > 1 {
+				sep = s.ents[s.keys[0]].tail
+			}
+		}
+	}
+	d := Doc{Name: pre.Name, Grammar: pre.Grammar, Front: pre.Front, Header: pre.Header, Hidden: pre.Hidden}
+	for i, e := range ents {
+		tail := e.tail
+		if i == len(ents)-1 {
+			tail = end
+		} else if e.last {
+			tail = sep
+		}
+		d.Entries = append(d.Entries, DocEntry{Lines: append(strings.Split(e.body, "\n"), make([]string, tail)...)})
+	}
+	return d.Render()
 }

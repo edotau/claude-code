@@ -1,5 +1,5 @@
 
 ## Layout
 
-One bank for every workspace: the six typed files, MEMORY.md, index.md (pointer entries) and this catalog sit at the top.
+One bank for every workspace: the five typed files, MEMORY.md, index.md (pointer entries) and this catalog sit at the top.
 

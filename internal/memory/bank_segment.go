@@ -568,7 +568,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	return hits
 }
 
-// reservedNames is every filename a memory dir reserves; the six typed bank files are reserved by name too.
+// reservedNames is every filename a memory dir reserves; the five typed bank files are reserved by name too.
 var reservedNames = reservedNameSet()
 
 func reservedNameSet() map[string]bool {
@@ -748,7 +748,7 @@ var (
 	// entryTypes maps a typed bank file to its entry type.
 	entryTypes = map[string]string{
 		"decisionLog.md": "decision", "conventions.md": "convention", "progress.md": "progress",
-		"sessionHistory.md": "session", "activeContext.md": "context", "projectContext.md": "context",
+		"sessionHistory.md": "session", "activeContext.md": "context",
 	}
 )
 

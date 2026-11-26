@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
@@ -199,5 +200,32 @@ func TestPlanSnapshot(t *testing.T) {
 		if got := planSnapshot(file); got != want {
 			t.Errorf("planSnapshot(%q) = %q, want %q", body, got, want)
 		}
+	}
+}
+
+// A pushed commit covering a task's owns and subject, with no Task trailer, is reported and ticks nothing.
+func TestAuditOwnedSubjectReportsOnly(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	origin := t.TempDir()
+	hosttest.In(t, origin, "init", "-q", "--bare")
+	hosttest.In(t, repo, "remote", "add", "origin", origin)
+	plan := filepath.Join(Home(repo), "2026-10-05-d.md")
+	body := "- [ ] 2.1 Widget parser fix owns: w.go\n"
+	writeFile(t, plan, body)
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(plan, past, past); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteRel(t, repo, "w.go", "package w\n")
+	hosttest.In(t, repo, "add", "w.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "fix: widget parser fix")
+	hosttest.In(t, repo, "push", "-q", "origin", "main")
+	got, err := Audit(context.Background(), repo, AuditOpts{})
+	if err != nil || len(got.Changed) != 0 || readFile(t, plan) != body {
+		t.Fatalf("owned files + subject ticked: %+v %v\n%s", got.Changed, err, readFile(t, plan))
+	}
+	if !strings.Contains(auditProblems(got), "2026-10-05-d.md|2.1|owned files + subject, no Task trailer: not ticked") {
+		t.Fatalf("missing the candidate finding:\n%s", auditProblems(got))
 	}
 }

@@ -758,12 +758,14 @@ func TestCommitTicksPlansItself(t *testing.T) {
 	hosttest.WriteRel(t, dir, "b.txt", "changed\n")
 	req = commitReq(dir, "feat: b.txt", "b.txt")
 	req.Tasks = []string{"1.1"}
-	if _, err := commitRun(req); err == nil || !strings.Contains(err.Error(), "already ticked") {
-		t.Fatalf("a ticked task cannot be named again: %v", err)
+	out, err = commitRun(req)
+	message := hosttest.In(t, dir, "show", "-s", "--format=%B", "HEAD")
+	if err != nil || !strings.Contains(out, "already ticked") || strings.Contains(message, "Task:") {
+		t.Fatalf("a ticked task is a note and the commit goes on without its trailer: %v\n%s\n%s", err, out, message)
 	}
 }
 
-func TestCommitTaskTrailersValidateBeforeStaging(t *testing.T) {
+func TestCommitTaskTrailersNoteUnknownIDs(t *testing.T) {
 	dir := commitRepo(t)
 	name := time.Now().Format(time.DateOnly) + "-named.md"
 	plan := filepath.Join(plans.Home(dir), name)
@@ -771,22 +773,20 @@ func TestCommitTaskTrailersValidateBeforeStaging(t *testing.T) {
 	hosttest.WriteRel(t, dir, "fresh.txt", "new\n")
 	req := commitReq(dir, "feat: named", "fresh.txt")
 	req.Plan, req.Tasks = plan, []string{"1.1", "1.9"}
-	before := hosttest.In(t, dir, "rev-parse", "HEAD")
 	out, err := commitRun(req)
-	if err == nil || !strings.Contains(err.Error(), "nearest ids: 1.1, 1.2") {
-		t.Fatalf("unknown task: %s, %v", out, err)
+	if err != nil || !strings.Contains(out, "nearest ids: 1.1, 1.2") {
+		t.Fatalf("an unknown task is a note, not a refusal: %s, %v", out, err)
 	}
-	if got := hosttest.In(t, dir, "diff", "--cached", "--name-only"); strings.TrimSpace(got) != "" {
-		t.Fatalf("staged unknown task: %s", got)
+	message := hosttest.In(t, dir, "show", "-s", "--format=%B", "HEAD")
+	if !strings.Contains(message, "Task: "+strings.TrimSuffix(name, ".md")+" 1.1") || strings.Contains(message, "1.9") {
+		t.Fatalf("the known task keeps its trailer, the unknown one has none: %s", message)
 	}
-	if hosttest.In(t, dir, "rev-parse", "HEAD") != before {
-		t.Fatal("unknown task committed")
-	}
+	hosttest.WriteRel(t, dir, "fresh.txt", "newer\n")
 	req.Tasks = []string{"1.1", "1.2"}
 	if _, err := commitRun(req); err != nil {
 		t.Fatal(err)
 	}
-	message := hosttest.In(t, dir, "show", "-s", "--format=%B", "HEAD")
+	message = hosttest.In(t, dir, "show", "-s", "--format=%B", "HEAD")
 	for _, id := range req.Tasks {
 		if !strings.Contains(message, "Task: "+strings.TrimSuffix(name, ".md")+" "+id) {
 			t.Fatalf("missing trailer: %s", message)

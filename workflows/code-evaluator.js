@@ -85,10 +85,10 @@ const stepExt = (name, v, d, f) => {
   const { who, effort, profile, provider } = f
   // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
   const edit = d.tools === 'edit'
-  // one --overlay object; a bare profile stays --profile sugar because the overlay refuses a partial unit.
-  const ov = { agent: who, provider: provider || undefined, profile: provider ? profile || 'auto' : undefined, model: v.model || undefined, effort, fallback: 'agents', tools: true }
+  // one --overlay object; a lone profile rides it and takes the inherited overlay's provider.
+  const ov = { agent: who, provider: provider || undefined, profile: provider ? profile || 'auto' : profile || undefined, model: v.model || undefined, effort, fallback: 'agents', tools: true }
   const json = JSON.stringify(Object.fromEntries(Object.entries(ov).filter(([, x]) => x !== undefined)))
-  const ask = `claude-code agents ask --format json${!provider && profile ? ` --profile ${profile}` : ''} --overlay '${json.replace(/'/g, "'\\''")}'`
+  const ask = `claude-code agents ask --format json --overlay '${json.replace(/'/g, "'\\''")}'`
   const how = `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,

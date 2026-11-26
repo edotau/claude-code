@@ -839,6 +839,9 @@ for (const tools of ['edit', 'run', undefined]) {
     assert(stage.done('fix', {coworker:'ok', status:'ok', hops:[{agent:'claude'}], ran_on:'claude qa:model'}) !== null, 'receipt lost')
   }
 }
+const lone = stepOf({fix:{profile:'qa'}}, 'fix', {}, opt).task('work')
+const loneOv = lone.match(/claude-code agents ask --format json --overlay '([^']*)'/)
+assert(loneOv && !lone.includes('--profile ') && JSON.parse(loneOv[1]).profile === 'qa' && !('provider' in JSON.parse(loneOv[1])), 'lone profile left the overlay')
 let refused = false
 try { stepOf({fix:{profile:'qa'}}, 'fix', {}, {...opt, external:false}) }
 catch { refused = true }

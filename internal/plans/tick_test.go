@@ -276,7 +276,7 @@ func TestTickWrapsSha(t *testing.T) {
 	before := parseBytes(plan, []byte(original))
 	sha := "abcdef123456"
 	message := "feat: tasks\n\nTask: plan 1.1\nTask: plan 1.2\n"
-	out, ticked, _, ids := tickText("", plan, original, Commit{Sha: sha, Message: message}, true, nil)
+	out, ticked, _, ids := tickText("", plan, original, Commit{Sha: sha, Message: message}, true, "", nil)
 	if len(ticked) != 2 || !slices.Equal(ids, []string{"1.1", "1.2"}) {
 		t.Fatalf("ticked %v, ids %v", ticked, ids)
 	}
@@ -401,7 +401,7 @@ func TestTrunkTipFailsClosedWithoutTrunk(t *testing.T) {
 	}
 }
 
-// A commit made in a lane ticks nothing; cherry-picked, rebased or squashed onto trunk, its trailer ticks it once.
+// A lane commit only marks its task; cherry-picked, rebased or squashed onto trunk, its trailer ticks it once.
 func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "main")
@@ -415,8 +415,10 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 		hosttest.In(t, lane, "commit", "-q", "-m", "feat: "+f+"\n\nTask: 2026-10-05-p 1."+string(rune('1'+i)))
 	}
 	laneHead := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "HEAD"))
-	if res, _, err := TickCommit(lane, laneHead, nil, nil); err != nil || len(res) != 0 || strings.Contains(readFile(t, plan), "[x]") {
-		t.Fatalf("a lane commit must tick nothing: %+v %v", res, err)
+	res, _, err := TickCommit(lane, laneHead, nil, nil)
+	if err != nil || len(res) != 1 || res[0].Lane != "lane" || strings.Contains(readFile(t, plan), "[x]") ||
+		!strings.Contains(readFile(t, plan), "1.3 Three owns: c.go <!-- lane lane: "+laneHead[:7]+" -->") {
+		t.Fatalf("a lane commit marks its task in the lane and ticks nothing: %+v %v\n%s", res, err, readFile(t, plan))
 	}
 	hosttest.In(t, repo, "cherry-pick", "lane~2")
 	hosttest.In(t, repo, "merge", "--squash", "lane~1")
@@ -470,7 +472,7 @@ func TestReopenedTaskTicksOnlyOnNewCommit(t *testing.T) {
 	}
 }
 
-// A requested task id must resolve to exactly one open task, or the refusal says why and what is near.
+// An id resolves to one open task; a closed or unknown id is a note naming what is near; an ambiguous one refuses.
 func TestTaskTrailersRefusals(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "main")
@@ -490,9 +492,12 @@ func TestTaskTrailersRefusals(t *testing.T) {
 		{"9.1", filepath.Join(home, "2026-01-01-old.md"), "\n\nTask: 2026-01-01-old 9.1"},
 	}
 	for _, c := range cases {
-		got, err := TaskTrailers(repo, c.plan, []string{c.id})
-		if msg := got + fmt.Sprint(err); !strings.Contains(msg, c.want) {
-			t.Errorf("%q --plan %q: got %q, %v; want %q", c.id, c.plan, got, err, c.want)
+		got, notes, err := TaskTrailers(repo, c.plan, []string{c.id})
+		if msg := got + strings.Join(notes, "\n") + fmt.Sprint(err); !strings.Contains(msg, c.want) {
+			t.Errorf("%q --plan %q: got %q, %q, %v; want %q", c.id, c.plan, got, notes, err, c.want)
+		}
+		if strings.Contains(c.want, " and ") != (err != nil) {
+			t.Errorf("%q --plan %q: only an id open in two plans refuses, got %v", c.id, c.plan, err)
 		}
 	}
 }
@@ -710,7 +715,7 @@ func TestTaskTrailersRefuseUndiscoverablePlan(t *testing.T) {
 	writeFile(t, outside, "- [ ] 1.1 One\n")
 	writeFile(t, undated, "- [ ] 1.1 One\n")
 	for _, plan := range []string{outside, undated} {
-		if got, err := TaskTrailers(repo, plan, []string{"1.1"}); err == nil || !strings.Contains(err.Error(), "not a dated plan in") {
+		if got, _, err := TaskTrailers(repo, plan, []string{"1.1"}); err == nil || !strings.Contains(err.Error(), "not a dated plan in") {
 			t.Errorf("%s: got %q, %v, want a refusal", plan, got, err)
 		}
 	}

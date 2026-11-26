@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,24 +115,127 @@ func appendUnarchived(archive string, blocks []string) (bool, error) {
 	return writeIfStill(archive, existing, err == nil, []byte(appendedText(archive, string(existing), missing)), 0o600)
 }
 
-// writeIfStill writes next over path only while it holds seen; an outside edit stays, next kept as a listed guard copy.
+// writeIfStill writes next over path only while it holds seen; an outside edit stays, next held in state if needed.
 func writeIfStill(path string, seen []byte, existed bool, next []byte, mode os.FileMode) (bool, error) {
 	cur, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
 	if (err == nil) != existed || (err == nil && !bytes.Equal(cur, seen)) {
-		kept := path + ".db-conflict-" + sha256Hex(next)[:12]
-		if err := keepSidecar(kept, path, next); err != nil {
-			return false, fmt.Errorf("memory settle: keep %s: %w", kept, err)
-		}
-		if err := paths.SyncDir(filepath.Dir(kept)); err != nil {
-			return false, fmt.Errorf("memory settle: sync %s: %w", filepath.Dir(kept), err)
-		}
-		fmt.Fprintln(os.Stderr, "notice: memory settle kept an outside edit of", path, "and saved its own result as", kept)
-		return false, nil
+		return false, keepSettleResult(path, cur, next)
 	}
 	return true, paths.AtomicWrite(path, next, mode)
+}
+
+// keepSettleResult keeps a settle step's result beside an outside edit in the held dir, unless nothing would be lost.
+func keepSettleResult(path string, cur, next []byte) error {
+	root := paths.MemoryStoreDir()
+	rel, err := filepath.Rel(root, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		rel = filepath.Base(path)
+	}
+	rel = filepath.ToSlash(rel)
+	if !worthKeeping(root, rel, next, cur) {
+		return nil
+	}
+	kept, err := heldName(rel, ".db-conflict-"+sha256Hex(next)[:12])
+	if err == nil {
+		err = keepSidecar(kept, next)
+	}
+	if err != nil {
+		return fmt.Errorf("memory settle: keep %s: %w", kept, err)
+	}
+	if err := paths.SyncDir(filepath.Dir(kept)); err != nil {
+		return fmt.Errorf("memory settle: sync %s: %w", filepath.Dir(kept), err)
+	}
+	fmt.Fprintln(os.Stderr, "notice: memory settle kept an outside edit of", path, "and saved its own result as", kept)
+	return nil
+}
+
+// heldMaxAge and heldMaxPerFile bound the held dir: settle removes older copies and those past the newest per file.
+const (
+	heldMaxAge     = 7 * 24 * time.Hour
+	heldMaxPerFile = 20
+)
+
+// moveBankCopies moves kept copies an older build left in the bank into the held dir, keeping each inode.
+func moveBankCopies(root string) error {
+	var found []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return err
+		}
+		if rel, rerr := filepath.Rel(root, p); rerr == nil {
+			if _, ok := KeptCopyBase(filepath.ToSlash(rel)); ok {
+				found = append(found, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	for _, rel := range found {
+		err = errors.Join(err, moveBankCopy(root, rel))
+	}
+	return err
+}
+
+// moveBankCopy links the bank copy rel to the same name in the held dir (a unique one when taken), then drops it.
+func moveBankCopy(root, rel string) error {
+	src := filepath.Join(root, filepath.FromSlash(rel))
+	dst, err := heldName(rel, "")
+	if err != nil {
+		return err
+	}
+	if err = os.Link(src, dst); errors.Is(err, fs.ErrExist) {
+		_, err = keepUnique(src, dst)
+	}
+	if err != nil {
+		return fmt.Errorf("memory settle: move kept copy %s to the held dir: %w", rel, err)
+	}
+	return os.Remove(src)
+}
+
+// pruneHeld removes held copies older than heldMaxAge or past the newest heldMaxPerFile of their bank file.
+func pruneHeld(now time.Time) error {
+	byFile, err := heldCopies()
+	if err != nil {
+		return err
+	}
+	for _, ps := range byFile {
+		ages := make(map[string]time.Time, len(ps))
+		for _, p := range ps {
+			ages[p] = heldTime(p, now)
+		}
+		slices.SortFunc(ps, func(a, b string) int { return ages[b].Compare(ages[a]) })
+		for i, p := range ps {
+			if i >= heldMaxPerFile || now.Sub(ages[p]) > heldMaxAge {
+				err = errors.Join(err, os.Remove(p))
+			}
+		}
+	}
+	return err
+}
+
+// heldTime is when a held copy was kept: the keepUnique stamp ending its name, else its mtime.
+func heldTime(p string, now time.Time) time.Time {
+	name := filepath.Base(p)
+	stamp := name[strings.LastIndexByte(name, '-')+1:]
+	for cut := 1; cut <= 2 && cut < len(stamp); cut++ { // keepUnique appends a retry counter to the base-36 nanos
+		if n, err := strconv.ParseInt(stamp[:len(stamp)-cut], 36, 64); err == nil {
+			if t := time.Unix(0, n); t.After(now.AddDate(-10, 0, 0)) && t.Before(now.Add(time.Hour)) {
+				return t
+			}
+		}
+	}
+	if fi, err := os.Stat(p); err == nil {
+		return fi.ModTime()
+	}
+	return now
 }
 
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
@@ -182,6 +286,9 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	}
 	defer func() { err = errors.Join(err, closeDB()) }()
 	root := paths.MemoryStoreDir()
+	if err := moveBankCopies(root); err != nil {
+		return 0, err
+	}
 	ierr, held, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
 	if err != nil {
 		return 0, err
@@ -195,6 +302,9 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	gerr, _, err := guardPass(edb, root) // imports the file steps' result (the rotation) and exports the db
 	if err != nil {
 		return rotated, err
+	}
+	if err := pruneHeld(time.Now()); err != nil { // retention runs on the clock, not the settle stamp
+		return rotated, fmt.Errorf("memory settle: prune held copies: %w", err)
 	}
 	rep, rerr := refreshIndexFiles(now, extra)
 	if rerr != nil && !errors.Is(rerr, errIndexProblem) {
@@ -361,7 +471,7 @@ func restoreSnaps(snaps []fileSnapshot) error {
 	return rerr
 }
 
-// newestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
+// newestMtime is the newest mtime across dir's five typed files — the "did the update write?" probe.
 func newestMtime() time.Time {
 	var newest time.Time
 	for _, name := range bankFiles {

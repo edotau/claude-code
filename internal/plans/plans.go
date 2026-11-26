@@ -39,6 +39,8 @@ type Task struct {
 	Claim      string // inner text of a working:/finished: comment
 	Partial    []string
 	Reopened   string // trunk sha at the last reopen; a commit in its history never ticks the task again
+	Lane       string // the linked worktree a verified commit of the task sits in, until a main commit ticks it
+	LaneSha    string // that commit's short sha
 }
 
 // Plan is one markdown file's parsed checklist.
@@ -54,6 +56,7 @@ type Summary struct {
 	Dropped int
 	Total   int
 	Claims  []string
+	Lanes   []string
 	Partial int
 }
 
@@ -114,6 +117,9 @@ func parseBytes(path string, b []byte) Plan {
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
 		if m := reopenRe().FindStringSubmatch(text); m != nil {
 			t.Reopened = m[1]
+		}
+		if m := laneRe().FindStringSubmatch(text); m != nil {
+			t.Lane, t.LaneSha = m[1], m[2]
 		}
 		p.Tasks = append(p.Tasks, t)
 		i = end
@@ -695,6 +701,9 @@ func summarize(plan Plan) Summary {
 				label = t.Title
 			}
 			s.Claims = append(s.Claims, label+": "+t.Claim)
+		}
+		if t.Lane != "" && open(t) {
+			s.Lanes = append(s.Lanes, cmp.Or(t.ID, t.Title)+": in lane "+t.Lane+" ("+t.LaneSha+")")
 		}
 	}
 	return s

@@ -25,7 +25,7 @@ import (
 )
 
 // currentStateFiles are the bank files an older session must never touch.
-var currentStateFiles = []string{"activeContext.md", "progress.md", "conventions.md", "projectContext.md"}
+var currentStateFiles = []string{"activeContext.md", "progress.md", "conventions.md"}
 
 // snapshotFiles reads each of names in b; a missing file maps to nil.
 func snapshotFiles(names []string) map[string][]byte {
@@ -199,7 +199,7 @@ func agentUpdatePrompt(transcript, session, cwd string, historical bool) (string
 	}), nil
 }
 
-// bankPaths lists b's six typed file paths, comma-separated on one line.
+// bankPaths lists b's five typed file paths, comma-separated on one line.
 func bankPaths() string {
 	ps := make([]string, len(bankFiles))
 	for i, n := range bankFiles {
@@ -716,7 +716,7 @@ func withTags(o updateOptions, b Batch) Batch {
 }
 
 // currentStateTargets are the op targets an older session must never write.
-var currentStateTargets = []string{"activeContext", "progress", "conventions", "projectContext"}
+var currentStateTargets = []string{"activeContext", "progress", "conventions"}
 
 // askBatch runs the model with the batch schema, retrying once with the rejection message on an invalid answer.
 func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {

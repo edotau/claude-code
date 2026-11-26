@@ -86,9 +86,12 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
-	trailers, err := plans.TaskTrailers(tree.top, req.Plan, req.Tasks)
+	trailers, notes, err := plans.TaskTrailers(tree.top, req.Plan, req.Tasks)
 	if err != nil {
 		return err
+	}
+	for _, n := range notes { // an id no active plan holds open changes nothing, so the commit goes on
+		fmt.Fprintln(req.Out, n)
 	}
 	msg += trailers
 	if err := checkHolders(ctx, req, tree, set, dispatched); err != nil {

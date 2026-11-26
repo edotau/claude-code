@@ -31,7 +31,7 @@ var (
 	opNames      = []string{"add", "update", "supersede", "close", "noop"}
 	closeReasons = []string{"done", "stale", "superseded-by"}
 	targets      = []string{"activeContext", "progress", "decisionLog", "conventions", "sessionHistory",
-		"projectContext", "feedback", "note", "techdebt"}
+		"feedback", "note", "techdebt"}
 	sectionsOf = map[string][]string{
 		"activeContext": {"Current Focus", "Open Questions", "Blockers", "Next Steps", "Parked"},
 		"progress":      {"What Works", "In Progress", "What's Next", "Known Issues"},

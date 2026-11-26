@@ -513,7 +513,7 @@ func ExportConflicts() ([]string, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	copies, err := keptCopies(e.root)
+	copies, err := keptCopies(memory.HeldDir())
 	for _, c := range copies {
 		out = append(out, "copy "+c)
 	}
@@ -538,7 +538,7 @@ func keptCopies(root string) ([]string, error) {
 	return out, err
 }
 
-// ClearExportConflict deletes the kept copy id (a store path) and resolves its conflicts; the only copy remover.
+// ClearExportConflict deletes the kept copy id (a held-dir path) and resolves its conflicts.
 func ClearExportConflict(id string) error {
 	clean := path.Clean(id)
 	if clean == "." || path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
@@ -552,7 +552,7 @@ func ClearExportConflict(id string) error {
 	e := edb.(*exportDB)
 	base, isCopy := memory.KeptCopyBase(clean)
 	if isCopy {
-		if err := removeKeptCopy(e.root, clean); err != nil {
+		if err := removeKeptCopy(memory.HeldDir(), clean); err != nil {
 			return fmt.Errorf("memory: export clear %s: %w", clean, err)
 		}
 	}
@@ -564,7 +564,7 @@ func ClearExportConflict(id string) error {
 	return nil
 }
 
-// removeKeptCopy deletes rel when it is a regular file; os.Root keeps every step inside the store, symlinks included.
+// removeKeptCopy deletes rel when it is a regular file; os.Root keeps every step inside root, symlinks included.
 func removeKeptCopy(root, rel string) error {
 	r, err := os.OpenRoot(root)
 	if err != nil {

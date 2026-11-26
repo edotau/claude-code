@@ -399,7 +399,7 @@ func (r *reach) predates(born int64, c auditCommit, snapshot int) bool {
 	return c.at <= born || snapshot >= 0 && r.index(c.sha) >= snapshot
 }
 
-// ownedSubject ticks t from the first landed commit since the plan was written whose subject and files match.
+// ownedSubject reports a landed commit matching t's subject and files; an unnamed commit never ticks.
 func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) error {
 	words, owns, candidate := auditWords(t.Title), auditOwns(*t), ""
 	snapshot, born := a.landed.index(planSnapshot(plan)), planBorn(plan, !a.dry).Unix()
@@ -414,7 +414,8 @@ func (a *auditRun) ownedSubject(plan string, t *Task, history []auditCommit) err
 			candidate = c.sha[:7] + " " + c.subject
 		}
 		if ownedEvidence(a.root, owns, c.files) && a.landed.has(c.sha) {
-			return a.tick(plan, t, c.sha[:7], "owned files + subject")
+			a.report(plan, cmp.Or(t.ID, t.Title), "owned files + subject, no Task trailer: not ticked", c.sha[:7]+" "+c.subject)
+			return nil
 		}
 	}
 	problem := "open task: no landed evidence"

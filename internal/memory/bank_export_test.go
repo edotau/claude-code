@@ -93,6 +93,22 @@ func exportWrite(t *testing.T, root, rel, body string) {
 	}
 }
 
+// heldRead reads the held copy of bank file rel with suffix, which the guard keeps under the state dir.
+func heldRead(t *testing.T, rel, suffix string) string {
+	t.Helper()
+	return exportRead(t, HeldDir(), rel+suffix)
+}
+
+// heldGlob lists held copies of bank file rel whose suffix matches pattern, and fails on any copy left in the bank.
+func heldGlob(t *testing.T, rel, pattern string) []string {
+	t.Helper()
+	if m, _ := filepath.Glob(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)) + ".*-*"); len(m) != 0 {
+		t.Fatalf("kept copies in the bank: %v", m)
+	}
+	m, _ := filepath.Glob(filepath.Join(HeldDir(), filepath.FromSlash(rel)) + pattern)
+	return m
+}
+
 func exportGuard(t *testing.T, db *fakeExportDB) ExportReport {
 	t.Helper()
 	rep, err := ExportGuard(db, db.root)
@@ -131,23 +147,23 @@ func TestExportGuard(t *testing.T) {
 func TestExportGuardConflictAndDelete(t *testing.T) {
 	isolatedConfig(t)
 	root := paths.MemoryStoreDir()
-	db := &fakeExportDB{root: root, docs: map[string]string{"conventions.md": "# C\n"}, last: map[string]string{}}
+	db := &fakeExportDB{root: root, docs: map[string]string{"notes/c.md": "# C\n"}, last: map[string]string{}}
 	exportGuard(t, db)
-	db.docs["conventions.md"] = "# C\n\n- db edit\n"
-	exportWrite(t, root, "conventions.md", "# C\n\n- disk edit\n")
-	if rep := exportGuard(t, db); !slices.Equal(rep.Conflicts, []string{"conventions.md"}) ||
-		exportRead(t, root, "conventions.md") != "# C\n\n- disk edit\n" || db.docs["conventions.md"] != "# C\n\n- db edit\n" {
+	db.docs["notes/c.md"] = "# C\n\n- db edit\n"
+	exportWrite(t, root, "notes/c.md", "# C\n\n- disk edit\n")
+	if rep := exportGuard(t, db); !slices.Equal(rep.Conflicts, []string{"notes/c.md"}) ||
+		exportRead(t, root, "notes/c.md") != "# C\n\n- disk edit\n" || db.docs["notes/c.md"] != "# C\n\n- db edit\n" {
 		t.Fatalf("both moved = %+v, want a conflict with both sides untouched", rep)
 	}
-	if got := exportRead(t, root, "conventions.md.db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "notes/c.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db side kept as %q, want the db render", got)
 	}
-	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
+	if err := os.Remove(filepath.Join(root, "notes/c.md")); err != nil {
 		t.Fatal(err)
 	}
 	rep := exportGuard(t, db)
-	if _, err := os.Stat(filepath.Join(root, "conventions.md")); !errors.Is(err, fs.ErrNotExist) || !slices.Contains(rep.Conflicts, "conventions.md") ||
-		!slices.Contains(db.conflicts, "deleted-outside conventions.md") {
+	if _, err := os.Stat(filepath.Join(root, "notes/c.md")); !errors.Is(err, fs.ErrNotExist) || !slices.Contains(rep.Conflicts, "notes/c.md") ||
+		!slices.Contains(db.conflicts, "deleted-outside notes/c.md") {
 		t.Fatalf("outside delete = %+v (stat %v), want it left deleted and reported", rep, err)
 	}
 }
@@ -167,7 +183,7 @@ func TestExportGuardOutsideEditDuringSwap(t *testing.T) {
 	if got := exportRead(t, root, "conventions.md"); got != "# C\n\n- typed meanwhile\n" {
 		t.Fatalf("outside edit lost: %q", got)
 	}
-	if got := exportRead(t, root, "conventions.md.db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "conventions.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db side snapshot = %q", got)
 	}
 }
@@ -190,44 +206,68 @@ func TestExportGuardHoldsBankLock(t *testing.T) {
 func TestExportGuardOldDescriptorWrite(t *testing.T) {
 	isolatedConfig(t)
 	root := paths.MemoryStoreDir()
-	db := &fakeExportDB{root: root, docs: map[string]string{"conventions.md": "# C\n"}, last: map[string]string{}}
+	db := &fakeExportDB{root: root, docs: map[string]string{"notes/c.md": "# C\n\nold body\n"}, last: map[string]string{}}
 	exportGuard(t, db)
-	f, err := os.OpenFile(filepath.Join(root, "conventions.md"), os.O_WRONLY|os.O_APPEND, 0)
+	f, err := os.OpenFile(filepath.Join(root, "notes/c.md"), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	db.docs["conventions.md"] = "# C\n\n- db edit\n"
-	if rep := exportGuard(t, db); !slices.Equal(rep.Written, []string{"conventions.md"}) {
+	db.docs["notes/c.md"] = "# C\n\n- db edit\n"
+	if rep := exportGuard(t, db); !slices.Equal(rep.Written, []string{"notes/c.md"}) {
 		t.Fatalf("swap = %+v, want a write", rep)
 	}
 	if _, err := f.WriteString("- late write\n"); err != nil {
 		t.Fatal(err)
 	}
 	rep := exportGuard(t, db)
-	if !slices.Contains(rep.Conflicts, "conventions.md") || !slices.Contains(db.conflicts, "changed-during-export conventions.md") {
+	if !slices.Contains(rep.Conflicts, "notes/c.md") || !slices.Contains(db.conflicts, "changed-during-export notes/c.md") {
 		t.Fatalf("late write = %+v %v, want a conflict", rep, db.conflicts)
 	}
-	m, _ := filepath.Glob(filepath.Join(root, "conventions.md.outside-*"))
-	if got, _ := os.ReadFile(m[0]); len(m) != 1 || string(got) != "# C\n- late write\n" {
+	m := heldGlob(t, "notes/c.md", ".outside-*")
+	if got, _ := os.ReadFile(m[0]); len(m) != 1 || string(got) != "# C\n\nold body\n- late write\n" {
 		t.Fatalf("outside copy = %v %q, want the late write kept", m, got)
 	}
-	if h, _ := filepath.Glob(filepath.Join(root, "conventions.md"+holdMark+"*")); len(h) != 0 {
+	if h := heldGlob(t, "notes/c.md", holdMark+"*"); len(h) != 0 {
 		t.Fatalf("hold left after detection: %v", h)
+	}
+}
+
+func TestExportGuardMergesOldDescriptorAppendToLog(t *testing.T) {
+	isolatedConfig(t)
+	root := paths.MemoryStoreDir()
+	db := &fakeExportDB{root: root, docs: map[string]string{"conventions.md": "# C\n\n- a\n- b\n"}, last: map[string]string{}}
+	exportGuard(t, db)
+	f, err := os.OpenFile(filepath.Join(root, "conventions.md"), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	db.docs["conventions.md"] = "# C\n\n- a\n- db edit\n" // drops "- b", so the swap keeps a hold
+	exportGuard(t, db)
+	if _, err := f.WriteString("- late write\n"); err != nil {
+		t.Fatal(err)
+	}
+	rep := exportGuard(t, db)
+	if want := "# C\n\n- a\n- db edit\n- b\n- late write\n"; exportRead(t, root, "conventions.md") != want || db.docs["conventions.md"] != want {
+		t.Fatalf("late append = %q / db %q, want both entries merged", exportRead(t, root, "conventions.md"), db.docs["conventions.md"])
+	}
+	if len(rep.Conflicts)+len(db.conflicts) != 0 || len(heldGlob(t, "conventions.md", ".outside-*")) != 0 {
+		t.Fatalf("merged late append = %+v %v, want no conflict and no copy", rep, db.conflicts)
 	}
 }
 
 func TestExportGuardNeverDeletesHold(t *testing.T) {
 	isolatedConfig(t)
 	root := paths.MemoryStoreDir()
-	db := &fakeExportDB{root: root, docs: map[string]string{"conventions.md": "# C\n"}, last: map[string]string{}}
+	db := &fakeExportDB{root: root, docs: map[string]string{"conventions.md": "# C\n\n- a\n"}, last: map[string]string{}}
 	exportGuard(t, db)
 	db.docs["conventions.md"] = "# C\n\n- db edit\n"
 	exportGuard(t, db)
 	for range 3 {
 		exportGuard(t, db)
 	}
-	if h, _ := filepath.Glob(filepath.Join(root, "conventions.md"+holdMark+"*")); len(h) != 1 {
+	if h := heldGlob(t, "conventions.md", holdMark+"*"); len(h) != 1 {
 		t.Fatalf("holds after repeated guards = %v, want the one kept", h)
 	}
 }
@@ -263,7 +303,7 @@ func TestExportGuardStrandedKeepsDBSide(t *testing.T) {
 	if !slices.ContainsFunc(rep.Conflicts, func(c string) bool { return strings.HasPrefix(c, "conventions.md"+holdMark) }) {
 		t.Fatalf("stranded = %+v, want a conflict naming the held copy", rep)
 	}
-	if got := exportRead(t, root, "conventions.md.db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "conventions.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db sidecar = %q", got)
 	}
 }
@@ -272,7 +312,7 @@ func TestExportGuardBracketPath(t *testing.T) {
 	isolatedConfig(t)
 	root := paths.MemoryStoreDir()
 	rel := "notes[1]/a.md"
-	db := &fakeExportDB{root: root, docs: map[string]string{rel: "# A\n"}, last: map[string]string{}}
+	db := &fakeExportDB{root: root, docs: map[string]string{rel: "# A\n\nold\n"}, last: map[string]string{}}
 	exportGuard(t, db)
 	f, err := os.OpenFile(filepath.Join(root, "notes[1]", "a.md"), os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
@@ -313,7 +353,7 @@ func TestExportHoldAsideNeverReplaces(t *testing.T) {
 		if err := os.WriteFile(dest, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		h, moved, err := holdAside(dest, seen)
+		h, moved, err := holdAside(dest, dest+holdMark+seen[:12])
 		if err != nil || !moved {
 			t.Fatalf("holdAside = %v %v", moved, err)
 		}
@@ -343,7 +383,7 @@ func TestExportHoldAsideKeepsFileReplacedMidSwap(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { exportAfterHoldLink = nil })
-	hold, moved, err := holdAside(dest, sha256Hex([]byte("old")))
+	hold, moved, err := holdAside(dest, dest+holdMark+sha256Hex([]byte("old"))[:12])
 	if err != nil || moved {
 		t.Fatalf("holdAside = %v %v, want not moved", moved, err)
 	}
@@ -360,10 +400,10 @@ func TestExportSidecarEditedIsNotOverwritten(t *testing.T) {
 	dest := filepath.Join(dir, "a.md")
 	data := []byte("db side")
 	name := dest + ".db-conflict-" + sha256Hex(data)[:12]
-	if err := keepSidecar(name, dest, data); err != nil {
+	if err := keepSidecar(name, data); err != nil {
 		t.Fatal(err)
 	}
-	if err := keepSidecar(name, dest, data); err != nil {
+	if err := keepSidecar(name, data); err != nil {
 		t.Fatal(err)
 	}
 	if m, _ := filepath.Glob(name + "*"); len(m) != 1 {
@@ -372,7 +412,7 @@ func TestExportSidecarEditedIsNotOverwritten(t *testing.T) {
 	if err := os.WriteFile(name, []byte("edited by hand"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := keepSidecar(name, dest, data); err != nil {
+	if err := keepSidecar(name, data); err != nil {
 		t.Fatal(err)
 	}
 	m, _ := filepath.Glob(name + "*")
@@ -393,7 +433,7 @@ func TestExportSidecarSymlinkIsNotReused(t *testing.T) {
 	if err := os.Symlink(target, name); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	if err := keepSidecar(name, dest, data); err != nil {
+	if err := keepSidecar(name, data); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Lstat(name); fi.Mode().IsRegular() {
@@ -424,5 +464,74 @@ func TestExportGuardSyncsTouchedDirs(t *testing.T) {
 		t.Fatal("a failed directory sync reported success")
 	} else if !errors.Is(err, errExportSync) {
 		t.Fatalf("sync failure = %v, want errExportSync", err)
+	}
+}
+
+// sessionLog is a sessionHistory.md body of stamped, newest-first entries.
+func sessionLog(entries ...string) string {
+	return "# Session history\n\n" + strings.Join(entries, "\n")
+}
+
+func sessionEntry(id, title, body string) string {
+	return "## 2026-11-26 — " + title + " <!-- id:" + id + " -->\n\n" + body + "\n"
+}
+
+func TestExportGuardMergesSessionHistoryNewOnBothSides(t *testing.T) {
+	isolatedConfig(t)
+	root := paths.MemoryStoreDir()
+	old := sessionEntry("aaaa0001", "old", "old body.")
+	db := &fakeExportDB{root: root, docs: map[string]string{"sessionHistory.md": sessionLog(old)}, last: map[string]string{}}
+	exportGuard(t, db)
+	dbNew, fileNew := sessionEntry("bbbb0002", "db new", "db body."), sessionEntry("cccc0003", "file new", "file body.")
+	db.docs["sessionHistory.md"] = sessionLog(dbNew, old)
+	exportWrite(t, root, "sessionHistory.md", sessionLog(fileNew, old))
+	rep := exportGuard(t, db)
+	want := sessionLog(fileNew, dbNew, old)
+	if got := exportRead(t, root, "sessionHistory.md"); got != want || db.docs["sessionHistory.md"] != want {
+		t.Fatalf("merge = %q / db %q, want %q", got, db.docs["sessionHistory.md"], want)
+	}
+	if len(rep.Conflicts)+len(db.conflicts) != 0 || len(heldGlob(t, "sessionHistory.md", ".*")) != 0 {
+		t.Fatalf("merge = %+v %v, want no conflict and no copy", rep, db.conflicts)
+	}
+}
+
+func TestExportGuardSameIDEditKeepsOneHeldCopy(t *testing.T) {
+	isolatedConfig(t)
+	root := paths.MemoryStoreDir()
+	db := &fakeExportDB{root: root, docs: map[string]string{"sessionHistory.md": sessionLog(sessionEntry("aaaa0001", "s", "base."))}, last: map[string]string{}}
+	exportGuard(t, db)
+	db.docs["sessionHistory.md"] = sessionLog(sessionEntry("aaaa0001", "s", "db edit."))
+	disk := sessionLog(sessionEntry("aaaa0001", "s", "disk edit."))
+	exportWrite(t, root, "sessionHistory.md", disk)
+	for range 2 {
+		exportGuard(t, db)
+	}
+	if got := exportRead(t, root, "sessionHistory.md"); got != disk || !slices.Equal(slices.Compact(db.conflicts), []string{"both-changed sessionHistory.md"}) {
+		t.Fatalf("same-id edit = %q %v, want the disk kept and one both-changed conflict", got, db.conflicts)
+	}
+	m := heldGlob(t, "sessionHistory.md", ".db-conflict-*")
+	if got, _ := os.ReadFile(m[0]); len(m) != 1 || string(got) != db.docs["sessionHistory.md"] {
+		t.Fatalf("held copies = %v %q, want one holding the db side", m, got)
+	}
+}
+
+func TestExportGuardKeepsNoCopyOfAGitVersion(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	root := paths.MemoryStoreDir()
+	v1 := "# X\n\nv1\n"
+	exportWrite(t, root, "notes/x.md", v1)
+	if _, _, err := StoreRepo().Commit([]string{"notes/x.md"}, "seed", ""); err != nil {
+		t.Fatal(err)
+	}
+	db := &fakeExportDB{root: root, docs: map[string]string{"notes/x.md": "# X\n\nv2\n"}, last: map[string]string{"notes/x.md": sha256Hex([]byte(v1))}}
+	exportGuard(t, db)
+	db.docs["notes/x.md"] = v1 // the db side is a committed version, so holding it saves nothing
+	exportWrite(t, root, "notes/x.md", "# X\n\nv3\n")
+	if rep := exportGuard(t, db); len(rep.Conflicts)+len(db.conflicts) != 0 {
+		t.Fatalf("guard = %+v %v, want no conflict for a db side git already has", rep, db.conflicts)
+	}
+	if m := heldGlob(t, "notes/x.md", ".*"); len(m) != 0 {
+		t.Fatalf("held copies = %v, want none", m)
 	}
 }

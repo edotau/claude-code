@@ -283,10 +283,38 @@ func parseOverlayFrom(raw []byte, origin string, stored bool) (Overlay, error) {
 	if err := providers.CheckModelShared(o.Model); err != nil { // the model key is a plain id; the route keys carry the row
 		return Overlay{}, err
 	}
-	if err := o.validate(fileSrc); err != nil {
+	if err := o.withoutLoneProfile().validate(fileSrc); err != nil {
 		return Overlay{}, err
 	}
 	return o, nil
+}
+
+// loneProfile reports a unit of a profile alone: Derive may complete its provider from the inherited overlay.
+func (o Overlay) loneProfile() bool {
+	return o.Profile != "" && o.Provider == "" && o.Endpoint == "" && o.Identity == "" && o.Account == ""
+}
+
+// withoutLoneProfile drops a lone profile so the rest validates now; Derive checks the completed unit.
+func (o Overlay) withoutLoneProfile() Overlay {
+	if o.loneProfile() {
+		o.Profile = ""
+	}
+	return o
+}
+
+// completeUnit gives add's lone profile the provider and endpoint of base's unit, by value, when that provider has it.
+func (base Overlay) completeUnit(add Overlay) Overlay {
+	if !add.loneProfile() || base.Provider == "" {
+		return add
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return add
+	}
+	if row := reg.Row(add.Profile); add.Profile == route.AutoArm || row != nil && row.Provider == base.Provider {
+		add.Provider, add.Endpoint = base.Provider, base.Endpoint
+	}
+	return add
 }
 
 // checkOverlaySchema refuses a negative or newer "schema" before schemas.Decode, whose migration loop would walk it.
@@ -506,7 +534,7 @@ func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
 	default:
 		return Overlay{}, fmt.Errorf("unknown hop %d", hop)
 	}
-	out, add := base.clone(), add.clone()
+	out, add := base.clone(), base.completeUnit(add.clone())
 	if u := add.routeUnit; u.Endpoint != "" || u.Provider != "" || u.Profile != "" || u.Identity != "" || u.Account != "" {
 		out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = u.Endpoint, u.Provider, u.Profile, u.Identity, u.Account
 	}

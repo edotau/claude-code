@@ -5,7 +5,7 @@ paths:
 # Memory Bank — Session-to-Session Store (`~/.claude/memory/`)
 
 `~/.claude/memory/` is one local-only git repo (never pushed); `claude-code memory path` prints it. There is ONE bank
-for every workspace (any repo, scratch dir, provider or profile): six typed files at the top plus Claude Code's native
+for every workspace (any repo, scratch dir, provider or profile): five typed files at the top plus Claude Code's native
 topic files, the generated `MEMORY.md` (head, pinned, newest 20 pointers), the append-only `index.md` of its
 entries and the generated `catalog.md` router. Folders:
 `archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `feedback/`, `notes/`, `techdebt/` (no `<key>--`
@@ -36,7 +36,7 @@ update`; the rest print none.
   `review` (caps, staleness; `--timeline N` lists recent sessions), `feedback list [--rank]` (open candidates; `--rank`
   prints the promotion-ranking procedure), `feedback show <id>`.
 - Write: `feedback add|approve|close` (candidate records), `remember <fact> [--type]`, `init` (prints a procedure while
-  `projectContext.md` is the template), `update`
+  `activeContext.md` is the template), `update`
   (live session or `--transcript`; neither prints the procedure; `--catchup [--dry-run] [--skip ID]` saves missed
   sessions), `report`, `fmt [--check|--own]`.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
@@ -47,6 +47,12 @@ update`; the rest print none.
   `CLAUDE_REMOTE_HOST`, one transaction per direction; `conflicts` lists and resolves the open ones. The peer side,
   `sync --serve export|import`, is hidden and runs over ssh. `import` and `fetch` are retired and exit 2: memory syncs
   with `claude-code memory sync`; `shadow --rebuild` rebuilds the db from the files.
+- Export guard copies: a file changed on disk and in the db is merged by entry id when it is a log (`sessionHistory`,
+  `decisionLog`, `conventions` and their archives); only an entry both sides edited keeps a copy. Every kept copy
+  lives under `state/harness/memory/held/` at the file's store path, never in the bank, and only when neither the
+  store's git history nor the file already holds its bytes. Settle moves copies an older build left in the bank there
+  and removes held copies older than 7 days or past the newest 20 per file; `shadow --conflicts [--clear <path>]`
+  lists and removes them.
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps
   and drains the job queue.
 - Old file-hash sync left `state/harness/memory/sync.json`, `sync-<stamp>.log` and `memory-import-*.bundle` backups in
@@ -66,7 +72,6 @@ hand.
 
 | File | Holds | Contract |
 | --- | --- | --- |
-| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/memory/prompts/init.md` seeds it) | Replace, sparingly |
 | `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
 | `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
 | `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |
@@ -142,7 +147,7 @@ pointer.
 
 | Limit | Value | Defined by |
 | --- | --- | --- |
-| `projectContext.md` · `progress.md` | 60 lines each | `fileCaps` |
+| `progress.md` | 60 lines | `fileCaps` |
 | `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
 | `decisionLog.md` | 200 lines | `fileCaps` |
 | `sessionHistory.md` | 30 entries (rotates) | `sessionHistoryMaxEntries` |

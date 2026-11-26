@@ -76,7 +76,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 
 // WriteNoReplace failing midway (disk full, file-size limit) removes the partial file, so a retry lands the body.
 func TestPersistenceCreateExclRemovesPartial(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "projectContext.md")
+	path := filepath.Join(t.TempDir(), "decisionLog.md")
 	orig := paths.NoReplaceWrite
 	t.Cleanup(func() { paths.NoReplaceWrite = orig })
 	paths.NoReplaceWrite = func(f *os.File, body []byte) error {

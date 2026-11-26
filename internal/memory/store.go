@@ -22,11 +22,10 @@ import (
 
 // fileCaps are the per-file line caps `claude-code memory update` holds; sessionHistory rotates by entry count instead.
 var fileCaps = map[string]int{
-	"projectContext.md": 60,
-	"activeContext.md":  80,
-	"progress.md":       60,
-	"decisionLog.md":    200,
-	"conventions.md":    80,
+	"activeContext.md": 80,
+	"progress.md":      60,
+	"decisionLog.md":   200,
+	"conventions.md":   80,
 }
 
 // bankExists reports whether any typed file exists in the bank.
@@ -56,23 +55,19 @@ func Init() (string, error) {
 	return paths.MemorySubDir(""), nil
 }
 
-// isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
-func isProjectContextTemplate() bool {
-	data, err := os.ReadFile(Path("projectContext.md"))
-	if err != nil {
-		return false
-	}
-	return string(data) == templates()["projectContext.md"]
+// isBankTemplate reports whether activeContext.md still equals the scaffold, so init offers enrichment.
+func isBankTemplate() bool {
+	data, err := os.ReadFile(Path("activeContext.md"))
+	return err == nil && string(data) == templates()["activeContext.md"]
 }
 
-// templates seed a fresh bank's six files; `claude-code memory update` fills them from real session work.
+// templates seed a fresh bank's five files; `claude-code memory update` fills them from real session work.
 var templates = sync.OnceValue(func() map[string]string {
 	return map[string]string{
 		"activeContext.md":  assets.MemoryActiveContextSeed(),
 		"conventions.md":    assets.MemoryConventionsSeed(),
 		"decisionLog.md":    assets.MemoryDecisionLogSeed(),
 		"progress.md":       assets.MemoryProgressSeed(),
-		"projectContext.md": assets.MemoryProjectContextSeed(),
 		"sessionHistory.md": assets.MemorySessionHistorySeed(),
 	}
 })
@@ -112,13 +107,12 @@ func root(repo string) string {
 	return cwd
 }
 
-// bankFiles are the six typed files a bank carries (order = injection order).
+// bankFiles are the five typed files a bank carries (order = injection order).
 var bankFiles = []string{
-	"projectContext.md", "activeContext.md", "progress.md",
-	"decisionLog.md", "conventions.md", "sessionHistory.md",
+	"activeContext.md", "progress.md", "decisionLog.md", "conventions.md", "sessionHistory.md",
 }
 
-// BankFiles exports the six typed filenames for callers outside this package.
+// BankFiles exports the five typed filenames for callers outside this package.
 func BankFiles() []string { return slices.Clone(bankFiles) }
 
 // sessionHistoryMaxEntries rotates the oldest sessionHistory entries to archive/sessionHistory-<yyyy-mm>.md.

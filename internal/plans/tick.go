@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/mdlint"
@@ -46,11 +45,11 @@ var ErrNotOnTrunk = errors.New("plans: nothing ticked: commits tick only once th
 
 // tickCommits ticks per commit under one lock the tasks its trailers name; ok narrows only the candidate lines.
 func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(Task) bool) ([]tickResult, error) {
-	return tickCommitsOnly(root, planPath, commits, dryRun, ok, nil)
+	return tickCommitsOnly(root, planPath, commits, dryRun, "", ok, nil)
 }
 
-// tickCommitsOnly is tickCommits that also ticks only the named tasks only allows (nil: all).
-func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, ok, only func(Task) bool) (results []tickResult, err error) {
+// tickCommitsOnly is tickCommits that also ticks only the named tasks only allows (nil: all); a lane marks instead.
+func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, lane string, ok, only func(Task) bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
 		for _, c := range commits {
@@ -60,8 +59,10 @@ func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, ok, o
 			}
 			c.Message = message
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
-			r.Candidate = candidates(root, planPath, text, c, ok, dryRun)
-			text, r.Ticked, r.Notes, r.IDs = tickText(root, planPath, text, c, dryRun, only)
+			if lane == "" { // a lane commit lands nothing yet, so its coverage is no candidate
+				r.Candidate = candidates(root, planPath, text, c, ok, dryRun)
+			}
+			text, r.Ticked, r.Notes, r.IDs = tickText(root, planPath, text, c, dryRun, lane, only)
 			if len(r.Ticked)+len(r.Notes)+len(r.Candidate) > 0 {
 				results = append(results, r)
 			}
@@ -74,20 +75,24 @@ func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, ok, o
 	return results, err
 }
 
-// tickText ticks every open task c's trailers name, noting owned files c did not touch.
-func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task) bool) (out string, ticked, notes, ids []string) {
-	lines := strings.Split(text, "\n")
+// tickText ticks every open task c's trailers name, noting owned files c did not touch; a lane marks them instead.
+func tickText(root, planPath, text string, c Commit, dryRun bool, lane string, only func(Task) bool) (out string, ticked, notes, ids []string) {
+	d := ParseDoc(planPath, []byte(text))
 	// A sha can add a continuation line; tick from the bottom so earlier spans keep their indexes.
-	for _, t := range slices.Backward(parseBytes(planPath, []byte(text)).Tasks) {
+	for _, t := range slices.Backward(d.Tasks) {
 		if !open(t) {
 			continue
 		}
 		if !namesTask(c.Message, planPath, t.ID) || (only != nil && !only(t)) || predatesReopen(root, t, c.Sha) {
 			continue
 		}
-		lines = markDone(lines, t, c.Sha)
 		ticked = append([]string{t.Title}, ticked...)
 		ids = append([]string{t.ID}, ids...)
+		if lane != "" {
+			d.Lines = markLane(d.Lines, t, lane, c.Sha)
+			continue
+		}
+		d.Lines = markDone(d.Lines, t, c.Sha)
 		if !dryRun {
 			forget(planPath, t.ID)
 		}
@@ -95,7 +100,7 @@ func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task
 			notes = append([]string{fmt.Sprintf("plans: %s ticked without owns: %s; `%s` if it is unfinished", t.ID, strings.Join(missing, ", "), reopenCmd(planPath, t.ID))}, notes...)
 		}
 	}
-	return strings.Join(lines, "\n"), ticked, notes, ids
+	return d.Render(), ticked, notes, ids
 }
 
 // reopenCmd is the by-hand reopen of task id in plan, naming the plan so a shared id is not ambiguous.
@@ -180,9 +185,12 @@ func protectTaskContinuations(lines []string) []string {
 	return lines
 }
 
-// removeNotes drops every claim, partly-landed and reopened comment across t's line span.
+// removeNotes drops every claim, partly-landed, reopened and lane comment across t's line span.
 func removeNotes(lines []string, t Task) []string {
-	return dropComments(dropComments(removeClaims(lines, t), t, partialRe()), t, reopenRe())
+	for _, re := range []*regexp.Regexp{partialRe(), reopenRe(), laneRe()} {
+		lines = dropComments(lines, t, re)
+	}
+	return removeClaims(lines, t)
 }
 
 // dropComments removes every re match across t's line span.
@@ -237,36 +245,6 @@ func plansLock() string { return filepath.Join(paths.StateDir(), "plans.lock") }
 
 // WithLock runs fn under the plans lock, for a writer outside this package (memory sync).
 func WithLock(fn func() error) error { return paths.WithFileLock(plansLock(), fn) }
-
-// editPlan re-reads planPath under the plans lock, applies fn and writes back only when bytes changed.
-func editPlan(planPath string, fn func(text string) (string, error)) error {
-	return paths.WithFileLock(plansLock(), func() error {
-		info, err := os.Stat(planPath)
-		if err != nil {
-			return err
-		}
-		b, err := os.ReadFile(planPath)
-		if err != nil {
-			return err
-		}
-		out, err := fn(string(b))
-		if err != nil || out == string(b) {
-			return err
-		}
-		return writePlan(planPath, []byte(out), info.Mode().Perm())
-	})
-}
-
-// editTask applies fn to taskID's task and plan lines under the plans lock.
-func editTask(planPath, taskID string, fn func(Task, []string) []string) error {
-	return editPlan(planPath, func(text string) (string, error) {
-		t, ok := findTask(parseBytes(planPath, []byte(text)), taskID)
-		if !ok {
-			return "", fmt.Errorf("plans: no task %q in %s", taskID, planPath)
-		}
-		return strings.Join(fn(t, strings.Split(text, "\n")), "\n"), nil
-	})
-}
 
 // WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
 func WriteFile(dest string, data []byte) error {
@@ -331,36 +309,6 @@ func ClearClaimOwned(planPath, taskID, owner string) error {
 		}
 		return removeClaims(lines, t)
 	})
-}
-
-// titleHasPrefix reports whether title starts with prefix at an id boundary, so "3.1" does not match "3.10".
-func titleHasPrefix(title, prefix string) bool {
-	rest, ok := strings.CutPrefix(title, prefix)
-	if !ok || rest == "" {
-		return ok
-	}
-	r, size := utf8.DecodeRuneInString(rest)
-	if r == '.' {
-		next, _ := utf8.DecodeRuneInString(rest[size:])
-		return !unicode.IsLetter(next) && !unicode.IsDigit(next)
-	}
-	return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-}
-
-// findTask resolves taskID to a task: an exact Task.ID first, then a Title prefix.
-func findTask(p Plan, taskID string) (Task, bool) {
-	for _, t := range p.Tasks {
-		if t.ID != "" && t.ID == taskID {
-			return t, true
-		}
-	}
-	for _, t := range p.Tasks {
-		title := strings.TrimLeft(strings.TrimPrefix(t.Title, "**you**"), " —") // the owner marker and its dash precede the id
-		if taskID != "" && titleHasPrefix(title, taskID) {
-			return t, true
-		}
-	}
-	return Task{}, false
 }
 
 // TickRange ticks plan (default: every plan the range's files match) for each commit in rng; drafts are never ticked.
@@ -434,6 +382,7 @@ type PlanTick struct {
 	Plan                     string
 	Ticked, Notes, Candidate []string
 	IDs                      []string
+	Lane                     string // the linked worktree the commit sits in: its tasks are marked, not ticked
 }
 
 // Lines are the report lines for sha: what ticked, then the notes and candidates of this plan.
@@ -444,7 +393,12 @@ func (r PlanTick) Lines(sha string) []string {
 		if len(names) == 0 {
 			names = r.Ticked
 		}
-		out = append(out, "plans: ticked "+strings.Join(names, ", ")+" ("+sha[:min(len(sha), 7)]+") in "+strings.TrimSuffix(filepath.Base(r.Plan), ".md"))
+		line := "plans: ticked " + strings.Join(names, ", ") + " (" + sha[:min(len(sha), 7)] + ") in " + strings.TrimSuffix(filepath.Base(r.Plan), ".md")
+		if r.Lane != "" {
+			line = "plans: " + strings.Join(names, ", ") + " marked in lane " + r.Lane + " (" + sha[:min(len(sha), 7)] + ") in " +
+				strings.TrimSuffix(filepath.Base(r.Plan), ".md") + "; the main commit that lands it ticks it"
+		}
+		out = append(out, line)
 	}
 	return append(append(out, r.Notes...), r.Candidate...)
 }
@@ -467,10 +421,9 @@ func PendingCommit(top, sha string, files []string) ([]PlanTick, []string, error
 	return tickCommitMode(top, sha, files, true, nil)
 }
 
+// tickCommitMode ticks on the main checkout's trunk; in a linked worktree it marks the named tasks as in that lane.
 func tickCommitMode(top, sha string, files []string, dryRun bool, only func(Task) bool) (out []PlanTick, tied []string, err error) {
-	if WorktreeName(top) != "" {
-		return nil, nil, nil
-	}
+	lane := WorktreeName(top)
 	ctx, cancel := context.WithTimeout(context.Background(), gitReadTimeout)
 	defer cancel()
 	c, err := readCommit(ctx, top, sha)
@@ -480,19 +433,21 @@ func tickCommitMode(top, sha string, files []string, dryRun bool, only func(Task
 	if files != nil {
 		c.Files = files
 	}
-	targets, allow := tickTargets(top, "", MirrorDests(), []Commit{c})
+	targets, allow := tickTargets(top, lane, MirrorDests(), []Commit{c})
 	if len(targets) == 0 {
 		return nil, nil, nil
 	}
-	if landed, err := commitsOnMain(ctx, top, []Commit{c}); err != nil || !landed {
-		return nil, nil, err
+	if lane == "" {
+		if landed, err := commitsOnMain(ctx, top, []Commit{c}); err != nil || !landed {
+			return nil, nil, err
+		}
 	}
 	var errs []error
 	for _, p := range targets {
-		results, terr := tickCommitsOnly(top, p, []Commit{c}, dryRun, allow[p], only)
+		results, terr := tickCommitsOnly(top, p, []Commit{c}, dryRun, lane, allow[p], only)
 		errs = append(errs, terr)
 		for _, r := range results {
-			out = append(out, PlanTick{p, r.Ticked, r.Notes, r.Candidate, r.IDs})
+			out = append(out, PlanTick{p, r.Ticked, r.Notes, r.Candidate, r.IDs, lane})
 		}
 	}
 	return out, tied, errors.Join(errs...)
@@ -972,45 +927,55 @@ func tickTargets(root, worktree string, skip []string, commits []Commit) ([]stri
 	return targets, allow
 }
 
-// TaskTrailers validates every requested task before staging; plan "" searches recent or claimed plans.
-func TaskTrailers(root, plan string, ids []string) (string, error) {
+// TaskTrailers resolves every requested task before staging; an id open in no plan is a note, never a refusal.
+func TaskTrailers(root, plan string, ids []string) (trailer string, notes []string, err error) {
 	if len(ids) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 	home := Home(root)
 	entries, err := os.ReadDir(home)
 	if err != nil && plan == "" {
-		return "", fmt.Errorf("plans: no open tasks: %w", err)
+		return "", []string{fmt.Sprintf("plans: no plans home (%v); committed without a Task trailer", err)}, nil
 	}
 	all := loadDatedPlans(entries, home, MirrorDests())
 	if plan != "" {
 		plan, err = ResolvePlan(root, plan)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if slices.Contains(MirrorDests(), plan) {
-			return "", fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
+			return "", nil, fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
 		}
 		found := slices.IndexFunc(all, func(d datedPlan) bool { return paths.SamePath(d.path, plan) })
 		if found < 0 {
-			return "", fmt.Errorf("plans: %s is not a dated plan in %s, the only place landing finds the plan its trailer names", plan, home)
+			return "", nil, fmt.Errorf("plans: %s is not a dated plan in %s, the only place landing finds the plan its trailer names", plan, home)
 		}
 		all = all[found : found+1]
 	}
 	var trailers []string
 	for _, id := range ids {
-		line, err := resolveTrailer(all, WorktreeName(root), id, plan != "")
+		line, note, err := resolveTrailer(all, WorktreeName(root), id, plan != "")
 		if err != nil {
-			return "", err
+			return "", nil, err
+		}
+		if note != "" {
+			notes = append(notes, note)
+			continue
 		}
 		trailers = append(trailers, line)
 	}
+	if len(trailers) == 0 {
+		return "", notes, nil
+	}
 	slices.Sort(trailers)
-	return "\n\n" + strings.Join(slices.Compact(trailers), "\n"), nil
+	return "\n\n" + strings.Join(slices.Compact(trailers), "\n"), notes, nil
 }
 
-// resolveTrailer finds the one open task id; an explicit plan skips the recent-or-claimed filter.
-func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string, error) {
+// resolveTrailer finds the one open task id; a closed or unknown id is a note, so the commit goes on without it.
+func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (line, note string, err error) {
+	if _, ok := taskIndex(id); ok {
+		return "", "plans: --task " + id + " is an index, not a task id; committed without its trailer", nil
+	}
 	var hits, near, closed, reopen []string
 	for _, d := range all {
 		base := strings.TrimSuffix(filepath.Base(d.path), ".md")
@@ -1028,17 +993,19 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	}
 	switch {
 	case len(hits) == 1:
-		return "Task: " + hits[0] + " " + id, nil
+		return "Task: " + hits[0] + " " + id, "", nil
 	case len(hits) > 1:
-		return "", fmt.Errorf("plans: task %q is open in %s; choose one with --plan <file> or give each a distinct id", id, strings.Join(hits, " and "))
+		return "", "", fmt.Errorf("plans: task %q is open in %s; choose one with --plan <file> or give each a distinct id", id, strings.Join(hits, " and "))
 	case len(closed) > 0:
-		return "", fmt.Errorf("plans: task %q is already ticked or struck in %s; reopen it with `%s`", id, strings.Join(closed, ", "), strings.Join(reopen, "` or `"))
+		return "", fmt.Sprintf("plans: task %q is already ticked or struck in %s; committed without its trailer (reopen it with `%s`)",
+			id, strings.Join(closed, ", "), strings.Join(reopen, "` or `")), nil
 	}
 	slices.SortFunc(near, func(a, b string) int {
 		return cmp.Or(cmp.Compare(taskDistance(id, a), taskDistance(id, b)), strings.Compare(a, b))
 	})
 	near = slices.Compact(near)
-	return "", fmt.Errorf("plans: no open task %q in a recent or claimed plan (--plan <file> reaches any); nearest ids: %s", id, strings.Join(near[:min(5, len(near))], ", "))
+	return "", fmt.Sprintf("plans: no open task %q in a recent or claimed plan (--plan <file> reaches any); committed without its trailer; nearest ids: %s",
+		id, strings.Join(near[:min(5, len(near))], ", ")), nil
 }
 
 // trailerTasks is d's tasks a trailer may name, the open ones' other ids, and "plan:line" for each open id match.

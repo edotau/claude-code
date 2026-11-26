@@ -256,10 +256,9 @@ func InitBank(w io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, paths.MemorySubDir(""))
-	if isProjectContextTemplate() {
-		ref := assets.MemoryInitProcedure()
+	if isBankTemplate() {
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, ref)
+		fmt.Fprintln(w, assets.MemoryInitProcedure())
 	}
 	return nil
 }

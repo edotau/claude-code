@@ -762,13 +762,13 @@ func TestWarnChangedSortedOrder(t *testing.T) {
 }
 
 func testWarnChangedSortedOrder(t *testing.T) {
-	names := []string{"progress.md", "activeContext.md", "projectContext.md", "conventions.md", "b.md", "a.md"}
+	names := []string{"progress.md", "activeContext.md", "decisionLog.md", "conventions.md", "b.md", "a.md"}
 	snap := snapshotFiles(names)
 	for _, n := range names {
 		write(t, Path(n), "changed\n")
 	}
 	var want strings.Builder
-	for _, n := range []string{"a.md", "activeContext.md", "b.md", "conventions.md", "progress.md", "projectContext.md"} {
+	for _, n := range []string{"a.md", "activeContext.md", "b.md", "conventions.md", "decisionLog.md", "progress.md"} {
 		fmt.Fprintf(&want, "memory update: WARNING: historical run changed %s (not restored)\n", n)
 	}
 	for range 20 {

@@ -45,7 +45,6 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		`{} {}`:                     "not valid JSON at byte 4", // schemas.Decode refuses it before the trailing-data check
 		big:                         "over 65536 bytes",
 		`{"files":[]}`:              "files: not supported yet",
-		`{"profile":"dev"}`:         "provider: required with profile",
 		`{"provider":"databricks"}`: "profile: required with provider",
 		`{"fallback_mode":"pin"}`:   `unknown key "fallback_mode" (nearest valid key: fallback)`,
 		`{"identity":"x"}`:          "identity: want auto, user, sp",
@@ -761,5 +760,31 @@ func TestDeriveChildCapsKeepImplicitCeilings(t *testing.T) {
 	child, childErr := root.Derive(Overlay{}, HopDispatchChild)
 	if err != nil || childErr != nil || child.MaxChildren == nil || *child.MaxChildren != 0 {
 		t.Fatalf("an explicitly uncapped root must stay uncapped: %s, %v, %v", child.Doc(), err, childErr)
+	}
+}
+
+func TestDeriveLoneProfileTakesTheParentProvider(t *testing.T) {
+	setup(t)
+	var parent Overlay
+	parent.Endpoint, parent.Provider, parent.Profile = "direct", "databricks", "dev"
+	lone, err := parseOverlayFrom([]byte(`{"profile":"dev2"}`), "typed", false)
+	if err != nil {
+		t.Fatalf("a lone profile must parse: %v", err)
+	}
+	got, err := parent.Derive(lone, HopAppend)
+	if err != nil || got.Provider != "databricks" || got.Profile != "dev2" || got.Endpoint != "direct" {
+		t.Fatalf("child did not inherit the parent's provider and endpoint: %+v %v", got, err)
+	}
+	var nosuch Overlay
+	nosuch.Profile = "nosuch"
+	if _, err = parent.Derive(nosuch, HopAppend); err == nil ||
+		!strings.Contains(err.Error(), "provider: required") {
+		t.Errorf("a parent whose provider lacks the profile: err = %v", err)
+	}
+	if _, err = (Overlay{}).Derive(lone, HopAppend); err == nil || !strings.Contains(err.Error(), "provider: required") {
+		t.Errorf("no parent unit: err = %v, want provider: required", err)
+	}
+	if lone.Provider != "" {
+		t.Error("Derive changed its argument")
 	}
 }

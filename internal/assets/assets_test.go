@@ -458,7 +458,7 @@ func memoryRenderCases() []renderCase {
 		{"MemoryMoreEntries", "", func() string { return MemoryMoreEntries(4, "router") }},
 		{"MemoryUnresolvedEntries", "", func() string { return MemoryUnresolvedEntries(6) }},
 		{"MemoryCatalogHeader", "", func() string { return MemoryCatalogHeader("2026-11-25") }},
-		{"MemoryCatalogBank", "", func() string { return MemoryCatalogBank("hook", "2026-11-25") }},
+		{"MemoryCatalogBank", "", func() string { return MemoryCatalogBank("2026-11-25") }},
 		{"MemoryHomeOverflow", "", func() string { return MemoryHomeOverflow(8) }},
 		{"MemoryLayoutRow", "", func() string { return MemoryLayoutRow("fold", "role", 3) }},
 		{"MemoryNativeFolder", "", func() string { return MemoryNativeFolder("fold") }},

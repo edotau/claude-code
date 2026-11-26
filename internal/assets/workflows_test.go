@@ -31,7 +31,7 @@ func TestWorkflowBlockBytes(t *testing.T) {
 	for _, tc := range []struct {
 		name, source, want string
 	}{
-		{"stepof", WorkflowStepOfSource(), "59e4ffbf5145cdb1e2da1a99847c4c6896e2500f8acc7920389c39bf6e8ae3ef"},
+		{"stepof", WorkflowStepOfSource(), "6cbd9e04ee625206a1979d60545bc35cb7177139fabe2e133eb1df737b58fb13"},
 		{"stages", WorkflowStagesSource(), "033664829e9c242c4c669752f8c43ab3401950d4483293d43c43045a89c93d17"},
 	} {
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(tc.source))); got != tc.want {

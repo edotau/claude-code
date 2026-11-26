@@ -77,6 +77,35 @@ func TestPlanTaskDoneReopenStrikeAndAmbiguousId(t *testing.T) {
 	}
 }
 
+// plan task marks a task in a lane and ticks one by its #index; plan status shows the mark; an index needs --plan.
+func TestPlanTaskLaneMarkAndIndex(t *testing.T) {
+	const name = "2026-11-01-a.md"
+	repo := planRepo(t, map[string]string{name: "## Tasks\n\n- [ ] 1.1 First\n- [ ] 1.2 Second\n- [ ] Phase 7.2 x — owns: c.go\n"})
+	file := filepath.Join(plans.Home(repo), name)
+	for _, args := range [][]string{{"plan", "task", "#1", "--lane", "lane-a", "--sha", "abc1234", "--plan", file},
+		{"plan", "task", "#2", "--done", "--sha", "def5678", "--plan", file}} {
+		if code, _, stderr := runCLI(t, args...); code != 0 {
+			t.Fatalf("%q: exit %d %q", args, code, stderr)
+		}
+	}
+	if got := readPlan(t, repo, name); !strings.Contains(got, "- [ ] 1.1 First <!-- lane lane-a: abc1234 -->\n- [x] 1.2 Second (def5678)\n") {
+		t.Fatalf("plan:\n%s", got)
+	}
+	if code, out, _ := runCLI(t, "plan", "status"); code != 0 || !strings.Contains(out, "1.1: in lane lane-a (abc1234)") {
+		t.Fatalf("status: exit %d\n%s", code, out)
+	}
+	if code, _, stderr := runCLI(t, "plan", "task", "#1", "--done"); code == 0 || !strings.Contains(stderr, "pass --plan") {
+		t.Fatalf("an index without --plan: exit %d %q", code, stderr)
+	}
+	if code, _, _ := runCLI(t, "plan", "task", "1.1", "--lane", "lane-a"); code != 2 {
+		t.Fatal("--lane without --sha must be a usage error")
+	}
+	code, _, stderr := runCLI(t, "plan", "task", "Phase 7.9", "--add", "--plan", file, "--title", "New", "--leaf", "claude", "--agent", "pi", "--owns", "d.go")
+	if code != 0 || !strings.Contains(stderr, "Phase 7.2: missing leaf:") || !strings.Contains(readPlan(t, repo, name), "Phase 7.9 — New") {
+		t.Fatalf("an old malformed line must be a note on --add: exit %d %q\n%s", code, stderr, readPlan(t, repo, name))
+	}
+}
+
 func TestPlanMutationsRejectExtraArguments(t *testing.T) {
 	const name, body = "2026-11-18-safe.md", "- [ ] 1.1 Safe\n"
 	repo := planRepo(t, map[string]string{name: body})
@@ -123,7 +152,7 @@ func TestPlanExplicitBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{outside, link, insideLink, filepath.Join(home, "draft.md"), home, filepath.Join(home, "..", filepath.Base(outside))} {
-		if _, err := plans.TaskTrailers(repo, path, []string{"1.1"}); err == nil {
+		if _, _, err := plans.TaskTrailers(repo, path, []string{"1.1"}); err == nil {
 			t.Errorf("commit accepted %s", path)
 		}
 		code, _, stderr := runCLI(t, "plan", "tick", "--range", "HEAD..HEAD", "--plan", path)

@@ -33,8 +33,9 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
   ```
 
   Omit `provider` and `profile` together when no route is supplied, omit `model` when unset, and merge any other route
-  keys into the same overlay. A provider-only input uses `profile: auto`; currently a profile-only input is passed as
-  `--profile <p>` outside the overlay, including `--profile session`, whose session-lead semantics must be preserved.
+  keys into the same overlay. A provider-only input uses `profile: auto`; a profile-only input stays in the overlay
+  as `"profile":"<p>"` and takes its provider from the inherited overlay (`COWORKER_OVERLAY`);
+  with none it stops naming `provider`.
   It reports `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result).
   `profile`/`provider` (run args or per stage) and an optional `model` become overlay keys; after a 429/quota/auth
   failure, overlay `fallback: agents`
@@ -68,7 +69,7 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
   fixer's own green never decides it.
 - Arguments: an unknown top-level arg, an unknown `steps` stage (`steps.child` included) or an unknown stage field is
   refused at launch with an error naming it. `profile` reaches every child and every external stage's
-  route (the legacy flag for profile-only input); with overlay `fallback: agents` a failed lead route can fall back
+  route; with overlay `fallback: agents` a failed lead route can fall back
   to the agent's pin or other agents (`ran on` shows it).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. `code-looper` takes `claudeState`

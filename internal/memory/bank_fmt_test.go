@@ -368,7 +368,6 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		Path("projectContext.md"):                               true,
 		Path("activeContext.md"):                                true,
 		Path("progress.md"):                                     true,
 		Path("decisionLog.md"):                                  true,

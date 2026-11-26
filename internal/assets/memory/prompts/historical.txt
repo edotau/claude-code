@@ -1,3 +1,3 @@
 
 
-This is an OLDER session, not the current one: write sessionHistory.md and dated decisionLog.md entries only, labelled with the session's real date. Do NOT edit activeContext.md, progress.md, conventions.md or projectContext.md, and never write NOW or newest.
+This is an OLDER session, not the current one: write sessionHistory.md and dated decisionLog.md entries only, labelled with the session's real date. Do NOT edit activeContext.md, progress.md or conventions.md, and never write NOW or newest.

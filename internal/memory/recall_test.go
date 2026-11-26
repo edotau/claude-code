@@ -710,7 +710,7 @@ func benchRecallCorpus(b *testing.B) int {
 	b.Setenv("HOME", b.TempDir())
 	b.Setenv(UpdateChildEnv, "")
 	b.Setenv("CLAUDE_RECALL_SEMANTIC", "0")
-	names := []string{"projectContext", "activeContext", "progress", "decisionLog", "conventions", "sessionHistory"}
+	names := []string{"activeContext", "progress", "decisionLog", "conventions", "sessionHistory"}
 	for i := range 17 {
 		names = append(names, fmt.Sprintf("feedback/feedback-rule-%02d", i), fmt.Sprintf("notes/note-topic-%02d", i))
 	}

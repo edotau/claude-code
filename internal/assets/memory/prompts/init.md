@@ -1,12 +1,11 @@
 # `claude-code memory init` — Judgment Residue: Enrichment
 
-What Go cannot do after scaffolding the six typed files is fill their placeholders with content
+What Go cannot do after scaffolding the five typed files is fill their placeholders with content
 specific to this repo — that's this reference, an OPTIONAL enrichment pass on top. Skip any
 content that already exists — never overwrite; leave sections empty rather than inventing content.
 
 | File | Seed with |
 | --- | --- |
-| `projectContext.md` | One-paragraph orientation + pointers to canonical docs + any do-not-regress invariants |
 | `activeContext.md` | Current Focus (branch, task), empty Open Questions/Blockers, Next Steps, Parked |
 | `progress.md` | What Works / In Progress / What's Next / Known Issues from current repo state |
 | `decisionLog.md` | Header + contract note only (append-only, newest first, supersede-never-delete) |

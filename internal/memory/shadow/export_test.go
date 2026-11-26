@@ -266,9 +266,13 @@ func TestExportGuardRebuildHoldsBankLock(t *testing.T) {
 }
 
 func TestExportClearConflictRemovesOnlyNamedCopy(t *testing.T) {
-	root, _, db := setupShadowExport(t)
-	keep := filepath.Join(root, "notes", "y.md.outside-abcdef012345-1")
-	other := filepath.Join(root, "notes", "y.md.outside-fedcba012345-2")
+	_, _, db := setupShadowExport(t)
+	held := filepath.Join(memory.HeldDir(), "notes")
+	if err := os.MkdirAll(held, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(held, "y.md.outside-abcdef012345-1")
+	other := filepath.Join(held, "y.md.outside-fedcba012345-2")
 	for _, p := range []string{keep, other} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -301,7 +305,7 @@ func TestExportClearRefusesSymlinkAndLookalike(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(memory.HeldDir(), "link")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
 	if err := ClearExportConflict("link/y.md.outside-abcdef012345-1"); err == nil {
@@ -320,11 +324,11 @@ func TestExportClearRefusesSymlinkAndLookalike(t *testing.T) {
 
 func TestExportClearNeverDeletesLinkTarget(t *testing.T) {
 	root, _, _ := setupShadowExport(t)
-	link := filepath.Join(root, "notes", "y.md.outside-abcdef012345-9")
+	link := filepath.Join(memory.HeldDir(), "y.md.outside-abcdef012345-9")
 	if err := os.Symlink(filepath.Join(root, "notes", "y.md"), link); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	if err := ClearExportConflict("notes/y.md.outside-abcdef012345-9"); err == nil {
+	if err := ClearExportConflict("y.md.outside-abcdef012345-9"); err == nil {
 		t.Fatal("clear accepted a symlink as a kept copy")
 	}
 	if _, err := os.Stat(filepath.Join(root, "notes", "y.md")); err != nil {

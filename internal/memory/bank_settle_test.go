@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -271,7 +272,7 @@ func TestCatalogListsEveryNativeNoteOnceSortedWithFallbacks(t *testing.T) {
 		writeNote(t, "feedback", "z.md", "---\nname: Zed\n---\nbody\n")
 		writeNote(t, "notes", "long.md", "---\nname: Long\ndescription: "+string(bytes.Repeat([]byte("é"), 200))+"\n---\n")
 		writeNote(t, "notes", "bad.md", "no front matter\n")
-		write(t, Path("projectContext.md"), "Hook line.\n") // keeps the router's "last" date independent of index.md
+		write(t, Path("activeContext.md"), "Hook line.\n") // keeps the router's "last" date independent of index.md
 		router, err := BuildCatalog(time.Unix(0, 0))
 		c := catalogOf(t)
 		if err != nil || !strings.HasPrefix(c, router) {
@@ -397,7 +398,7 @@ func TestWriteIfStillKeepsOutsideEdit(t *testing.T) {
 		if got := mustRead(t, path); got != "# Conventions\n\n- outside\n" {
 			t.Fatalf("outside edit lost: %q", got)
 		}
-		kept := path + ".db-conflict-" + sha256Hex([]byte("settled\n"))[:12]
+		kept := filepath.Join(HeldDir(), "conventions.md.db-conflict-"+sha256Hex([]byte("settled\n"))[:12])
 		if got := mustRead(t, kept); got != "settled\n" {
 			t.Fatalf("kept copy = %q, want the settle result", got)
 		}
@@ -493,14 +494,16 @@ func TestSettleDBKeepsEntriesWhenArchiveChangedOnBothSides(t *testing.T) {
 	db.docs[archive] += "\n## Db entry\n\ndb side body.\n"
 	write(t, Path(archive), "# Archive\n\n## Old entry\n\nprior archived body.\n\n## Disk entry\n\ndisk side body.\n")
 	write(t, Path("sessionHistory.md"), overflowHistory())
-	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 0 {
-		t.Fatalf("settle = %d, %v; want 0 rotated, nil", rotated, err)
+	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 2 { // the merged archive takes them
+		t.Fatalf("settle = %d, %v; want 2 rotated, nil", rotated, err)
 	}
-	if _, kept := splitHeadingBlocks(db.docs["sessionHistory.md"]); len(kept) != sessionHistoryMaxEntries+2 {
-		t.Fatalf("db sessionHistory holds %d entries, want all %d (the rotation must not truncate it)", len(kept), sessionHistoryMaxEntries+2)
+	for _, body := range []string{"db side body", "disk side body", "prior archived body", "Distinct body 31"} {
+		if !strings.Contains(db.docs[archive], body) || !strings.Contains(mustRead(t, Path(archive)), body) {
+			t.Fatalf("archive lost %q: db %q", body, db.docs[archive])
+		}
 	}
-	if !strings.Contains(db.docs[archive], "db side body") {
-		t.Fatalf("db archive lost its side: %q", db.docs[archive])
+	if len(db.conflicts) != 0 {
+		t.Fatalf("merged archive recorded conflicts %v", db.conflicts)
 	}
 }
 
@@ -574,4 +577,79 @@ func TestSettleDBExportOpenFailure(t *testing.T) {
 	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "files" {
 		t.Fatalf("truth %q after settling with no export db, want files kept", got)
 	}
+}
+
+func TestSettleMovesBankCopyToHeldDir(t *testing.T) {
+	dbTruthBank(t)
+	old := Path("conventions.md.db-conflict-abcdef012345")
+	write(t, old, "kept by an older build\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("bank copy still in the bank: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(HeldDir(), "conventions.md.db-conflict-abcdef012345")); got != "kept by an older build\n" {
+		t.Fatalf("held copy = %q", got)
+	}
+}
+
+func TestPruneHeldDropsOldAndPastTwenty(t *testing.T) {
+	isolatedConfig(t)
+	now := time.Now()
+	put := func(name string, age time.Duration) string {
+		p := filepath.Join(HeldDir(), name)
+		write(t, p, "x\n")
+		if err := os.Chtimes(p, now.Add(-age), now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	var conv []string
+	for i := range heldMaxPerFile + 1 {
+		conv = append(conv, put(fmt.Sprintf("conventions.md.db-conflict-%012x", i), time.Duration(i)*time.Minute))
+	}
+	fresh, stale := put("decisionLog.md.db-conflict-000000000001", time.Hour), put("decisionLog.md.db-conflict-000000000002", 8*24*time.Hour)
+	stamped := put("decisionLog.md.export-old-000000000003-"+strconv.FormatInt(now.Add(-9*24*time.Hour).UnixNano(), 36)+"0", 0)
+	if err := pruneHeld(now); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{conv[0]: true, conv[heldMaxPerFile-1]: true, conv[heldMaxPerFile]: false, fresh: true, stale: false, stamped: false} {
+		if _, err := os.Stat(p); (err == nil) != want {
+			t.Errorf("%s kept = %v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+// A store with a leftover projectContext.md settles and indexes clean and never recreates it.
+func TestLeftoverProjectContextSettlesAndIndexes(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		left := Path("projectContext.md")
+		write(t, left, "# Project Context\n\nOld orientation.\n")
+		for range 2 {
+			if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
+				t.Fatalf("index with a leftover projectContext.md: %v", err)
+			}
+		}
+		if slices.Contains(BankFiles(), "projectContext.md") {
+			t.Fatal("projectContext.md is still a bank file")
+		}
+		for _, f := range []string{routerFile, nativeIndexFile} {
+			if b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), f)); strings.Contains(string(b), "→ projectContext.md") {
+				t.Errorf("%s still points at projectContext.md:\n%s", f, b)
+			}
+		}
+		if err := os.Remove(left); err != nil && !os.IsNotExist(err) { // settle may fold it away as a loose note
+			t.Fatal(err)
+		}
+		if _, err := Init(); err != nil {
+			t.Fatal(err)
+		}
+		if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(left); !os.IsNotExist(err) {
+			t.Errorf("projectContext.md was recreated (stat err=%v)", err)
+		}
+	})
 }

@@ -73,9 +73,10 @@ var (
 	}
 )
 
-// Tick advances named tasks after commits land on main, then lists the ready ones; advisory, parse edges accepted.
+// Tick advances named tasks after commits land on main, strikes decided ones, then lists the ready ones; advisory.
 func Tick(in *core.Input) core.Result {
 	res := tickEvent(in)
+	res.Context = core.JoinContext(res.Context, strings.Join(strikeDecided(in), "\n"))
 	cmd := in.ToolCommand()
 	if !strings.Contains(res.Context, "plans: ticked") && (in.ToolFailed() || !planDone().MatchString(cmd)) {
 		return res

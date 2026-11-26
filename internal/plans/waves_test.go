@@ -257,7 +257,7 @@ func TestAddTaskOrderedOverlap(t *testing.T) {
 	if _, err := ParseWaves(file); err != nil {
 		t.Fatalf("ordered overlap across a wrapped blocker: %v", err)
 	}
-	err := AddTask(file, WaveTask{ID: "Phase 1.3", Task: "Third", Leaf: "claude", Agent: "pi", Owns: []string{"b.go"}})
+	_, err := AddTask(file, WaveTask{ID: "Phase 1.3", Task: "Third", Leaf: "claude", Agent: "pi", Owns: []string{"b.go"}})
 	if err != nil {
 		t.Fatalf("ordered overlap blocked an unrelated add: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestAddTaskOrderedOverlap(t *testing.T) {
 		t.Fatalf("ordered overlap across an indented blocker line: %v", err)
 	}
 	bare := wavesFile(t, "## Tasks\n\n"+first)
-	err = AddTask(bare, WaveTask{ID: "Phase 1.2", Task: "shares with no order", Leaf: "claude", Agent: "pi", Owns: []string{"a.go"}})
+	_, err = AddTask(bare, WaveTask{ID: "Phase 1.2", Task: "shares with no order", Leaf: "claude", Agent: "pi", Owns: []string{"a.go"}})
 	if err == nil || !strings.Contains(err.Error(), "owns: overlaps Phase 1.1 at a.go") {
 		t.Fatalf("unordered share: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestAddTaskOrderedOverlap(t *testing.T) {
 
 func TestAddTaskRendersParsableLine(t *testing.T) {
 	file := wavesFile(t, "## Tasks\n\n- [ ] Phase 1.1 — First — leaf: claude, Agent: claude — owns: a.go\n")
-	err := AddTask(file, WaveTask{ID: "Phase 1.2", Task: "Second", Leaf: "claude", Agent: "pi", BlockedBy: []string{"Phase 1.1"}, Owns: []string{"b.go", "c.go"}})
+	_, err := AddTask(file, WaveTask{ID: "Phase 1.2", Task: "Second", Leaf: "claude", Agent: "pi", BlockedBy: []string{"Phase 1.1"}, Owns: []string{"b.go", "c.go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestAddTaskRendersParsableLine(t *testing.T) {
 		{ID: "Phase 1.2 extra", Task: "odd id", Leaf: "claude", Agent: "pi", Owns: []string{"d.go"}},
 		{ID: "Phase 1.3", Task: "no leaf", Agent: "pi", Owns: []string{"d.go"}},
 	} {
-		if AddTask(file, bad) == nil {
+		if _, err := AddTask(file, bad); err == nil {
 			t.Fatalf("%+v accepted", bad)
 		}
 	}
@@ -312,7 +312,7 @@ func TestTaskLineWraps(t *testing.T) {
 	file := wavesFile(t, "## Tasks\n\n")
 	task := WaveTask{ID: "Phase 2.6", Task: strings.Repeat("implement wrapped plan tasks ", 6) + "and check the result",
 		Leaf: "claude", Agent: "pi", Owns: []string{"internal/plans/waves.go", "internal/plans/tick.go"}}
-	if err := AddTask(file, task); err != nil {
+	if _, err := AddTask(file, task); err != nil {
 		t.Fatal(err)
 	}
 	b := readFile(t, file)
@@ -348,7 +348,7 @@ func assertChecklistTaskReadsBack(t *testing.T, file string, task WaveTask) {
 func TestTaskLineWrapsListMarker(t *testing.T) {
 	file := wavesFile(t, "## Tasks\n\n")
 	task := WaveTask{ID: "Phase 2.7", Task: strings.Repeat("a", 105) + " 1. do", Leaf: "claude", Agent: "pi", Owns: []string{"internal/plans/waves.go"}}
-	if err := AddTask(file, task); err != nil {
+	if _, err := AddTask(file, task); err != nil {
 		t.Fatal(err)
 	}
 	p, err := Parse(file)

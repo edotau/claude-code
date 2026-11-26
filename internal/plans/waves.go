@@ -124,7 +124,7 @@ func parseWavesBytes(file string, raw []byte) (WavePlan, error) {
 		if t.Task == "" {
 			t.Task = "Implement " + t.ID + " from " + file
 		}
-		if t.Leaf == "" {
+		if t.Leaf == "" && !t.Done { // a ticked or struck task never launches, so it needs no leaf
 			return p, &WaveError{t.ID, "missing leaf:"}
 		}
 		p.addTask(t)
@@ -263,6 +263,9 @@ func (p *WavePlan) validate() error {
 			return &WaveError{t.ID, "duplicate id"}
 		}
 		seen[t.ID] = true
+		if t.Done { // only the id and Blocked by checks hold for a closed task: it launches nothing
+			continue
+		}
 		if !slices.Contains([]string{"claude", "codex", "copilot", "gemini", "opencode", "pi", "in-context"}, t.Agent) {
 			return &WaveError{t.ID, "unknown Agent: " + t.Agent}
 		}
@@ -673,13 +676,13 @@ func checkNewTask(t WaveTask) error {
 	return checkTask(t)
 }
 
-// AddTask validates t and appends its rendered line after the plan's last task, under the plans lock.
-func AddTask(planPath string, t WaveTask) error {
+// AddTask appends t's rendered line after the last task under the lock; a malformed old line is a note, not a refusal.
+func AddTask(planPath string, t WaveTask) (notes []string, err error) {
 	t.ID, t.Task = strings.TrimSpace(t.ID), strings.Join(strings.Fields(t.Task), " ")
 	if err := checkNewTask(t); err != nil {
-		return err
+		return nil, err
 	}
-	return editPlan(planPath, func(text string) (string, error) {
+	return notes, editPlan(planPath, func(text string) (string, error) {
 		p := parseBytes(planPath, []byte(text))
 		if _, ok := findTask(p, t.ID); ok {
 			return "", fmt.Errorf("plans: task %q already exists in %s", t.ID, planPath)
@@ -695,7 +698,9 @@ func AddTask(planPath string, t WaveTask) error {
 			return "", err
 		}
 		out := strings.Join(slices.Insert(strings.Split(text, "\n"), at, TaskLine(t)), "\n")
-		return out, checkRendered(planPath, out, t, len(p.Tasks))
+		var cerr error
+		notes, cerr = checkRendered(planPath, out, text, t, len(p.Tasks))
+		return out, cerr
 	})
 }
 
@@ -733,25 +738,49 @@ func tasksEnd(lines []string, p Plan) (int, error) {
 	return end + 1, nil
 }
 
-// checkRendered refuses text where the new line does not parse back as t, or a Phase task the wave parser rejects.
-func checkRendered(planPath, text string, t WaveTask, before int) error {
-	np := parseBytes(planPath, []byte(text))
-	if !readsBack(np, t, before) {
-		return fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
+// checkRendered refuses a new line that breaks the plan; an error base already had is a note and its line set aside.
+func checkRendered(planPath, text, base string, t WaveTask, before int) ([]string, error) {
+	if !readsBack(parseBytes(planPath, []byte(text)), t, before) {
+		return nil, fmt.Errorf("plans: task %q does not read back from its rendered line; use a plain id such as \"Phase 2.1\"", t.ID)
 	}
 	if !waveID().MatchString(t.ID) {
-		return nil
+		return nil, nil
 	}
-	_, err := parseWavesBytes(planPath, []byte(text))
-	var we *WaveError
-	if !errors.As(err, &we) {
-		return err
+	var notes []string
+	for range before + 1 { // each round sets one old line aside, so the loop ends
+		_, err := parseWavesBytes(planPath, []byte(text))
+		var we *WaveError
+		if !errors.As(err, &we) {
+			return notes, err
+		}
+		if we.ID == t.ID && (we.Reason == "missing Waves row" || strings.Contains(we.Reason, "membership")) {
+			return notes, fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
+				t.ID, strings.TrimPrefix(strings.SplitN(t.ID, ".", 2)[0], "Phase "))
+		}
+		var old *WaveError
+		if _, berr := parseWavesBytes(planPath, []byte(base)); we.ID == t.ID || !errors.As(berr, &old) || *old != *we {
+			return notes, fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+		}
+		notes = append(notes, "plans: note: the plan already had "+we.Error()+"; the new task is added beside it")
+		var ok bool
+		if text, ok = dropWaveTask(planPath, text, we.ID); !ok {
+			return notes, nil // a wave or table error names no line to set aside, so nothing past it can be checked
+		}
+		base, _ = dropWaveTask(planPath, base, we.ID)
 	}
-	if we.ID == t.ID && (we.Reason == "missing Waves row" || strings.Contains(we.Reason, "membership")) {
-		return fmt.Errorf("plans: add %q to the Packages cell of the \"## Waves\" row for wave %s (or a new row), then re-run",
-			t.ID, strings.TrimPrefix(strings.SplitN(t.ID, ".", 2)[0], "Phase "))
+	return notes, nil
+}
+
+// dropWaveTask is text without the lines of every task whose wave id is id; false when no task has it.
+func dropWaveTask(planPath, text, id string) (string, bool) {
+	d := ParseDoc(planPath, []byte(text))
+	found := false
+	for _, task := range slices.Backward(d.Tasks) {
+		if m := waveID().FindStringSubmatch(task.Title); m != nil && "Phase "+m[1]+"."+strings.ToUpper(m[2]) == id {
+			d.Lines, found = slices.Delete(d.Lines, task.Start, task.End+1), true
+		}
 	}
-	return fmt.Errorf("plans: the new task breaks the wave plan: %w", err)
+	return d.Render(), found
 }
 
 // readsBack reports whether np holds exactly one new task whose parsed fields equal t's rendered line.
@@ -986,8 +1015,12 @@ func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []s
 		errs = append(errs, serr)
 		pending[i].Ticked = nil
 		if started {
+			then := "ticking"
+			if r.Lane != "" {
+				then = "marking it in lane " + r.Lane
+			}
 			pending[i].Notes = append([]string{"plans: verifying " + strings.Join(r.IDs, ", ") + " on " + sha[:min(7, len(sha))] +
-				" before ticking; the result is a notice on your next prompt"}, r.Notes...)
+				" before " + then + "; the result is a notice on your next prompt"}, r.Notes...)
 		}
 	}
 	return pending, tied, errors.Join(append(errs, err)...)
@@ -1032,7 +1065,11 @@ func spawnVerify(top, plan, sha string, ids []string, session string) (bool, err
 	pid := proc.SpawnDetachedPID(bin, args, top, f)
 	if pid == 0 {
 		_ = os.Remove(marker)
-		return false, errors.New("plans: the verifier did not start; tick by hand after checking: claude-code plan task <id> --done --sha " + sha)
+		by := "tick by hand after checking: claude-code plan task <id> --done --sha " + sha
+		if lane := WorktreeName(top); lane != "" {
+			by = "mark by hand after checking: claude-code plan task <id> --lane " + lane + " --sha " + sha
+		}
+		return false, errors.New("plans: the verifier did not start; " + by)
 	}
 	start, _ := proc.StartTime(pid)
 	return true, os.WriteFile(marker+".pid", []byte(strconv.Itoa(pid)+"\n"+start+"\n"), 0o600)

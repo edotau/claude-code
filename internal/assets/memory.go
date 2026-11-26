@@ -17,9 +17,6 @@ func MemoryDecisionLogSeed() string { return string(read("memory/templates/decis
 
 func MemoryProgressSeed() string { return string(read("memory/templates/progress.md")) }
 
-func MemoryProjectContextSeed() string {
-	return string(read("memory/templates/projectContext.md"))
-}
 
 func MemorySessionHistorySeed() string {
 	return string(read("memory/templates/sessionHistory.md"))
@@ -123,8 +120,8 @@ func MemoryCatalogHeader(date string) string {
 	return renderMemory("catalog/header", tmplFields{"Date": date})
 }
 
-func MemoryCatalogBank(hook, date string) string {
-	return renderMemory("catalog/bank", tmplFields{"Hook": hook, "Date": date})
+func MemoryCatalogBank(date string) string {
+	return renderMemory("catalog/bank", tmplFields{"Date": date})
 }
 
 func MemoryHomeIndexHeading() string { return string(read("memory/prompts/home-index.txt")) }

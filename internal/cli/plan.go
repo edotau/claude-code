@@ -30,7 +30,7 @@ var planPage = helptext.Page{
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
 		{"tick", "tick tasks in --range <a>..<b>; --audit closes and archives plans"},
-		{"task", "tick, reopen or strike one task by hand"},
+		{"task", "tick, mark in a lane, reopen or strike one task by id or #index"},
 		{"ready", "open tasks a leaf can take now, with the free dispatch slots"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
@@ -99,7 +99,7 @@ func printPlanSummaries(summaries []plans.Summary) {
 			row = fmt.Sprintf("%d/%d (%d dropped)  %s", s.Ticked, s.Total, s.Dropped, filepath.ToSlash(rel))
 		}
 		fmt.Println(textutil.TruncateCells(row, 80, "…"))
-		for _, c := range s.Claims {
+		for _, c := range slices.Concat(s.Claims, s.Lanes) {
 			fmt.Printf("  %s\n", c)
 		}
 	}
@@ -307,7 +307,7 @@ func tickGreen(session, top, sha string, tasks []plans.Task, green map[string]bo
 	results, _, err := plans.TickCommit(top, sha, nil, verifiedOnly(tasks, green))
 	ticked := false
 	for _, r := range results {
-		ticked = ticked || len(r.Ticked) > 0
+		ticked = ticked || len(r.Ticked) > 0 && r.Lane == "" // a lane mark frees no task
 		for _, l := range r.Lines(sha) {
 			tickNotice(session, l)
 		}
@@ -420,12 +420,13 @@ func cmdPlanAudit(top string, opts plans.AuditOpts, archive bool, format string)
 
 // cmdPlanTask is `plan task`: the by-hand tick, reopen and strike for what no commit can decide.
 func cmdPlanTask(args []string) int {
-	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id> --done|--reopen|--strike <why> [flags]",
-		About: "Tick, reopen or strike one task by hand; quote an id with spaces: \"Phase 2.1\"."})
+	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id>|#<n> --done|--lane <w>|--strike <why> [flags]",
+		About: "Tick, mark in a lane, reopen or strike one task; quote an id with spaces: \"Phase 2.1\"; #<n> is the plan's nth task (needs --plan)."})
 	done := fs.Bool("done", false, "tick the task manually, with or without owns:")
+	lane := fs.String("lane", "", "mark the open task as in this linked worktree at --sha, until the main commit that lands it ticks it")
 	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert); only a later commit naming it ticks it again")
 	strike := fs.String("strike", "", "strike the task as superseded, with this reason")
-	sha := fs.String("sha", "", "with --done: the commit to record")
+	sha := fs.String("sha", "", "with --done: the commit to record; with --lane: the lane commit (required)")
 	plan := fs.String("plan", "", "plan file (default: the one plan holding the id)")
 	reason := fs.String("reason", "", "strike with this reason: "+strings.Join(plans.StrikeReasons, "|")+" (needs --evidence)")
 	evidence := fs.String("evidence", "", "with --reason: the cite, decision:<id>, commit:<sha> or note:<path>")
@@ -436,8 +437,9 @@ func cmdPlanTask(args []string) int {
 	}
 	id, one := oneID("", pos)
 	byID := *reason != "" || *evidence != ""
-	if !one || id == "" || taskModes(*done, *reopen, *strike != "", byID, *add) != 1 || (*sha != "" && !*done) {
-		return helptext.FailUsage("plan task: give <id> and exactly one of --done, --reopen, --strike <why>, --reason with --evidence or --add")
+	if !one || id == "" || taskModes(*done, *lane != "", *reopen, *strike != "", byID, *add) != 1 || (*sha != "" && !*done && *lane == "") ||
+		(*lane != "" && *sha == "") {
+		return helptext.FailUsage("plan task: give <id> and exactly one of --done, --lane <w> --sha <s>, --reopen, --strike <why>, --reason with --evidence or --add")
 	}
 	if *add {
 		return addTask(*plan, newTask(id))
@@ -452,6 +454,8 @@ func cmdPlanTask(args []string) int {
 	switch {
 	case *done:
 		_, err = plans.MarkDone(path, id, *sha)
+	case *lane != "":
+		_, err = plans.MarkLane(path, id, *lane, *sha)
 	case *reopen:
 		err = reopenTask(path, id)
 	case byID:
@@ -499,8 +503,12 @@ func addTask(plan string, t plans.WaveTask) int {
 	cwd, _ := os.Getwd()
 	top, _ := paths.CheckoutOf(cwd)
 	path, err := plans.ResolvePlan(top, plan)
+	var notes []string
 	if err == nil {
-		err = plans.AddTask(path, t)
+		notes, err = plans.AddTask(path, t)
+	}
+	for _, n := range notes {
+		fmt.Fprintln(os.Stderr, n)
 	}
 	if err != nil {
 		return helptext.Fail("plan task: %v", err)
@@ -535,6 +543,9 @@ func taskPlan(id, plan string, ticked bool) (string, error) {
 	if plan != "" {
 		return plans.ResolvePlan(top, plan)
 	}
+	if strings.HasPrefix(id, "#") {
+		return "", fmt.Errorf("%s is a position in one plan; pass --plan", id)
+	}
 	if top == "" {
 		return "", fmt.Errorf("%s is not in a git checkout; pass --plan", cwd)
 	}
@@ -568,7 +579,7 @@ func planSpec() *helptext.Node {
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
 			{Name: "all", IsBool: true}, {Name: "archive", IsBool: true},
 			{Name: "verify", IsBool: true}, {Name: "sha"}, {Name: "task"}, {Name: "session"}, helptext.CompletionFormatFlag()}},
-		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}, {Name: "reason"}, {Name: "evidence"},
+		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), {Name: "lane"}, helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}, {Name: "reason"}, {Name: "evidence"},
 			helptext.BoolFlag("add"), {Name: "title"}, {Name: "leaf"}, {Name: "agent"}, {Name: "profile"}, {Name: "verify"}, {Name: "blocked-by"}, {Name: "owns"}}},
 	}}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -139,10 +140,10 @@ func askArgs(n int, options LaunchOptions) ([]string, error) {
 	if options.Provider == "" {
 		return append(args, options.Route...), nil
 	}
-	if len(options.Profiles) == 0 {
-		return append(append(args, "--provider", options.Provider), options.Route...), nil
+	unit := agentconfig.Overlay{Provider: options.Provider, Profile: route.AutoArm} // a provider alone is its auto profile
+	if len(options.Profiles) > 0 {
+		unit.Profile = options.Profiles[0]
 	}
-	unit := agentconfig.Overlay{Provider: options.Provider, Profile: options.Profiles[0]}
 	rest, merged, err := mergeRouteOverlay(options.Route, unit)
 	if err != nil {
 		return nil, fmt.Errorf("wave route: %w", err)

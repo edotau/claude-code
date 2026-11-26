@@ -785,7 +785,7 @@ func BuildCatalog(now time.Time) (string, error) {
 	if !last.IsZero() {
 		when = last.Format("2006-01-02")
 	}
-	b.WriteString(assets.MemoryCatalogBank(cmp.Or(storeHook(), "Bank"), when))
+	b.WriteString(assets.MemoryCatalogBank(when))
 	writeLayoutRows(&b)
 	writeKnowledgeRows(&b)
 	if err := writeHomeRows(&b); err != nil {
@@ -829,19 +829,6 @@ func writeHomeRows(b *strings.Builder) error {
 		b.WriteString("\n")
 	}
 	return nil
-}
-
-// storeHook is a store's one-line routing description: projectContext's first prose line, else empty.
-func storeHook() string {
-	if data, err := os.ReadFile(Path("projectContext.md")); err == nil {
-		hook, ok := firstProseLine(stripFrontmatter(string(data)), func(l string) bool {
-			return strings.HasPrefix(l, "#") || strings.HasPrefix(l, ">") || strings.HasPrefix(l, "(")
-		})
-		if ok {
-			return hook
-		}
-	}
-	return ""
 }
 
 // stripFrontmatter drops a leading --- block; the closing fence must start its own line so "---" in a value is safe.

@@ -87,7 +87,7 @@ Go re-checks every change after the run and reopens what it cannot prove.
 edit, promote or create a file there; step 4 runs only inside `memory dream`.
 
 Inside dream, use the changed entries already read (no subagent, no re-read). Standalone, read `catalog.md` and the
-six typed files in the store root (`claude-code memory path`), then `feedback/` and `notes/`, then the higher tiers:
+five typed files in the store root (`claude-code memory path`), then `feedback/` and `notes/`, then the higher tiers:
 `rules/standards/`, `rules/workflows/`, `~/.claude/CLAUDE.md`.
 
 1. **Cross-reference** each entry against the higher tiers: a duplicate, a conflict (show both sides), or a gap no

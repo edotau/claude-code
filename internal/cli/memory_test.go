@@ -666,7 +666,7 @@ func TestMemorySandboxCLI(t *testing.T) {
 		t.Fatalf("sandbox JSON: %+v", res)
 	}
 	for _, s := range res.Stores {
-		if s.Files != 6 {
+		if s.Files != 5 {
 			t.Errorf("empty store: %+v", s)
 		}
 	}
