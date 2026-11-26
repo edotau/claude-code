@@ -36,7 +36,7 @@ func relayBash(in *core.Input) (core.Result, bool) {
 			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; "+
 				"run the ask alone in the foreground (no `; echo`, no `run_in_background`) and hand back after it exits; "+
 				"run only "+
-				"`claude-code <agent> ask ... - < /absolute/brief/file`, alone or chained with && around read-only commands "+
+				"`claude-code agents ask --agent <agent> ... - < /absolute/brief/file`, alone or chained with && around read-only commands "+
 				"(cd, git diff, grep, ls, cat, test -f, 2>&1; no redirect to a file), or: "+relayGoShapes+".", shown, rule)}, true
 		}
 	}
@@ -328,9 +328,6 @@ func askVerb(words []string) string {
 	}
 	if words[0] == "agents" && slices.Contains([]string{"ask", "result"}, words[1]) {
 		return words[1]
-	}
-	if externalAgent(words[0]) && words[1] == "ask" {
-		return "ask"
 	}
 	return ""
 }

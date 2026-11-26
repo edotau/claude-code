@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -45,23 +46,6 @@ var (
 	agentVersionTTY           = func() bool { return proc.IsTerminal(os.Stderr) }
 	versionWarnOut  io.Writer = os.Stderr
 )
-
-// Explore is `<agent> explore`: scan the code (and the web when web is set) for question and return a brief.
-func Explore(name, question string, web, background bool, format string) int {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return helptext.Fail("%s explore: %v", name, err)
-	}
-	askArgs, err := ExploreArgs(name, cwd, question, web, background)
-	if err != nil {
-		return helptext.Fail("%s explore: %v", name, err)
-	}
-	if format != helptext.Text {
-		task := askArgs[len(askArgs)-1]
-		askArgs = append(askArgs[:len(askArgs)-1], "--format", format, task)
-	}
-	return Cmd(askArgs)
-}
 
 // Transfer is `<agent> transfer`: hand the source transcript (default: this repo's newest) to name with note.
 func Transfer(name, source, note string, wait bool) int {
@@ -159,4 +143,9 @@ func WireUI() {
 	agent.PromptSecret = func(name string) (string, error) {
 		return tui.Secret("Paste the value for "+name+" (input hidden; empty cancels): ", vault.Preview)
 	}
+}
+
+// takeoverBrief is the fixed Pi takeover brief: agent, cutoff, the original task, the partial output.
+func takeoverBrief(agentName, cut, task string, n int, partial string) string {
+	return assets.TakeoverBrief(agentName, cut, task, n, partial)
 }

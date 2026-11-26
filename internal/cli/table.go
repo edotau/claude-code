@@ -22,6 +22,8 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	usagecmd "github.com/edotau/claude-code/internal/usage"
+	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/auditq"
 )
 
 // command is one top-level verb; group places it on the menu, hidden keeps it dispatchable but off the menu.
@@ -68,7 +70,7 @@ func buildCommands() []command {
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return cmdAgentVerb("copilot", a) }, spec: agentSpec("copilot")},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return cmdAgentVerb("codex", a) }, spec: agentSpec("codex")},
-		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return cmdAgentVerb("gemini", a) }, spec: agentSpec("gemini")},
+		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (agents ask --dirs)", run: func(a []string) int { return cmdAgentVerb("gemini", a) }, spec: agentSpec("gemini")},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return cmdAgentVerb("opencode", a) }, spec: agentSpec("opencode")},
 		{name: "pi", group: groupAgents, summary: "Pi on your Databricks profile, guarded", run: func(a []string) int { return cmdAgentVerb("pi", a) }, spec: agentSpec("pi")},
 		// AUTH
@@ -111,6 +113,7 @@ func hiddenCommands() []command {
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},
 		{name: "completion", hidden: true, summary: "bash tab-completion script (--install to write it)", run: cmdCompletion, spec: completionSpec},
 		{name: "__complete", hidden: true, summary: "machine: compute tab-completion candidates", run: cmdComplete},
+		{name: worktree.AuditArg, hidden: true, summary: "machine: drain the post-land audit queue", run: func([]string) int { auditq.Run(); return 0 }},
 	}
 }
 

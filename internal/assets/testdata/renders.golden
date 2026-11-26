@@ -388,24 +388,6 @@ Partial output (last 12 bytes):
 line one
 line two
 
-== ExplorePrompt (web) ==
-Read-only: never modify, create or delete a file.
-Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.
-Cite file:line for every claim about the code.
-Then research the relevant libraries, APIs and prior art on the web, citing a URL for every claim.
-If a source can't be reached, say so instead of guessing.
-Output exactly these five sections, each a few bullets: Structure, Conventions, Dependencies, Prior art,
-Open questions. Stop once two more lookups wouldn't change the brief.
-
-Question: q
-== ExplorePrompt (noweb) ==
-Read-only: never modify, create or delete a file.
-Orient first: list the directories that matter, read the README/spec for the area, then read narrowly.
-Cite file:line for every claim about the code.
-Output exactly these five sections, each a few bullets: Structure, Conventions, Dependencies, Prior art,
-Open questions. Stop once two more lookups wouldn't change the brief.
-
-Question: q
 == SafetyMessage (pattern) ==
 safety: BLOCKED — what
   pattern: pat

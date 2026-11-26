@@ -40,10 +40,10 @@ var askPage = helptext.Page{
 }
 
 // Cmd is `agents ask` with no session id and the `agents ask` page.
-func Cmd(args []string) int { return Run(args, "") }
+func Cmd(args []string) int { return runCtx(context.Background(), args, os.Stdout) }
 
 // cmdTo is Cmd with the answer and envelope written to out instead of the process stdout.
-func cmdTo(args []string, out io.Writer) int { return runCtx(context.Background(), args, "", out) }
+func cmdTo(args []string, out io.Writer) int { return runCtx(context.Background(), args, out) }
 
 // retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
 func retargetPage(fs *flag.FlagSet, name string) {
@@ -87,11 +87,6 @@ type askRun struct {
 	carryVerify string // the verify a carrying parent passed, taken once at start
 }
 
-// Run is `agents ask`; verb names the `<verb> ask` page -h prints.
-func Run(args []string, verb string) int {
-	return runCtx(context.Background(), args, verb, os.Stdout)
-}
-
 // parseAskArgs parses flags in any position; an unknown flag-looking word exits 2, and "--" ends the flags.
 func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done bool) {
 	pos, err := helptext.ParseArgs(fs, args)
@@ -116,10 +111,10 @@ func envFallback(ctx context.Context) string {
 	return router.ParseFallback(mode)
 }
 
-// runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
-func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
+// runCtx is Cmd under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
+func runCtx(ctx context.Context, args []string, out io.Writer) (exit int) {
 	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
-	fs, f, args, pos, code, done := parseAsk(verb, args)
+	fs, f, args, pos, code, done := parseAsk("", args)
 	if done {
 		return code
 	}

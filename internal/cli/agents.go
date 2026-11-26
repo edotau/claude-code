@@ -68,10 +68,8 @@ func agentSpec(name string) func() *helptext.Node {
 func agentNode(name string) *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
 	n := &helptext.Node{Sub: map[string]*helptext.Node{
-		"ask": {Flags: ask.CompletionFlags()},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
 			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model"), flag("overlay"), formatFlag()}},
-		"explore":  {Flags: []helptext.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
 		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
 		"setup":    {Flags: []helptext.Flag{formatFlag()}},
@@ -682,7 +680,7 @@ var agentAbout = map[string]string{
 	"codex": "OpenAI's Codex CLI on your ChatGPT login, the second-opinion reviewer. Bare " +
 		"launches it with args forwarded; the commands below run it headless.",
 	"gemini": "Gemini through agy (the Antigravity CLI) on your Google sign-in. Bare launches it " +
-		"with args forwarded; the commands below run it headless (ask --dirs packs files).",
+		"with args forwarded; the commands below run it headless.",
 	"opencode": "The OpenCode CLI, a general code agent with the widest model pool (catalog), on its " +
 		"own login or the selected Databricks profile. Bare launches it with args forwarded; the " +
 		"commands below run it headless.",
@@ -693,9 +691,7 @@ var agentAbout = map[string]string{
 // agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.
 func agentPage(name string) helptext.Page {
 	rows := [][2]string{
-		{"ask", "one-shot run (= ask --agent " + name + ")"},
 		{"review", "diff review; --adversarial"},
-		{"explore", "scan code + web research → brief"},
 		{"transfer", "hand this Claude session to " + name + "; --source"},
 		{"setup", "binary, login, route, projection; --format json"},
 		{"catalog", "model catalog; on Databricks: list|check|sync"},
@@ -721,7 +717,7 @@ func agentPage(name string) helptext.Page {
 	hint := ""
 	if s.CLI.ProviderVerb {
 		usage += "\nclaude-code " + name + " <provider> [-p NAME] [rest…]"
-		hint = "\nclaude-code " + name + " databricks -p dev ask \"Explain this code\""
+		hint = "\nclaude-code agents ask --agent " + name + " --profile dev \"Explain this code\""
 	}
 	return helptext.Page{
 		Usage:    usage,
@@ -758,7 +754,6 @@ var agentSubPages = map[string][2]string{
 	"setup":   {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
 	"catalog": {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
 	"review":  {"review [flags] [focus…]", "Review a diff with %s; flag-like focus words go after --."},
-	"explore": {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"profile": {"profile [<profile>|--clear|--off]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login, " +
 		"--off = no profile (stop routing). The three are exclusive. Exit 0, 1 failed."},
 	"transfer": {"transfer [flags] [note…]", "Hand this session's transcript to %s with tools on; detached unless --wait."},
@@ -780,7 +775,33 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 }
 
 // retiredAgentVerbs are refused, not forwarded to the agent CLI; their jobs moved to agents verbs and ask --session.
-var retiredAgentVerbs = []string{"resume", "status", "tail", "result", "cancel", "on", "off"}
+var retiredAgentVerbs = []string{"ask", "explore", "resume", "status", "tail", "result", "cancel", "on", "off"}
+
+// retiredVerb is the retired verb args open with past the harness launch flags; else "" (a native flag stops it).
+func retiredVerb(name string, args []string) string {
+	fs := launchFlags(name)
+	for i := 0; i < len(args); i++ {
+		word, _, hasVal := strings.Cut(strings.TrimLeft(args[i], "-"), "=")
+		f := fs.Lookup(word)
+		switch {
+		case !strings.HasPrefix(args[i], "-"):
+			if slices.Contains(retiredAgentVerbs, args[i]) {
+				return args[i]
+			}
+			return ""
+		case args[i] == "--" || f == nil:
+			return ""
+		case !hasVal && !isBoolValue(f.Value):
+			i++
+		}
+	}
+	return ""
+}
+
+func isBoolValue(v flag.Value) bool {
+	b, ok := v.(interface{ IsBoolFlag() bool })
+	return ok && b.IsBoolFlag()
+}
 
 func agentProviderArgs(name string, args []string) ([]string, error) {
 	if !agent.SchemaFor(name).CLI.ProviderVerb || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
@@ -796,48 +817,40 @@ func agentProviderArgs(name string, args []string) ([]string, error) {
 		return args, nil
 	}
 	option, profile, equals := strings.Cut(firstPositional(rest), "=")
-	flag, value := "--provider", provider
-	if slices.Contains([]string{"-p", "--profile"}, option) {
-		if !equals && len(rest) > 1 {
-			profile, rest = rest[1], rest[1:]
-		}
-		if profile == "" || strings.HasPrefix(profile, "-") {
-			return nil, fmt.Errorf("%s %s: %s requires a profile name", name, provider, option)
-		}
-		p, err := reg.Get(profile)
-		if err != nil {
-			return nil, fmt.Errorf("%s %s: %w", name, provider, err)
-		}
-		if p.Provider != provider {
-			return nil, fmt.Errorf("%s %s: profile %q does not belong to %s", name, provider, profile, provider)
-		}
-		flag, value, rest = "--profile", profile, rest[1:]
-	} else if firstPositional(rest) != "ask" {
+	if !slices.Contains([]string{"-p", "--profile"}, option) {
 		signedIn := slices.DeleteFunc(slices.Clone(rows), func(n string) bool { return !providers.CredentialPresent(reg.Row(n)) })
 		return nil, fmt.Errorf("%s %s: name a profile: -p %s", name, provider, strings.Join(signedIn, "|"))
 	}
-	var prefix []string
-	if verb := firstPositional(rest); verb == "ask" || agentSubPages[verb] != [2]string{} {
-		prefix, rest = append(prefix, rest[0]), rest[1:]
+	if !equals && len(rest) > 1 {
+		profile, rest = rest[1], rest[1:]
 	}
-	return append(append(prefix, flag, value), rest...), nil
+	if profile == "" || strings.HasPrefix(profile, "-") {
+		return nil, fmt.Errorf("%s %s: %s requires a profile name", name, provider, option)
+	}
+	p, err := reg.Get(profile)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", name, provider, err)
+	}
+	if p.Provider != provider {
+		return nil, fmt.Errorf("%s %s: profile %q does not belong to %s", name, provider, profile, provider)
+	}
+	return append([]string{"--profile", profile}, rest[1:]...), nil
 }
 
 var agentLaunch = ask.Launch
 
-// cmdAgentVerb is `<agent>`: bare or `--` launches, `ask` = `ask --agent <v>`, a sub-verb runs it, else launch.
+// cmdAgentVerb is `<agent>`: bare or `--` launches, a sub-verb runs it, else launch.
 func cmdAgentVerb(name string, args []string) int {
 	args, err := agentProviderArgs(name, args)
 	if err != nil {
 		return helptext.FailUsage("%v", err)
 	}
+	retired := retiredVerb(name, args)
 	switch {
 	case len(args) == 0 || args[0] == "--":
 		return agentLaunch(name, args)
-	case slices.Contains(retiredAgentVerbs, args[0]):
-		return unknownSub(name, args[0], agentPage(name))
-	case args[0] == "ask":
-		return ask.Run(append([]string{"--agent", name}, args[1:]...), name)
+	case retired != "":
+		return unknownSub(name, retired, agentPage(name))
 	case name == "codex" && args[0] == "cloud":
 		return codexCloud(args[1:])
 	case agentSubPages[args[0]] != [2]string{}:
@@ -852,10 +865,10 @@ func cmdAgentVerb(name string, args []string) int {
 	return agentLaunch(name, args)
 }
 
-// agentSub dispatches an agent's subverbs (setup, catalog, explore, transfer, profile, review).
+// agentSub dispatches an agent's subverbs (setup, catalog, transfer, profile, review).
 func agentSub(name string, args []string) int {
 	handlers := map[string]func(string, []string) int{
-		"setup": agentSetup, "catalog": agentCatalog, "explore": agentExplore,
+		"setup": agentSetup, "catalog": agentCatalog,
 		"transfer": agentTransfer, "profile": agentProfile, "review": agentReview,
 	}
 	if run := handlers[args[0]]; run != nil {
@@ -917,10 +930,7 @@ func (f *onceFlag) Set(s string) error {
 	return f.Value.Set(s)
 }
 
-func (f *onceFlag) IsBoolFlag() bool {
-	b, ok := f.Value.(interface{ IsBoolFlag() bool })
-	return ok && b.IsBoolFlag()
-}
+func (f *onceFlag) IsBoolFlag() bool { return isBoolValue(f.Value) }
 
 // guardScopeFlags wraps the review scope flags; the result names the first one given twice, else "".
 func guardScopeFlags(fs *flag.FlagSet) *string {
@@ -930,22 +940,6 @@ func guardScopeFlags(fs *flag.FlagSet) *string {
 		f.Value = &onceFlag{Value: f.Value, name: n, repeated: repeated}
 	}
 	return repeated
-}
-
-// agentExplore is `<v> explore [--no-web] [--background] [--format f] <question>`.
-func agentExplore(name string, args []string) int {
-	fs := newAgentFlags(name, "explore")
-	noWeb := fs.Bool("no-web", false, "skip the web-research step; code scan only")
-	background := fs.Bool("background", false, "detach; claude-code agents status|result --agent "+name+" to follow up")
-	format := fs.String("format", "text", "stream text or print the JSON result envelope")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	question := strings.Join(fs.Args(), " ")
-	if question == "" {
-		return helptext.Fail("%s explore: usage: claude-code %s explore [--no-web] [--background] <question>", name, name)
-	}
-	return ask.Explore(name, question, !*noWeb, *background, *format)
 }
 
 // agentTransfer is `<v> transfer [--source f] [--wait] [note…]`.

@@ -1010,9 +1010,6 @@ func askTask(seg string) (name, task string) {
 		return "", ""
 	}
 	name, task = a.Value("agent"), a.Prompt()
-	if name == "" && externalAgent(words[0]) {
-		name = words[0]
-	}
 	if file != "" {
 		b, _ := os.ReadFile(file)
 		task = string(b)

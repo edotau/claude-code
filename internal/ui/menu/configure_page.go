@@ -35,10 +35,6 @@ type Options struct {
 	Provider string
 	// --agent: scope keys/agents to one agent CLI
 	Agent string
-	// --auth (github page): switch gh to this GitHub account
-	Auth string
-	// --auth was passed
-	AuthSet bool
 	// print what would change; write nothing
 	DryRun bool
 	// report only; never writes; Run exits 1 if anything is unset
@@ -161,7 +157,7 @@ func wantSections(section string) (want []string, ok bool) {
 	return []string{section}, true
 }
 
-// runSections runs each section in order and returns the exit code (a failed codex or --auth section aborts with 1).
+// runSections runs each section in order and returns the exit code (a failed codex section aborts with 1).
 func runSections(d *dialog, want []string) int {
 	allOK := true
 	for _, s := range want {
@@ -169,7 +165,7 @@ func runSections(d *dialog, want []string) int {
 			d.header(s)
 		}
 		ok := runSection(d, s)
-		if (s == "codex" || d.o.AuthSet) && !ok {
+		if s == "codex" && !ok {
 			return 1
 		}
 		if !ok {

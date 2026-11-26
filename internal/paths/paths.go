@@ -797,17 +797,15 @@ func RelWithin(root, abs string) (string, bool) {
 const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
 
 // protectedDBs are the state databases Protected and ProtectedDBs cover.
-var protectedDBs = []string{"vault.db", "memory.db"}
+func protectedDBs() []string {
+	state := filepath.Join(ConfigDir(), "state")
+	return []string{filepath.Join(state, "vault.db"), filepath.Join(state, "memory.db"), AuditDBPath()}
+}
 
 // ProtectedDBs lists each state database Protected covers, then the state/backups/*.db snapshots that exist.
 func ProtectedDBs() []string {
-	state := filepath.Join(ConfigDir(), "state")
-	out := make([]string, 0, len(protectedDBs))
-	for _, db := range protectedDBs {
-		out = append(out, filepath.Join(state, db))
-	}
-	snaps, _ := filepath.Glob(filepath.Join(state, "backups", "*.db"))
-	return append(out, snaps...)
+	snaps, _ := filepath.Glob(filepath.Join(ConfigDir(), "state", "backups", "*.db"))
+	return append(protectedDBs(), snaps...)
 }
 
 // Protected reports whether p is or holds a state database, one of its sidecars or a state/backups/*.db snapshot.
@@ -820,17 +818,20 @@ func Protected(p string) bool {
 	if snaps, _ := filepath.Glob(filepath.Join(backups, "*.db")); len(snaps) > 0 && SameFile(p, backups) {
 		return true
 	}
-	for _, db := range protectedDBs {
-		if InsideDir(filepath.Join(state, db), p) {
+	for _, path := range protectedDBs() {
+		if InsideDir(path, p) {
 			return true
 		}
-		base := FoldCase(filepath.Base(p))
-		if SameFile(filepath.Dir(p), state) && (strings.HasPrefix(base, db+".") || slices.Contains([]string{"-wal", "-shm", "-journal"}, strings.TrimPrefix(base, db))) {
+		db, base := filepath.Base(path), FoldCase(filepath.Base(p))
+		if SameFile(filepath.Dir(p), filepath.Dir(path)) && (strings.HasPrefix(base, db+".") || slices.Contains([]string{"-wal", "-shm", "-journal"}, strings.TrimPrefix(base, db))) {
 			return true
 		}
 	}
 	return false
 }
+
+// AuditDBPath is the post-land audit queue's store (internal/worktree/auditq); Protected keeps clean away from it.
+func AuditDBPath() string { return filepath.Join(StateDir(), "worktree", "audit", "audit.db") }
 
 // MemoryStoreDir is the memory store root and the work tree of the local memory repo.
 func MemoryStoreDir() string { return filepath.Join(ConfigDir(), "memory") }

@@ -36,7 +36,3 @@ func TakeoverBrief(agentName, cut, task string, partialBytes int, partial string
 		"Agent": agentName, "Cut": cut, "Task": task, "Bytes": partialBytes, "Partial": partial,
 	})
 }
-
-func ExplorePrompt(question string, web bool) string {
-	return renderBriefText("explore.tmpl", tmplFields{"Question": question, "Web": web})
-}

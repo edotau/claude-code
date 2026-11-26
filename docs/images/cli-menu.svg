@@ -23,7 +23,7 @@
 <text x="173.2" y="255" fill="#d7d4dc">Codex on your ChatGPT login; reviews</text>
 <text x="22.0" y="274" fill="#d7d4dc">  </text>
 <text x="38.8" y="274" fill="#7481d4" font-weight="bold">gemini          </text>
-<text x="173.2" y="274" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (ask --dirs)</text>
+<text x="173.2" y="274" fill="#d7d4dc">Gemini CLI; 1M-context sweeps (agents ask --dirs)</text>
 <text x="22.0" y="293" fill="#d7d4dc">  </text>
 <text x="38.8" y="293" fill="#7f7cd0" font-weight="bold">opencode        </text>
 <text x="173.2" y="293" fill="#d7d4dc">OpenCode on its own login, or your Databricks profile; docs</text>

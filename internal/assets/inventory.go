@@ -130,7 +130,6 @@ var inventory = []struct {
 	{"files/brief/review-neutral.txt", "txt", "ReviewNeutral", func() []byte { return read("files/brief/review-neutral.txt") }},
 	{"files/brief/review-adversarial.tmpl", "tmpl", "ReviewAdversarial", func() []byte { return read("files/brief/review-adversarial.tmpl") }},
 	{"files/brief/takeover.tmpl", "tmpl", "TakeoverBrief", func() []byte { return read("files/brief/takeover.tmpl") }},
-	{"files/brief/explore.tmpl", "tmpl", "ExplorePrompt", func() []byte { return read("files/brief/explore.tmpl") }},
 	{"files/safety/message.tmpl", "tmpl", "SafetyMessage", func() []byte { return read("files/safety/message.tmpl") }},
 	{"files/safety/messages.tmpl", "tmpl", "SafetyArgMissing,SafetyNoAsk", func() []byte { return read("files/safety/messages.tmpl") }},
 	{"files/safety/owner-route.txt", "txt", "SafetyOwnerRoute", func() []byte { return read("files/safety/owner-route.txt") }},

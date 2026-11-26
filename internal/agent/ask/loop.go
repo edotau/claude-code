@@ -587,7 +587,7 @@ func (r *askRun) loopPlanFn() func(context.Context, string, string) (loopPlan, w
 		var buf bytes.Buffer
 		run := loopAsk
 		if run == nil {
-			run = func(ctx context.Context, args []string, out io.Writer) int { return runCtx(ctx, args, "", out) }
+			run = func(ctx context.Context, args []string, out io.Writer) int { return runCtx(ctx, args, out) }
 		}
 		rc := run(ctx, append(args, "--", prompt), &buf)
 		return parseLoopPlan(buf.Bytes(), rc)

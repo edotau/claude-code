@@ -53,7 +53,7 @@ var deps = []dep{
 	{Name: "node", Class: depFeature, Use: "workflow lint, browser MCP via npx", Brew: "node", Apt: "nodejs"},
 	{Name: "prettier", Class: depFeature, Use: "format-stop on JS/TS/JSON/MD/YAML", Brew: "prettier",
 		Npm: "prettier@3.10.1"},
-	{Name: "gh", Class: depFeature, Use: "usage quotas, copilot auth switch", Brew: "gh",
+	{Name: "gh", Class: depFeature, Use: "usage quotas, GitHub account reads", Brew: "gh",
 		Go: "github.com/cli/cli/v2/cmd/gh@v2.104.0", Apt: "gh"},
 	{Name: "tmux", Class: depFeature, Use: "network remote sessions", Version: "-V", Brew: "tmux", Apt: "tmux"},
 	{Name: "shellcheck", Class: depGate, Use: "agents diff --gates shell", Pick: `(?m)^version: (\S+)`,

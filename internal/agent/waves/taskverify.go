@@ -162,7 +162,7 @@ func pruneTrees(ctx context.Context, top, root, treeRoot string) {
 	for _, t := range trees {
 		pid, err := strconv.Atoi(t[strings.LastIndexByte(t, '-')+1:])
 		if _, serr := proc.StartTime(pid); err != nil || errors.Is(serr, proc.ErrNoProcess) {
-			worktree.RemoveTree(ctx, top, t)
+			worktree.RemoveIdleTree(ctx, t) // a dead owner's orphaned run may still be in it
 		}
 	}
 	plans.PruneVerify(root, "out-*")

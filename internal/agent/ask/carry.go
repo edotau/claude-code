@@ -146,7 +146,7 @@ func carryAgent(name string, persona bool) error {
 // carryRecord claims and saves the outer record: request.carry and the inner line (task on stdin).
 func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	f := r.f
-	if err := r.fs.Set("agent", f.name); err != nil { // the inner line names the agent even under an `<agent> ask` verb
+	if err := r.fs.Set("agent", f.name); err != nil { // the inner line names the agent
 		return agent.Record{}, err
 	}
 	folded := foldedArgv(r.fs, r.ov)

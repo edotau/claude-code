@@ -467,7 +467,7 @@ func resumeSend(ctx context.Context, rec agent.Record, prompt, format string) in
 	}
 	_, values := agent.RunValues(ctx, nil)
 	values[proc.DispatchIDEnv], values[proc.DispatchDepthEnv] = rec.ID, strconv.Itoa(rec.Depth)
-	return runCtx(proc.WithValues(ctx, values), []string{"--retry", rec.ID, "--format", format, "--", prompt}, "", os.Stdout)
+	return runCtx(proc.WithValues(ctx, values), []string{"--retry", rec.ID, "--format", format, "--", prompt}, os.Stdout)
 }
 
 // checkResumable names why rec cannot be resumed: still running, no session id recorded, or a fallback agent's session.
