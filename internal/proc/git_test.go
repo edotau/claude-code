@@ -3,6 +3,7 @@ package proc
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -93,22 +94,15 @@ func TestRunGitDirBecomesLeadingC(t *testing.T) {
 	}
 }
 
-func TestRunGitEmptyDirOmitsC(t *testing.T) {
-	_, err := RunGit(context.Background(), "", "not-a-real-git-subcommand")
-	if err == nil {
-		t.Fatal("expected an error for an invalid git subcommand")
-	}
-	if strings.Contains(err.Error(), "-C") {
-		t.Fatalf("dir == \"\" must not inject -C: %q", err)
-	}
-}
-
-func TestRunGitErrorWrapsArgvAndStderr(t *testing.T) {
+func TestRunGitEmptyDirOmitsCAndWrapsArgv(t *testing.T) {
 	_, err := RunGit(context.Background(), "", "not-a-real-git-subcommand")
 	if err == nil {
 		t.Fatal("expected an error for an invalid git subcommand")
 	}
 	msg := err.Error()
+	if strings.Contains(msg, "-C") {
+		t.Fatalf("dir == \"\" must not inject -C: %q", err)
+	}
 	if !strings.Contains(msg, "git not-a-real-git-subcommand") {
 		t.Fatalf("error does not include the full argv: %q", msg)
 	}
@@ -237,5 +231,23 @@ func BenchmarkStatusEntries(b *testing.B) {
 		if len(got) != 300 || got[1].From != "src/old.go" || got[299].Path != "untracked file.txt" {
 			b.Fatal("status parser lost an entry, rename source, or space in a path")
 		}
+	}
+}
+
+// Given an inherited GIT_DIR naming a bogus dir, Git still reads the repo at dir (-C is not overridden).
+func TestGitScrubsInheritedGitDir(t *testing.T) {
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	t.Setenv("GIT_DIR", t.TempDir()+"/bogus")
+	t.Setenv("GIT_WORK_TREE", t.TempDir())
+	real := func(p string) string { r, _ := filepath.EvalSymlinks(p); return r }
+	lines, ok, err := Git(context.Background(), repo, "rev-parse", "--show-toplevel")
+	if err != nil || !ok {
+		t.Fatalf("Git rev-parse = ok %v err %v; GIT_DIR leaked into the call", ok, err)
+	}
+	if got, want := real(lines[0]), real(repo); got != want {
+		t.Fatalf("toplevel = %q, want %q", got, want)
 	}
 }

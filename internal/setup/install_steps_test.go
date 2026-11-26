@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -15,8 +17,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/clipboard"
+	_ "github.com/edotau/claude-code/internal/codex"  // registers the codex engine the prod binary links
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
+	_ "github.com/edotau/claude-code/internal/opencode" // registers the opencode engine the prod binary links
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -574,5 +578,323 @@ func TestExtrasCompactInstallsDreamAgent(t *testing.T) {
 	t.Cleanup(func() { installClipAgent = oldClip })
 	if got := clipboardExtras(io.Discard); !called || !slices.Contains(got, "dream agent ok") {
 		t.Fatalf("called=%v tokens=%v", called, got)
+	}
+}
+
+// TestInstallContinuesAfterSettingsFailure
+func TestInstallContinuesAfterSettingsFailure(t *testing.T) {
+	hermetic(t)
+	self := filepath.Join(t.TempDir(), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := settings.SettingsFile()
+	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: os.ReadFile fails, not ErrNotExist
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := install(&out, false, true)
+	if err == nil {
+		t.Fatal("Install with an unreadable settings.json returned nil error")
+	}
+	if !strings.Contains(err.Error(), "settings") {
+		t.Errorf("Install err = %v, want it to name settings", err)
+	}
+	if !strings.Contains(out.String(), "settings skip") {
+		t.Errorf("output missing the settings-skip report:\n%s", &out)
+	}
+	if !strings.Contains(out.String(), "agents   sync") {
+		t.Errorf("syncVendors did not run after the settings failure:\n%s", &out)
+	}
+	if !strings.Contains(out.String(), "tmux") {
+		t.Errorf("installGitHooks/earlier steps did not run either:\n%s", &out)
+	}
+}
+
+// compactStepPrefix classifies one line of installCompact's default output by step
+func compactStepPrefix(t *testing.T, line string) string {
+	t.Helper()
+	switch {
+	case strings.HasPrefix(line, "settings (windows)"):
+		return "settings (windows)"
+	case strings.HasPrefix(line, "install"):
+		return "install"
+	case strings.HasPrefix(line, "rtk-config"):
+		return "rtk-config"
+	case strings.HasPrefix(line, "mdlint"):
+		return "mdlint"
+	case strings.HasPrefix(line, "links"):
+		return "links"
+	case strings.HasPrefix(line, "settings"):
+		return "settings"
+	case strings.HasPrefix(line, "agents"):
+		return "agents"
+	case strings.HasPrefix(line, "extras"):
+		return "extras"
+	default:
+		t.Fatalf("unrecognized line in default install output: %q", line)
+		return ""
+	}
+}
+
+// shortTempDir is a t.TempDir() without the test name, so paths stay representative for an 80-column check.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	base := ""
+	if runtime.GOOS == "darwin" {
+		base = "/private/tmp" // macOS $TMPDIR is /var/folders/…/T, itself too long for the 80-column check
+	}
+	dir, err := os.MkdirTemp(base, "ciq")
+	if err != nil && base != "" {
+		dir, err = os.MkdirTemp("", "ciq")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// setupCompactFixture wires a hermetic install where every linked name resolves on PATH, under a short config path.
+func setupCompactFixture(t *testing.T, linked []string) {
+	t.Helper()
+	hermetic(t)
+	root := shortTempDir(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	home := filepath.Join(root, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	// hermetic() already redirected userBinDir/tmuxConfPaths, but at its own (long, test-name-based) root
+	oldUserBin := userBinDir
+	userBinDir = func() string { return filepath.Join(root, "localbin") }
+	t.Cleanup(func() { userBinDir = oldUserBin })
+	oldTmux := tmuxConfPaths
+	tmuxConfPaths = func() []string {
+		return []string{filepath.Join(root, ".tmux.conf"), filepath.Join(root, "xdg", "tmux.conf")}
+	}
+	t.Cleanup(func() { tmuxConfPaths = oldTmux })
+	self := filepath.Join(shortTempDir(t), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var dirs []string
+	for _, name := range linked {
+		vendor := agentid.Binary(name)
+		source := pathstest.FakeVendorOutsideConfig(t, vendor, "")
+		dirs = append(dirs, filepath.Dir(source))
+		if name == agentid.Pi { // Pi links only its own state install, never a PATH copy
+			own := filepath.Join(paths.StateDir(), "pi", "npm", "node_modules", ".bin", "pi")
+			if err := os.MkdirAll(filepath.Dir(own), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// Only git rides in from the real PATH (installGitHooks/history need it)
+	if p, err := exec.LookPath("git"); err == nil {
+		dirs = append(dirs, filepath.Dir(p))
+	}
+	// userBinDir on PATH too, same as a real shell profile — otherwise linkOnPath's "not on PATH"
+	dirs = append(dirs, filepath.Join(root, "localbin"))
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	noWindowsProfile(t)
+}
+
+// noWindowsProfile makes the host read as non-WSL with no Windows profile, so no "settings (windows)" step runs.
+func noWindowsProfile(t *testing.T) {
+	t.Helper()
+	orig := onWSL
+	onWSL = func() bool { return false } // never shell out to cmd.exe; a test opts into the windows line via the env
+	t.Cleanup(func() { onWSL = orig })
+	t.Setenv(windowsProfileEnv, "")
+}
+
+// TestInstallCompactDefaultOutputHasExactlyTheStepLines
+func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
+	for _, windowsProfile := range []bool{false, true} {
+		t.Run(fmt.Sprintf("windows profile %v", windowsProfile), func(t *testing.T) {
+			setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
+			if windowsProfile { // a resolved Windows profile (WSL) adds the settings (windows) step
+				t.Setenv(windowsProfileEnv, shortTempDir(t))
+			}
+			var out bytes.Buffer
+			if err := install(&out, false, false); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, l := range splitNonEmpty(out.String()) {
+				got = append(got, compactStepPrefix(t, l))
+			}
+			want := []string{"install", "mdlint", "links", "settings"}
+			if runtime.GOOS != "windows" {
+				want = []string{"install", "rtk-config", "mdlint", "links", "settings"}
+			}
+			if windowsProfile {
+				want = append(want, "settings (windows)")
+			}
+			want = append(want, "agents", "extras")
+			if !slices.Equal(got, want) {
+				t.Errorf("default install steps = %v, want %v\nfull output:\n%s", got, want, &out)
+			}
+		})
+	}
+}
+
+// TestInstallCompactDefaultOutputLinesFitEightyColumns
+func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
+	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
+	var out bytes.Buffer
+	if err := install(&out, false, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range splitNonEmpty(out.String()) {
+		if len(l) > 80 {
+			t.Errorf("default output line over 80 chars (%d): %q", len(l), l)
+		}
+	}
+}
+
+// TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull
+func TestInstallCompactDefaultModePrintsFailingVendorAndSettingsSkipInFull(t *testing.T) {
+	setupCompactFixture(t, []string{"claude", "codex", "opencode", "gemini"}) // copilot left unlinked
+	file := settings.SettingsFile()
+	if err := os.MkdirAll(file, 0o755); err != nil { // settings.json as a directory: forces its read to fail
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := install(&out, false, false)
+	if err == nil {
+		t.Fatal("Install with an unreadable settings.json returned nil error")
+	}
+	if !strings.Contains(out.String(), "settings skip") {
+		t.Errorf("default output missing the settings-skip line in full:\n%s", &out)
+	}
+	if !strings.Contains(out.String(), "copilot not installed") {
+		t.Errorf("default output missing the unlinked vendor's full line:\n%s", &out)
+	}
+}
+
+// historySnapshotHash normalizes the pre-install snapshot's commit hash, which differs between identical fixtures.
+var historySnapshotHash = regexp.MustCompile(`history  [0-9a-f]+ \(pre-install snapshot\)`)
+
+// runVerboseFixture sets up one hermetic, vendor-free install (so every vendor reports "missing"
+func runVerboseFixture(t *testing.T, fn func(io.Writer) error) (output, root, self string) {
+	t.Helper()
+	hermetic(t)
+	root = os.Getenv("CLAUDE_CONFIG_DIR")
+	self = filepath.Join(t.TempDir(), "claude-code")
+	if err := os.WriteFile(self, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	selfBinary = func() (string, error) { return self, nil }
+	if err := os.WriteFile(filepath.Join(filepath.Dir(self), paths.HookBinaryName), []byte("hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir()) // an empty dir: every vendor resolves to "missing", deterministically
+	noWindowsProfile(t)           // windows settings off in both fixtures alike
+	var out bytes.Buffer
+	if err := fn(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), root, self
+}
+
+func normalizeVerboseOutput(out, root, self string) string {
+	out = historySnapshotHash.ReplaceAllString(out, "history  <hash> (pre-install snapshot)")
+	out = strings.ReplaceAll(out, self, "$SELF")
+	out = strings.ReplaceAll(out, filepath.Join(filepath.Dir(self), paths.HookBinaryName), "$HOOKS")
+	out = strings.ReplaceAll(out, root, "$ROOT")
+	return out
+}
+
+// TestInstallVerboseFlagMatchesInstallVerboseDirectly
+func TestInstallVerboseFlagMatchesInstallVerboseDirectly(t *testing.T) {
+	outA, rootA, selfA := runVerboseFixture(t, func(w io.Writer) error { return install(w, false, true) })
+	outB, rootB, selfB := runVerboseFixture(t, func(w io.Writer) error { return installVerbose(w, false) })
+	normA := normalizeVerboseOutput(outA, rootA, selfA)
+	normB := normalizeVerboseOutput(outB, rootB, selfB)
+	if normA != normB {
+		t.Errorf("Install(verbose=true) diverges from installVerbose called directly:\nA:\n%s\nB:\n%s", normA, normB)
+	}
+}
+
+// The "still ran" settings error must print only after the steps it claims ran, in both output modes.
+func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
+	for _, verbose := range []bool{true, false} {
+		name := "compact"
+		if verbose {
+			name = "verbose"
+		}
+		t.Run(name, func(t *testing.T) {
+			assertSettingsSkipOrder(t, verbose)
+		})
+	}
+}
+
+func assertSettingsSkipOrder(t *testing.T, verbose bool) {
+	t.Helper()
+	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
+	if err := os.MkdirAll(settings.SettingsFile(), 0o755); err != nil { // settings.json as a directory: read fails
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := install(&out, false, verbose); err == nil {
+		t.Fatal("Install with an unreadable settings.json returned nil error")
+	}
+	s := out.String()
+	skip := strings.Index(s, "still ran")
+	agents := strings.Index(s, "agents")
+	if skip < 0 || agents < 0 {
+		t.Fatalf("missing skip or agents line:\n%s", s)
+	}
+	if skip < agents {
+		t.Errorf("settings skip printed before the agents step:\n%s", s)
+	}
+	if verbose {
+		if g := strings.Index(s, "tmux"); g < 0 || skip < g {
+			t.Errorf("settings skip printed before the git-hooks/extras steps:\n%s", s)
+		}
+	}
+}
+
+// Install must re-render agent configs so a stale harness hook in codex's hooks.json is purged.
+func TestInstallRendersAgentConfigs(t *testing.T) {
+	hermetic(t)
+	home := os.Getenv("HOME")
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	hooksFile := filepath.Join(home, ".codex", "hooks.json")
+	stale := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command",` +
+		`"command":"HARNESS_HOOK_VENDOR=codex $HOME/.claude/bin/claude-code hook safety-scan"}]}]}}`
+	if err := os.MkdirAll(filepath.Dir(hooksFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksFile, []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	got := agentConfigsSummary(&out)
+	if !strings.Contains(got, "configs rendered:") || !strings.Contains(got, "codex") {
+		t.Fatalf("summary = %q (warnings: %s)", got, out.String())
+	}
+	b, err := os.ReadFile(hooksFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "HARNESS_HOOK_VENDOR=codex $HOME") {
+		t.Errorf("stale entry survived:\n%s", b)
+	}
+	if again := agentConfigsSummary(&out); again != "configs unchanged" {
+		t.Errorf("second run = %q, want unchanged", again)
 	}
 }
