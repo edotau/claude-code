@@ -17,8 +17,9 @@ func hangJev(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
-	t.Cleanup(srv.CloseClientConnections)
+	// cleanups run last-first: close connections before Close waits on the handler, so a failed check never hangs
 	t.Cleanup(srv.Close)
+	t.Cleanup(srv.CloseClientConnections)
 	t.Setenv("HARNESS_JEV_URL", srv.URL)
 }
 
