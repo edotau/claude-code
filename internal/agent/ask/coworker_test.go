@@ -249,43 +249,56 @@ func armVendorBody(dumpAt, bin string) string {
 		`echo '402 Payment Required: monthly quota exceeded' >&2; exit 1`
 }
 
+var cliSharedBin struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
 var armSharedBin struct {
 	once sync.Once
 	dir  string
+	err  error
 }
 
 // armSharedFakes writes each fake once per test binary, since a fresh script's first exec costs 60-400 ms on macOS.
 func armSharedFakes(t *testing.T) string {
 	t.Helper()
 	armSharedBin.once.Do(func() {
-		dir, err := os.MkdirTemp("", "arm-fakes")
-		if err != nil {
-			t.Fatal(err)
+		armSharedBin.dir, armSharedBin.err = os.MkdirTemp("", "arm-fakes")
+		if armSharedBin.err != nil {
+			return
 		}
-		armSharedBin.dir = dir
 		for _, h := range armDevHop {
-			body := "#!/bin/sh\nIFS= read -r dump < \"${0%/*}/dump-path\" || exit 1\n" + armVendorBody(`"$dump"`, h.bin) + "\n"
+			body := "#!/bin/sh\nIFS= read -r dump < \"$CLAUDE_CONFIG_DIR/arm-dump-path\" || exit 1\n" + armVendorBody(`"$dump"`, h.bin) + "\n"
 			file, _ := paths.AgentName(h.bin)
-			if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o755); err != nil {
-				t.Fatal(err)
+			if armSharedBin.err = os.WriteFile(filepath.Join(armSharedBin.dir, file), []byte(body), 0o755); armSharedBin.err != nil {
+				return
 			}
 		}
+		bin := filepath.Join(armSharedBin.dir, "gh-bin")
+		if armSharedBin.err = os.Mkdir(bin, 0o755); armSharedBin.err != nil {
+			return
+		}
+		armSharedBin.err = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho gho-own-login\n"), 0o755)
 	})
+	if armSharedBin.err != nil {
+		t.Fatal(armSharedBin.err)
+	}
 	return armSharedBin.dir
 }
 
-// armFixture is armChildEnvFixture; shared points the fakes at one per-binary copy that reads this test's dump dir.
+// armFixture shares immutable fakes only when callers do not replace them with a test-specific vendor.
 func armFixture(t *testing.T, shared bool) string {
 	t.Helper()
 	skipWithoutSh(t)
 	cliEnv(t)
 	dump := t.TempDir()
 	if shared {
-		dir := armSharedFakes(t)
-		if err := os.WriteFile(filepath.Join(dir, "dump-path"), []byte(dump+"\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(paths.ConfigDir(), "arm-dump-path"), []byte(dump+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv(paths.AgentBinDirEnv, dir)
+		t.Setenv(paths.AgentBinDirEnv, armSharedFakes(t))
 	} else {
 		for _, h := range armDevHop {
 			pathstest.FakeVendor(t, h.bin, armVendorBody(`"`+dump+`"`, h.bin))
@@ -324,16 +337,13 @@ func armCopilotLogin(t *testing.T) {
 	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Route: route.Route{Profile: "personal"}}); err != nil {
 		t.Fatal(err)
 	}
-	gh, bin := t.TempDir(), t.TempDir()
+	gh := t.TempDir()
 	hosts := "github.com:\n    users:\n        octo:\n    user: octo\n"
 	if err := os.WriteFile(filepath.Join(gh, "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho gho-own-login\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("GH_CONFIG_DIR", gh)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", filepath.Join(armSharedFakes(t), "gh-bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	orig := copilot.CopilotUsedPct
 	copilot.CopilotUsedPct = func(context.Context, string) (float64, bool) { return 10, true }
 	t.Cleanup(func() { copilot.CopilotUsedPct = orig })

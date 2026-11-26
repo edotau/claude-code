@@ -873,11 +873,15 @@ func TestMain(m *testing.M) {
 	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
+	if err := os.Setenv("HARNESS_KEYRING", "off"); err != nil {
+		panic(err)
+	}
 	scan := worktree.ProcessScan
 	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	code := m.Run()
 	cleanup()
 	_ = os.RemoveAll(armSharedBin.dir)
+	_ = os.RemoveAll(cliSharedBin.dir)
 	os.Exit(code)
 }
 
@@ -1024,10 +1028,12 @@ func cliEnv(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("HARNESS_ARM_HOST", "")         // no host-salted workspace tie-break: ties rank by name
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
-	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
-		if err := vault.SetAgentRecord(name, vault.AgentRecord{Route: route.Route{Profile: profile}}); err != nil {
-			t.Fatal(err)
+	if err := vault.UpdateAgentRecords(func(recs map[string]vault.AgentRecord) {
+		for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
+			recs[name] = vault.AgentRecord{Route: route.Route{Profile: profile}}
 		}
+	}); err != nil {
+		t.Fatal(err)
 	}
 	marker := gemini.AgyLoginMarker(home)
 	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
@@ -1042,17 +1048,35 @@ func cliEnv(t *testing.T) {
 func cliFakes(t *testing.T) {
 	t.Helper()
 	skipWithoutSh(t)
-	pathstest.FakeNativeClaude(t, "cat > /dev/null; sleep 0.05\n"+
-		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"claude-sonnet-5-5"}'`+"\n"+
-		`printf '%s\n' '{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
-		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
-	pathstest.FakeVendor(t, "codex", `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+"cat > /dev/null; sleep 0.05; echo hello")
-	pathstest.FakeVendor(t, "agy", "cat > /dev/null; sleep 0.05\n"+
-		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hello"}}'`+"\n"+
-		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"hello","num_turns":1,"usage":{"input_tokens":3,"output_tokens":2}}}'`)
-	pathstest.FakeVendor(t, "opencode", "sleep 0.05\n"+
-		`printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`+"\n"+
-		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`)
+	cliSharedBin.once.Do(func() {
+		cliSharedBin.dir, cliSharedBin.err = os.MkdirTemp("", "cli-fakes")
+		if cliSharedBin.err != nil {
+			return
+		}
+		for name, body := range cliFakeBodies {
+			if cliSharedBin.err = os.WriteFile(filepath.Join(cliSharedBin.dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); cliSharedBin.err != nil {
+				return
+			}
+		}
+	})
+	if cliSharedBin.err != nil {
+		t.Fatal(cliSharedBin.err)
+	}
+	t.Setenv(paths.AgentBinDirEnv, cliSharedBin.dir)
+}
+
+var cliFakeBodies = map[string]string{
+	"claude": "cat > /dev/null; sleep 0.05\n" +
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"claude-sonnet-5-5"}'` + "\n" +
+		`printf '%s\n' '{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"hello"}]}}'` + "\n" +
+		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`,
+	"codex": `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }` + "\n" + "cat > /dev/null; sleep 0.05; echo hello",
+	"gemini": "cat > /dev/null; sleep 0.05\n" +
+		`printf '%s\n' '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hello"}}'` + "\n" +
+		`printf '%s\n' '{"event":"result","result":{"conversation_id":"c1","status":"SUCCESS","response":"hello","num_turns":1,"usage":{"input_tokens":3,"output_tokens":2}}}'`,
+	"opencode": "sleep 0.05\n" +
+		`printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'` + "\n" +
+		`printf '%s\n' '{"type":"step_finish","sessionID":"so","part":{"tokens":{"Input":3,"Output":2}}}'`,
 }
 
 // cliMarker is a fake child that records its invocation (never a `login` probe) by touching a file.
