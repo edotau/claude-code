@@ -345,15 +345,20 @@ func (x *e2eRun) updateProcedure(t *testing.T) {
 }
 
 func (x *e2eRun) updateTranscript(t *testing.T) {
-	// copilot and the other agent dispatches are absent from PATH, so the chain lands on the fake claude there
 	const marker = "e2e-update-marker-7731"
 	const session = "e2e-update-session"
 	transcript, argvLog, stdinLog := x.fakeTranscriptUpdate(t, marker)
 	before := dirHashes(t, x.cfg)
 
-	out := x.e.mustRun(t, "", "memory", "update", "--transcript", transcript, "--cwd", x.repo, "--session", session)
+	// the fake claude answers no typed batch and Pi is absent: the one fallback fails, and no untyped writer follows
+	out, errs, code := x.e.run(t, "", "memory", "update", "--transcript", transcript, "--cwd", x.repo, "--session", session)
 	assertUpdateInvocation(t, transcript, argvLog, stdinLog, out)
-	x.assertTranscriptUpdateResult(t, marker, session)
+	if code == 0 || !strings.Contains(errs, "code-mode fallback on") {
+		t.Errorf("update exit %d, stderr %q: want a failure naming the failed code-mode fallback", code, errs)
+	}
+	if res, ok := readUpdateResult(session); !ok || res.Status != updateFailed {
+		t.Errorf("update result = %+v ok=%v, want status failed", res, ok)
+	}
 	assertOnlyStoreAndStateGrew(t, x.cfg, before)
 }
 
@@ -392,17 +397,6 @@ func assertUpdateInvocation(t *testing.T, transcript, argvLog, stdinLog, out str
 	}
 	if argv, _ := os.ReadFile(argvLog); !strings.Contains(string(argv), "--print") {
 		t.Errorf("fake claude was not run headless: %q", argv)
-	}
-}
-
-func (x *e2eRun) assertTranscriptUpdateResult(t *testing.T, marker, session string) {
-	t.Helper()
-	if hist, _ := os.ReadFile(x.file("sessionHistory.md")); !strings.Contains(string(hist), marker) {
-		t.Error("the fake reply's sessionHistory write is missing from the bank")
-	}
-	res, ok := readUpdateResult(session)
-	if !ok || res.Status != updateOK || !res.BankUpdated {
-		t.Errorf("update result = %+v ok=%v, want status ok with bank_updated", res, ok)
 	}
 }
 

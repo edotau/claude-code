@@ -277,3 +277,62 @@ func TestMemoryRunOptionsSchemaTurnsToolsOff(t *testing.T) {
 		t.Fatalf("no slot: %+v, want tools on and no schema", plain)
 	}
 }
+
+func TestAnswerJobFallsBackOnceOnInvalidBatch(t *testing.T) {
+	t.Setenv("HARNESS_KEYRING", "off")
+	calls := 0
+	old := memory.CodeModeRun
+	memory.CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
+		calls++
+		return `{"ops":[{"op":"add","target":"note","text":"x"}]}`, "fake-pi", nil
+	}
+	oldCopy := memory.StoreCopy
+	memory.StoreCopy = func(context.Context) (string, func(), error) { return t.TempDir(), func() {}, nil }
+	t.Cleanup(func() { memory.CodeModeRun, memory.StoreCopy = old, oldCopy })
+	ctx := memory.WithCodeFallback(context.Background(), new(memory.CodeFallback))
+	ctx, answer := memory.WithJobAnswer(ctx, memory.BatchSchema())
+	opts := memoryRunOptions(ctx, "p", "/w")
+	if by, _ := answerJob(ctx, opts, wire.Result{Answer: "not json"}, nil); by == nil || by.Agent != "pi" {
+		t.Fatalf("receipt = %+v, want the fallback model", by)
+	}
+	if calls != 1 || !strings.Contains(*answer, `"note"`) {
+		t.Fatalf("calls %d answer %q: want the fallback's batch after one dispatch", calls, *answer)
+	}
+	if _, err := answerJob(ctx, opts, wire.Result{Answer: "still bad", Model: "primary"}, nil); err == nil ||
+		!strings.Contains(err.Error(), "primary") || !strings.Contains(err.Error(), "fake-pi") || calls != 1 {
+		t.Fatalf("a second invalid answer dispatched again (%d)", calls)
+	}
+}
+
+func TestSchemaRejectedSendsAFatalAnswerToTheFallback(t *testing.T) {
+	opts := agent.RunOptions{OutputSchema: memory.BatchSchema()}
+	_, _, serr := wire.Structured("not json", memory.BatchSchema())
+	fatal := &retry.Error{Kind: retry.KindFatal, Err: serr}
+	if schemaRejected(opts, wire.Result{}, fatal) == nil {
+		t.Error("a fatal schema failure with an answer must go to the fallback")
+	}
+	for name, got := range map[string]error{
+		"transient":  schemaRejected(opts, wire.Result{Answer: "x"}, &retry.Error{Kind: retry.KindTransient, Err: errors.New("t")}),
+		"startup":    schemaRejected(opts, wire.Result{}, &retry.Error{Kind: retry.KindFatal, Err: errors.New("boom")}),
+		"no schema":  schemaRejected(agent.RunOptions{}, wire.Result{Answer: "x"}, fatal),
+		"no failure": schemaRejected(opts, wire.Result{Answer: "x"}, nil),
+	} {
+		if got != nil {
+			t.Errorf("%s: schemaRejected = %v, want nil", name, got)
+		}
+	}
+	t.Setenv("HARNESS_KEYRING", "off")
+	calls := 0
+	old, oldCopy := memory.CodeModeRun, memory.StoreCopy
+	memory.CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
+		calls++
+		return `{"ops":[{"op":"add","target":"note","text":"x"}]}`, "fake-pi", nil
+	}
+	memory.StoreCopy = func(context.Context) (string, func(), error) { return t.TempDir(), func() {}, nil }
+	t.Cleanup(func() { memory.CodeModeRun, memory.StoreCopy = old, oldCopy })
+	ctx, answer := memory.WithJobAnswer(memory.WithCodeFallback(context.Background(), new(memory.CodeFallback)), memory.BatchSchema())
+	validText := `{"ops":[{"op":"noop"}]}`
+	if _, err := answerJob(ctx, opts, wire.Result{Answer: validText}, fatal); err != nil || calls != 1 || !strings.Contains(*answer, `"note"`) {
+		t.Fatalf("err %v, calls %d, answer %q: a schema-rejected answer must take the fallback even when it decodes", err, calls, *answer)
+	}
+}

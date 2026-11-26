@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-000000000000"}
+{"type":"turn.started"}
+{"type":"error","message":"Incomplete response returned, reason: max_output_tokens"}
+{"type":"turn.failed","error":{"message":"Incomplete response returned, reason: max_output_tokens"}}

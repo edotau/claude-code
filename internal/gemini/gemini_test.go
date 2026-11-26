@@ -924,3 +924,12 @@ func TestGeminiGatewayRefusesGoogleToolsBeforeRouter(t *testing.T) {
 		t.Fatalf("err = %v, EnsureRouter calls = %d; want a devx PreflightError and 0 calls", err, calls)
 	}
 }
+
+// agy's output-limit stop ends the result with an error naming the limit: an output budget end, never re-sent.
+func TestParseAgyOutputLimitIsBudget(t *testing.T) {
+	stream := `{"event":"result","result":{"status":"ERROR","error":"response exceeded the output token limit"}}`
+	_, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil)
+	if got := retry.BudgetOf(err); got != retry.BudgetOutput || retry.MayRedispatch(err) {
+		t.Fatalf("err = %v, budget %q; want output budget and no redispatch", err, got)
+	}
+}

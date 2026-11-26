@@ -152,7 +152,7 @@ func (f launchFacts) env() proc.Values {
 func fenceOf(ctx context.Context) string {
 	provider, profile, _ := router.OverlayRoute(ctx)
 	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
-	return agentconfig.InlineOverlay(provider, profile, o)
+	return agentconfig.Overlay{Provider: provider, Profile: profile, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()
 }
 
 // NoteSession records the launch facts of a session the launcher never named (/clear, a fork) from the hook's env.

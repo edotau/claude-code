@@ -77,8 +77,16 @@ func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), 
 	if err != nil {
 		return res, err
 	}
+	if t.cut { // the last step ended on the output token limit: its answer is cut short
+		res.Answer = ""
+		t.errs = append(t.errs, "opencode: step finished with reason length (output token limit)")
+	}
 	if len(t.errs) > 0 {
-		return res, errors.New(strings.Join(t.errs, "; "))
+		out := errors.New(strings.Join(t.errs, "; "))
+		if t.cut {
+			return res, retry.WithBudget(out, retry.BudgetOutput)
+		}
+		return res, out
 	}
 	return res, nil
 }
@@ -93,6 +101,7 @@ type ocTurn struct {
 	seenTools    map[string]bool
 	fired        bool
 	toolRan      bool
+	cut          bool // the last step_finish reason was length
 	onMeaningful func()
 	onTool       func(openCodeEvent)
 	onEvent      func(openCodeEvent)
@@ -180,6 +189,7 @@ func writtenPaths(ev openCodeEvent) []string {
 
 func (t *ocTurn) stepFinish(ev openCodeEvent) {
 	t.res.Turns++
+	t.cut = ev.Part.Reason == "length"
 	tk := ev.Part.Tokens
 	u := &t.res.Usage
 	u.InputTokens += tk.Input

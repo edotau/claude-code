@@ -598,6 +598,7 @@ type updateRun struct {
 	updated           bool
 	report            JobResult
 	typed             string // "ok" or "fallback"; "" when the typed pass never ran
+	fb                CodeFallback
 }
 
 // finish settles under the writer lock and reports whether the update wrote the bank.
@@ -626,7 +627,7 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions) {
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o updateOptions) error {
-	if r.typed != "ok" {
+	if r.typed != "ok" && r.typed != "failed" {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 		defer cancel()
 		ctx, rep := WithJobReport(ctx)
@@ -692,19 +693,34 @@ func (r *updateRun) typedPass(o updateOptions) {
 		r.typed = "fallback"
 		return
 	}
-	prompt += filedByGoBlock(o.Session) + listing
+	head := prompt + filedByGoBlock(o.Session)
+	prompt = head + listing
 	b, ok := r.askBatch(o, prompt)
 	if !ok {
 		r.typed = "fallback"
+		if r.fb.Used() { // the one code-mode dispatch is spent: fail, never the untyped writer
+			r.typed = "failed"
+			r.runErr = cmp.Or(r.runErr, errors.New("typed answer rejected and the code-mode fallback is spent"))
+		}
 		return
 	}
 	r.typed = "ok"
+	b = withTags(o, b)
+	err = applyTyped(o, b, base)
+	if err != nil && refused(err) {
+		err = r.retryApply(o, head, err)
+	}
+	r.runErr = errors.Join(fileErr, err)
+	RefreshStaleEmbeddings(o.CWD)
+}
+
+// withTags puts the session's Go-filed tag ops ahead of the model's; an older session drops current-state targets.
+func withTags(o updateOptions, b Batch) Batch {
 	b.Ops = append(tagOps(o.Session, o.Historical), b.Ops...)
 	if o.Historical {
 		b.Ops = slices.DeleteFunc(b.Ops, func(op Op) bool { return slices.Contains(currentStateTargets, op.Target) })
 	}
-	r.runErr = errors.Join(fileErr, applyTyped(o, b, base))
-	RefreshStaleEmbeddings(o.CWD)
+	return b
 }
 
 // currentStateTargets are the op targets an older session must never write.
@@ -712,24 +728,42 @@ var currentStateTargets = []string{"activeContext", "progress", "conventions", "
 
 // askBatch runs the model with the batch schema, retrying once with the rejection message on an invalid answer.
 func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {
+	var rejected error
 	for range 2 {
 		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
-		ctx, rep := WithJobReport(ctx)
+		ctx, rep := WithJobReport(WithCodeFallback(ctx, &r.fb))
 		ctx, answer := WithJobAnswer(ctx, BatchSchema())
 		who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD)
 		cancel()
 		r.report = *rep
 		fmt.Fprintln(o.Out, "memory update: ran on", who)
 		if err != nil {
+			fmt.Fprintln(o.Out, "memory update: typed run failed:", err)
+			r.runErr = err
 			return Batch{}, false
 		}
 		b, err := decodeBatch(*answer)
 		if err == nil {
 			return b, true
 		}
+		rejected = err
 		prompt += "\n\nYour previous answer was rejected: " + err.Error() + "\nReturn a corrected batch."
 	}
-	return Batch{}, false
+	return r.fallbackBatch(o, prompt, rejected)
+}
+
+// fallbackBatch gives the one code-mode agent the exhausted validation failure; a spent fallback fails the job.
+func (r *updateRun) fallbackBatch(o updateOptions, prompt string, rejected error) (b Batch, ok bool) {
+	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
+	defer cancel()
+	err := r.fb.Retry(ctx, prompt, o.CWD, BatchSchema(), cmp.Or(r.report.Model, r.report.Agent), rejected, func(answer string) (derr error) {
+		b, derr = decodeBatch(answer)
+		return derr
+	})
+	if err != nil && r.fb.Used() {
+		r.runErr = err
+	}
+	return b, err == nil
 }
 
 // decodeBatch parses the model's answer strictly and validates it.
@@ -743,6 +777,9 @@ func decodeBatch(answer string) (Batch, error) {
 	if err := dec.Decode(&b); err != nil {
 		return Batch{}, err
 	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return Batch{}, errors.New("expected one JSON object")
+	}
 	return b, b.Validate()
 }
 
@@ -754,7 +791,42 @@ func applyTyped(o updateOptions, b Batch, base Versions) error {
 			fmt.Fprintf(o.Out, "memory update: op %d (%s) failed: %s\n", i, res.Op.Op, res.Reason)
 		}
 	}
-	return err
+	return withFailedOps(err, results)
+}
+
+// withFailedOps appends each failed op's reason to err, so a fallback sees why the batch failed.
+func withFailedOps(err error, results []OpResult) error {
+	if err == nil {
+		return nil
+	}
+	var failed []string
+	for i, res := range results {
+		if res.Outcome == DreamFailed {
+			failed = append(failed, fmt.Sprintf("op %d (%s): %s", i, res.Op.Op, res.Reason))
+		}
+	}
+	if len(failed) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, strings.Join(failed, "; "))
+}
+
+// retryApply gives the one code-mode fallback the failed ops and a fresh listing, then applies its corrected batch.
+func (r *updateRun) retryApply(o updateOptions, head string, failed error) error {
+	listing, base, err := bankListing(o.Historical)
+	if err != nil {
+		return errors.Join(failed, err)
+	}
+	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
+	defer cancel()
+	first := cmp.Or(r.report.Model, r.report.Agent)
+	return r.fb.Retry(ctx, head+listing, o.CWD, BatchSchema(), first, failed, func(answer string) error {
+		nb, err := decodeBatch(answer)
+		if err != nil {
+			return err
+		}
+		return applyTyped(o, withTags(o, nb), base)
+	})
 }
 
 // tagOps files the session's NEXT, BUG and NOTE events without the model; invalid ones are dropped.

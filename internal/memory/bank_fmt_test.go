@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -91,7 +92,7 @@ func wrapBreakCases() []wrapCase {
 
 // markerAfterOneTokenCases: one over-long token, a bare list marker, then a word; the marker must not open a line.
 func markerAfterOneTokenCases() []wrapCase {
-	long := strings.Repeat("y", 2*BankFmtMaxLine)
+	long := strings.Repeat("y", 2*mdlint.Width)
 	var cases []wrapCase
 	for _, m := range []string{"-", "*", "+", "1."} {
 		cases = append(cases, wrapCase{
@@ -105,7 +106,7 @@ func markerAfterOneTokenCases() []wrapCase {
 
 // markerRunCases: after one over-long token a RUN of marker tokens stays together on that line, never opening one.
 func markerRunCases() []wrapCase {
-	long := strings.Repeat("y", 2*BankFmtMaxLine)
+	long := strings.Repeat("y", 2*mdlint.Width)
 	return []wrapCase{
 		{name: "marker run + +", input: "- " + long + " + + tail", want: "- " + long + " + +\n  tail"},
 		{name: "marker run - *", input: "- " + long + " - * word", want: "- " + long + " - *\n  word"},
@@ -251,7 +252,7 @@ func assertProtectedCodeSpan(t *testing.T) {
 		t.Fatalf("code span split or altered:\n%s", out)
 	}
 	for l := range strings.SplitSeq(out, "\n") {
-		if l == longCode && utf8RuneCount(l) <= BankFmtMaxLine {
+		if l == longCode && utf8RuneCount(l) <= mdlint.Width {
 			t.Errorf("expected the lone code-span line to stay over-width (unsplit), got %d runes", utf8RuneCount(l))
 		}
 	}
@@ -275,7 +276,7 @@ func assertUnsplittableTokenLine(t *testing.T, out, token string) {
 	if !strings.Contains(lines[0], token) {
 		t.Fatalf("token was altered: %q", lines[0])
 	}
-	if utf8RuneCount(lines[0]) <= BankFmtMaxLine {
+	if utf8RuneCount(lines[0]) <= mdlint.Width {
 		t.Errorf("expected the unsplittable-token line to stay over-width, got %d runes", utf8RuneCount(lines[0]))
 	}
 }
@@ -437,7 +438,7 @@ func assertWrappedKeepsWords(t *testing.T, target, longLine string) {
 		t.Fatal(err)
 	}
 	for l := range strings.SplitSeq(string(data), "\n") {
-		if utf8RuneCount(l) > BankFmtMaxLine {
+		if utf8RuneCount(l) > mdlint.Width {
 			t.Errorf("rewritten file still has an over-width line: %q", l)
 		}
 	}

@@ -97,7 +97,7 @@ func TestAncestryRestoresFenceAndSkipsWaves(t *testing.T) {
 	ancestorDispatch = func() (Record, error) { return got, nil }
 	t.Cleanup(func() { ancestorDispatch = previous })
 	values := withAncestorDispatch(proc.Values{route.OverlayVar: `{"provider":"anthropic"}`})
-	if want := agentconfig.InlineOverlay("databricks", "qa"); values[route.OverlayVar] != want {
+	if want := (agentconfig.Overlay{Provider: "databricks", Profile: "qa"}).Doc(); values[route.OverlayVar] != want {
 		t.Fatalf("fence = %q, want %q", values[route.OverlayVar], want)
 	}
 }
@@ -113,7 +113,7 @@ func TestAncestryContextInstallsFence(t *testing.T) {
 	}
 	t.Cleanup(func() { ancestorDispatch = previous })
 	ctx := AncestorContext(context.Background())
-	if want := agentconfig.InlineOverlay("databricks", "qa"); proc.Value(ctx, route.OverlayVar) != want {
+	if want := (agentconfig.Overlay{Provider: "databricks", Profile: "qa"}).Doc(); proc.Value(ctx, route.OverlayVar) != want {
 		t.Fatalf("fence = %q, want %q", proc.Value(ctx, route.OverlayVar), want)
 	}
 }

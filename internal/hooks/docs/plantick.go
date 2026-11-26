@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -44,8 +45,89 @@ const harnessCommitPattern = `(?:^|[^\w.-])(?:claude-code|\.hookd)\s+worktree\s+
 // tickMatch matches git or harness commits, alone or behind rtk or a && chain.
 var tickMatch = core.Gate(`\bgit\b[^;&|\n]*\bcommit\b|`+harnessCommitPattern, "commit")
 
-// Tick advances named tasks only after their commits land on main.
+// planDone matches a `[rtk] claude-code plan task ... --done` command, whose tick is written before the hook runs.
+var planDone = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)(?:^|[;&|(])\s*(?:rtk\s+)?(?:\S*/)?(?:claude-code|\.hookd)\s+plan\s+task\b[^;&|\n]*\s--done\b`)
+})
+
+// freeSlots and readyClaims are seams: the in-flight cap less the live agents, and every other party's claims.
+var (
+	freeSlots   = func() int { return max(router.CurrentLimits().Total-inflight.Count().Total, 0) }
+	readyClaims = func(in *core.Input) map[string][]string {
+		hits, _ := worktree.LiveClaims(worktree.ClaimSource{Alive: proc.Alive, Self: worktree.SessionSlug(in.SessionID),
+			Owner: inflight.SessionOwner, Leaf: func(c worktree.Claim) string {
+				if c.Agent == "" || time.Since(time.Unix(c.TS, 0)) > inflight.Idle {
+					return ""
+				}
+				return "leaf " + c.Agent[:min(8, len(c.Agent))]
+			}, Label: func(pid int) string {
+				return worktree.SessionLabel(worktree.Proc{PID: pid, Comm: cmp.Or(proc.Comm(pid), "claude")})
+			}})
+		out := make(map[string][]string, len(hits))
+		for p, hs := range hits {
+			for _, h := range hs {
+				out[p] = append(out[p], h.Who)
+			}
+		}
+		return out
+	}
+)
+
+// Tick advances named tasks after commits land on main, then lists the ready ones; advisory, parse edges accepted.
 func Tick(in *core.Input) core.Result {
+	res := tickEvent(in)
+	cmd := in.ToolCommand()
+	if !strings.Contains(res.Context, "plans: ticked") && (in.ToolFailed() || !planDone().MatchString(cmd)) {
+		return res
+	}
+	main := ticksRepo(in.CWD, cmd)
+	if main == "" {
+		return res
+	}
+	n := plans.ReadyNotice(plans.ReadyInput{Root: main, Slots: freeSlots(), Claims: func() map[string][]string { return readyClaims(in) }})
+	res.Context = core.JoinContext(res.Context, n)
+	return res
+}
+
+var anyDirArg = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s-C\s+("[^"]+"|'[^']+'|\S+)`) })
+
+var cdCall = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[^\w./-])(?:cd|pushd)\s`) })
+
+// relativeRepeatedC reports several -C args with a relative one, which git resolves cumulatively.
+func relativeRepeatedC(cmd string) bool {
+	ms := anyDirArg().FindAllStringSubmatch(cmd, -1)
+	return len(ms) > 1 && slices.ContainsFunc(ms, func(m []string) bool {
+		return !filepath.IsAbs(paths.ExpandHome(strings.Trim(m[1], `"'`)))
+	})
+}
+
+// ticksRepo is the one main checkout cmd's repos resolve to; "" when none or several, so no other repo is named.
+func ticksRepo(cwd, cmd string) string {
+	cands, base := commitCandidates(cwd, cmd), cwd
+	if m := leadingCD().FindStringSubmatch(cmd); m != nil {
+		cands, base = cands[:len(cands)-1], candidateDir(strings.Trim(m[1], `"'`), cwd) // the cd target replaces cwd
+	}
+	for _, m := range anyDirArg().FindAllStringSubmatch(cmd, -1) { // every -C names a repo, whatever the verb
+		cands = append(cands, candidateDir(strings.Trim(m[1], `"'`), base))
+	}
+	if len(cdCall().FindAllString(cmd, 2)) > len(leadingCD().FindStringSubmatch(cmd))/2 || relativeRepeatedC(cmd) { // a cd past the leading one or a chained relative -C: unknowable
+		return ""
+	}
+	var main string
+	for _, d := range cands {
+		_, m := paths.CheckoutOf(d)
+		if m == "" || m == main {
+			continue
+		}
+		if main != "" {
+			return ""
+		}
+		main = m
+	}
+	return main
+}
+
+func tickEvent(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	if in.ToolName != "Bash" {
 		return core.Result{}

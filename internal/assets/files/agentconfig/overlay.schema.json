@@ -68,6 +68,14 @@
     "cloud": {
       "type": "boolean"
     },
+    "codemode": {
+      "enum": [
+        "off",
+        "on",
+        "only"
+      ],
+      "type": "string"
+    },
     "codexNetwork": {
       "type": "boolean"
     },
@@ -81,6 +89,9 @@
         "max"
       ]
     },
+    "endpoint": {
+      "type": "string"
+    },
     "fallback": {
       "enum": [
         "none",
@@ -88,6 +99,21 @@
         "agents",
         "all"
       ]
+    },
+    "fence": {
+      "additionalProperties": false,
+      "properties": {
+        "open": {
+          "type": "boolean"
+        },
+        "profiles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
     "host": {
       "type": "string"
@@ -106,6 +132,9 @@
       "type": "array"
     },
     "maxChildren": {
+      "type": "integer"
+    },
+    "maxDepth": {
       "type": "integer"
     },
     "maxTreeTokens": {
@@ -150,7 +179,7 @@
       ]
     },
     "schema": {
-      "maximum": 1,
+      "maximum": 2,
       "minimum": 0,
       "type": "integer"
     },

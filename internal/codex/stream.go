@@ -76,6 +76,7 @@ type codexStreamState struct {
 	idle         *agent.IdleTimeout
 	running      map[string]bool // tool items started and not yet completed
 	marked       map[string]bool // non-shell tool items already marked as replay progress
+	cut          bool            // codex ended a response on the output token limit
 	turnDone     bool            // the last turn ended with turn.completed
 	stopTail     func()          // stops and joins the rollout usage tailer
 }
@@ -115,6 +116,9 @@ func (s *codexStreamState) parse(br *bufio.Reader) (res wire.Result, _ error) {
 		if !s.turnDone { // an answer from a turn that failed or was cut off is not the result
 			res.Answer = ""
 		}
+		if s.cut { // an output-limit stop, even when a later generic turn.failed replaced its message
+			return res, retry.WithBudget(s.failure, retry.BudgetOutput)
+		}
 		return res, s.failure
 	}
 	if !s.turnDone { // interim text without turn.completed is a cut-off run, not an answer
@@ -153,6 +157,9 @@ func codexToolItem(typ string) bool {
 }
 
 func (s *codexStreamState) apply(ev codexEvent) error {
+	if strings.Contains(cmp.Or(ev.Message, ev.Error.Message), "Incomplete response returned, reason: max_output_tokens") {
+		s.cut = true
+	}
 	if err := s.markTool(ev); err != nil {
 		return err
 	}

@@ -1,7 +1,5 @@
 internal/memory/agent_input.go:writeSynthTranscript	unversioned: text: Claude-shaped transcript synthesized from an agent session
 internal/memory/bank.go:requireFlat	unversioned: marker: flat-layout stamp of a fresh store
-internal/memory/bank_blocks.go:appendBlocks	unversioned: memory-bank: bank blocks
-internal/memory/bank_blocks.go:assignFileIDs	unversioned: memory-bank: bank id comments
 internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_commit.go:save	memory-journal
 internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
@@ -22,6 +20,8 @@ internal/memory/candidates.go:ingestTestProposals	unversioned: text: report inge
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
 internal/memory/catchup.go:save	memory-catchup-heads
 internal/memory/compact_handoff.go:WriteCompactHandoff	unversioned: text: PreCompact's fact-only handoff markdown in memory/handoffs
+internal/memory/doc.go:appendBlocks	unversioned: memory-bank: bank blocks
+internal/memory/doc.go:assignFileIDs	unversioned: memory-bank: bank id comments
 internal/memory/doctor.go:cacheDoctorNotice	unversioned: text: per-store doctor notice line
 internal/memory/doctor.go:markDoctorNoticeShown	unversioned: text: once-a-day doctor notice stamp (date, findings digest)
 internal/memory/doctor.go:recordIndexProblem	unversioned: text: last failed settle's cause, read by memory review

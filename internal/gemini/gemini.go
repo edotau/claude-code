@@ -867,7 +867,11 @@ func applyAgyResult(res *wire.Result, ev agyEvent) error {
 		fmt.Fprintf(os.Stderr, "agy: denied %s\n", strings.Join(names, ", "))
 	}
 	if out.Status != "SUCCESS" {
-		return errors.New(cmp.Or(out.Error, "agy run "+cmp.Or(out.Status, "failed")))
+		err := errors.New(cmp.Or(out.Error, "agy run "+cmp.Or(out.Status, "failed")))
+		if strings.Contains(out.Error, "exceeded the output token limit") { // agy's STOP_REASON_MAX_TOKENS text
+			return retry.WithBudget(err, retry.BudgetOutput)
+		}
+		return err
 	}
 	return nil
 }

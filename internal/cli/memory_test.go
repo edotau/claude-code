@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -207,7 +208,7 @@ func TestCmdMemoryFmt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for l := range strings.SplitSeq(string(data), "\n") {
-		if len([]rune(l)) > memory.BankFmtMaxLine {
+		if len([]rune(l)) > mdlint.Width {
 			t.Errorf("rewritten decisionLog.md still has an over-width line: %q", l)
 		}
 	}

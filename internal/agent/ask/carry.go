@@ -495,7 +495,7 @@ func overlayCaps(ctx context.Context, value string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if caps := agentconfig.InlineOverlay("", "", o); caps != "" {
+	if caps := (agentconfig.Overlay{MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}).Doc(); caps != "" {
 		return []string{"--overlay", caps}, nil
 	}
 	return nil, nil

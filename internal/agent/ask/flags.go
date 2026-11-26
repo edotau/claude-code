@@ -788,7 +788,7 @@ func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
 	if !live && host == "" {
 		return nil
 	}
-	ov.MaxChildren, ov.MaxTreeTokens = nil, nil // limits only bind nested dispatches, which a remote run still gets
+	ov.MaxChildren, ov.MaxTreeTokens, ov.MaxDepth, ov.Fence, ov.Codemode = nil, nil, nil, nil, "" // these bind nested dispatches, which a remote run still gets
 	if ov.Empty() {
 		return nil
 	}

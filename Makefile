@@ -29,7 +29,7 @@ export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
 HOOK_BIN         = $(dir $(BIN)).hookd
-HOOK_BIN_MAX     = 25165824# 24 MiB: SQLite linked into the hook (+3.5 MB, start time within noise; plan D6)
+HOOK_BIN_MAX     = 28311552# 27 MiB: SQLite in the hook; linux/amd64 builds it at 26.1 MB, darwin/arm64 at 24.6 MB
 STAMP_FILE       = $(dir $(BIN)).build-stamp
 # rtk shim (internal/rtkwrap): Pi's shim dir links each wrapped command here.
 RTKWRAP_BIN      = $(dir $(BIN)).rtkwrap

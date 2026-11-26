@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -47,5 +48,24 @@ func TestParseOpenCodeEventsApplyPatch(t *testing.T) {
 	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil, nil, nil)
 	if err != nil || !slices.Equal(res.Written, []string{"notes4-dbg.txt"}) || res.Answer != agent.NoTextAnswer {
 		t.Fatalf("Written = %v, answer = %q, err = %v", res.Written, res.Answer, err)
+	}
+}
+
+// A step_finish with reason length (the AI SDK's output-limit finish) is an output budget end; a later stop clears it.
+func TestParseOpenCodeLengthFinishIsBudget(t *testing.T) {
+	fin := func(reason string) string {
+		return `{"type":"step_finish","part":{"reason":"` + reason + `","tokens":{"output":5}}}`
+	}
+	text := `{"type":"text","part":{"text":"partial"}}`
+	_, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(text+"\n"+fin("length"))), wire.Discard, nil, nil, nil)
+	if got := retry.BudgetOf(err); got != retry.BudgetOutput || retry.MayRedispatch(err) {
+		t.Fatalf("err = %v, budget %q; want output budget and no redispatch", err, got)
+	}
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(text+"\n"+fin("length")+"\n"+`{"type":"error","error":{"name":"x"}}`)), wire.Discard, nil, nil, nil)
+	if retry.BudgetOf(err) != retry.BudgetOutput || res.Answer != "" {
+		t.Fatalf("length then error: err = %v, answer %q; want output budget and no answer", err, res.Answer)
+	}
+	if _, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(fin("length")+"\n"+fin("stop"))), wire.Discard, nil, nil, nil); err != nil {
+		t.Fatalf("length then stop: err = %v; want none", err)
 	}
 }

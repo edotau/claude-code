@@ -68,7 +68,7 @@ var memoryPlumbing = map[string][2]string{
 	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
-	"upgrade": {"[--dry-run] [--to N]", "bring every memory file to the current store version, one commit per step"},
+	"upgrade": {"[--dry-run] [--to N] [--model M] [--no-resolve]", "bring every memory file to the current store version, one commit per step"},
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
 }
@@ -168,10 +168,16 @@ func cmdMemoryUpgrade(args []string) int {
 	fs := memoryFlagSet("upgrade")
 	dryRun := fs.Bool("dry-run", false, "print the per-file summary; write nothing")
 	to := fs.Int("to", 0, "stop at this store version (default: the version this binary writes)")
+	noResolve := fs.Bool("no-resolve", false, "leave residue listed; skip the one code-mode agent")
+	model := fs.String("model", "", "residue agent model: opus (default), astra or a catalog id")
 	if code, done := memoryParseNoArgs(fs, "upgrade", args); done {
 		return code
 	}
-	rep, err := memory.MemoryUpgrade(memory.UpgradeOptions{DryRun: *dryRun, To: *to})
+	ask.RegisterCodeMode() // the residue agent needs the seam; upgrade builds no MemoryRunner
+	if _, err := memory.FallbackModel(*model); err != nil {
+		return helptext.FailUsage("memory upgrade: --model: %v", err)
+	}
+	rep, err := memory.MemoryUpgrade(memory.UpgradeOptions{DryRun: *dryRun, To: *to, Model: *model, NoResolve: *noResolve})
 	if err != nil {
 		return helptext.Fail("memory upgrade: %v", err)
 	}
@@ -284,7 +290,7 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to")}},
+		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to"), helptext.Plain("model"), helptext.BoolFlag("no-resolve")}},
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),

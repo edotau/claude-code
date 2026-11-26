@@ -189,3 +189,28 @@ func TestReportVerifyFailures(t *testing.T) {
 		t.Fatal("a done failure stayed done after re-report")
 	}
 }
+
+// a written verified tick appends the ready line to its notice; no tick, no line.
+func TestTickGreenPostsReadyLine(t *testing.T) {
+	name := time.Now().Format(time.DateOnly) + "-a"
+	repo := planRepo(t, map[string]string{name + ".md": "- [ ] 1.1 One owns: a.go\n"})
+	hosttest.WriteRel(t, repo, "a.go", "package a\n")
+	hosttest.In(t, repo, "add", "a.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "feat: a\n\nTask: "+name+" 1.1")
+	sha := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
+	old := tickReady
+	t.Cleanup(func() { tickReady = old })
+	var calls int
+	tickReady = func(string) string { calls++; return "plans: READYLINE" }
+	p, err := plans.Parse(filepath.Join(plans.Home(repo), name+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := tickGreen("", repo, sha, p.Tasks, map[string]bool{"1.2": true}); code != 0 || calls != 0 {
+		t.Fatalf("no green task: code %d, ready calls %d, want 0 and 0", code, calls)
+	}
+	_, out, _ := hosttest.CaptureOutput(t, func() int { return tickGreen("", repo, sha, p.Tasks, map[string]bool{"1.1": true}) })
+	if calls != 1 || !strings.Contains(out, "READYLINE") {
+		t.Fatalf("ready calls %d, output %q", calls, out)
+	}
+}

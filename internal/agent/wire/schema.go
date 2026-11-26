@@ -24,6 +24,9 @@ import (
 // errSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".
 var errSchema = errors.New("schema")
 
+// IsSchemaError reports whether err is an answer the requested schema refused.
+func IsSchemaError(err error) bool { return errors.Is(err, errSchema) }
+
 // SchemaInstruction is the one line that asks an agent without a native flag for schema-shaped JSON.
 func SchemaInstruction(schema string) string {
 	return assets.AgentSchemaInstruction(compactJSON(schema))

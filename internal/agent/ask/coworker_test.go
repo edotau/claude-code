@@ -32,7 +32,7 @@ import (
 // confine sets this process's confinement to provider[:profile] as ApplyRouteOverlay exports it; "" is none.
 func confine(t *testing.T, v string) {
 	provider, profile, _ := strings.Cut(v, ":")
-	t.Setenv(route.OverlayVar, agentconfig.InlineOverlay(provider, profile))
+	t.Setenv(route.OverlayVar, agentconfig.Overlay{Provider: provider, Profile: profile}.Doc())
 }
 
 // ConfineLead fills an untyped lead from a non-Databricks confinement; a typed profile:model passes through untouched.
@@ -81,7 +81,7 @@ func TestConfineLineRefusesOffRouteBatchLine(t *testing.T) {
 // The fences read the run's values, not the process env: a snapshot's confinement binds and an empty one frees.
 func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	vaulttest.Use(t)
-	bound := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("openai", "")})
+	bound := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: "openai"}.Doc()})
 	free := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: ""})
 	t.Setenv(route.OverlayVar, "")
 	if err := checkNative(bound, true); err == nil || !strings.Contains(err.Error(), "--native: outside overlay openai") {
@@ -90,7 +90,7 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	if _, err := confineLine(bound, "copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
 		t.Errorf("copilot line under a snapshot confinement: err = %v, want no openai account", err)
 	}
-	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")}),
+	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: "databricks", Profile: "qa"}.Doc()}),
 		(&askRun{f: &askFlags{}}).askState(), "claude").Provider; got != "qa" {
 		t.Errorf("live holder under a snapshot workspace: Provider = %q, want qa", got)
 	}
@@ -746,7 +746,7 @@ func TestTypedArmExportsFence(t *testing.T) {
 	}
 	r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "codex"}
 	_, done := r.checkArm()
-	if got, want := proc.Value(r.ctx, route.OverlayVar), agentconfig.InlineOverlay("databricks", "qa"); done || got != want {
+	if got, want := proc.Value(r.ctx, route.OverlayVar), (agentconfig.Overlay{Provider: "databricks", Profile: "qa"}).Doc(); done || got != want {
 		t.Errorf("done = %v, %s = %q, want %q", done, route.OverlayVar, got, want)
 	}
 	if r.auto != "qa" || agent.AutoFailoverProvider(r.ctx) != router.RouteDatabricks {
@@ -757,7 +757,7 @@ func TestTypedArmExportsFence(t *testing.T) {
 		t.Errorf("typed qa under --fallback none: auto = %q, failover = %q; want a lock", r.auto, agent.AutoFailoverProvider(r.ctx))
 	}
 	f.fallback, r.auto = route.FallbackAll, ""
-	r.ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "dev")})
+	r.ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: "databricks", Profile: "dev"}.Doc()})
 	if code, done := r.checkArm(); !done || code != 2 {
 		t.Errorf("inherited dev fence: checkArm = %d, %v; want refusal", code, done)
 	}
@@ -766,7 +766,7 @@ func TestTypedArmExportsFence(t *testing.T) {
 // The run's caps survive into the confinement a child inherits.
 func TestConfinementCarriesCaps(t *testing.T) {
 	one, tok := 1, 7
-	doc := agentconfig.InlineOverlay("", "", agentconfig.Overlay{MaxChildren: &one, MaxTreeTokens: &tok})
+	doc := agentconfig.Overlay{MaxChildren: &one, MaxTreeTokens: &tok}.Doc()
 	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: doc})
 	got := confinement(ctx, "databricks", "qa")[route.OverlayVar]
 	o, err := agentconfig.LoadOverlayContext(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: got}), "", nil)

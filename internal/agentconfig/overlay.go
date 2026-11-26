@@ -30,7 +30,7 @@ import (
 )
 
 // overlaySchema versions the overlay document; one without "schema" reads as this version.
-const overlaySchema = 1
+const overlaySchema = 2
 
 const overlayMaxBytes = 64 << 10
 
@@ -49,6 +49,9 @@ type Overlay struct {
 	TokenCommand  *[]string         `json:"tokenCommand,omitempty"`
 	MaxChildren   *int              `json:"maxChildren,omitempty"`
 	MaxTreeTokens *int              `json:"maxTreeTokens,omitempty"`
+	MaxDepth      *int              `json:"maxDepth,omitempty"`
+	Codemode      string            `json:"codemode,omitempty"`
+	Fence         *route.Fence      `json:"fence,omitempty"`
 	BudgetUSD     *float64          `json:"budgetUSD,omitempty"`
 	BudgetCredits *int              `json:"budgetCredits,omitempty"`
 	CodexNetwork  bool              `json:"codexNetwork,omitempty"`
@@ -149,7 +152,7 @@ func presetDoc(value string) (string, bool) {
 	if !slices.Contains(providers.ProviderKeys(), value) {
 		return "", false
 	}
-	return InlineOverlay(value, route.AutoArm), true // a provider needs a profile: auto picks
+	return Overlay{Provider: value, Profile: route.AutoArm}.Doc(), true // a provider needs a profile: auto picks
 }
 
 // readOverlaySource returns value's error label and bytes: a preset, stdin for -, inline JSON, else the file it names.
@@ -323,6 +326,8 @@ func keyType(key string) string {
 			return "an object of string values"
 		case kindList:
 			return "a list of strings"
+		case kindFence:
+			return "an object with profiles and open"
 		}
 	}
 	return "a string"
@@ -347,7 +352,8 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 // Empty reports an overlay whose environment and execution controls change nothing.
 func (o Overlay) Empty() bool {
 	return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork && !o.Cloud &&
-		o.MaxChildren == nil && o.MaxTreeTokens == nil && o.BudgetUSD == nil && o.BudgetCredits == nil
+		o.MaxChildren == nil && o.MaxTreeTokens == nil && o.MaxDepth == nil && o.Codemode == "" && o.Fence == nil &&
+		o.BudgetUSD == nil && o.BudgetCredits == nil
 }
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
@@ -367,17 +373,180 @@ func (o Overlay) Confinement() route.Route {
 	return route.Route{Provider: o.Provider, Profile: o.Profile}
 }
 
-// InlineOverlay carries confinement and inherited dispatch caps without the parent's env or vendor budget.
-func InlineOverlay(provider, profile string, limits ...Overlay) string {
-	o := Overlay{Provider: provider, Profile: profile}
-	if len(limits) > 0 { // the runner rides along: the confinement replaces the document the route reads it from
-		o.MaxChildren, o.MaxTreeTokens, o.Runner = limits[0].MaxChildren, limits[0].MaxTreeTokens, limits[0].Runner
-	}
-	if provider == "" && o.MaxChildren == nil && o.MaxTreeTokens == nil && o.Runner == "" {
+// Doc is o as its one-line JSON document; "" when o sets nothing.
+func (o Overlay) Doc() string {
+	doc, _ := json.Marshal(o) // Overlay holds plain values: Marshal cannot fail.
+	if string(doc) == "{}" {
 		return ""
 	}
-	doc, _ := json.Marshal(o) // Scalars only: Marshal cannot fail.
 	return string(doc)
+}
+
+// Hop is the step a derived overlay takes; each hop lets a different subset of keys cross.
+type Hop int
+
+const (
+	HopAppend        Hop = iota // typed keys onto a base
+	HopSessionChild             // a session's dispatch: no fence of its own
+	HopDispatchChild            // a leaf's dispatch: the leaf's unit becomes the fence
+	HopResume                   // a saved launch overlay replayed whole; only a typed key overrides
+	HopFallback                 // the next plan hop: the unit moves inside the fence, a moved unit drops the model
+)
+
+// Derive is base copied for hop with add laid over it; neither argument is changed and nothing is read from the env.
+func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
+	parent := base
+	switch hop {
+	case HopAppend, HopResume, HopFallback:
+	case HopSessionChild, HopDispatchChild:
+		base = base.childCopy(hop)
+	default:
+		return Overlay{}, fmt.Errorf("unknown hop %d", hop)
+	}
+	out, add := base.clone(), add.clone()
+	if u := add.routeUnit; u.Endpoint != "" || u.Provider != "" || u.Profile != "" || u.Identity != "" || u.Account != "" {
+		out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = u.Endpoint, u.Provider, u.Profile, u.Identity, u.Account
+	}
+	if hop == HopFallback && add.Model == "" && (out.Provider != base.Provider || out.Profile != base.Profile) {
+		out.Model = ""
+	}
+	out.Host, out.Remote = cmp.Or(add.Host, out.Host), cmp.Or(add.Remote, out.Remote)
+	out.Model, out.Effort = cmp.Or(add.Model, out.Model), cmp.Or(add.Effort, out.Effort)
+	out.Fallback, out.Runner = cmp.Or(add.Fallback, out.Fallback), cmp.Or(add.Runner, out.Runner)
+	out.Codemode = cmp.Or(add.Codemode, out.Codemode)
+	out.CodexNetwork, out.Cloud = out.CodexNetwork || add.CodexNetwork, out.Cloud || add.Cloud
+	out.MaxChildren, out.MaxTreeTokens, out.MaxDepth = smaller(out.MaxChildren, add.MaxChildren),
+		smaller(out.MaxTreeTokens, add.MaxTreeTokens), smaller(out.MaxDepth, add.MaxDepth)
+	out.BudgetUSD = budget(out.BudgetUSD, add.BudgetUSD, parent.BudgetUSD, hop)
+	out.BudgetCredits = budget(out.BudgetCredits, add.BudgetCredits, parent.BudgetCredits, hop)
+	out.TokenCommand = cmp.Or(add.TokenCommand, out.TokenCommand)
+	out.ProviderMode = mergeMaps(out.ProviderMode, add.ProviderMode)
+	out.Set = mergeMaps(out.Set, add.Set)
+	out.reconcileEnv(add)
+	fence := out.Fence
+	if add.Fence != nil {
+		narrowed := route.Fence{Open: true}
+		if fence != nil {
+			narrowed = *fence
+		}
+		narrowed = narrowed.Narrow(*add.Fence)
+		fence = &narrowed
+	}
+	if fence != nil && !fence.Open && base.Provider != "" && out.Provider != base.Provider {
+		return Overlay{}, errors.New("provider: outside the fence (a fenced overlay keeps its provider)")
+	}
+	if fence != nil && !fence.Open && (out.Provider != "" || out.Profile != "") && !fence.Allows(out.Profile) {
+		return Overlay{}, fmt.Errorf("profile %s is outside the fence (%s)", out.Profile, strings.Join(fence.Profiles, ","))
+	}
+	out.Fence = fence
+	if err := out.validate(fileSrc); err != nil {
+		return Overlay{}, err
+	}
+	return out, nil
+}
+
+// childCopy is the subset of o a child inherits (D5): unit, as/account, fence, caps, fallback, runner, code mode.
+func (o Overlay) childCopy(hop Hop) Overlay {
+	out := Overlay{
+		Schema: overlaySchema, Fallback: o.Fallback, Runner: o.Runner, Codemode: o.Codemode, Fence: clonePtr(o.Fence),
+		MaxChildren: clonePtr(o.MaxChildren), MaxTreeTokens: clonePtr(o.MaxTreeTokens), MaxDepth: clonePtr(o.MaxDepth),
+	}
+	out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account
+	if hop == HopDispatchChild && o.Profile != "" && o.Profile != route.AutoArm { // the leaf's own profile is its fence
+		leaf := route.Fence{Profiles: []string{o.Profile}}
+		if out.Fence != nil {
+			leaf = out.Fence.Narrow(leaf)
+		}
+		out.Fence = &leaf
+	}
+	return out
+}
+
+// clone is o sharing no map, slice or pointer with it.
+func (o Overlay) clone() Overlay {
+	o.ProviderMode, o.Set = maps.Clone(o.ProviderMode), maps.Clone(o.Set)
+	o.Unset, o.Keep, o.Files = slices.Clone(o.Unset), slices.Clone(o.Keep), slices.Clone(o.Files)
+	o.TokenCommand = clonePtr(o.TokenCommand)
+	if o.TokenCommand != nil {
+		*o.TokenCommand = slices.Clone(*o.TokenCommand)
+	}
+	o.MaxChildren, o.MaxTreeTokens, o.MaxDepth = clonePtr(o.MaxChildren), clonePtr(o.MaxTreeTokens), clonePtr(o.MaxDepth)
+	o.BudgetUSD, o.BudgetCredits = clonePtr(o.BudgetUSD), clonePtr(o.BudgetCredits)
+	if o.Fence != nil {
+		o.Fence = &route.Fence{Profiles: slices.Clone(o.Fence.Profiles), Open: o.Fence.Open}
+	}
+	return o
+}
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// budget is add over cur: a typed append or resume replaces it, a child or fallback never exceeds the parent's limit.
+func budget[T cmp.Ordered](cur, add, limit *T, hop Hop) *T {
+	switch {
+	case add == nil:
+		return cur
+	case hop != HopAppend && hop != HopResume && limit != nil && *limit < *add:
+		return clonePtr(limit)
+	}
+	return add
+}
+
+// smaller is the tighter of two optional caps: nil or negative is unset, 0 is no cap and loses to any positive one.
+func smaller(a, b *int) *int {
+	switch {
+	case a == nil || *a < 0:
+		return clonePtr(b)
+	case b == nil || *b < 0 || *b == 0:
+		return clonePtr(a)
+	case *a == 0 || *b < *a:
+		return clonePtr(b)
+	}
+	return clonePtr(a)
+}
+
+func mergeMaps(base, add map[string]string) map[string]string {
+	if len(base)+len(add) == 0 {
+		return nil
+	}
+	out := maps.Clone(base)
+	if out == nil {
+		out = map[string]string{}
+	}
+	maps.Copy(out, add)
+	return out
+}
+
+// reconcileEnv unions add's unset and keep names into o; add wins a collision, names compared case-insensitively.
+func (o *Overlay) reconcileEnv(add Overlay) {
+	names := func(l []string, m map[string]string) map[string]bool {
+		out := map[string]bool{}
+		for _, n := range slices.Concat(l, slices.Collect(maps.Keys(m))) {
+			out[strings.ToUpper(n)] = true
+		}
+		return out
+	}
+	unsets, taken := names(add.Unset, nil), names(add.Keep, add.Set)
+	retyped := names(nil, add.Set)
+	for n := range o.Set {
+		if _, typed := add.Set[n]; !typed && retyped[strings.ToUpper(n)] {
+			delete(o.Set, n) // a case-variant of a typed name: the typed one wins
+		}
+	}
+	for n := range o.Set {
+		if unsets[strings.ToUpper(n)] {
+			delete(o.Set, n)
+		}
+	}
+	o.Keep = slices.DeleteFunc(o.Keep, func(n string) bool { return unsets[strings.ToUpper(n)] })
+	o.Unset = slices.DeleteFunc(o.Unset, func(n string) bool { return taken[strings.ToUpper(n)] })
+	o.Unset = slices.Compact(slices.Sorted(slices.Values(slices.Concat(o.Unset, add.Unset))))
+	o.Keep = slices.Compact(slices.Sorted(slices.Values(slices.Concat(o.Keep, add.Keep))))
 }
 
 // ResolveOverlay swaps each @secret ref for its vault value, failing closed; it never reads the process env.
@@ -611,7 +780,7 @@ func forgivingLimits(raw []byte) []byte {
 	if json.Unmarshal(raw, &doc) != nil {
 		return raw
 	}
-	for _, key := range []string{"maxChildren", "maxTreeTokens"} {
+	for _, key := range []string{"maxChildren", "maxTreeTokens", "maxDepth"} {
 		if value, ok := doc[key]; ok {
 			var n int
 			if json.Unmarshal(value, &n) != nil {
@@ -634,6 +803,8 @@ func (o Overlay) Limit(key string, fallback int) int {
 		n = o.MaxChildren
 	case "HARNESS_DISPATCH_MAX_TREE_TOKENS":
 		n = o.MaxTreeTokens
+	case "HARNESS_DISPATCH_MAX_DEPTH":
+		n = o.MaxDepth
 	}
 	if n == nil || *n < 0 {
 		return fallback
@@ -658,6 +829,21 @@ func (o Overlay) validateBudgetValues() error {
 	if o.BudgetCredits != nil && *o.BudgetCredits < 30 {
 		return errors.New("budgetCredits: want an integer >= 30")
 	}
+	return o.validateRunKeys()
+}
+
+// validateRunKeys checks codemode and fence; an error names the key, never its value.
+func (o Overlay) validateRunKeys() error {
+	switch {
+	case o.Codemode != "" && !slices.Contains([]string{"off", "on", "only"}, o.Codemode):
+		return errors.New("codemode: want off, on or only")
+	case o.Fence != nil && !o.Fence.Open && (o.Provider != "" || o.Profile != "") && !o.Fence.Allows(o.Profile):
+		return errors.New("profile: outside the fence")
+	case o.Fence != nil && slices.ContainsFunc(o.Fence.Profiles, func(p string) bool {
+		return p == "" || strings.ContainsFunc(p, func(r rune) bool { return r == ':' || unicode.IsSpace(r) || unicode.IsControl(r) })
+	}):
+		return errors.New("fence: profiles want names without ':', spaces or control characters")
+	}
 	return nil
 }
 
@@ -669,17 +855,19 @@ func (o Overlay) Route() route.Route { return o.routeUnit }
 
 // WithoutRoute is o with the route unit's provider, profile, identity and account cleared; host and remote stay.
 func (o Overlay) WithoutRoute() Overlay {
-	o.Provider, o.Profile, o.Identity, o.Account = "", "", "", ""
+	o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account = "", "", "", "", ""
 	return o
 }
 
 // checkRouteUnit refuses a partial route: a profile, identity or account needs its provider, a provider its profile.
 func (o Overlay) checkRouteUnit() error {
 	switch {
-	case o.Provider == "" && (o.Profile != "" || o.Identity != "" || o.Account != ""):
-		return errors.New("provider: required with profile, identity or account")
+	case o.Provider == "" && (o.Endpoint != "" || o.Profile != "" || o.Identity != "" || o.Account != ""):
+		return errors.New("provider: required with profile, endpoint, identity or account")
 	case o.Provider != "" && o.Profile == "":
 		return errors.New("profile: required with provider (a registry row, or auto)")
+	case o.Endpoint != "":
+		return route.Route{Endpoint: o.Endpoint, Provider: o.Provider, Profile: o.Profile}.Validate()
 	}
 	return nil
 }

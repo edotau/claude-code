@@ -3,8 +3,6 @@ package router
 import (
 	"cmp"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -406,23 +404,16 @@ func withOverlayRoute(ctx context.Context) context.Context {
 
 func parseOverlayRoute(ctx context.Context) (provider, profile string, err error) {
 	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
-	var doc struct{ Provider, Profile string }
-	switch {
-	case !strings.HasPrefix(v, "{"):
+	if !strings.HasPrefix(v, "{") {
 		return "", "", nil
-	case json.Unmarshal([]byte(v), &doc) != nil:
-		return "", "", errors.New(route.OverlayVar + ": not valid JSON")
-	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == route.AutoArm):
+	}
+	r, _, err := route.ReadDoc(v)
+	switch {
+	case err != nil:
+		return "", "", fmt.Errorf("%s: %w", route.OverlayVar, err)
+	case r.Provider == "", r.Provider == RouteDatabricks && (r.Profile == "" || r.Profile == route.AutoArm):
 		// the ask applying this document resolves the workspace
 		return "", "", nil
-	case doc.Provider == "":
-		return "", "", nil
-	case !slices.Contains(route.Providers, doc.Provider):
-		return "", "", fmt.Errorf("%s: unknown provider (%s)", route.OverlayVar, strings.Join(route.Providers, "|"))
-	}
-	r := route.Route{Provider: doc.Provider, Profile: doc.Profile}
-	if err := r.Validate(); err != nil {
-		return "", "", fmt.Errorf("%s: %w", route.OverlayVar, err)
 	}
 	return r.Provider, r.Profile, nil
 }

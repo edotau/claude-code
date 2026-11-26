@@ -4,6 +4,9 @@ package route
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -18,6 +21,7 @@ const AutoArm = "auto"
 
 // Route is the unit that is assigned whole: where a run goes and as whom; the json keys are the overlay's.
 type Route struct {
+	Endpoint string `json:"endpoint,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Profile  string `json:"profile,omitempty"`
 	Identity string `json:"identity,omitempty"`
@@ -86,19 +90,69 @@ func ColonForm(v string) bool {
 }
 
 // named reports a key that only means something under a provider.
-func (r Route) named() bool { return r.Profile != "" || r.Identity != "" || r.Account != "" }
+func (r Route) named() bool {
+	return r.Profile != "" || r.Identity != "" || r.Account != "" || r.Endpoint != ""
+}
 
 // Validate applies the route's own rules; an error names the key, never its value.
 func (r Route) Validate() error {
 	switch {
 	case r.Provider == "" && r.named():
-		return errors.New("route: profile, identity and account need a provider")
+		return errors.New("route: endpoint, profile, identity and account need a provider")
+	case r.Endpoint != "" && r.Profile == "":
+		return errors.New("route: endpoint needs a profile")
 	case r.Host != "" && r.Remote != "":
 		return errors.New("route: host and remote are exclusive")
 	case strings.ContainsFunc(r.Profile, func(c rune) bool { return c == ':' || unicode.IsSpace(c) }):
 		return errors.New("profile: want a name without ':' or spaces")
 	}
-	return r.checkScoped()
+	return errors.Join(r.checkEndpoint(), r.checkScoped())
+}
+
+// checkEndpoint takes a short name (proxy, direct, a route id) or an https URL (http on loopback) with no userinfo.
+func (r Route) checkEndpoint() error {
+	e := r.Endpoint
+	if e == "" {
+		return nil
+	}
+	if !strings.Contains(e, "://") {
+		if strings.ContainsFunc(e, func(c rune) bool {
+			return c > unicode.MaxASCII || !unicode.IsLower(c) && !unicode.IsDigit(c) && c != '-' && c != '_'
+		}) {
+			return errors.New("endpoint: want proxy, direct, a route name or an https URL")
+		}
+		return nil
+	}
+	u, err := url.Parse(e)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("endpoint: want a URL with a host and no credentials, query or fragment")
+	}
+	ip := net.ParseIP(u.Hostname())
+	if u.Scheme != "https" && (u.Scheme != "http" || u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback())) {
+		return errors.New("endpoint: a URL must be https (http only on loopback)")
+	}
+	return nil
+}
+
+// ReadDoc reads the unit and fence of one flat JSON overlay document; no fence key reads as Open, a bad unit errors.
+func ReadDoc(raw string) (Route, Fence, error) {
+	var doc struct {
+		Route
+		Fence *Fence `json:"fence"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &doc); err != nil {
+		return Route{}, Fence{}, errors.New("not valid JSON")
+	}
+	if doc.Provider != "" && !slices.Contains(Providers, doc.Provider) {
+		return Route{}, Fence{}, fmt.Errorf("unknown provider (%s)", strings.Join(Providers, "|"))
+	}
+	if err := doc.Validate(); err != nil {
+		return Route{}, Fence{}, err
+	}
+	if doc.Fence == nil {
+		return doc.Route, Fence{Open: true}, nil
+	}
+	return doc.Route, *doc.Fence, nil
 }
 
 // checkScoped refuses identity off Databricks and account off GitHub.
@@ -112,11 +166,11 @@ func (r Route) checkScoped() error {
 	return nil
 }
 
-// JSON is the canonical one-line object (keys: provider, profile, identity, account, host, remote, model) for --overlay.
+// JSON is the canonical one-line overlay object: the unit keys, then model.
 func (t Target) JSON() string {
 	var b strings.Builder
 	b.WriteByte('{')
-	for _, kv := range [][2]string{{"provider", t.Provider}, {"profile", t.Profile}, {"identity", t.Identity},
+	for _, kv := range [][2]string{{"endpoint", t.Endpoint}, {"provider", t.Provider}, {"profile", t.Profile}, {"identity", t.Identity},
 		{"account", t.Account}, {"host", t.Host}, {"remote", t.Remote}, {"model", t.Model}} {
 		if kv[1] == "" {
 			continue

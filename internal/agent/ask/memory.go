@@ -82,6 +82,58 @@ func answerText(res wire.Result) string {
 	return res.Answer
 }
 
+// schemaRejected is err when the schema check refused the hop's typed answer; else nil.
+func schemaRejected(opts agent.RunOptions, res wire.Result, err error) error {
+	if e, _ := errors.AsType[*retry.Error](err); opts.OutputSchema != "" && e != nil && e.Kind == retry.KindFatal && wire.IsSchemaError(err) {
+		return err
+	}
+	return nil
+}
+
+// answeredBy is the fallback's receipt when it replaced the answer, else the hop's own.
+func answeredBy(by *memory.JobResult, hop memory.JobResult) memory.JobResult {
+	if by != nil {
+		return *by
+	}
+	return hop
+}
+
+// answerJob files the hop's answer; a typed answer that fails validation goes once to the code-mode fallback.
+func answerJob(ctx context.Context, opts agent.RunOptions, res wire.Result, rejected error) (*memory.JobResult, error) {
+	var by *memory.JobResult
+	text := answerText(res)
+	fb := memory.JobCodeFallback(ctx)
+	if fb == nil {
+		fb = new(memory.CodeFallback)
+	}
+	if opts.OutputSchema != "" {
+		if bad := cmp.Or(rejected, memory.ValidateBatchAnswer(text)); bad != nil {
+			note := memory.JobOutput(ctx, os.Stderr)
+			prompt := opts.Prompt + "\n\nYour previous answer was rejected: " + bad.Error() + "\nReturn a corrected typed batch."
+			alt, who, err := fb.Run(ctx, prompt, opts.WorkDir, opts.OutputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("%s answered an invalid batch (%v); code-mode fallback on %s failed: %w", cmp.Or(res.Model, res.Agent), bad, cmp.Or(who, "opus"), err)
+			}
+			fmt.Fprintln(note, "memory job: code-mode fallback answered on", who)
+			text, by = alt, &memory.JobResult{Agent: "pi", Model: strings.TrimPrefix(who, "pi ")}
+		}
+	}
+	memory.AnswerJob(ctx, text)
+	return by, nil
+}
+
+// codeModeRun is the one Pi dispatch in code mode on Databricks (default opus) that answers a typed batch.
+func codeModeRun(ctx context.Context, prompt, workdir, schema, model string) (string, string, error) {
+	c := newClient()
+	c.Refresh = nil
+	hop := route.Route{Provider: providers.GroupDatabricks, Profile: "prod"}
+	opts := agent.RunOptions{Agent: "pi", Prompt: prompt, Model: cmp.Or(model, "opus"), Effort: "medium", Tools: true, Codemode: "on",
+		WorkDir: workdir, OutputSchema: schema, Fallback: route.FallbackNone, Env: memory.ChildEnv(ctx)}
+	opts.Route, opts.Provider, opts.Lead = hop, hop.Profile, hop.Profile
+	res, err := memoryHop(ctx, c, opts)
+	return answerText(res), memoryWho(res, false) + " " + cmp.Or(res.Model, opts.Model), err
+}
+
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.
 func memorySink(w io.Writer) wire.Sink { return maskedEvents{wire.NewTextSink(w)} }
 
@@ -224,10 +276,17 @@ type attempt struct {
 	err     error
 }
 
+// RegisterCodeMode sets memory's code-mode seam; only CLI paths call it, so the hook never links the dispatch.
+func RegisterCodeMode() { memory.CodeModeRun = codeModeRun }
+
 // MemoryRunner runs background memory jobs on Claude on their pin, then the other workspaces, then the local model.
 func MemoryRunner() memory.AgentFunc {
+	RegisterCodeMode()
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
 		c := newClient()
+		if memory.JobCodeFallback(ctx) == nil {
+			ctx = memory.WithCodeFallback(ctx, new(memory.CodeFallback))
+		}
 		c.Refresh = nil
 		c.Notify = func(m string) { fmt.Fprintln(memory.JobOutput(ctx, os.Stderr), m) }
 		run := func(ctx context.Context, o agent.RunOptions) (wire.Result, error) { return memoryHop(ctx, c, o) }
@@ -240,9 +299,13 @@ func MemoryRunner() memory.AgentFunc {
 		res, err := run(ctx, opts)
 		plan, _ := agent.PlanOfError(err)
 		first := attempt{res: res, profile: cmp.Or(res.Provider, planLeadProfile(plan), providers.SessionLeadContext(ctx, reg, true)), err: err}
-		if err == nil {
-			memory.AnswerJob(ctx, answerText(res))
-			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model})
+		if rej := schemaRejected(opts, res, err); err == nil || rej != nil {
+			by, err := answerJob(ctx, opts, res, rej)
+			if err != nil {
+				reportFailure(ctx, reg, attempt{res: res, profile: first.profile, err: err})
+				return memoryWho(res, false), err
+			}
+			memory.ReportJob(ctx, answeredBy(by, memory.JobResult{Agent: res.Agent, Profile: res.Provider, Model: res.Model}))
 			return memoryWho(res, false), nil
 		}
 		if rerr != nil || !agent.HopFailed(res, err) {
@@ -283,9 +346,13 @@ func memoryWalk(ctx context.Context, run hopRun, reg *providers.Registry, opts a
 		}
 		res, err := func() (wire.Result, error) { defer release(); return run(ctx, hopOptions(opts, hop)) }()
 		who = memoryWho(res, local)
-		if err == nil {
-			memory.AnswerJob(ctx, answerText(res))
-			memory.ReportJob(ctx, memory.JobResult{Agent: res.Agent, Profile: hop.Profile, Model: res.Model, Local: local})
+		if rej := schemaRejected(opts, res, err); err == nil || rej != nil {
+			by, err := answerJob(ctx, opts, res, rej)
+			if err != nil {
+				reportFailure(ctx, reg, attempt{res: res, profile: hop.Profile, local: local, err: err})
+				return who, err
+			}
+			memory.ReportJob(ctx, answeredBy(by, memory.JobResult{Agent: res.Agent, Profile: hop.Profile, Model: res.Model, Local: local}))
 			return who, nil
 		}
 		last = attempt{res: res, profile: hop.Profile, local: local, err: err}

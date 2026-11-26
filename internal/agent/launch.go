@@ -835,5 +835,5 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 func confinementDocContext(ctx context.Context) string {
 	provider, profile, _ := router.OverlayRoute(ctx)
 	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
-	return agentconfig.InlineOverlay(provider, profile, o)
+	return agentconfig.Overlay{Provider: provider, Profile: profile, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()
 }

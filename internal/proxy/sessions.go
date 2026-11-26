@@ -55,18 +55,9 @@ func overlayShapeErr(ctx context.Context) error {
 		return err
 	}
 	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
-	if v == "" {
-		return nil
-	}
-	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider
-		if !slices.Contains(route.Providers, v) {
-			return fmt.Errorf("%s: the fence mint needs the JSON overlay form, e.g. {\"provider\":\"databricks\",\"profile\":\"<profile>\"}", route.OverlayVar)
-		}
-		return nil
-	}
-	var doc struct{ Provider, Profile string }
-	if json.Unmarshal([]byte(v), &doc) == nil && doc.Provider == "" && doc.Profile != "" {
-		return fmt.Errorf("%s: a profile without a provider", route.OverlayVar)
+	// an inline document or a bare provider is no shape error
+	if v != "" && !strings.HasPrefix(v, "{") && !slices.Contains(route.Providers, v) {
+		return fmt.Errorf("%s: the fence mint needs the JSON overlay form, e.g. {\"provider\":\"databricks\",\"profile\":\"<profile>\"}", route.OverlayVar)
 	}
 	return nil
 }

@@ -118,16 +118,48 @@ func renderCompactHandoff(ctx context.Context, h CompactHandoff, since time.Time
 	}
 	var out []string
 	for _, sec := range sections {
-		for _, ln := range sec {
-			for _, w := range wrapHandoff(ln) {
-				if !textutil.CredentialRE().MatchString(w) {
-					out = append(out, w)
-				}
-			}
-		}
-		out = append(out, "")
+		out = append(append(out, spaceBlocks(sec)...), "")
 	}
 	return strings.Join(out, "\n")
+}
+
+// spaceBlocks wraps a section's lines, drops credential-shaped ones and blank-separates blocks of different kinds.
+func spaceBlocks(sec []string) []string {
+	var out []string
+	prev, inFence := "", false
+	for _, ln := range sec {
+		for _, w := range wrapHandoff(ln) {
+			if textutil.CredentialRE().MatchString(w) {
+				continue
+			}
+			kind := handoffKind(w, inFence)
+			if len(out) > 0 && kind != prev {
+				out = append(out, "")
+			}
+			if w == "```text" && !inFence || w == "```" && inFence {
+				inFence = !inFence
+				kind = "fence"
+			}
+			out = append(out, w)
+			prev = kind
+		}
+	}
+	return out
+}
+
+// handoffKind classes a line so the renderer puts one blank line between blocks of different kinds.
+func handoffKind(line string, inFence bool) string {
+	switch {
+	case inFence:
+		return "fence"
+	case strings.HasPrefix(line, "#"):
+		return "heading"
+	case strings.HasPrefix(line, "```"):
+		return "fence"
+	case strings.HasPrefix(line, "- "), strings.HasPrefix(line, "  "):
+		return "item"
+	}
+	return "text"
 }
 
 // handoffGit is the checkout's state as git reports it; truncated names the sources the budget cut.
@@ -274,7 +306,7 @@ func fencedList(lines []string) []string {
 	if len(lines) == 0 {
 		return []string{"- none"}
 	}
-	out := []string{"```"}
+	out := []string{"```text"}
 	for _, ln := range lines[:min(len(lines), handoffListMax)] {
 		out = append(out, textutil.CapRunes(ln, handoffWidth, "…"))
 	}

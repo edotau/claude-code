@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,15 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -28,8 +32,10 @@ var upgradeDirs = []string{"archive", "notes", "feedback", "techdebt", "knowledg
 
 // UpgradeOptions is one `memory upgrade`; To 0 means storeVersion.
 type UpgradeOptions struct {
-	DryRun bool
-	To     int
+	DryRun    bool
+	To        int
+	Model     string // the code-mode fallback's model: "" opus, astra, or a catalog id; see FallbackModel
+	NoResolve bool   // skip the residue fallback
 }
 
 // UpgradeSkip is a file the upgrade left untouched, with the reason.
@@ -56,10 +62,11 @@ type UpgradeReport struct {
 	Steps    []UpgradeStepResult
 	Skipped  []UpgradeSkip
 	DupIDs   []string
+	Resolved string // the code-mode fallback's receipt: who answered or why it left the residue
 }
 
-// Partial is true when any file was left untouched.
-func (r UpgradeReport) Partial() bool { return len(r.Skipped) > 0 }
+// Partial is true when any file was left untouched or an id sits in two files.
+func (r UpgradeReport) Partial() bool { return len(r.Skipped)+len(r.DupIDs) > 0 }
 
 // upgradeProgress is state/harness/memory/upgrade.json: the step and files this run wrote before the commit.
 type upgradeProgress struct {
@@ -406,6 +413,7 @@ func upgradeTarget(o UpgradeOptions) (from, to int, err error) {
 func MemoryUpgrade(o UpgradeOptions) (UpgradeReport, error) {
 	rep := UpgradeReport{DryRun: o.DryRun}
 	var err error
+	// By design a store already at the target never resolves residue: no paid model on every run.
 	if rep.From, rep.To, err = upgradeTarget(o); err != nil || rep.From == rep.To {
 		return rep, err
 	}
@@ -432,7 +440,182 @@ func MemoryUpgrade(o UpgradeOptions) (UpgradeReport, error) {
 			return rep, err
 		}
 	}
-	return rep, u.postcheck(files, skips, rep)
+	return u.finish(o, files, skips, rep)
+}
+
+// finish runs the postcheck, then the one-shot code-mode fallback over what the steps left unplaced.
+func (u *upgrader) finish(o UpgradeOptions, files []upgradeFile, skips []UpgradeSkip, rep UpgradeReport) (UpgradeReport, error) {
+	if err := u.postcheck(files, skips, rep); err != nil {
+		return rep, err
+	}
+	rep.Resolved = resolveResidue(o, rep)
+	return rep, nil
+}
+
+// StoreCopy is a throwaway git clone of the store for the fallback to read; a var so tests need no repo.
+var StoreCopy = func(ctx context.Context) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "memory-fallback-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if out, cerr := exec.CommandContext(ctx, "git", "clone", "--quiet", "--local", paths.MemoryStoreDir(), dir).CombinedOutput(); cerr != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("git clone of the store: %v: %s", cerr, strings.TrimSpace(string(out)))
+	}
+	return dir, cleanup, nil
+}
+
+// residueTimeout bounds the clone and the one code-mode dispatch.
+const residueTimeout = 9 * time.Minute
+
+// CodeModeRun is the one code-mode Pi dispatch behind the typed-write and residue fallbacks; ask registers it.
+var CodeModeRun func(ctx context.Context, prompt, workdir, schema, model string) (answer, who string, err error)
+
+// CodeFallback allows one CodeModeRun per job: a second call fails without dispatching.
+type CodeFallback struct {
+	Model string // "" is opus
+	used  atomic.Bool
+	last  atomic.Pointer[string] // how the one dispatch ended
+}
+
+type fallbackKey struct{}
+
+// WithCodeFallback carries the job's one fallback so the runner and the typed writer share it.
+func WithCodeFallback(ctx context.Context, f *CodeFallback) context.Context {
+	return context.WithValue(ctx, fallbackKey{}, f)
+}
+
+// JobCodeFallback is the fallback WithCodeFallback set, or nil.
+func JobCodeFallback(ctx context.Context) *CodeFallback {
+	f, _ := ctx.Value(fallbackKey{}).(*CodeFallback)
+	return f
+}
+
+// FallbackModel maps the fallback's model name to a catalog id or alias; an unknown id is an error.
+func FallbackModel(name string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		name = models.Opus
+	}
+	if !models.IsKnownSpelling(name) {
+		return "", fmt.Errorf("model %q is not in the catalog", name)
+	}
+	return name, nil
+}
+
+// outcome is how the one dispatch ended, or that it is still running.
+func (f *CodeFallback) outcome() string {
+	if p := f.last.Load(); p != nil {
+		return *p
+	}
+	return "still running"
+}
+
+// Used reports whether the job's one dispatch was taken.
+func (f *CodeFallback) Used() bool { return f.used.Load() }
+
+// Run asks the code-mode agent, over a git copy of the store, for a typed Batch; the workdir argument is ignored.
+func (f *CodeFallback) Run(ctx context.Context, prompt, workdir, schema string) (answer, who string, err error) {
+	if CodeModeRun == nil {
+		return "", "", errors.New("code-mode fallback unavailable: this process registered no agent (a hook never dispatches one)")
+	}
+	if !f.used.CompareAndSwap(false, true) {
+		return "", "", fmt.Errorf("code-mode fallback already used for this job (%s)", f.outcome())
+	}
+	dir, cleanup, err := StoreCopy(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer cleanup()
+	prompt = strings.ReplaceAll(prompt, paths.MemoryStoreDir(), dir) + "\n\nWrite nothing and run no memory command: answer with the typed batch only."
+	answer, who, err = CodeModeRun(ctx, prompt, dir, schema, f.Model)
+	if err == nil {
+		if _, derr := decodeBatch(answer); derr != nil {
+			err = fmt.Errorf("code-mode answer rejected: %w", derr)
+		}
+	}
+	out := who + " answered"
+	if err != nil {
+		out, answer = who+" failed: "+err.Error(), ""
+	}
+	f.last.Store(&out)
+	return answer, who, err
+}
+
+// Retry gives the one fallback a failed first answer and applies the corrected Batch; both failures are named.
+func (f *CodeFallback) Retry(ctx context.Context, prompt, workdir, schema, first string, failed error, apply func(answer string) error) error {
+	prompt += "\n\nYour previous answer failed: " + failed.Error() + "\nReturn a corrected typed batch."
+	answer, who, err := f.Run(ctx, prompt, workdir, schema)
+	if err == nil {
+		if err = apply(answer); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("typed write failed on %s (%v); code-mode fallback on %s failed: %w", cmp.Or(first, "the first model"), failed, cmp.Or(who, f.Model, "opus"), err)
+}
+
+// ValidateBatchAnswer reports why a typed answer is unusable; nil means it decodes and validates.
+func ValidateBatchAnswer(answer string) error {
+	_, err := decodeBatch(answer)
+	return err
+}
+
+// residuePrompt lists what the pure steps could not place; the agent answers with a typed Batch only.
+func residuePrompt(skipped []UpgradeSkip, dups []string) string {
+	var sb strings.Builder
+	sb.WriteString("The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.\n")
+	for _, s := range skipped {
+		fmt.Fprintf(&sb, "- %s: %s\n", s.Path, s.Reason)
+	}
+	for _, d := range dups {
+		fmt.Fprintf(&sb, "- duplicate id %s\n", d)
+	}
+	sb.WriteString("Return only a typed Batch of ops that places them; write no files.")
+	return sb.String()
+}
+
+// resolveResidue sends the residue to one code-mode agent over a store copy; a failed answer leaves the store as is.
+func resolveResidue(o UpgradeOptions, rep UpgradeReport) string {
+	if len(rep.Skipped)+len(rep.DupIDs) == 0 || o.NoResolve || CodeModeRun == nil {
+		return ""
+	}
+	model, err := FallbackModel(o.Model)
+	if err != nil {
+		return "residue fallback skipped: " + err.Error()
+	}
+	prompt := residuePrompt(rep.Skipped, rep.DupIDs)
+	if o.DryRun {
+		return "would send to one code-mode agent on model " + model + ":\n" + prompt
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), residueTimeout)
+	defer cancel()
+	_, base, err := newBankStore(false).Load() // versions of the snapshot the agent reads, not of what it leaves behind
+	if err != nil {
+		return "residue fallback failed: " + err.Error()
+	}
+	answer, who, err := (&CodeFallback{Model: model}).Run(ctx, prompt, "", BatchSchema())
+	if err != nil {
+		return "residue fallback failed (" + cmp.Or(who, model) + "): " + err.Error()
+	}
+	// By design any valid batch is applied and the residue stays listed (exit 4) so the owner sees what remains.
+	if err := applyResidue(answer, base); err != nil {
+		if _, after := errors.AsType[*AfterCommitError](err); after {
+			return "batch applied by " + who + " (model " + model + ") but " + err.Error()
+		}
+		return "residue fallback failed (" + cmp.Or(who, model) + "): " + err.Error()
+	}
+	return "batch applied by " + who + " (model " + model + "); the residue stays listed"
+}
+
+// applyResidue applies the fallback's validated Batch all-or-nothing against the store's current versions.
+func applyResidue(answer string, base Versions) error {
+	b, err := decodeBatch(answer)
+	if err != nil {
+		return err
+	}
+	_, err = newBankStore(false).Apply(b, base, time.Now())
+	return err
 }
 
 // postcheck round-trips the store again and plans every step over every placed file: all must come back empty.
@@ -494,6 +677,9 @@ func (r UpgradeReport) Print(w io.Writer) {
 	}
 	for _, d := range r.DupIDs {
 		fmt.Fprintf(w, "duplicate id %s\n", d)
+	}
+	if r.Resolved != "" {
+		fmt.Fprintf(w, "residue: %s\n", r.Resolved)
 	}
 	fmt.Fprintf(w, "totals: %d file(s) changed (%s), %d skipped\n", files, countsText(totals, nil), len(r.Skipped))
 }

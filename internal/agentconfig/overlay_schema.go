@@ -23,6 +23,7 @@ const (
 	kindNumber  fieldKind = "number"
 	kindList    fieldKind = "[]string"
 	kindStrings fieldKind = "map[string]string"
+	kindFence   fieldKind = "fence"
 )
 
 type overlayField struct {
@@ -57,6 +58,9 @@ func kindOf(t reflect.Type) fieldKind {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	if t == reflect.TypeFor[route.Fence]() {
+		return kindFence
+	}
 	if k, ok := scalarKinds[t.Kind()]; ok {
 		return k
 	}
@@ -84,6 +88,9 @@ func (k fieldKind) base() obj {
 		return obj{"type": "array", "items": obj{"type": "string"}}
 	case kindStrings:
 		return obj{"type": "object", "additionalProperties": obj{"type": "string"}}
+	case kindFence:
+		return obj{"type": "object", "additionalProperties": false, "properties": obj{
+			"profiles": kindList.base(), "open": kindBool.base()}}
 	}
 	return obj{"type": string(k)}
 }
@@ -92,6 +99,7 @@ func (k fieldKind) base() obj {
 var settingLimits = map[string]obj{
 	"schema":        {"minimum": 0, "maximum": overlaySchema},
 	"tokenCommand":  {"minItems": 1},
+	"codemode":      {"enum": []string{"off", "on", "only"}},
 	"budgetUSD":     {"exclusiveMinimum": 0},
 	"budgetCredits": {"minimum": 30},
 	"providerMode":  {"additionalProperties": obj{"enum": router.ProviderModes}},

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 	own := write("own.json", `{"provider":"databricks","profile":"dev"}`, 0o600)
 	big := `{"model":"` + strings.Repeat("a", overlayMaxBytes) + `"}`
 	cases := map[string]string{
-		`{"schema":2}`:              "schema 2 is newer than this build",
+		`{"schema":3}`:              "schema 3 is newer than this build",
 		`{} {}`:                     "not valid JSON at byte 4", // schemas.Decode refuses it before the trailing-data check
 		big:                         "over 65536 bytes",
 		`{"files":[]}`:              "files: not supported yet",
@@ -334,5 +335,167 @@ func TestLoadOverlayPresets(t *testing.T) {
 	}
 	if o, err := LoadOverlayContext(t.Context(), "coworker", nil); err != nil || o.Provider != "" || len(o.Keep) != 1 {
 		t.Errorf("a file named like a preset must win: %+v, %v", o, err)
+	}
+}
+
+func TestDerive(t *testing.T) {
+	two, nine := 2, 9
+	parent := Overlay{
+		Model: "opus", Fallback: "none", Codemode: "on", Keep: []string{"TOKEN"}, Set: map[string]string{"A": "b"},
+		MaxChildren: &two, MaxDepth: &nine, BudgetUSD: new(float64),
+	}
+	parent.Provider, parent.Profile, parent.Identity = "databricks", "qa", "sp"
+	child, err := parent.Derive(Overlay{Model: "haiku"}, HopDispatchChild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Model != "haiku" || child.Profile != "qa" || child.Identity != "sp" || child.Fallback != "none" ||
+		child.Codemode != "on" || *child.MaxChildren != 2 || *child.MaxDepth != 9 ||
+		child.Fence == nil || !child.Fence.Allows("qa") || child.Fence.Allows("prod") {
+		t.Errorf("child lost a carried key or kept a refused one: %+v", child)
+	}
+	if child.Keep != nil || child.Set != nil || child.BudgetUSD != nil {
+		t.Errorf("env layer or budget crossed to the child: %+v", child)
+	}
+	*child.MaxChildren = 7
+	if *parent.MaxChildren != 2 {
+		t.Error("child shares a pointer with its parent")
+	}
+	off := Overlay{}
+	off.Provider, off.Profile = "databricks", "prod"
+	if _, err := child.Derive(off, HopAppend); err == nil || !strings.Contains(err.Error(), "outside the fence") {
+		t.Errorf("a profile outside the fence: err = %v", err)
+	}
+	for name, bad := range map[string]Overlay{"codemode": {Codemode: "loud"}, "reserved env": {Set: map[string]string{"NODE_OPTIONS": "x"}}} {
+		if _, err := parent.Derive(bad, HopAppend); err == nil {
+			t.Errorf("Derive accepted an invalid add (%s)", name)
+		}
+	}
+	if _, err := parent.Derive(Overlay{}, Hop(99)); err == nil {
+		t.Error("an unknown hop must refuse")
+	}
+	if s, _ := parent.Derive(off, HopSessionChild); s.Profile != "prod" || s.Fence != nil {
+		t.Errorf("a session child has no fence and takes the typed unit: %+v", s)
+	}
+}
+
+func TestDeriveResumeAndFallback(t *testing.T) {
+	two := 2
+	one := 1.0
+	saved := Overlay{Model: "opus", Fallback: "none", MaxChildren: &two, Set: map[string]string{"A": "b"}, BudgetUSD: &one}
+	saved.Provider, saved.Profile, saved.Identity = "databricks", "dev", "sp"
+	got, err := saved.Derive(Overlay{}, HopResume)
+	if err != nil || got.Provider != "databricks" || got.Profile != "dev" || got.Identity != "sp" || got.Model != "opus" ||
+		got.Fallback != "none" || *got.MaxChildren != 2 || got.Set["A"] != "b" || got.BudgetUSD == nil {
+		t.Fatalf("resume must replay the launch overlay whole: %+v, %v", got, err)
+	}
+	*got.MaxChildren = 9
+	got.Set["A"] = "z"
+	if *saved.MaxChildren != 2 || saved.Set["A"] != "b" {
+		t.Error("resume child shares state with the saved overlay")
+	}
+	typed := Overlay{Model: "haiku"}
+	typed.Provider, typed.Profile = "databricks", "qa"
+	if got, err = saved.Derive(typed, HopResume); err != nil || got.Model != "haiku" || got.Profile != "qa" || got.Identity != "" {
+		t.Errorf("a typed key wins on resume and the unit stays whole: %+v, %v", got, err)
+	}
+	fenced := saved
+	fenced.Fence = &route.Fence{Profiles: []string{"dev", "qa"}}
+	hop := Overlay{}
+	hop.Provider, hop.Profile = "databricks", "qa"
+	got, err = fenced.Derive(hop, HopFallback)
+	if err != nil || got.Profile != "qa" || got.Model != "" || got.Fallback != "none" || *got.MaxChildren != 2 ||
+		!got.Fence.Allows("dev") || got.Fence.Allows("prod") {
+		t.Fatalf("fallback inside the fence: %+v, %v", got, err)
+	}
+	got.Fence.Profiles[0] = "x"
+	if fenced.Fence.Profiles[0] != "dev" {
+		t.Error("fallback child shares its fence with the parent")
+	}
+	hop.Profile = "prod"
+	if _, err = fenced.Derive(hop, HopFallback); err == nil || !strings.Contains(err.Error(), "outside the fence") {
+		t.Errorf("fallback outside the fence: err = %v", err)
+	}
+	hop.Provider, hop.Profile = "github", "dev"
+	if _, err = fenced.Derive(hop, HopFallback); err == nil {
+		t.Error("fallback moved the provider out of a fenced overlay")
+	}
+}
+
+func TestDeriveFenceHoldsForAutoAndEmptyProfile(t *testing.T) {
+	base := Overlay{Fence: &route.Fence{Profiles: []string{"qa"}}}
+	for _, profile := range []string{"auto", "", "prod"} {
+		add := Overlay{}
+		add.Provider, add.Profile = "databricks", profile
+		if _, err := base.Derive(add, HopAppend); err == nil {
+			t.Errorf("profile %q passed a closed fence", profile)
+		}
+	}
+}
+
+func TestDeriveCapsFenceAndEnvCompose(t *testing.T) {
+	two, zero := 2, 0
+	base := Overlay{MaxChildren: &two, Set: map[string]string{"A": "x"}, Keep: []string{"K"}, Unset: []string{"U"}}
+	got, err := base.Derive(Overlay{MaxChildren: &zero, Unset: []string{"a"}, Set: map[string]string{"u": "y"}}, HopAppend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got.MaxChildren != 2 {
+		t.Errorf("a typed 0 (no cap) loosened the parent's cap: %d", *got.MaxChildren)
+	}
+	if _, set := got.Set["A"]; set || got.Set["u"] != "y" || slices.Contains(got.Unset, "U") || !slices.Contains(got.Unset, "a") {
+		t.Errorf("env did not reconcile with the typed add winning: %+v", got)
+	}
+	if got, _ := (Overlay{Set: map[string]string{"foo": "old"}}).Derive(Overlay{Set: map[string]string{"FOO": "new"}}, HopAppend); len(got.Set) != 1 {
+		t.Errorf("a case-variant Set name survived: %v", got.Set)
+	}
+	other := Overlay{Fence: &route.Fence{Profiles: []string{"qa"}}}
+	other.Provider, other.Profile = "databricks", "qa"
+	swap := Overlay{}
+	swap.Provider, swap.Profile = "github", "qa"
+	if _, err := other.Derive(swap, HopAppend); err == nil {
+		t.Error("a fenced overlay changed provider")
+	}
+	if _, err := LoadOverlayContext(t.Context(), `{"provider":"databricks","profile":"prod","fence":{"profiles":["dev"]}}`, nil); err == nil {
+		t.Error("a unit outside its own fence loaded")
+	}
+	leaf := Overlay{Fence: &route.Fence{Profiles: []string{"dev", "qa"}}}
+	leaf.Provider, leaf.Profile = "databricks", "dev"
+	if child, _ := leaf.Derive(Overlay{}, HopDispatchChild); !slices.Equal(child.Fence.Profiles, []string{"dev"}) {
+		t.Errorf("a dispatch child's fence is its leaf's profile: %+v", child.Fence)
+	}
+}
+
+// A child or fallback hop never raises a budget; a typed append or resume replaces it.
+func TestDeriveBudgetNeverRaisedByChild(t *testing.T) {
+	one, hundred := 1.0, 100.0
+	base := Overlay{BudgetUSD: &one}
+	for hop, want := range map[Hop]float64{HopAppend: 100, HopResume: 100, HopSessionChild: 1, HopDispatchChild: 1, HopFallback: 1} {
+		got, err := base.Derive(Overlay{BudgetUSD: &hundred}, hop)
+		if err != nil || got.BudgetUSD == nil || *got.BudgetUSD != want {
+			t.Errorf("hop %d: budget %v err %v, want %v", hop, got.BudgetUSD, err, want)
+		}
+	}
+	half := 0.5
+	if got, _ := base.Derive(Overlay{BudgetUSD: &half}, HopDispatchChild); got.BudgetUSD == nil || *got.BudgetUSD != 0.5 {
+		t.Errorf("a child may lower the budget: got %v", got.BudgetUSD)
+	}
+}
+
+func TestDeriveCarriesEndpointWithTheUnit(t *testing.T) {
+	var parent, add Overlay
+	parent.Endpoint, parent.Provider, parent.Profile = "direct", "databricks", "qa"
+	child, err := parent.Derive(Overlay{Model: "haiku"}, HopDispatchChild)
+	if err != nil || child.Endpoint != "direct" {
+		t.Fatalf("endpoint not carried: %+v %v", child, err)
+	}
+	add.Provider, add.Profile = "databricks", "qa"
+	if o, err := parent.Derive(add, HopAppend); err != nil || o.Endpoint != "" {
+		t.Errorf("a typed unit replaces the whole unit: %+v %v", o, err)
+	}
+	var plain Overlay
+	plain.Endpoint, plain.Provider, plain.Profile = "http://example.com", "databricks", "qa"
+	if _, err := parent.Derive(plain, HopAppend); err == nil {
+		t.Error("a plain-http endpoint was accepted")
 	}
 }

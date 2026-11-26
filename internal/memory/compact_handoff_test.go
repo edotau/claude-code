@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -163,5 +166,59 @@ func TestIDCommentPinned(t *testing.T) {
 		if got != want {
 			t.Errorf("idComment(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// lintClean fails the test for every mdsmith finding on body, checked from the repo root so .mdsmith.yml applies.
+func lintClean(t *testing.T, root, name, body string) {
+	t.Helper()
+	if root == "" || mdlint.Mdsmith(root) == "" {
+		t.Skip("no .mdsmith.yml or mdsmith binary")
+	}
+	dir, err := os.MkdirTemp(root, "lintcheck-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	write(t, filepath.Join(dir, name), body)
+	rel, _ := filepath.Rel(root, filepath.Join(dir, name))
+	fs, err := mdlint.CheckFile(context.Background(), root, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fs {
+		t.Errorf("%s", f)
+	}
+}
+
+func TestReportAndHandoffWritersLintClean(t *testing.T) {
+	lintRoot := mdlint.Root(".")
+	bin := cmp.Or(mdlint.Mdsmith(lintRoot), mdlint.Mdsmith(paths.MainCheckout(lintRoot))) // a lane has no bin/
+	if bin != "" {
+		t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	root := compactRepo(t)
+	now := time.Now()
+	long := strings.Repeat("a long prose sentence that must wrap ", 12)
+	running := HandoffDispatch{ID: "r1", Agent: "claude", Model: "opus", Status: "running", Started: now.Add(-time.Minute),
+		Brief: "TASK ID: relay-fix\nOwns: /abs/agents/codex.md"}
+	write(t, filepath.Join(root, "dirty.txt"), "x\n") // an untracked file makes the status fence render
+	lintClean(t, lintRoot, "handoff.md", writeHandoff(t, compactInput(root, now, running)))
+	path, err := JobReport(now, "review", "lint", []byte("# Review\n\n"+long+"\n\n- "+long+"\n\n```go\nx := 1\n```\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lintClean(t, lintRoot, "report.md", mustRead(t, path))
+	paths2, err := appendReport("lint", ReportInput{Report: "# Report\n\n" + long + "\n", Decisions: []string{long}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if more, err := appendReport("nodec", ReportInput{Report: "# Report\n\n" + long + "\n"}); err != nil {
+		t.Fatal(err)
+	} else {
+		paths2 = append(paths2, more[:1]...)
+	}
+	for i, p := range paths2 {
+		lintClean(t, lintRoot, fmt.Sprintf("appended%d.md", i), mustRead(t, p))
 	}
 }

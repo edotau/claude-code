@@ -513,3 +513,51 @@ func TestClaimPlanTaskUsesPrefetchedLookup(t *testing.T) {
 		t.Fatal("claim re-read the plan instead of using the prefetched lookup")
 	}
 }
+
+func TestPlanDoneTickPrintsReadyNotice(t *testing.T) {
+	plan, _, _ := tickFixture(t)
+	repo := filepath.Join(os.Getenv("HOME"), "widgets")
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "- [x] Phase 1.1 — base\n"+
+		"- [ ] Phase 1.2 — next — leaf: codex — verify: go test ./b — Blocked by: 1.1 — owns: b/b.go\n")
+	slots := 2
+	oldSlots, oldClaims := freeSlots, readyClaims
+	freeSlots = func() int { return slots }
+	readyClaims = func(*core.Input) map[string][]string { return nil }
+	t.Cleanup(func() { freeSlots, readyClaims = oldSlots, oldClaims })
+	run := func(cmd string) string {
+		return runDocs(t, Tick, map[string]any{"hook_event_name": "PostToolUse", "session_id": "r1", "tool_name": "Bash", "cwd": repo,
+			"tool_input": map[string]string{"command": cmd}, "tool_response": map[string]string{"stdout": "ok"}})
+	}
+	if got := run("claude-code plan task 'Phase 1.1' --done --sha abc1234"); !strings.Contains(got, "Phase 1.2: claude-code agents brief --path codex") {
+		t.Fatalf("a tick must list the ready task, got %q", got)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	hosttest.In(t, filepath.Dir(other), "init", "-q", other)
+	done := " && claude-code plan task 'Phase 1.1' --done"
+	for _, tc := range []struct {
+		cmd  string
+		want bool
+	}{
+		{"git -C " + other + " merge x" + done, false},
+		{"git -C " + other + " status" + done, false},
+		{"git -C " + repo + " status && git -C " + other + " -C " + repo + " status" + done, false},
+		{"cd " + repo + done, true},
+		{"cd " + other + " && cd " + repo + done, false},
+		{"ls && cd " + other + done, false},
+		{"bash -c 'cd " + other + "' && (pushd " + other + ")" + done, false},
+		{"ls\ncd " + other + done, false},
+		{"git -C " + repo + " -C sub status" + done, false},
+		{"ls", false}, {"echo 'claude-code plan task x --done'", false}, {"claude-code plan task --help", false},
+	} {
+		if got := strings.Contains(run(tc.cmd), "Phase 1.2"); got != tc.want {
+			t.Fatalf("%q names the ready task = %v, want %v", tc.cmd, got, tc.want)
+		}
+	}
+	if slots = 0; strings.Contains(run("claude-code plan task 'Phase 1.1' --done"), "plans:") {
+		t.Fatal("no free slot must print nothing")
+	}
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "- [x] Phase 1.1 — base\n- [x] Phase 1.2 — next\n")
+	if slots = 2; strings.Contains(run("claude-code plan task 'Phase 1.2' --done"), "plans:") {
+		t.Fatal("no ready task must print nothing")
+	}
+}

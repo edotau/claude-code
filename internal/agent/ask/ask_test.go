@@ -122,7 +122,7 @@ func TestCmdAskRoutesUnderAncestorFence(t *testing.T) {
 	prevCheck, prevCtx := checkAncestry, ancestorContext
 	checkAncestry = func(context.Context) error { return nil }
 	ancestorContext = func(ctx context.Context) context.Context {
-		ctx, _ = agent.RunValues(ctx, map[string]string{route.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")})
+		ctx, _ = agent.RunValues(ctx, map[string]string{route.OverlayVar: agentconfig.Overlay{Provider: "databricks", Profile: "qa"}.Doc()})
 		return ctx
 	}
 	t.Cleanup(func() { checkAncestry, ancestorContext = prevCheck, prevCtx })
@@ -131,7 +131,7 @@ func TestCmdAskRoutesUnderAncestorFence(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
-	t.Setenv(route.OverlayVar, agentconfig.InlineOverlay("databricks", "dev"))
+	t.Setenv(route.OverlayVar, agentconfig.Overlay{Provider: "databricks", Profile: "dev"}.Doc())
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.example.com","auth":{"type":"none"}},`+
 		`"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -48,6 +49,9 @@ func gradientSeps(t *testing.T) {
 func TestGradientLine(t *testing.T) {
 	hermetic(t)
 	gradientSeps(t)
+	orig := gitDiffTimeout
+	gitDiffTimeout = time.Minute // the counts must not depend on machine load
+	t.Cleanup(func() { gitDiffTimeout = orig })
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()

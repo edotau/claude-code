@@ -380,7 +380,7 @@ func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	reportPath, err := createUnique(day+"-"+label, []byte(strings.TrimRight(in.Report, "\n")+"\n\n"))
+	reportPath, err := createUnique(day+"-"+label, []byte(strings.TrimRight(in.Report, "\n")+"\n"))
 	if err != nil {
 		return nil, err
 	}
@@ -388,16 +388,21 @@ func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	rollback := func(err error) ([]string, error) {
 		return nil, errors.Join(err, os.Remove(reportPath), decisions.restore())
 	}
-	if err := appendText(decisionsPath, "# Decisions\n\n", decisionLines(day, label, in.Decisions)); err != nil {
+	out := []string{reportPath, decisionsPath}
+	if text := decisionLines(day, label, in.Decisions); text != "" {
+		if err := appendText(decisionsPath, "# Decisions\n\n", text); err != nil {
+			return rollback(err)
+		}
+	} else if _, err := os.Stat(decisionsPath); err != nil {
+		out = out[:1] // no decisions and no file: a header-only file would be an empty section
+	}
+	if _, err := formatFiles(out, false); err != nil {
 		return rollback(err)
 	}
-	if _, err := formatFiles([]string{reportPath, decisionsPath}, false); err != nil {
+	if err := commitStore("memory: report "+label, storeRels(out)...); err != nil {
 		return rollback(err)
 	}
-	if err := commitStore("memory: report "+label, storeRels([]string{reportPath, decisionsPath})...); err != nil {
-		return rollback(err)
-	}
-	return []string{reportPath, decisionsPath}, nil
+	return out, nil
 }
 
 // decisionLines renders one `- <date> · <label> · <decision>` line per non-blank decision, newline-flattened.

@@ -54,7 +54,7 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 		return values
 	}
 	set := proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)}
-	if doc := agentconfig.InlineOverlay(rec.Route.Provider, rec.Route.Profile); doc != "" { // the parent's fence beats any ambient one
+	if doc := (agentconfig.Overlay{Provider: rec.Route.Provider, Profile: rec.Route.Profile}).Doc(); doc != "" { // the parent's fence beats any ambient one
 		set[route.OverlayVar] = doc
 	}
 	return values.Merge(set).Merge(inheritedCaps(values, rec))

@@ -1013,3 +1013,71 @@ func TestUpdateOlderStoreKeepsUntypedPath(t *testing.T) {
 		t.Errorf("old-store result %+v after %d runs, out %q", r, calls, out.String())
 	}
 }
+
+func TestUpdateApplyFailureFallsBackOnce(t *testing.T) {
+	stale := `{"ops":[{"op":"close","id":"z00000000","reason":"done"}]}`
+	good := `{"ops":[{"op":"add","target":"sessionHistory","title":"fallback arc","text":"- placed by the fallback"}]}`
+	for name, answer := range map[string]string{"corrected": good, "still bad": stale} {
+		t.Run(name, func(t *testing.T) {
+			clearChildEnv(t)
+			tempConfig(t)
+			root := repoRoot(t, "proj")
+			if _, err := Init(); err != nil {
+				t.Fatal(err)
+			}
+			typedStore(t, true)
+			calls := 0
+			standInStoreCopy(t)
+			old := CodeModeRun
+			CodeModeRun = func(_ context.Context, prompt, _, _, _ string) (string, string, error) {
+				calls++
+				if !strings.Contains(prompt, "op 0 (close): unknown id") {
+					t.Errorf("fallback prompt lacks the failed op's reason")
+				}
+				return answer, "fake-pi", nil
+			}
+			t.Cleanup(func() { CodeModeRun = old })
+			run := func(ctx context.Context, _, _ string) (string, error) {
+				AnswerJob(ctx, stale)
+				return "stub", nil
+			}
+			err := update(updateOptions{Run: run, CWD: root, Session: "ta"})
+			hist, _ := os.ReadFile(Path("sessionHistory.md"))
+			wrote := strings.Contains(string(hist), "fallback arc")
+			if calls != 1 || wrote != (name == "corrected") || (err != nil) != (name == "still bad") ||
+				err != nil && !strings.Contains(err.Error(), "fake-pi") {
+				t.Errorf("dispatches %d, written %v, err %v", calls, wrote, err)
+			}
+		})
+	}
+}
+
+func TestUpdateExhaustedValidationUsesTheFallbackOnce(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	typedStore(t, true)
+	standInStoreCopy(t)
+	calls, runs := 0, 0
+	old := CodeModeRun
+	CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
+		calls++
+		return `{"ops":[{"op":"add","target":"sessionHistory","title":"exhausted arc","text":"- via fallback"}]}`, "fake-pi", nil
+	}
+	t.Cleanup(func() { CodeModeRun = old })
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		runs++
+		AnswerJob(ctx, `{"ops":[{"op":"bogus"}]}`)
+		return "stub", nil
+	}
+	if err := update(updateOptions{Run: run, CWD: root, Session: "tx"}); err != nil {
+		t.Fatal(err)
+	}
+	hist, _ := os.ReadFile(Path("sessionHistory.md"))
+	if r, _ := readUpdateResult("tx"); calls != 1 || runs != 2 || r.Typed != "ok" || !strings.Contains(string(hist), "exhausted arc") {
+		t.Errorf("fallback calls %d, runs %d, result %+v", calls, runs, r)
+	}
+}

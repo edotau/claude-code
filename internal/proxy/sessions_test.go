@@ -143,3 +143,17 @@ func TestOverlayShapeErrRefusesColonForm(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlayShapeErrReadsTheUnit(t *testing.T) {
+	for doc, ok := range map[string]bool{
+		`{"endpoint":"proxy","provider":"databricks","profile":"dev"}`: true,
+		`{"profile":"dev"}`:    false,
+		`{"endpoint":"proxy"}`: false,
+		`{"provider":"github","profile":"p","endpoint":"http://example.com"}`: false,
+	} {
+		err := overlayShapeErr(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: doc}))
+		if (err == nil) != ok {
+			t.Errorf("%s: err = %v, want ok=%v", doc, err, ok)
+		}
+	}
+}

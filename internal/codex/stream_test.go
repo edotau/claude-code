@@ -184,3 +184,19 @@ func TestParseCodexStreamAnswerNeedsCompletedTurn(t *testing.T) {
 		}
 	}
 }
+
+// A real codex 0.171 run whose Responses stream ended incomplete on max_output_tokens is an output budget end.
+func TestParseCodexStreamOutputCutIsBudget(t *testing.T) {
+	raw, err := os.ReadFile("testdata/stream-output-cut.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = parseSample(string(raw))
+	if got := retry.BudgetOf(err); got != retry.BudgetOutput || retry.MayRedispatch(err) {
+		t.Fatalf("err = %v, budget %q; want output budget and no redispatch", err, got)
+	}
+	generic := string(raw) + "\n" + `{"type":"turn.failed","error":{"message":"stream disconnected"}}`
+	if _, err = parseSample(generic); retry.BudgetOf(err) != retry.BudgetOutput {
+		t.Fatalf("generic turn.failed after the cut: err = %v; want output budget", err)
+	}
+}

@@ -51,3 +51,41 @@ func TestTargetJSON(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestUnitWhole(t *testing.T) {
+	db := Route{Provider: "databricks", Profile: "qa"}
+	for _, tc := range []struct {
+		endpoint string
+		ok       bool
+	}{
+		{"proxy", true}, {"direct", true}, {"team-a", true}, {"https://x.cloud.databricks.com/serving-endpoints", true},
+		{"http://127.0.0.1:9", true}, {"http://example.com", false}, {"https://u:p@h/x", false}, {"https://h/x?k=v", false},
+		{"Proxy", false}, {"a b", false}, {"https://", false},
+	} {
+		r := db
+		r.Endpoint = tc.endpoint
+		if err := r.Validate(); (err == nil) != tc.ok {
+			t.Errorf("endpoint %q: %v, want ok=%v", tc.endpoint, err, tc.ok)
+		}
+	}
+	for _, r := range []Route{{Endpoint: "proxy"}, {Endpoint: "proxy", Provider: "databricks"}, {Profile: "qa"}} {
+		if r.Validate() == nil {
+			t.Errorf("half unit %+v accepted", r)
+		}
+	}
+}
+
+func TestReadDoc(t *testing.T) {
+	r, f, err := ReadDoc(`{"endpoint":"direct","provider":"databricks","profile":"qa","model":"x","fence":{"profiles":["qa"]}}`)
+	if want := (Route{Endpoint: "direct", Provider: "databricks", Profile: "qa"}); err != nil || r != want || f.Open || !f.Allows("qa") {
+		t.Fatalf("got %+v %+v %v", r, f, err)
+	}
+	if _, f, err := ReadDoc(`{"provider":"github","profile":"p"}`); err != nil || !f.Open {
+		t.Fatalf("no fence key: %+v %v", f, err)
+	}
+	for _, bad := range []string{`{`, `{"profile":"qa"}`, `{"provider":"nope","profile":"x"}`, `{"endpoint":"proxy"}`} {
+		if _, _, err := ReadDoc(bad); err == nil {
+			t.Errorf("ReadDoc(%s) accepted", bad)
+		}
+	}
+}

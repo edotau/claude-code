@@ -823,6 +823,18 @@ func applyBatchLocked(b Batch, base Versions, now time.Time) ([]OpResult, error)
 	return results, commitBatchDocs(docs, raw, now)
 }
 
+// AfterCommitError marks an apply that is, or may be, written (settle failed, rollback half done): never retried.
+type AfterCommitError struct{ Err error }
+
+func (e *AfterCommitError) Error() string { return "batch may be committed: " + e.Err.Error() }
+func (e *AfterCommitError) Unwrap() error { return e.Err }
+
+// refused is true for an atomic refusal (nothing written) and false once the write may have happened.
+func refused(err error) bool {
+	_, after := errors.AsType[*AfterCommitError](err)
+	return !after
+}
+
 // withBase fills each op's empty Read from base and refuses a Read that disagrees with it; b is not modified.
 func withBase(b Batch, base Versions) (Batch, error) {
 	ops := slices.Clone(b.Ops)
@@ -939,7 +951,7 @@ func commitBatchDocs(docs map[string]Doc, raw map[string][]byte, now time.Time) 
 	}
 	// the batch is committed whole; settle only derives files (rotation, index) and the next settle redoes it
 	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
-		return fmt.Errorf("batch committed as %s; settle: %w", rec.Commit, tolerateIndex(err))
+		return &AfterCommitError{fmt.Errorf("batch committed as %s; settle: %w", rec.Commit, tolerateIndex(err))}
 	}
 	return nil
 }
@@ -965,7 +977,7 @@ func batchChanges(docs map[string]Doc, raw map[string][]byte) []storeChange {
 func rollbackBatch(raw map[string][]byte, rec commitReceipt, err error) error {
 	if rec.ID != "" { // a kept journal would replay the aborted write on the next commit
 		if rerr := os.Remove(filepath.Join(JournalDir(), rec.ID+".json")); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-			return errors.Join(err, fmt.Errorf("drop the journal: %w", rerr))
+			return &AfterCommitError{errors.Join(err, fmt.Errorf("drop the journal: %w", rerr))}
 		}
 	}
 	var snaps []fileSnapshot
@@ -973,9 +985,13 @@ func rollbackBatch(raw map[string][]byte, rec commitReceipt, err error) error {
 		snaps = append(snaps, fileSnapshot{path: Path(rel), prev: raw[rel], existed: raw[rel] != nil})
 	}
 	if rerr := restoreSnaps(snaps); rerr != nil { // half restored: keep the commit as the recovery point
-		return errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))
+		return &AfterCommitError{errors.Join(err, fmt.Errorf("roll back the write: %w", rerr))}
 	}
-	return errors.Join(fmt.Errorf("%w (write rolled back)", err), undoBatchCommit(rec.Commit))
+	rolled := fmt.Errorf("%w (write rolled back)", err)
+	if uerr := undoBatchCommit(rec.Commit); uerr != nil {
+		return &AfterCommitError{errors.Join(rolled, uerr)}
+	}
+	return rolled
 }
 
 // undoBatchCommit moves HEAD off the batch's own commit only while it is still HEAD; a native capture stays.

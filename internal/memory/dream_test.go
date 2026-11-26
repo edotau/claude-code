@@ -744,3 +744,40 @@ func TestDreamBatchSchemaCarriesSideArrays(t *testing.T) {
 		}
 	}
 }
+
+func TestDreamApplyFailureFallsBackOnce(t *testing.T) {
+	stale := `{"ops":[{"op":"close","id":"z00000000","reason":"done"}]}`
+	for _, name := range []string{"corrected", "still bad"} {
+		t.Run(name, func(t *testing.T) {
+			isolatedConfig(t)
+			shortBankWait(t)
+			initTypedStore(t)
+			progress, conventions := dreamTestFixture(t)
+			write(t, Path("progress.md"), progress)
+			write(t, Path("conventions.md"), conventions)
+			refs := dreamTestRefs(t, progress, conventions)
+			fixed := stale
+			if name == "corrected" {
+				fixed = `{"ops":[{"op":"close","id":"` + refs[1] + `","read":"` + refs[1] + `","reason":"done"}]}`
+			}
+			calls := 0
+			standInStoreCopy(t)
+			old := CodeModeRun
+			CodeModeRun = func(_ context.Context, prompt, _, _, _ string) (string, string, error) {
+				calls++
+				if !strings.Contains(prompt, "Your previous answer failed") {
+					t.Error("fallback prompt lacks the failure")
+				}
+				return fixed, "fake-pi", nil
+			}
+			t.Cleanup(func() { CodeModeRun = old })
+			err := dream(dreamOptions{CWD: t.TempDir(), Run: dreamTestRunner(t, stale, refs, false), Trigger: "manual", Forced: true})
+			got, _ := os.ReadFile(Path("progress.md"))
+			changed := string(got) != progress
+			if calls != 1 || changed != (name == "corrected") || (err != nil) != (name == "still bad") ||
+				err != nil && !strings.Contains(err.Error(), "fake-pi") {
+				t.Errorf("dispatches %d, changed %v, err %v", calls, changed, err)
+			}
+		})
+	}
+}

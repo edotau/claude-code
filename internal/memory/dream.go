@@ -333,6 +333,7 @@ type dreamRan struct {
 	files              map[string]string // unique snapshot refs to store-relative files
 	docs               map[string]Doc    // snapshot used to exclude byte-identical changes
 	job                *JobResult
+	fb                 *CodeFallback
 }
 
 // fill copies the run's facts into the result record.
@@ -441,7 +442,8 @@ func (r *dreamRan) runAgent(o dreamOptions) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
-	ctx, r.job = WithJobReport(ctx)
+	r.fb = new(CodeFallback)
+	ctx, r.job = WithJobReport(WithCodeFallback(ctx, r.fb))
 	ctx = WithJobOutput(ctx, o.Out)
 	ctx, answer := WithJobAnswer(ctx, DreamBatchSchema())
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
@@ -450,10 +452,25 @@ func (r *dreamRan) runAgent(o dreamOptions) {
 		fmt.Fprintln(o.Out, "memory dream: error detail:", err)
 	}
 	if err == nil {
-		err = r.applyAnswer(*answer, o.Out)
+		if err = r.applyAnswer(*answer, o.Out); err != nil && refused(err) {
+			err = r.retryAnswer(o, prompt, err)
+		}
 	}
 	r.runErr = err
 	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
+}
+
+// retryAnswer gives the one code-mode fallback the failure and a fresh listing, then applies its corrected batch.
+func (r *dreamRan) retryAnswer(o dreamOptions, prompt string, failed error) error {
+	listing, base, files, docs, err := dreamListing()
+	if err != nil {
+		return errors.Join(failed, err)
+	}
+	r.base, r.files, r.docs = base, files, docs
+	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1", dreamChildEnv+"=1"), updateTimeout)
+	defer cancel()
+	return r.fb.Retry(ctx, prompt+"\n\nFresh entry listing:"+listing, o.CWD, DreamBatchSchema(), r.job.Model, failed,
+		func(answer string) error { return r.applyAnswer(answer, o.Out) })
 }
 
 // applyAnswer records only committed operations: a failed batch writes nothing, including its ok ops.
@@ -487,6 +504,7 @@ func (r *dreamRan) applyAnswer(answer string, out io.Writer) error {
 			fmt.Fprintf(out, "memory dream: note: %s\n", result.Op.Note)
 		}
 	}
+	err = withFailedOps(err, results)
 	r.recordApplied(results, planned, err)
 	if err == nil {
 		r.applySide(batch, out) // a failed bank batch leaves the side entries unapplied too

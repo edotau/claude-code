@@ -10,11 +10,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
-
-// BankFmtMaxLine is the wrap width — mirrors .mdsmith.yml's line-length.max for the repo's own markdown.
-const BankFmtMaxLine = 120
 
 var (
 	bankFmtHeading = sync.OnceValue(func() *regexp.Regexp {
@@ -223,7 +221,7 @@ func listItem(line string) []string {
 
 // wrapBankLine wraps one line at word boundaries, never inside a code span, link or HTML comment.
 func wrapBankLine(line string) []string {
-	if utf8.RuneCountInString(line) <= BankFmtMaxLine {
+	if utf8.RuneCountInString(line) <= mdlint.Width {
 		return []string{line}
 	}
 	var indent, marker, rest string
@@ -273,7 +271,7 @@ func bankFmtTokenize(s string) []string {
 	return tokens
 }
 
-// bankFmtPack greedily fills lines ≤ BankFmtMaxLine runes; a single over-width token is kept whole.
+// bankFmtPack greedily fills lines ≤ mdlint.Width runes; a single over-width token is kept whole.
 func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 	var lines []string
 	prefix, row := firstPrefix, []string(nil)
@@ -283,7 +281,7 @@ func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 		if len(row) == 0 {
 			nextWidth = utf8.RuneCountInString(prefix + t)
 		}
-		if len(row) == 0 || nextWidth <= BankFmtMaxLine {
+		if len(row) == 0 || nextWidth <= mdlint.Width {
 			width = nextWidth
 			row = append(row, t)
 			continue

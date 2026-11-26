@@ -98,7 +98,7 @@ func withValues(ctx context.Context, set proc.Values) context.Context {
 // confinement is $COWORKER_OVERLAY as provider[:p] plus the run's caps: the router and nested dispatches read it there.
 func confinement(ctx context.Context, provider, p string) proc.Values {
 	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable doc carries no caps
-	return proc.Values{route.OverlayVar: agentconfig.InlineOverlay(provider, p, o)}
+	return proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: provider, Profile: p, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()}
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
