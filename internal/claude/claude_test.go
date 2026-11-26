@@ -967,3 +967,16 @@ func TestResultFailureCapsAreCostBudget(t *testing.T) {
 		t.Errorf("a plain failure is no budget end: %v", err)
 	}
 }
+
+// claude 2.1.332 rejects a top-level 2020-12 "$schema" id, so --json-schema carries the schema without it.
+func TestClaudeArgsDropsDraftKey(t *testing.T) {
+	schema := `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["ops"]}`
+	args := claudeArgs(nil, agent.RunOptions{OutputSchema: schema})
+	i := slices.Index(args, "--json-schema")
+	if i < 0 || strings.Contains(args[i+1], "$schema") || !strings.Contains(args[i+1], `"required":["ops"]`) {
+		t.Fatalf("args = %q, want the schema without $schema", args)
+	}
+	if got := withoutDraftKey(`{"type":"object"}`); got != `{"type":"object"}` {
+		t.Fatalf("a schema with no draft key changed: %s", got)
+	}
+}

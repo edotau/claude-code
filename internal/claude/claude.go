@@ -92,6 +92,20 @@ func claudeStreamArgs(req agent.RunOptions, live bool) []string {
 	return claudeArgs(argv, req)
 }
 
+// withoutDraftKey drops a top-level "$schema" from s: claude 2.1.332 cannot resolve the 2020-12 meta-schema id.
+func withoutDraftKey(s string) string {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal([]byte(s), &doc) != nil || doc["$schema"] == nil {
+		return s
+	}
+	delete(doc, "$schema")
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return s
+	}
+	return string(b)
+}
+
 // claudeArgs appends the request's option flags to base; effort is RenderSettings', tools toolArgs'.
 func claudeArgs(args []string, req agent.RunOptions) []string {
 	if req.BudgetUSD != nil {
@@ -105,7 +119,7 @@ func claudeArgs(args []string, req agent.RunOptions) []string {
 		{req.DebugFile != "", []string{"--debug-file", req.DebugFile}},
 		{req.SystemPrompt != "", []string{"--system-prompt", req.SystemPrompt}},
 		{req.AppendSystemPrompt != "", []string{"--append-system-prompt", req.AppendSystemPrompt}},
-		{req.OutputSchema != "", []string{"--json-schema", req.OutputSchema}},
+		{req.OutputSchema != "", []string{"--json-schema", withoutDraftKey(req.OutputSchema)}},
 		{req.SessionID != "", []string{"--resume", req.SessionID}},
 		{req.Tools, []string{"--permission-mode", "bypassPermissions"}}, // a --tools leaf holds its tools whole
 	} {

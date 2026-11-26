@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -44,7 +45,9 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 	if _, err = Init(); err == nil {
 		t.Fatal("Init succeeded although every write failed")
 	}
-	if left, _ := filepath.Glob(filepath.Join(dir, "*")); len(left) != 0 {
+	left, _ := filepath.Glob(filepath.Join(dir, "*"))
+	left = slices.DeleteFunc(left, func(p string) bool { return filepath.Base(p) == layoutFile }) // the stamp is whole, written atomically
+	if len(left) != 0 {
 		t.Errorf("failed Init left %d file(s) behind, first %q", len(left), left[0])
 	}
 }

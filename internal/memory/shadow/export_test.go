@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/sqlite"
 )
 
@@ -23,6 +25,7 @@ func setupShadowExport(t *testing.T) (string, map[string]string, memory.ExportDB
 	tmp := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", tmp)
 	t.Setenv("HARNESS_KEYRING", "off")
+	pinFilesTruth(t)
 	root := filepath.Join(tmp, "memory")
 	fixture := map[string]string{
 		"decisionLog.md": "# Decision Log\n\n## 2026-01-15 — Pick db <!-- id:0123abcd -->\n\nWhy: fast.\n",
@@ -326,5 +329,228 @@ func TestExportClearNeverDeletesLinkTarget(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "notes", "y.md")); err != nil {
 		t.Fatalf("link target deleted: %v", err)
+	}
+}
+
+func truthAdd(t *testing.T, e *parityEnv, text string) string {
+	t.Helper()
+	st := memory.NewBankStore(false)
+	_, base, err := st.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := memory.Op{Op: "add", Target: "activeContext", Section: "Current Focus", Text: text}
+	rs, err := st.Apply(memory.Batch{Ops: []memory.Op{op}}, base, e.now())
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	return rs[0].ID
+}
+
+func truthUpdate(t *testing.T, e *parityEnv, id, text string, base memory.Versions) error {
+	t.Helper()
+	op := memory.Op{Op: "update", ID: id, Text: text}
+	_, err := memory.NewBankStore(false).Apply(memory.Batch{Ops: []memory.Op{op}}, base, e.now())
+	return err
+}
+
+func truthVersions(t *testing.T) memory.Versions {
+	t.Helper()
+	_, v, err := memory.NewBankStore(false).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func shadowCount(t *testing.T, q string) int {
+	t.Helper()
+	db, err := openMigratedShadow(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow(q).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func seedHistory(t *testing.T, text string) {
+	t.Helper()
+	db, err := openMigratedShadow(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	res, err := db.Exec(`INSERT INTO vectors(entry_rowid, model, dim, vec, minted_at)
+		SELECT rowid, 'm', 1, x'00', '' FROM entries WHERE lines LIKE '%' || ? || '%'`, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("setup: seeded %d vector rows for %q, want 1", n, text)
+	}
+	if _, err := db.Exec(`INSERT INTO changes(origin, origin_seq, schema, entry_rowid, base_version, op, payload, at)
+		SELECT 'test', 1, 1, rowid, '1', 'update', '', '' FROM entries WHERE lines LIKE '%' || ? || '%'`, text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExportDoesNotTriggerReimport(t *testing.T) {
+	e := newParityEnv(t, "db")
+	id := truthAdd(t, e, "first")
+	v1 := truthVersions(t)
+	if err := truthUpdate(t, e, id, "second", v1); err != nil {
+		t.Fatal(err)
+	}
+	v2 := truthVersions(t) // this open and the one below must not re-import the export's own files
+	if v2[id] == v1[id] {
+		t.Fatalf("version did not move: %v", v2[id])
+	}
+	seedHistory(t, "second")
+	changes := shadowCount(t, `SELECT count(*) FROM changes`)
+	if got := truthVersions(t); got[id] != v2[id] {
+		t.Fatalf("reopen reset the version: %v -> %v", v2[id], got[id])
+	}
+	if n := shadowCount(t, `SELECT count(*) FROM vectors`); n != 1 {
+		t.Fatalf("vector rows after reopen = %d, want 1", n)
+	}
+	if n := shadowCount(t, `SELECT count(*) FROM changes`); n != changes || n == 0 {
+		t.Fatalf("history rows after reopen = %d, want %d", n, changes)
+	}
+	var ce *memory.ConflictError
+	if err := truthUpdate(t, e, id, "stale", v1); !errors.As(err, &ce) {
+		t.Fatalf("update on the stale version = %v, want a ConflictError", err)
+	}
+}
+
+func TestOutsideEditAfterExportIsStillSeen(t *testing.T) {
+	e := newParityEnv(t, "db")
+	truthAdd(t, e, "exported")
+	body := activeMarkdown(t)
+	if err := os.WriteFile(memory.Path("activeContext.md"), []byte(body+"- sneaked in outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	docs, _, err := memory.NewBankStore(false).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(docs["activeContext.md"].Render()), "sneaked in outside") {
+		t.Fatal("an outside edit after the export was not imported on the next open")
+	}
+}
+
+func activeMarkdown(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(memory.Path("activeContext.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestDBWriteReachesMarkdownAtOnce(t *testing.T) {
+	e := newParityEnv(t, "db")
+	truthAdd(t, e, "written under db truth")
+	if !strings.Contains(activeMarkdown(t), "written under db truth") {
+		t.Fatal("a db write did not reach the Markdown")
+	}
+}
+
+func TestRebuildUnderDBTruthKeepsDBOnlyChange(t *testing.T) {
+	e := newParityEnv(t, "db")
+	old := memory.OpenExportDB
+	t.Cleanup(func() { memory.OpenExportDB = old })
+	memory.OpenExportDB = nil // leave the write db-only, as a crash before export would
+	truthAdd(t, e, "db only change")
+	memory.OpenExportDB = old
+	if strings.Contains(activeMarkdown(t), "db only change") {
+		t.Fatal("setup: the change reached the Markdown")
+	}
+	if _, err := RebuildShadow(context.Background()); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if !strings.Contains(activeMarkdown(t), "db only change") {
+		t.Fatal("rebuild under db truth lost a db-only change")
+	}
+}
+
+func TestOutsideEditWinsAfterDBWrite(t *testing.T) {
+	e := newParityEnv(t, "db")
+	truthAdd(t, e, "db write")
+	body := activeMarkdown(t)
+	if !strings.Contains(body, "db write") {
+		t.Fatal("the db write was not on disk before the outside edit")
+	}
+	outside := strings.Replace(body, "db write", "db write\n- outside edit line", 1)
+	if err := os.WriteFile(memory.Path("activeContext.md"), []byte(outside), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guardOnce(t)
+	wantStamped(t, "activeContext.md")
+	if got := activeMarkdown(t); !strings.Contains(got, "outside edit line") || !strings.Contains(got, "db write") {
+		t.Fatalf("outside edit or db write lost on disk:\n%s", got)
+	}
+	docs, _, err := memory.NewBankStore(false).Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	var all strings.Builder
+	for _, d := range docs {
+		for _, en := range d.Entries {
+			all.WriteString(strings.Join(en.Lines, "\n"))
+		}
+	}
+	if !strings.Contains(all.String(), "outside edit line") {
+		t.Fatal("the db did not take the outside edit")
+	}
+}
+
+// guardOnce runs the export guard as settle does on the next open, wanting an import and no conflict.
+func guardOnce(t *testing.T) {
+	t.Helper()
+	edb, closeDB, err := memory.OpenExportDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := memory.ExportGuard(edb, paths.MemoryStoreDir())
+	if cerr := closeDB(); err == nil {
+		err = cerr
+	}
+	if err != nil || len(rep.Imported) == 0 || len(rep.Conflicts) != 0 {
+		t.Fatalf("guard: %+v err=%v; want the outside edit imported", rep, err)
+	}
+}
+
+func wantStamped(t *testing.T, rel string) {
+	t.Helper()
+	fi, err := os.Stat(memory.Path(rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fmt.Sprintf(`SELECT count(*) FROM meta WHERE key = 'stat:%s' AND value = '%d:%d'`, rel, fi.Size(), fi.ModTime().UnixNano())
+	if shadowCount(t, q) != 1 {
+		t.Fatalf("%s: stale fingerprint, so the next open would re-import it", rel)
+	}
+}
+
+func TestRebuildUnderDBTruthRefusesOnExportConflict(t *testing.T) {
+	e := newParityEnv(t, "db")
+	truthAdd(t, e, "base")
+	old := memory.OpenExportDB
+	t.Cleanup(func() { memory.OpenExportDB = old })
+	memory.OpenExportDB = nil
+	truthAdd(t, e, "db only change")
+	memory.OpenExportDB = old
+	if err := os.WriteFile(memory.Path("activeContext.md"), []byte(activeMarkdown(t)+"- outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RebuildShadow(context.Background()); err == nil {
+		t.Fatal("rebuild under db truth went ahead over an export conflict")
+	}
+	if n := shadowCount(t, `SELECT count(*) FROM entries WHERE lines LIKE '%db only change%'`); n != 1 {
+		t.Fatalf("db rows with the db-only change = %d after the refused rebuild, want 1", n)
 	}
 }

@@ -203,20 +203,14 @@ const dreamLegacyNote = "memory dream: store is older than flat 4; running the l
 func dreamProcedure(typed bool) string {
 	all := assets.MemoryDreamProcedure()
 	head, legacy, found := strings.Cut(all, dreamLegacyMarker)
-	switch {
-	case typed:
+	if typed {
 		return strings.TrimSpace(head)
-	case found:
-		return strings.TrimSpace(legacy)
 	}
-	return all
+	return map[bool]string{true: strings.TrimSpace(legacy), false: all}[found]
 }
 
-// dreamTyped is true only on a store stamped with the current layout version.
-func dreamTyped() bool {
-	b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
-	return strings.TrimSpace(string(b)) == "flat "+strconv.Itoa(storeVersion)
-}
+// dreamTyped is always true: the db is the truth, not a layout stamp.
+func dreamTyped() bool { return true }
 
 // dream runs one consolidation and records it, whatever the outcome, in dream-results.jsonl.
 func dream(o dreamOptions) error {
@@ -502,6 +496,9 @@ func (r *dreamRan) applyAnswer(answer string, out io.Writer) error {
 func (r *dreamRan) applyChecked(batch Batch, out io.Writer) error {
 	now := time.Now()
 	planned := maps.Clone(r.docs)
+	if err := refuseDerivedSupersede(batch); err != nil {
+		return fmt.Errorf("dream batch: %w", err)
+	}
 	based, err := withBase(batch, r.base)
 	if err != nil {
 		return fmt.Errorf("dream batch: %w", err)

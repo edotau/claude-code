@@ -25,6 +25,7 @@ func openStoreEnv(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := paths.MemoryStoreDir()
 	writeShadowStore(t, root, false)
+	pinFilesTruth(t)
 	if _, err := RebuildShadow(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +50,30 @@ func TestOpenBankStoreLoadsImport(t *testing.T) {
 		if err := closeFn(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestFirstOpenAfterTruthFilesImportsFirst(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := paths.MemoryStoreDir()
+	writeShadowStore(t, root, false)
+	want := "# Conventions\n\n- use gofmt\n- edited under files truth\n"
+	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(want), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, closeFn, err := memory.OpenBankStore(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, _, err := s.Load()
+	if err != nil || string(docs["conventions.md"].Render()) != want {
+		t.Fatalf("first open: render=%q err=%v; want the file content imported before any read", docs["conventions.md"].Render(), err)
+	}
+	if err := closeFn(); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := memory.ShadowImport(); err != nil || changed {
+		t.Fatalf("second import changed=%v err=%v; want no re-import of unchanged files", changed, err)
 	}
 }
 
@@ -406,7 +431,9 @@ func newParityEnv(t *testing.T, truth string) *parityEnv {
 			t.Fatal(err)
 		}
 		e.export()
+		return e
 	}
+	pinFilesTruth(t) // a missing truth file reads db here, so the files run pins its own
 	return e
 }
 
@@ -697,5 +724,16 @@ func TestTruthParityScript(t *testing.T) {
 			diffLists(t, "recall", files[i].recall, db[i].recall)
 			diffLists(t, "search", files[i].search, db[i].search)
 		})
+	}
+}
+
+func pinFilesTruth(t *testing.T) {
+	t.Helper()
+	tp := filepath.Join(paths.StateDir(), "memory", "truth")
+	if err := os.MkdirAll(filepath.Dir(tp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tp, []byte("files\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

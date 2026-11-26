@@ -203,25 +203,29 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	ranAgent := false
-	// The lock is held only for the legacy run (the typed model call runs outside it), so stamp flat 3.
+	calls := 0
+	firstFree := false
+	// A store without the stamp runs typed: the first model call is outside the store lock.
 	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), "flat 3\n")
 	run := func(context.Context, string, string) (string, error) {
-		ranAgent = true
+		calls++
 		got, err := paths.TryFileLock(lockPathOf()+".lock", 0, func() error { return nil })
 		if err != nil {
 			t.Error(err)
 		}
-		if got {
-			t.Error("another repo's worker took the home bank lock while this agent ran")
+		if calls == 1 {
+			firstFree = got
 		}
 		return "fixture", nil
 	}
 	if err := update(updateOptions{CWD: root, Session: "home-lock", Run: run}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	if !ranAgent {
+	if calls == 0 {
 		t.Fatal("agent never ran")
+	}
+	if !firstFree {
+		t.Error("the typed model call ran under the store lock")
 	}
 }
 

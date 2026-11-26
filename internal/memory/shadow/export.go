@@ -122,6 +122,25 @@ func (e *exportDB) MarkRendered(rel, sum string) error {
 	if err != nil {
 		return fmt.Errorf("memory: export mark %s: %w", rel, err)
 	}
+	return e.stampExported(rel, sum)
+}
+
+// stampExported records the fingerprint of the file the guard just wrote, so the next open does not re-import it.
+func (e *exportDB) stampExported(rel, sum string) error {
+	full := filepath.Join(e.root, filepath.FromSlash(rel))
+	fi, err := os.Stat(full) // before the read, as readShadowDoc stamps: a racing edit only costs a re-import
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(full)
+	if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != sum {
+		return nil // not the bytes just rendered: leave the import to see it
+	}
+	stamp := fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+	if _, err := e.db.ExecContext(context.Background(), `INSERT INTO meta(key, value) VALUES(?, ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "stat:"+rel, stamp); err != nil {
+		return fmt.Errorf("memory: export stamp %s: %w", rel, err)
+	}
 	return nil
 }
 
@@ -157,9 +176,13 @@ func (e *exportDB) Import(rel, wantSum string) error {
 		if err := upsertImportDoc(ctx, tx, d); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO meta(key, value) VALUES(?, ?)
-			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "render:"+rel, hex.EncodeToString(sum[:]))
-		return err
+		for k, v := range map[string]string{"render:" + rel: hex.EncodeToString(sum[:]), "stat:" + rel: d.stamp} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO meta(key, value) VALUES(?, ?)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value`, k, v); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

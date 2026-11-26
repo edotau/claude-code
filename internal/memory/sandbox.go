@@ -136,14 +136,7 @@ func sandboxFlat(config string, opt SandboxOptions) ([]sandboxStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	stamp, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
-	if err != nil {
-		stamp = []byte(layoutFlat + "\n")
-	}
-	if err := os.WriteFile(filepath.Join(dst, layoutFile), stamp, 0o600); err != nil {
-		return nil, err
-	}
-	return []sandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
+	return []sandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, names)
 }
 
 // sandboxFlatBank places the bank's files in the flat store at dst: its templates when empty, else every file it owns.

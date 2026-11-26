@@ -584,7 +584,6 @@ func initTypedStore(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	storeFlat() // memoize the lock check while the stamp is flat 3; the collapse makes the stamps agree
 	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), fmt.Sprintf("flat %d\n", storeVersion))
 }
 
@@ -598,21 +597,20 @@ func TestDreamLegacyStoreKeepsLegacyPath(t *testing.T) {
 	}
 	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), "flat 3\n")
 	var out strings.Builder
+	typed := false
 	run := func(ctx context.Context, prompt, _ string) (string, error) {
-		if JobAnswerSchema(ctx) != "" {
-			t.Error("legacy store received a typed schema")
-		}
-		if strings.Contains(prompt, "Bank entries (JSON snapshot") {
-			t.Error("legacy prompt carries the typed snapshot")
-		}
+		typed = JobAnswerSchema(ctx) != "" && strings.Contains(prompt, "Bank entries (JSON snapshot")
 		AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`)
 		return "stub", nil
 	}
 	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Out: &out, Forced: true}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "claude-code memory upgrade") {
-		t.Errorf("log lacks the upgrade note: %s", out.String())
+	if !typed {
+		t.Error("a store without the current stamp must run the typed path")
+	}
+	if strings.Contains(out.String(), "claude-code memory upgrade") {
+		t.Errorf("typed run logged the legacy upgrade note: %s", out.String())
 	}
 }
 
@@ -1072,5 +1070,30 @@ func TestRecordExtractLossAppendsAndLeavesNoTemp(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(ledger))
 	if strings.Count(string(data), "\n") != 2 || len(entries) != 1 {
 		t.Fatalf("ledger %q, dir entries %d", data, len(entries))
+	}
+}
+
+func TestTypedDreamAndUpdateRunWithoutLayoutStamp(t *testing.T) {
+	isolatedConfig(t)
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
+	_ = os.Remove(stamp)
+	if !dreamTyped() || !typedStoreReady() {
+		t.Fatal("typed mode must be on without a layout stamp")
+	}
+	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
+		t.Fatalf("no stamp may be written back: %v", err)
+	}
+}
+
+func TestRefuseDerivedSupersede(t *testing.T) {
+	derived := Batch{Ops: []Op{{Op: "supersede", ID: contentRefPrefix + "abcdef12"}}}
+	if err := refuseDerivedSupersede(derived); err == nil || !strings.Contains(err.Error(), "no stored id") {
+		t.Errorf("derived supersede target = %v, want a refusal", err)
+	}
+	if err := refuseDerivedSupersede(Batch{Ops: []Op{{Op: "supersede", ID: "abcdef12"}, {Op: "close", ID: contentRefPrefix + "abcdef12"}}}); err != nil {
+		t.Errorf("stored-id supersede and derived close refused: %v", err)
 	}
 }

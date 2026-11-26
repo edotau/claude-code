@@ -53,10 +53,13 @@ const (
 
 func truthPath() string { return filepath.Join(paths.StateDir(), "memory", "truth") }
 
-// TruthErr reports "files" or "db"; a missing file is "files", an unreadable or unknown one an error.
+// TruthErr reports "files" or "db"; a missing file is "db" with a store linked, else "files"; bad content errors.
 func TruthErr() (string, error) {
 	b, err := os.ReadFile(truthPath())
 	if errors.Is(err, fs.ErrNotExist) {
+		if OpenBankStore != nil {
+			return truthDB, nil
+		}
 		return truthFiles, nil
 	}
 	if err != nil {
@@ -133,6 +136,9 @@ type truthStore struct{ locked bool }
 
 func newBankStore(locked bool) BankStore { return truthStore{locked: locked} }
 
+// NewBankStore is the store for the current truth; locked means the caller holds the bank lock.
+func NewBankStore(locked bool) BankStore { return newBankStore(locked) }
+
 func (s truthStore) Load() (map[string]Doc, Versions, error) { return pick(s.locked).Load() }
 
 func (s truthStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
@@ -177,8 +183,26 @@ func (s dbBankStore) Load() (docs map[string]Doc, v Versions, err error) {
 }
 
 func (s dbBankStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
-	err = s.with(func(st BankStore) (e error) { rs, e = st.Apply(b, base, now); return })
+	if err = s.with(func(st BankStore) (e error) { rs, e = st.Apply(b, base, now); return }); err != nil {
+		return
+	}
+	if xerr := exportAfterApply(); xerr != nil {
+		return rs, &AfterCommitError{&committedErr{fmt.Errorf("batch committed in the db; markdown export: %w", xerr)}}
+	}
 	return
+}
+
+// exportAfterApply brings the Markdown up to date after a db commit, under the held bank lock; no export db skips it.
+func exportAfterApply() error {
+	if OpenExportDB == nil {
+		return nil
+	}
+	edb, closeDB, err := OpenExportDB()
+	if err != nil {
+		return err
+	}
+	_, err = ExportGuardLocked(edb, paths.MemoryStoreDir())
+	return errors.Join(err, closeDB())
 }
 
 func (fileBankStore) Load() (map[string]Doc, Versions, error) {

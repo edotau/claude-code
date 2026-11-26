@@ -371,7 +371,6 @@ func (u *upgrader) commitStep(step upgradeStep) (sha string, err error) {
 		if err := paths.AtomicWrite(stamp, []byte("flat "+strconv.Itoa(step.From+1)+"\n"), 0o644); err != nil {
 			return err
 		}
-		forgetLayout()
 		scope := append(slices.Clone(u.prog.Files), layoutFile)
 		subject := fmt.Sprintf("upgrade: flat %d -> %d (%s)", step.From, step.From+1, step.Name)
 		if err := commitStore(subject, scope...); err != nil {

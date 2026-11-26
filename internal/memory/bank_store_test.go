@@ -66,10 +66,14 @@ func truthEnv(t *testing.T, f *fakeDBStore, openErr error) {
 	}
 }
 
-func TestTruthDefaultsToFiles(t *testing.T) {
+func TestTruthDefault(t *testing.T) {
+	truthEnv(t, &fakeDBStore{}, nil)
+	if got, err := TruthErr(); got != "db" || err != nil {
+		t.Fatalf("linked store: TruthErr() = %q, %v", got, err)
+	}
 	truthEnv(t, nil, nil)
 	if got, err := TruthErr(); got != "files" || err != nil {
-		t.Fatalf("TruthErr() = %q, %v", got, err)
+		t.Fatalf("no store: TruthErr() = %q, %v", got, err)
 	}
 	write(t, truthPath(), "bogus\n")
 	if _, err := TruthErr(); err == nil {

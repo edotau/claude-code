@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,15 +54,14 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		{task + "'Phase 1.3' --done --sha " + side + " --plan " + plan, func() error { _, err := plans.MarkDone(plan, "Phase 1.3", side); return err }},
 	}
 	prompt := ""
-	// The plan phase belongs to the legacy dream, so the store is stamped flat 3.
-	hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", "flat 3\n")
-	run := func(_ context.Context, p, _ string) (string, error) {
+	run := func(ctx context.Context, p, _ string) (string, error) {
 		prompt = p
 		for _, c := range calls {
 			if err := c.do(); err != nil {
 				t.Error(err)
 			}
 		}
+		memory.AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`) // a valid typed answer that writes nothing itself
 		return "fake", nil
 	}
 	var out strings.Builder
@@ -69,17 +69,44 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(plan)
-	if !strings.Contains(prompt, `"id":"Phase 1.3"`) || !strings.Contains(out.String(), "plans: kept 2, reverted 1") {
+	// These calls edit the plan directly, not through plan_tasks, so none is the run's own: all are left and flagged.
+	if !strings.Contains(prompt, `"id":"Phase 1.3"`) || !strings.Contains(out.String(), "plans: kept 0, reverted 0, flagged 3") {
 		t.Fatalf("prompt lists open tasks %v, out:\n%s", strings.Contains(prompt, "Open plan tasks"), out.String())
 	}
 	for _, want := range []string{"[x] Phase 1.1 One — owns: a.go (" + good + ")", "~~Phase 1.2 Two~~ — superseded: moot",
-		"[ ] Phase 1.3 Three — owns: b.go\n", "[x] Phase 1.4 Four"} {
+		"[x] Phase 1.3 Three — owns: b.go (" + side + ")", "[x] Phase 1.4 Four"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plan lacks %q:\n%s", want, body)
 		}
 	}
-	if log, _ := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "plans-audit.jsonl")); strings.Count(string(log), `"verdict":"kept"`) != 2 ||
-		!strings.Contains(string(log), `"verdict":"reverted: sha is not on the trunk branch"`) {
+	if log, _ := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "plans-audit.jsonl")); strings.Count(string(log), `"verdict":"flagged: not an edit this run made"`) != 3 ||
+		strings.Contains(string(log), `"verdict":"kept"`) || strings.Contains(string(log), `"verdict":"reverted`) {
 		t.Errorf("log:\n%s", log)
+	}
+}
+
+// The typed dream keeps its own proven plan_tasks write and reverts its own unproven one through finish.
+func TestDreamPlanTasksKeepProvenRevertUnproven(t *testing.T) {
+	work, _, good, side := planFixture(t)
+	plan := plans.OpenTasks(work)[0].Plan // the listed spelling, not the temp dir's symlinked one
+	answer, err := json.Marshal(memory.Batch{Ops: []memory.Op{{Op: "noop"}}, PlanTasks: []memory.PlanTaskOp{
+		{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: good},
+		{Plan: plan, ID: "Phase 1.3", Action: "done", Sha: side},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		memory.AnswerJob(ctx, string(answer))
+		return "fake", nil
+	}
+	var out strings.Builder
+	if err := memory.RunDream(memory.DreamRunOptions{CWD: work, Force: true, Out: &out, Run: run}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(plan)
+	if !strings.Contains(string(body), "[x] Phase 1.1 One — owns: a.go ("+good+")") || !strings.Contains(string(body), "- [ ] Phase 1.3 Three") ||
+		strings.Contains(string(body), "[x] Phase 1.3") || !strings.Contains(out.String(), "plans: kept 1, reverted 1, flagged 0") {
+		t.Errorf("own proven kept and own unproven reverted expected; out:\n%s\nplan:\n%s", out.String(), body)
 	}
 }

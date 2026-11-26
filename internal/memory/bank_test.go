@@ -27,48 +27,23 @@ func TestBankPaths(t *testing.T) {
 	}
 }
 
-func TestStoreFlatReadsStamp(t *testing.T) {
-	isolatedConfig(t)
-	if storeFlat() {
-		t.Fatal("unstamped store reads flat")
-	}
-	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), layoutFlat+"\n")
-	forgetLayout()
-	if !storeFlat() {
-		t.Fatal("stamped store reads legacy")
-	}
-}
-
-func TestInitStampsFreshStore(t *testing.T) {
-	isolatedConfig(t)
-	if _, err := Init(); err != nil || !storeFlat() {
-		t.Errorf("Init on a fresh store = %v, flat=%v, want it stamped", err, storeFlat())
-	}
-}
-
 func TestRequireFlatNewerRefusesOlderNotes(t *testing.T) {
 	isolatedConfig(t)
 	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
 	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		stamp   string
-		wantErr string
-	}{{"flat 9", "store is flat 9, this binary writes flat 4: install a newer claude-code"}, {"flat 3", ""}, {"flat 4", ""}} {
+	for _, tc := range []struct{ stamp, wantErr string }{
+		{"flat 9", "store is flat 9, this binary writes flat 4: install a newer claude-code"}, {"flat 3", ""}, {"flat 4", ""},
+	} {
 		if err := os.WriteFile(stamp, []byte(tc.stamp+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		forgetLayout()
-		err := requireFlat()
-		if got := fmt.Sprint(err); (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && got != tc.wantErr) {
-			t.Errorf("requireFlat on %q = %v, want %q", tc.stamp, err, tc.wantErr)
+		if err := stampLayout(); (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && fmt.Sprint(err) != tc.wantErr) {
+			t.Errorf("stampLayout on %q = %v, want %q", tc.stamp, err, tc.wantErr)
 		}
 		if b, _ := os.ReadFile(stamp); string(b) != tc.stamp+"\n" {
 			t.Errorf("stamp = %q, want %q untouched", b, tc.stamp)
 		}
-	}
-	if store, code, err := StoreVersions(); err != nil || store != 4 || code != storeVersion {
-		t.Errorf("StoreVersions = %d, %d, %v", store, code, err)
 	}
 }

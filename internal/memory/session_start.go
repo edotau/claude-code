@@ -47,13 +47,6 @@ func SessionText(sessionID, cwd string, now time.Time) string {
 
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time, notice func(time.Time) string) string {
-	store, code, verr := StoreVersions()
-	if verr == nil && store > code {
-		return newerStoreError(store, code).Error()
-	}
-	if verr == nil && store < code {
-		prefix = strings.TrimSpace(prefix + " " + olderStoreNote(store, code))
-	}
 	if surface := sessionSurface(cwd); surface != "" {
 		text := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + notice(now)
 		return strings.TrimSpace(text) + "\n\n" + surface

@@ -661,11 +661,8 @@ const (
 	maxListedRunes   = 120
 )
 
-// typedStoreReady reports whether the store is stamped with this binary's schema; a var so tests can stand in.
-var typedStoreReady = func() bool {
-	b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
-	return strings.TrimSpace(string(b)) == "flat "+strconv.Itoa(storeVersion)
-}
+// typedStoreReady is always true: typed mode needs no layout stamp; a var so tests can stand in.
+var typedStoreReady = func() bool { return true }
 
 // typedPass runs the model outside the store lock and applies its op batch; no usable answer leaves typed "fallback".
 func (r *updateRun) typedPass(o updateOptions) {
@@ -787,6 +784,10 @@ func decodeBatch(answer string) (Batch, error) {
 
 // applyTyped applies b with the refs the model was shown; failed ops are reported and nothing is written.
 func applyTyped(o updateOptions, b Batch, base Versions) error {
+	if err := refuseDerivedSupersede(b); err != nil {
+		fmt.Fprintln(o.Out, "memory update:", err)
+		return err
+	}
 	results, err := newBankStore(false).Apply(b, base, time.Now())
 	for i, res := range results {
 		if res.Outcome == DreamFailed {
@@ -1122,4 +1123,14 @@ func AnswerJob(ctx context.Context, text string) {
 	if a, ok := ctx.Value(jobAnswerKey{}).(jobAnswer); ok {
 		*a.text = text
 	}
+}
+
+// refuseDerivedSupersede refuses superseding an entry with no stored id: striking it changes its ref.
+func refuseDerivedSupersede(b Batch) error {
+	for i, o := range b.Ops {
+		if r, _ := ParseRef(o.ID); o.Op == "supersede" && r.Derived {
+			return fmt.Errorf("op %d (supersede): %s has no stored id, so the link would dangle; nothing written", i, o.ID)
+		}
+	}
+	return nil
 }

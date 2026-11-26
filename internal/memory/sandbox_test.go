@@ -67,13 +67,27 @@ func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
 	mem := filepath.Join(res.Dir, "memory")
-	for _, rel := range append(rels, layoutFile) {
+	for _, rel := range rels {
 		if !statOK(filepath.Join(mem, rel)) {
 			t.Errorf("sandbox lacks %s", rel)
 		}
 	}
 	if len(res.Stores) != 1 || res.Stores[0].Key != stateKey() {
 		t.Errorf("sandbox stores = %+v, want the one bank", res.Stores)
+	}
+}
+
+// The sandbox copies no .layout stamp: the db is the truth, not the stamp.
+func TestSandboxWritesNoLayoutStamp(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("progress.md"), "x\n")
+	res, err := Sandbox(SandboxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
+	if statOK(filepath.Join(res.Dir, "memory", layoutFile)) {
+		t.Error("sandbox copied a layout stamp")
 	}
 }
 

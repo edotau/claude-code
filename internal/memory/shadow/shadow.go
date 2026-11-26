@@ -145,6 +145,11 @@ type ShadowReport struct {
 // RebuildShadow migrates the shadow db (snapshot in state/backups first) and rebuilds it from the memory store.
 func RebuildShadow(ctx context.Context) (rep ShadowReport, err error) {
 	err = memory.WithBankLock(0, func() error { // an older rebuild must not publish baselines after a newer one
+		if memory.Truth() == "db" { // db-only changes must reach the Markdown before it replaces the db
+			if xerr := exportBeforeFlip(); xerr != nil {
+				return fmt.Errorf("rebuild refused, export under db truth failed: %w", xerr)
+			}
+		}
 		db, oerr := openMigratedShadow(ctx)
 		if oerr != nil {
 			return oerr

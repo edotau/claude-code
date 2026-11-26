@@ -32,6 +32,7 @@ func openBankStore(bool) (memory.BankStore, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// accepted (7.1 G): an outside edit wins over an unexported db change, which needs a failed export or a crash
 	if _, _, err := importShadow(); err != nil {
 		_ = db.Close()
 		return nil, nil, err

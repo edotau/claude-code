@@ -169,8 +169,7 @@ func TestImportRefusesDetectedSourceBeforeWriting(t *testing.T) {
 			src := flatImportFixture(t)
 			write(t, filepath.Join(src, tc.rel), tc.body)
 			write(t, filepath.Join(src, "topic.md"), key+"\n") // a kept-local conflict is not a blocker
-			// Stamp first: a live store already carries .layout, which the first lock would otherwise write.
-			if err := requireFlat(); err != nil {
+			if err := stampLayout(); err != nil {              // a live store already carries .layout; the first lock would write it
 				t.Fatal(err)
 			}
 			before := dirHashes(t, paths.MemoryStoreDir())

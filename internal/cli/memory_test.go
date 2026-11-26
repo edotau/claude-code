@@ -109,7 +109,7 @@ func TestMemoryStore(t *testing.T) {
 	oldExp := memory.ExportBeforeFlip
 	t.Cleanup(func() { memory.ExportBeforeFlip = oldExp })
 	memory.ExportBeforeFlip = nil
-	if out := memCLIOK(t, "store"); out != "truth: files\n" {
+	if out := memCLIOK(t, "store"); out != "truth: db\n" {
 		t.Fatalf("show = %q", out)
 	}
 	if out := memCLIOK(t, "store", "--truth", "db"); out != "truth: db\n" {

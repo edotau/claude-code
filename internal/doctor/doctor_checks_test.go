@@ -271,7 +271,7 @@ func seedHarness(t *testing.T, name, body string) {
 
 func TestMemoryTruthRow(t *testing.T) {
 	hermetic(t)
-	if row := memoryTruthRow(); !row.OK || row.Name != "memory truth" || !strings.HasPrefix(row.Detail, "truth: files, diverged: ") {
+	if row := memoryTruthRow(); !row.OK || row.Name != "memory truth" || !strings.HasPrefix(row.Detail, "truth: db, diverged: ") {
 		t.Fatalf("row = %+v", row)
 	}
 }

@@ -1,5 +1,5 @@
 internal/memory/agent_input.go:writeSynthTranscript	unversioned: text: Claude-shaped transcript synthesized from an agent session
-internal/memory/bank.go:requireFlat	unversioned: marker: flat-layout stamp of a fresh store
+internal/memory/bank.go:stampLayout	unversioned: marker: flat-layout stamp of a fresh store
 internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_commit.go:save	memory-journal
 internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
@@ -47,7 +47,6 @@ internal/memory/recall_log.go:learnRecallLocked	unversioned: cache: rolling reca
 internal/memory/sandbox.go:UpdateSandboxRegistry	unversioned: text: sandbox dir list, one path per line
 internal/memory/sandbox.go:placeStoreRels	unversioned: memory-bank: disposable flat sandbox copy
 internal/memory/sandbox.go:recordSandbox	unversioned: marker: sandbox owner pid and start
-internal/memory/sandbox.go:sandboxFlat	unversioned: marker: flat layout stamp in a disposable sandbox
 internal/memory/session_start.go:WriteCompactRecord	unversioned: marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart
 internal/memory/session_start.go:writeChain	unversioned: text: last-session chain stamp
 internal/memory/session_start.go:writeSessionRoot	unversioned: text: per-session launch repository root
