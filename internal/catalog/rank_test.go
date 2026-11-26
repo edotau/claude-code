@@ -40,11 +40,8 @@ func TestLocalRule(t *testing.T) {
 	}
 }
 
-// The local qwen row ranks but never joins a rotation pool while the local rule is staged at shadow.
+// The local qwen row ranks but never joins a hosted rotation pool, whatever the local stage.
 func TestLocalQwenNotRotated(t *testing.T) {
-	if Local().Stage != "shadow" {
-		t.Fatalf("local.stage = %q, want shadow", Local().Stage)
-	}
 	for _, tier := range []string{"fast", "standard", "deep"} {
 		for _, tools := range []bool{false, true} {
 			if got := RotationPool([]Candidate{{Model: "qwen3.8-27b:gguf:q6", Tools: "yes"}}, tier, tools); len(got) != 0 {
