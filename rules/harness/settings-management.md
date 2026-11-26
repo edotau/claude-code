@@ -16,7 +16,7 @@ The lint step (`configure fmt`) reorders the live file's keys to schemastore ord
 | --- | --- |
 | Change permissions / env / statusLine / hooks | edit `~/.claude/settings.json` by hand, then `claude-code doctor` (`settings.json: valid`) |
 | Set or remove a vault env value (injected into launches; not a secret) | `claude-code vault set env NAME VALUE` / `vault rm env NAME` (asks before replacing a value; `--yes` skips, required headless; `vault ls env` lists) |
-| Build and install (clean tracked tree required; `FORCE=1` overrides) | `rtk make install` (`claude-code install --dry-run` previews); prints `kept (yours) · valid` or the validity error |
+| Build and install (builds the tree as it is) | `rtk make install` (`claude-code install --dry-run` previews); prints `kept (yours) · valid` or the validity error |
 | Reset settings.json to the clean template | `claude-code configure restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure restore --agent all` (or `--agent X`); never touches settings.json |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group (`hooks.md`) |

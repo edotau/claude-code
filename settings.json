@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "72",
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage:~/.claude/mods/dispatch-spawn:~/.claude/mods/codemode",
+    "CLAUDE_CODE_SCROLL_SPEED": "2",
+    "ENABLE_PROMPT_CACHING_1H": "1",
+    "ENABLE_TOOL_SEARCH": "1"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Bash(claude-code *)",
+      "Bash(git grep:*)",
+      "Bash(go *)",
+      "Bash(gofmt -l *)",
+      "Bash(make *)",
+      "Bash(rtk *)",
+      "Edit",
+      "mcp__claude-in-chrome",
+      "Read",
+      "WebFetch(*)",
+      "Write"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(sudo:*)",
+      "Edit(~/.ssh/**)"
+    ],
+    "ask": [
+      "Edit(**/.credentials.json)",
+      "Edit(~/.claude/state/vault.db)",
+      "Read(~/.ssh/id_*)"
+    ],
+    "defaultMode": "auto"
+  },
+  "model": "opus",
+  "disableClaudeAiConnectors": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PreToolUse --safety-scan",
+            "timeout": 5,
+            "statusMessage": "Checking command safety"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|Agent|Task|Workflow|SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PreToolUse",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|ExitPlanMode|EnterPlanMode|Bash|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PostToolUse",
+            "timeout": 50
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PostToolUse --async",
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Agent|Task|Workflow|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PostToolUseFailure",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd UserPromptSubmit",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd Stop",
+            "timeout": 55
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd SubagentStop",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd PreCompact",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd WorktreeCreate",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd WorktreeRemove",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd SessionStart",
+            "timeout": 20,
+            "statusMessage": "Loading session memory"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/bin/.hookd SessionEnd",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "baseRef": "head"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "$HOME/.claude/bin/claude-code theme statusline",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "outputStyle": "Concise",
+  "feedbackSurveyRate": 0,
+  "feedbackDrafts": "off",
+  "spinnerTipsEnabled": false,
+  "modelSettings": {
+    "claude-fable-5-2": {
+      "effortLevel": "high"
+    }
+  },
+  "awaySummaryEnabled": false,
+  "askUserQuestionTimeout": "5m",
+  "tui": "fullscreen",
+  "prefersReducedMotion": true,
+  "skipDangerousModePermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "claudeMdExcludes": [
+    "**/.claude/agents/claude.md"
+  ],
+  "theme": "auto",
+  "idleCompaction": false,
+  "switchModelsOnFlag": true,
+  "autoScrollEnabled": true,
+  "remoteControlAtStartup": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "useAutoModeDuringPlan": true,
+  "autoConnectIde": false
+}
