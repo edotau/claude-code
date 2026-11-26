@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/shadow"
 	"github.com/edotau/claude-code/internal/paths"
@@ -877,4 +879,46 @@ func printMemorySandbox(res memory.SandboxResult, format string) int {
 		return helptext.Fail("memory sandbox: %v", err)
 	}
 	return 0
+}
+
+func cmdMemoryExtract(args []string) int {
+	fs := memoryFlagSet("extract")
+	dry := fs.Bool("dry-run", false, "classify and list purge candidates; write nothing in the store")
+	purge := fs.Bool("purge", false, "purge only proven-dead files in one local commit; no model")
+	format := fs.String("format", "text", "output format: text|json")
+	out := fs.String("out", "", "write typed extract.json rows outside the store")
+	if code, done := memoryParseNoArgs(fs, "extract", args); done {
+		return code
+	}
+	if !*dry && !*purge {
+		return helptext.FailUsage("memory extract: specify --dry-run or --purge")
+	}
+	if *format != "text" && *format != "json" {
+		return helptext.FailUsage("memory extract: --format must be text or json")
+	}
+	if err := memory.RunExtract(memory.ExtractRunOptions{DryRun: *dry, Purge: *purge, Format: *format, Out: *out}, os.Stdout); err != nil {
+		return helptext.Fail("memory extract: %v", err)
+	}
+	return 0
+}
+
+const learnEvery = 24 * time.Hour
+
+// Seams for the two learn steps; tests replace them.
+var (
+	learnRouting = func(now time.Time) error { _, err := foldFit(now, false); return err }
+	learnRecall  = memory.LearnRecall
+)
+
+// dailyLearn runs both learn steps once a day in the detached catch-up child; a failure logs and retries next day.
+func dailyLearn(now time.Time, errw io.Writer) {
+	if !catalog.ClaimEvery("learn-daily", learnEvery, now) {
+		return
+	}
+	if err := learnRouting(now); err != nil {
+		fmt.Fprintf(errw, "learn: routing fit: %v\n", err)
+	}
+	if err := learnRecall(now); err != nil {
+		fmt.Fprintf(errw, "learn: recall weights: %v\n", err)
+	}
 }

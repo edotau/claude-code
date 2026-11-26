@@ -131,7 +131,9 @@ func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, sessio
 	api := wireAPI[wire]
 	window, output := providers.Window(p, info.ID), maxOutputCap
 	if l, ok := models.Limits(info.ID); ok {
-		output = minPositive(output, l.Output)
+		if l.Output > 0 {
+			output = min(output, l.Output)
+		}
 	}
 	claude := models.FamilyKind(info.ID) == models.FamilyClaude
 	m := endpointModel{ID: info.ID, Name: info.ID, URL: session + api.path, APIType: api.apiType, ToolCalling: true,
@@ -142,13 +144,6 @@ func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, sessio
 		m.StatefulResponses = &stateless
 	}
 	return m
-}
-
-func minPositive(a, b int) int {
-	if b > 0 {
-		return min(a, b)
-	}
-	return a
 }
 
 // syncModels removes the groups an older merge wrote, returning their names; check never writes.
