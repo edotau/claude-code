@@ -177,9 +177,8 @@ func TestResumeRecordIntegrity(t *testing.T) {
 func TestResumeRestoresRouteAndFence(t *testing.T) {
 	hermetic(t, twoProfiles)
 	limit := 3
-	ov := agentconfig.Overlay{Provider: "openai", Profile: "ollama", Model: "qwen3-coder",
+	ov := agentconfig.Overlay{Provider: "openai", Profile: "ollama", Model: "qwen3-coder", Endpoint: "http://127.0.0.1:1/v1",
 		MaxDepth: &limit, Fence: &route.Fence{Profiles: []string{"ollama"}}}
-	ov.Endpoint = "http://127.0.0.1:1/v1"
 	if err := writeLaunchOverlay(unknownID, ov); err != nil {
 		t.Fatal(err)
 	}

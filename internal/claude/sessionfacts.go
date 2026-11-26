@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -289,7 +290,7 @@ func readSessionRecord(id string) (sessionRecord, error) {
 		return sessionRecord{}, err
 	}
 	if header.Provider == "" && (len(header.Endpoint) > 0 || len(header.Identity) > 0 || len(header.Account) > 0) {
-		return sessionRecord{}, fmt.Errorf("provider is missing from the recorded route")
+		return sessionRecord{}, errors.New("provider is missing from the recorded route")
 	}
 	if header.Provider == "" || len(header.Fence) > 0 && header.Fence[0] == '"' {
 		ov, fenceDoc, err = readLegacyLaunch(data)
@@ -318,7 +319,7 @@ func readSessionRecord(id string) (sessionRecord, error) {
 func readLegacyLaunch(data []byte) (agentconfig.Overlay, string, error) {
 	var legacy legacyLaunchFacts
 	if err := json.Unmarshal(data, &legacy); err != nil || legacy.Profile == "" {
-		return agentconfig.Overlay{}, "", fmt.Errorf("invalid legacy record")
+		return agentconfig.Overlay{}, "", errors.New("invalid legacy record")
 	}
 	ov := agentconfig.Overlay{Profile: legacy.Profile, Model: legacy.Model}
 	if legacy.Fence == "" {
@@ -352,7 +353,7 @@ func sessionFenceDoc(ov agentconfig.Overlay, legacy string) string {
 func writeLaunchOverlay(id string, ov agentconfig.Overlay) error {
 	path := factsPath(id)
 	if ov.Profile == "" {
-		return fmt.Errorf("profile is empty")
+		return errors.New("profile is empty")
 	}
 	if _, err := os.Stat(path); err == nil {
 		return nil
