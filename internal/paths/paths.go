@@ -250,8 +250,14 @@ func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) erro
 	if err := os.Rename(tmp, dest); err != nil {
 		return errors.Join(err, os.Remove(tmp))
 	}
+	if syncData {
+		return syncDir(filepath.Dir(dest))
+	}
 	return nil
 }
+
+// syncDir makes a completed rename durable; a seam so tests observe and inject it.
+var syncDir = dirSync
 
 // NoReplaceWrite and NoReplaceLink are the write and link steps of WriteNoReplace; tests swap them to inject failures.
 var (

@@ -33,6 +33,18 @@ func BenchmarkTryFileLock(b *testing.B) {
 	}
 }
 
+func BenchmarkAtomicWrite(b *testing.B) {
+	dest := filepath.Join(b.TempDir(), "atomic.bin")
+	data := make([]byte, 4<<10)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := AtomicWrite(dest, data, 0o600); err != nil {
+			b.Fatalf("AtomicWrite: %v", err)
+		}
+	}
+}
+
 func TestStateDirIsHarnessUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
@@ -293,6 +305,45 @@ func TestWriteIfUnchangedSecondCheckFailureReturnsBackup(t *testing.T) {
 	}
 	if got, readErr := os.ReadFile(dest); readErr != nil || string(got) != "b" {
 		t.Errorf("destination = %q, %v; want concurrent contents", got, readErr)
+	}
+}
+
+func TestAtomicWriteSyncsParentDir(t *testing.T) {
+	orig := syncDir
+	t.Cleanup(func() { syncDir = orig })
+	var synced []string
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "atomic.json")
+	if err := AtomicWrite(dest, []byte("payload"), 0o640); err != nil {
+		t.Fatalf("AtomicWrite: %v", err)
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "payload" {
+		t.Fatalf("dest = %q, want %q", got, "payload")
+	}
+	if info, err := os.Stat(dest); err != nil {
+		t.Fatal(err)
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %v, want 0640", info.Mode().Perm())
+	}
+	if runtime.GOOS != "windows" && (len(synced) != 1 || synced[0] != dir) {
+		t.Fatalf("dir syncs = %q, want one sync of %q", synced, dir)
+	}
+
+	errSync := errors.New("injected dir sync failure")
+	syncDir = func(string) error { return errSync }
+	if err := AtomicWrite(dest, []byte("again"), 0o640); !errors.Is(err, errSync) {
+		t.Fatalf("AtomicWrite err = %v, want injected dir sync error", err)
+	}
+
+	synced = nil
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+	if err := AtomicWriteNoSync(dest, []byte("nosync"), 0o640); err != nil {
+		t.Fatalf("AtomicWriteNoSync: %v", err)
+	}
+	if len(synced) != 0 {
+		t.Fatalf("AtomicWriteNoSync synced dirs %q, want none", synced)
 	}
 }
 
