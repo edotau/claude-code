@@ -29,11 +29,11 @@ func auditFixtureRepo(t *testing.T) (dir, head string) {
 	return dir, strings.TrimSpace(string(out))
 }
 
-// A started audit blocks a second start, then reports once when its exit file lands.
-func TestAuditStartsOnceAndReportsOnce(t *testing.T) {
-	old := auditCommand
-	auditCommand = "echo ok"
-	t.Cleanup(func() { auditCommand = old })
+// A spooled audit blocks a second start of the same sha; with no worker it is not reported.
+func TestAuditStartsOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Cleanup(SwapAuditCommand("echo ok"))
+	t.Cleanup(SwapAuditSpawn(func() bool { return true }))
 	main, sha := auditFixtureRepo(t)
 	if line := startAudit(main, sha); !strings.HasPrefix(line, "audit: started on "+ShortOID(sha)) {
 		t.Fatalf("start = %q", line)
@@ -41,49 +41,18 @@ func TestAuditStartsOnceAndReportsOnce(t *testing.T) {
 	if line := startAudit(main, sha); !strings.HasPrefix(line, "audit: already running") {
 		t.Fatalf("second start = %q", line)
 	}
-	for deadline := time.Now().Add(10 * time.Second); !paths.FileExists(auditBase(sha)+".exit") && time.Now().Before(deadline); {
-		time.Sleep(20 * time.Millisecond)
+	if items, err := ReadAuditSpool(AuditSpool()); err != nil || len(items) != 1 || items[0].SHA != sha {
+		t.Fatalf("spool = %+v, %v", items, err)
 	}
-	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "audit of "+ShortOID(sha)+" passed") {
+	if got := AuditReports(); len(got) != 0 {
 		t.Fatalf("reports = %v", got)
-	}
-	if again := AuditReports(); len(again) != 0 {
-		t.Fatalf("second report = %v", again)
 	}
 }
 
-// The snapshot sees the primary checkout's untracked .venv through a symlink, and the original survives cleanup.
-func TestAuditSnapshotLinksVenv(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	old := auditCommand
-	auditCommand = "test -L .venv && test -f .venv/marker"
-	t.Cleanup(func() { auditCommand = old })
-	main, sha := auditFixtureRepo(t)
-	marker := filepath.Join(main, ".venv", "marker")
-	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(marker, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	startAudit(main, sha)
-	for deadline := time.Now().Add(10 * time.Second); !paths.FileExists(auditBase(sha)+".exit") && time.Now().Before(deadline); {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "passed") {
-		t.Fatalf("reports = %v", got)
-	}
-	if !paths.FileExists(marker) {
-		t.Fatal("snapshot cleanup removed the primary .venv")
-	}
-}
-
-// A repo whose Makefile has no audit target starts nothing and writes no record.
+// A repo whose Makefile has no audit target starts nothing and spools nothing.
 func TestAuditSkipsRepoWithoutTarget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	old := auditCommand
-	auditCommand = "echo ok"
-	t.Cleanup(func() { auditCommand = old })
+	t.Cleanup(SwapAuditCommand("echo ok"))
 	main, sha := auditFixtureRepo(t)
 	if err := os.WriteFile(filepath.Join(main, "Makefile"), []byte("build:\n\ttrue\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -91,40 +60,36 @@ func TestAuditSkipsRepoWithoutTarget(t *testing.T) {
 	if line := startAudit(main, sha); line != "audit: skipped, no audit target in "+main {
 		t.Fatalf("skip = %q", line)
 	}
-	if paths.FileExists(auditBase(sha) + ".json") {
-		t.Fatal("skipped audit wrote a start record")
+	if paths.FileExists(AuditSpool()) {
+		t.Fatal("skipped audit spooled a line")
 	}
 }
 
-// A nonzero exit file reports FAILED with the log path.
+// A published nonzero row reports FAILED with the log path and its shared run, once.
 func TestAuditReportsFailure(t *testing.T) {
-	base := auditBase("fedcba9876543210")
-	if err := os.MkdirAll(auditDir(), 0o700); err != nil {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	row := AuditRow{Repo: "/r", SHA: "fedcba9876543210", Queued: 1, State: AuditDone, Ended: time.Now().Unix(),
+		Log: "/l.log", With: []string{"0123456789abcdef"}, Code: 2, Secs: 5}
+	if err := WriteAuditSnapshot([]AuditRow{row}); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string]string{".json": `{"sha":"fedcba9876543210","repo":"/r","log":"/l.log"}`, ".exit": "2 5\n"} {
-		if err := os.WriteFile(base+name, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if got := AuditReports(); len(got) != 1 || !strings.HasSuffix(got[0], "FAILED (exit 2) in /r: /l.log — fix on main now"+runWith(row.With)) {
+		t.Fatalf("failed report = %v", got)
 	}
-	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "FAILED (exit 2) in /r: /l.log") {
-		t.Fatalf("failed report = %v (dir %s)", got, filepath.Dir(base))
+	if again := AuditReports(); len(again) != 0 {
+		t.Fatalf("second report = %v", again)
 	}
 }
 
-// A running audit whose log is older than the threshold reports hung once, with the log path.
+// A running row whose log is older than the threshold reports hung once; with no worker alive one spawns, once.
 func TestAuditReportsHung(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	spawned := 0
+	t.Cleanup(SwapAuditSpawn(func() bool { spawned++; return true }))
 	old := auditHungAfter
 	auditHungAfter = time.Minute
 	t.Cleanup(func() { auditHungAfter = old })
-	base := auditBase("0123456789abcdef")
-	if err := os.MkdirAll(auditDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	log := base + ".log"
-	if err := os.WriteFile(base+".json", []byte(`{"sha":"0123456789abcdef","log":"`+log+`"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	log := filepath.Join(t.TempDir(), "run.log")
 	if err := os.WriteFile(log, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -132,10 +97,14 @@ func TestAuditReportsHung(t *testing.T) {
 	if err := os.Chtimes(log, past, past); err != nil {
 		t.Fatal(err)
 	}
+	row := AuditRow{SHA: "0123456789abcdef", Queued: time.Now().UnixNano(), State: AuditRunning, Log: log}
+	if err := WriteAuditSnapshot([]AuditRow{row}); err != nil {
+		t.Fatal(err)
+	}
 	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "hung") || !strings.Contains(got[0], log) {
 		t.Fatalf("hung report = %v", got)
 	}
-	if again := AuditReports(); len(again) != 0 {
-		t.Fatalf("second report = %v", again)
+	if again := AuditReports(); len(again) != 0 || spawned != 1 { // the second prompt is inside the cooldown
+		t.Fatalf("second report = %v, spawned %d, want 1", again, spawned)
 	}
 }

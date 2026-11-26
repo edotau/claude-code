@@ -71,6 +71,50 @@ func ReapGroup(pgid int, limit time.Duration) bool {
 	}
 }
 
+// TreeSweep kills what outlived a finished TreeCancel run, its group and its tagged processes; nil once none is left.
+func TreeSweep(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil // it never started
+	}
+	tag := TreeTag(cmd)
+	if tag == "" {
+		return errors.New("tree sweep: cmd has no TreeCancel tag")
+	}
+	group := true // signalled only until the first ESRCH: a gone group's id may be reused by an unrelated one
+	for end := time.Now().Add(time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if err := killTagged(tag); err != nil {
+			return err
+		}
+		left, err := tagged(tag) // zombies never count: their env is unreadable
+		if err != nil {
+			return fmt.Errorf("tree sweep: %w", err)
+		}
+		group = group && !errors.Is(syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL), syscall.ESRCH)
+		if len(left) == 0 && !group {
+			return nil
+		}
+		if time.Now().After(end) {
+			return fmt.Errorf("tree sweep: %d tagged processes survived, group %d left: %v", len(left), cmd.Process.Pid, group)
+		}
+	}
+}
+
+// TreeTag is TreeCancel's tag in cmd.Env, the last one: an inherited tag comes first.
+func TreeTag(cmd *exec.Cmd) (tag string) {
+	for _, kv := range cmd.Env {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, TreeTagPrefix) {
+			tag = k
+		}
+	}
+	return tag
+}
+
+// TreeAlive reports whether any live process still carries tag, wherever its cwd went.
+func TreeAlive(tag string) (bool, error) {
+	pids, err := tagged(tag)
+	return len(pids) > 0, err
+}
+
 // treeTag is a fresh env name no process outside this run's tree carries.
 func treeTag() string {
 	b := make([]byte, 8)

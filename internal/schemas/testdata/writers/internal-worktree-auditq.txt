@@ -1,0 +1,4 @@
+internal/worktree/auditq/auditq.go:applyAudit	unversioned: patch: one landed diff, removed after git apply reads it
+internal/worktree/auditq/auditq.go:fail	unversioned: text log: why a queued audit could not run
+internal/worktree/auditq/auditq.go:holdAndDrain	unversioned: empty flock file: the one draining worker holds it, its audit inherits it
+internal/worktree/auditq/auditq.go:runIn	unversioned: text log: one coalesced audit run's output
