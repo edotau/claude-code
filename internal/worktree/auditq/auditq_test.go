@@ -151,6 +151,14 @@ func TestAuditReportsFailedRun(t *testing.T) {
 	if len(got) != 2 || !strings.Contains(got[0], "FAILED (exit 2)") || !strings.Contains(got[1], "FAILED (exit 2)") {
 		t.Fatalf("reports for %s %s = %v", a, b, got)
 	}
+	if got, _ := worktree.ListFailures(worktree.FailuresDir()); len(got) != 2 || got[0].Kind != worktree.FailAudit {
+		t.Fatalf("two failed rows must broadcast two audit failures once each: %+v", got)
+	}
+	Run()
+	worktree.AuditReports()
+	if got, _ := worktree.ListFailures(worktree.FailuresDir()); len(got) != 2 {
+		t.Fatalf("a second pass re-reported: %+v", got)
+	}
 }
 
 // A dead worker's running row stays running while a process is in its slot, then reruns once the slot is free.
@@ -223,6 +231,9 @@ func TestAuditBusySlotsRequeue(t *testing.T) {
 	Run()
 	if got := worktree.AuditReports(); len(got) != 0 {
 		t.Fatalf("busy slots reported %v, want nothing", got)
+	}
+	if got, _ := worktree.ListFailures(worktree.FailuresDir()); len(got) != 0 {
+		t.Fatalf("a busy slot is not a failure: %+v", got)
 	}
 	*scan.In = oldIn
 	Run()

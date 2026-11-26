@@ -344,6 +344,12 @@ func reportLines(rows []AuditRow) []string {
 	return lines
 }
 
+// ReportAuditFailure broadcasts a failed audit once per lane and sha (the failure id dedupes); an error is dropped.
+func ReportAuditFailure(it AuditItem, code int, log string) {
+	_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailAudit, Repo: it.Repo, Log: log,
+		Subject: filepath.Base(it.Repo) + "@" + it.SHA[:min(7, len(it.SHA))], Summary: fmt.Sprintf("audit failed (exit %d)", code)})
+}
+
 // AuditMarker is one enqueue's report-marker stem: a token's result never changes, so a claim needs no undo.
 func AuditMarker(it AuditItem) string {
 	return filepath.Join(AuditDir(), ShortOID(it.SHA)+"-"+strconv.FormatInt(it.Queued, 10))

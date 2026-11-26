@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -434,7 +433,7 @@ func bothSides(line string) (ahead, behind int, ok bool) {
 // aheadBehind is rev-list's HEAD...@{upstream} counts, reused while the HEAD and upstream ref shas stay unchanged.
 func aheadBehind(ctx context.Context, dir string) (ahead, behind int, err error) {
 	key, keyed := refPair(dir)
-	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+shortHash(key))
+	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+textutil.SHA256Hex([]byte(key))[:16])
 	if keyed {
 		if ahead, behind, ok := cachedCounts(cache, key); ok {
 			return ahead, behind, nil
@@ -460,11 +459,6 @@ func cachedCounts(cache, key string) (ahead, behind int, ok bool) {
 		return 0, 0, false
 	}
 	return bothSides(counts)
-}
-
-func shortHash(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:8])
 }
 
 // refPair is "<checkout>\t<HEAD sha>\t<upstream sha>" read from the ref files; ok=false leaves it to git.

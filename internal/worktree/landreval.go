@@ -50,9 +50,22 @@ func (r *attempt) finish(err error) { r.next(outcomeOf(err)) }
 func (r *attempt) next(o Outcome) {
 	r.a.Outcome = o
 	RecordAttempt(r.a)
+	if o == OutcomeGateFailed {
+		r.reportGate()
+	}
 	r.a = LandAttempt{Time: time.Now().Unix(), Repo: r.a.Repo, Lane: r.a.Lane, Attempt: r.a.Attempt + 1, By: r.a.By,
 		Scope: r.a.Scope, Packages: r.a.Packages, Reval: RevalNone, Reason: o}
 	r.t = time.Now()
+}
+
+// reportGate broadcasts a failed lane gate once per lane and integrated sha (the failure id dedupes).
+func (r *attempt) reportGate() {
+	subject := r.a.Lane
+	if r.a.IntegratedOID != "" {
+		subject += "@" + r.a.IntegratedOID[:min(7, len(r.a.IntegratedOID))]
+	}
+	_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailLaneGate, Repo: r.a.Repo, Subject: subject,
+		Summary: "lane gate failed: " + strings.Join(r.a.FailedPkgs, " "), Log: LandAttemptsFile()})
 }
 
 func outcomeOf(err error) Outcome {

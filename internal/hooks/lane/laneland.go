@@ -4,8 +4,6 @@ package lane
 import (
 	"bytes"
 	"cmp"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -175,8 +174,7 @@ func liveQueued(main string) []worktree.QueuedLane {
 }
 
 func laneQueueKey(q worktree.QueuedLane) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s", q.Lane, q.Branch, q.Reason, q.Detail))
-	return hex.EncodeToString(sum[:8])
+	return textutil.SHA256Hex(fmt.Appendf(nil, "%s|%s|%s|%s", q.Lane, q.Branch, q.Reason, q.Detail))[:16]
 }
 
 // freshQueueLines is every lane's key, the lines of lanes not in prev (capped) and how many were not in prev.

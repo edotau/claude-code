@@ -52,6 +52,9 @@ func TestPromoteFailedRecheckNeverLands(t *testing.T) {
 	if got := readAttempts(t); len(got) == 0 || strings.Join(got[len(got)-1].FailedPkgs, ",") != "ex/z" {
 		t.Fatalf("last attempt must name the failed package ex/z: %+v", got)
 	}
+	if got, _ := ListFailures(FailuresDir()); len(got) != 1 || got[0].Kind != FailLaneGate {
+		t.Fatalf("failed gate must broadcast one lane_gate failure: %+v", got)
+	}
 }
 
 func readAttempts(t *testing.T) []LandAttempt {

@@ -257,8 +257,14 @@ func (w *worker) markRun(ctx context.Context, items []worktree.AuditItem, dir, t
 
 // finish ends each item's row with the run's result.
 func (w *worker) finish(ctx context.Context, items []worktree.AuditItem, logOf func(worktree.AuditItem) string, code, secs int) error {
-	return w.update(ctx, items, `UPDATE audits SET state = 'done', code = ?, secs = ?, log = ?, ended = ?`,
+	err := w.update(ctx, items, `UPDATE audits SET state = 'done', code = ?, secs = ?, log = ?, ended = ?`,
 		func(it worktree.AuditItem) []any { return []any{code, secs, logOf(it), time.Now().Unix()} })
+	if code != 0 { // a lost publication still broadcasts; the failure id dedupes a rerun
+		for _, it := range items {
+			worktree.ReportAuditFailure(it, code, logOf(it))
+		}
+	}
+	return err
 }
 
 // requeue puts items back in the queue, never failed: every slot is busy, so a later worker runs them.

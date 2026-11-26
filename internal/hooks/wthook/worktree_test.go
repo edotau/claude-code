@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
@@ -516,7 +517,7 @@ func countThenForge(t *testing.T, repo string) string {
 	if !keyed {
 		t.Fatal("refPair found no key for a branch with a local upstream")
 	}
-	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+shortHash(key))
+	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+textutil.SHA256Hex([]byte(key))[:16])
 	if err := os.WriteFile(cache, []byte(key+"\n7\t9"), 0o600); err != nil {
 		t.Fatal(err)
 	}
