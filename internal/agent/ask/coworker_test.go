@@ -870,6 +870,15 @@ func TestRecoverMissingParentIsRuntimeErrorWithFenceRemedy(t *testing.T) {
 	}
 }
 
+func TestEffortFlagRefusesUnknownValue(t *testing.T) {
+	vaulttest.Use(t)
+	confine(t, "")
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--agent", "codex", "--effort", "turbo", "--dry-run", "x"}) })
+	if code != 2 || !strings.Contains(stderr, "minimal, low, medium, high, xhigh, max") {
+		t.Fatalf("exit %d message %q", code, stderr)
+	}
+}
+
 func TestRecoverWithoutRetryKeepsUsageError(t *testing.T) {
 	vaulttest.Use(t)
 	confine(t, "")

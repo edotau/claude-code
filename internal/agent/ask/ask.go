@@ -304,7 +304,7 @@ func (r *askRun) prelude() (int, bool) {
 	if f.pack, err = askPack(r.fs, f); err != nil {
 		return r.fail(err, 2)
 	}
-	if err := cmp.Or(dryCombos(f), runnerCheck(f), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
+	if err := cmp.Or(dryCombos(f), runnerCheck(f), agentid.ValidEffort(f.name, f.effort), tierCheck(f), planTaskCheck(f), contractHostCheck(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
