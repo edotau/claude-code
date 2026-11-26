@@ -63,6 +63,12 @@ user's yes; no answer means keep working in place.
 `HARNESS_WORKTREE=lanes` asks nothing and blocks nothing: an edit or stage of a tracked file in the live checkout, or in
 another repo's primary checkout, gets a note naming `claude-code worktree create <slug>`; work in a lane gets none.
 
+- **One trunk worktree, everything converges on it (owner, 2026-11-26):** per wave there is ONE open collector
+  (n=1), cut from the local working branch. Every other worktree (a lane, a leaf's worktree: n>=2) is cut from the
+  collector's current head, not from main, and converges back into it (`claude-code worktree collapse <collector>
+  <lane>`, by the session that owns the lane, after one other-family review with no CRITICAL or HIGH). Only the
+  collector lands on local, after the one suite run in it once every lane is committed into it (R37). The collector's
+  owner announces open and closed; nobody picks into a closed one, and nobody resets or rebases it.
 - **Landing:** every repo, `~/.claude` included, lands on local, the only way a lane comes back: the gate-green lane's
   net diff becomes uncommitted changes in the live checkout; you commit (owner, 2026-11-24: "no merging, just land on
   local"). A verified lane lands without asking, with a summary plus `git diff --stat main...<lane>`, unless its diff
