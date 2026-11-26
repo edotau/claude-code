@@ -29,8 +29,9 @@ func (r Record) relaunchable() bool {
 		r.Request.Prompt != "" && r.FallbackPolicy != "" && !reviewSummary.MatchString(r.Request.Prompt)
 }
 
+// recoverable: NoResend is judged at the boot, since a job ran at most until then.
 func (r Record) recoverable(boot time.Time) bool {
-	if !r.relaunchable() || !r.Time.Before(boot) || r.Time.Before(boot.Add(-recoverMaxAge)) || r.Time.IsZero() {
+	if !r.relaunchable() || r.NoResend(boot) || !r.Time.Before(boot) || r.Time.Before(boot.Add(-recoverMaxAge)) || r.Time.IsZero() {
 		return false
 	}
 	if r.Status == "lost" && strings.HasPrefix(r.Error, LostError) {

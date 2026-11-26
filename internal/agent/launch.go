@@ -812,7 +812,12 @@ func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) 
 
 // confinementDoc carries the run's provider, profile and inherited dispatch caps.
 func confinementDoc(req RunOptions) string {
-	return confinementDocContext(valuesContext(context.Background(), req.Values))
+	o := confinementOverlay(valuesContext(context.Background(), req.Values))
+	o.Fallback = "" // remoteScript always passes --fallback, and a flag and the overlay may not differ
+	if req.Codemode != "" {
+		o.Codemode = "" // --codemode crosses as its own flag
+	}
+	return childDoc(o)
 }
 
 // withOverlay layers r over an interactive plan like ApplyOverlay; the vault's standing document never reaches it.
@@ -833,7 +838,11 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 
 // confinementDocContext excludes the env layer and per-run vendor budgets.
 func confinementDocContext(ctx context.Context) string {
+	return childDoc(confinementOverlay(ctx))
+}
+
+// confinementOverlay is the overlay a child of ctx's run gets, on the run's resolved unit.
+func confinementOverlay(ctx context.Context) agentconfig.Overlay {
 	provider, profile, _ := router.OverlayRoute(ctx)
-	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
-	return agentconfig.Overlay{Provider: provider, Profile: profile, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()
+	return ChildOverlay(ctx, provider, profile)
 }

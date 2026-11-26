@@ -76,6 +76,11 @@ func ForeignLogins(own string, keepGHToken bool) []string {
 	return out
 }
 
+// DispatchCarried is the env a dispatch child never inherits: its overlay copy carries these instead (D5).
+var DispatchCarried = []string{"AGENT_ERROR_FALLBACK", "CODEMODE", envKeepVar, "HARNESS_DISPATCH_MAX_CHILDREN",
+	"HARNESS_DISPATCH_MAX_TREE_TOKENS", "HARNESS_DISPATCH_MAX_DEPTH", "CODEX_MODEL", "COPILOT_MODEL", "GEMINI_MODEL",
+	"OPENCODE_MODEL"}
+
 // envKeepVar opts bare shims back into an inherited name; their argv belongs to the agent, not the harness.
 const envKeepVar = "HARNESS_KEEP_ENV"
 

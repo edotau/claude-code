@@ -41,10 +41,19 @@ func (r *RouteFlags) Args() ([]string, error) {
 
 // failSpawn finishes a record whose spawn failed so it never shows as running; a failed save joins the returned error.
 func failSpawn(rec *agent.Record, err error) error {
-	rec.Finish(wire.Result{}, err, time.Since(rec.Time))
+	cur, _, uerr := agent.UpdateRunning(rec.ID, func(r agent.Record) agent.Record { // only a still-running record
+		r.Finish(wire.Result{}, err, time.Since(r.Time))
+		return r
+	})
+	if errors.Is(uerr, os.ErrNotExist) { // never saved: write it settled
+		rec.Finish(wire.Result{}, err, time.Since(rec.Time))
+		uerr = rec.Save()
+	} else if uerr == nil {
+		*rec = cur
+	}
 	rec.NoteHealth(err)
-	if saveErr := rec.Save(); saveErr != nil {
-		err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", rec.ID, saveErr))
+	if uerr != nil {
+		err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", rec.ID, uerr))
 	}
 	return err
 }

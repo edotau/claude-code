@@ -1234,7 +1234,8 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 func TestPrepareExitCodePrefixedPin(t *testing.T) {
 	cliEnv(t)
 	t.Setenv("CODEX_MODEL", "auto:opus")
-	_, err := agent.ResolveModel(nil, agent.QueryFor(t.Context(), agent.ModelQuery{Agent: "codex"}), time.Now())
+	q := agent.QueryFor(t.Context(), agent.ModelQuery{Agent: "codex"})
+	_, err := agent.ResolveModel(nil, q.Route, q.Model, q, time.Now())
 	if got := prepareExitCode(err); got != 2 {
 		t.Errorf("prepareExitCode(%v) = %d, want 2", err, got)
 	}

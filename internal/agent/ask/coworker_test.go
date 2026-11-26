@@ -389,8 +389,11 @@ func envValue(dump []string, name string) (string, bool) {
 	return "", false
 }
 
-// armDevDoc is the one-hop $COWORKER_OVERLAY a databricks:dev hop's child inherits: the confinement alone.
-const armDevDoc = `{"provider":"databricks","profile":"dev"}`
+// armDevDocOK reports the one-hop $COWORKER_OVERLAY a databricks:dev hop's child inherits: the dev unit, no env layer.
+func armDevDocOK(doc string) bool {
+	o, err := agentconfig.LoadOverlayContext(context.Background(), doc, nil)
+	return err == nil && o.Provider == "databricks" && o.Profile == "dev" && o.Model == "" && len(o.Set)+len(o.Unset)+len(o.Keep) == 0
+}
 
 // assertArmDevHop: the child is on dev's route, its key the dev session token, inside the coworker, leaking nothing.
 func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
@@ -406,8 +409,8 @@ func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	if v, _ := envValue(dump, h.key); h.key != "" && v != "cct_ARM_dev" {
 		t.Errorf("%s dev hop: %s is not the dev session token", name, h.key)
 	}
-	if v, _ := envValue(dump, route.OverlayVar); v != armDevDoc {
-		t.Errorf("%s dev hop: %s is not %s", name, route.OverlayVar, armDevDoc)
+	if v, _ := envValue(dump, route.OverlayVar); !armDevDocOK(v) {
+		t.Errorf("%s dev hop: %s is not the dev unit alone: %s", name, route.OverlayVar, v)
 	}
 	assertArmNoLeak(t, name, dump)
 }
@@ -423,8 +426,8 @@ func assertArmCopilotRegistryHop(t *testing.T, dump []string) {
 			t.Errorf("copilot dev hop: registry child inherited the BYOK block %s", strings.SplitN(kv, "=", 2)[0])
 		}
 	}
-	if v, _ := envValue(dump, route.OverlayVar); v != armDevDoc {
-		t.Errorf("copilot dev hop: %s is not %s", route.OverlayVar, armDevDoc)
+	if v, _ := envValue(dump, route.OverlayVar); !armDevDocOK(v) {
+		t.Errorf("copilot dev hop: %s is not the dev unit alone: %s", route.OverlayVar, v)
 	}
 	assertArmNoLeak(t, "copilot", dump)
 }
@@ -746,8 +749,9 @@ func TestTypedArmExportsFence(t *testing.T) {
 	}
 	r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "codex"}
 	_, done := r.checkArm()
-	if got, want := proc.Value(r.ctx, route.OverlayVar), (agentconfig.Overlay{Provider: "databricks", Profile: "qa"}).Doc(); done || got != want {
-		t.Errorf("done = %v, %s = %q, want %q", done, route.OverlayVar, got, want)
+	got, err := agentconfig.LoadOverlayContext(r.ctx, "", nil)
+	if done || got.Route() != (route.Route{Provider: "databricks", Profile: "qa"}) {
+		t.Errorf("done = %v, %s = %q (%v), want the databricks qa unit", done, route.OverlayVar, proc.Value(r.ctx, route.OverlayVar), err)
 	}
 	if r.auto != "qa" || agent.AutoFailoverProvider(r.ctx) != router.RouteDatabricks {
 		t.Errorf("typed qa under --fallback all: auto = %q, failover = %q; want a movable start", r.auto, agent.AutoFailoverProvider(r.ctx))

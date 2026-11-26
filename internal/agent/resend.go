@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -66,9 +67,31 @@ func followable(holder, id string) bool {
 	return err == nil && (rec.Status == wire.StatusOK || rec.Status == "running" && jobLive(rec))
 }
 
+// ErrNotResent marks a re-send refused because the holder was cancelled by the user or ended on a budget.
+var ErrNotResent = errors.New("not re-sent")
+
+// ResendGate is the one gate of every automatic re-send: id's record read under its lock, a NoResend one refused.
+func ResendGate(id string) (Record, error) {
+	var rec Record
+	path := filepath.Join(paths.DispatchDir(), id+".json")
+	err := paths.WithFileLock(path, func() (rerr error) {
+		rec, rerr = readRecord(path)
+		return rerr
+	})
+	switch {
+	case err != nil:
+		return Record{}, err
+	case rec.FailKind == FailCancelled:
+		return rec, fmt.Errorf("%w: cancelled", ErrNotResent)
+	case rec.NoResend(time.Now()):
+		return rec, fmt.Errorf("%w: budget", ErrNotResent)
+	}
+	return rec, nil
+}
+
 // Resend runs `agents ask --retry <holder> --recover` under the holder's parent and returns the new dispatch id.
 func Resend(ctx context.Context, holder string) (string, error) {
-	rec, err := LoadRecord(holder)
+	rec, err := ResendGate(holder)
 	if err != nil {
 		return "", err
 	}

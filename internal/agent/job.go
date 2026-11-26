@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
@@ -165,7 +166,6 @@ func RecoverJob(ctx context.Context, id string, boot time.Time) (bool, error) {
 		}
 		cur.Status, cur.Error, cur.Progress = "running", "", ""
 		cur.PID, cur.PPID, cur.PGID, cur.PIDStart = 0, 0, 0, ""
-		cur.Time = time.Now().UTC()
 		if err := cur.Save(); err != nil {
 			return err
 		}
@@ -287,8 +287,12 @@ func isReviewArgv(argv []string, rec *Record) bool {
 }
 
 func failIfRunning(rec *Record, msg string, deadOnly bool) (bool, error) {
+	kind := FailAvailability // a dead process says nothing about the model
+	if !deadOnly {
+		kind = FailCancelled // the user's cancel stays cancelled whatever signal ended the process
+	}
 	fix := func(r Record) Record {
-		r.Status, r.FailKind = "error", FailAvailability // a cancel or a dead process says nothing about the model
+		r.Status, r.FailKind = "error", kind
 		if r.Error == "" {
 			r.Error = msg
 		}
@@ -326,7 +330,24 @@ func cancel(rec *Record) (bool, error) {
 	if _, err := failIfRunning(rec, "cancelled by claude-code agents cancel", false); err != nil {
 		return false, err
 	}
+	if err := failHeldContract(rec.ID); err != nil { // the killed process cannot settle it: no holder stays working
+		return false, err
+	}
 	return true, nil // the signal stopped a live job; its own end state written on the way out is still this cancel's
+}
+
+// failHeldContract fails the working contract holder currently holds, cancelled; none is not an error.
+func failHeldContract(holder string) error {
+	_, err := contract.Update(holder, func(c contract.Contract) (contract.Contract, error) {
+		if c.State() != contract.StateWorking || len(c.Holders) == 0 || c.Holders[len(c.Holders)-1] != holder {
+			return c, nil
+		}
+		return c.Fail(contract.ReasonCancelled)
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // stopJob signals rec's verified job process until it is gone; tests swap it to settle the record in between.

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/health"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -28,6 +29,17 @@ func init() {
 			Log: filepath.Join(paths.StateDir(), "hooks"), Time: time.Now().Unix()})
 		return err
 	}
+	agentconfig.ReportUnknownKey = func(keys []string, origin string) {
+		names := slices.Compact(slices.Sorted(slices.Values(keys)))
+		more := ""
+		if len(names) > 10 {
+			more, names = fmt.Sprintf(" +%d more", len(names)-10), names[:10]
+		}
+		subject := origin + " " + strings.Join(names, ",") + more
+		_, _ = reportFailure(FailuresDir(), Failure{Kind: FailOverlayKey, Subject: subject,
+			Summary: "unknown overlay keys (" + origin + "): " + strings.Join(names, ",") + more, Time: time.Now().Unix()},
+			func(p string, fn func() error) error { return paths.WithFileLockWithin(p, overlayReportWait, fn) })
+	}
 	health.Report = func(reason, subject string) {
 		_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailDegraded, Subject: reason + " " + subject,
 			Summary: health.Notice(reason), Log: filepath.Join(paths.StateDir(), "agent", "health.json"), Time: time.Now().Unix()})
@@ -38,21 +50,22 @@ func init() {
 type FailureKind string
 
 const (
-	FailAudit     FailureKind = "audit"
-	FailLaneGate  FailureKind = "lane_gate"
-	FailPlanCheck FailureKind = "plan_verify"
-	FailBench     FailureKind = "bench"
-	FailDispatch  FailureKind = "dispatch"
-	FailContract  FailureKind = "contract"
-	FailProxyDown FailureKind = "proxy_down"
-	FailProxy5xx  FailureKind = "proxy_5xx"
-	FailHookP95   FailureKind = "hook_p95"
-	FailDegraded  FailureKind = "dispatch_degraded"
+	FailAudit      FailureKind = "audit"
+	FailLaneGate   FailureKind = "lane_gate"
+	FailPlanCheck  FailureKind = "plan_verify"
+	FailBench      FailureKind = "bench"
+	FailDispatch   FailureKind = "dispatch"
+	FailContract   FailureKind = "contract"
+	FailProxyDown  FailureKind = "proxy_down"
+	FailProxy5xx   FailureKind = "proxy_5xx"
+	FailHookP95    FailureKind = "hook_p95"
+	FailDegraded   FailureKind = "dispatch_degraded"
+	FailOverlayKey FailureKind = "overlay_unknown_key"
 )
 
 // FailureKinds lists every valid kind, in display order.
 var FailureKinds = []FailureKind{FailAudit, FailLaneGate, FailPlanCheck, FailBench, FailDispatch, FailContract,
-	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded}
+	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded, FailOverlayKey}
 
 // Failure is one broadcast record; Time is unix seconds; Seq grows by one per appended record.
 type Failure struct {
@@ -110,6 +123,13 @@ func oneLine(s string, n int) string {
 
 // ReportFailure appends f unless the same ID was logged inside the dedupe window; it reports whether it appended.
 func ReportFailure(root string, f Failure) (bool, error) {
+	return reportFailure(root, f, paths.WithFileLock)
+}
+
+// overlayReportWait caps how long an overlay load waits for the failure log lock; a timeout is swallowed.
+const overlayReportWait = 300 * time.Millisecond
+
+func reportFailure(root string, f Failure, lock func(string, func() error) error) (bool, error) {
 	if !f.Kind.valid() {
 		return false, fmt.Errorf("failures: unknown kind %q", f.Kind)
 	}
@@ -125,7 +145,7 @@ func ReportFailure(root string, f Failure) (bool, error) {
 		return false, err
 	}
 	appended := false
-	err := paths.WithFileLock(failuresLog(root), func() (err error) {
+	err := lock(failuresLog(root), func() (err error) {
 		appended, err = appendFailure(root, f)
 		return err
 	})

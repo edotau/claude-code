@@ -130,7 +130,7 @@ func codexRouteSelection(ctx context.Context, reg *providers.Registry, sel provi
 	name := route
 	if route == routeDatabricks {
 		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: agentid.Codex, Profile: agent.AutoModel})
-		r, err := agent.ResolveModel(reg, q, time.Now())
+		r, err := agent.ResolveModel(reg, q.Route, q.Model, q, time.Now())
 		if err != nil {
 			return sel, false, fmt.Errorf("codex: config_route %s: %w", route, err)
 		}

@@ -553,6 +553,15 @@ func contractBlock(o *contractOpen) string {
 
 // startAsk stamps the plan task and opens the spec's contract on a new dispatch record before it is saved.
 func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
+	err := openAsk(ctx, jobRec, rec)
+	if err != nil {
+		return failSpawn(rec, err) // Prepare already claimed a running record: settle it, never leave it running
+	}
+	return nil
+}
+
+// openAsk is startAsk's body.
+func openAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	stampPlanTask(ctx, jobRec, rec)
 	if jobRec != nil { // a --job child's contract was opened by its parent
 		return nil

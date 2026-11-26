@@ -113,7 +113,7 @@ func workingOf(ids []string) []string {
 func resendLeaf(ctx context.Context, k contract.Contract, send sendFunc, tries map[string]int) {
 	holder := k.Holders[len(k.Holders)-1]
 	rec, lerr := agent.LoadRecord(holder)
-	if len(k.Holders) > 1 || lerr == nil && rec.LostBudgetEnd(time.Now()) { // a budget end is never re-sent
+	if len(k.Holders) > 1 || lerr == nil && rec.NoResend(time.Now()) { // a cancel or budget end is never re-sent
 		failLeaf(k.ID, holder)
 		return
 	}

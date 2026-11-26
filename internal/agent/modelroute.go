@@ -111,8 +111,9 @@ func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 	return q
 }
 
-// ResolveModel is the one rule from agent + typed model string to profile, account and wire id.
-func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+// ResolveModel is the one rule from a route unit and a typed alias to profile, account and wire id; q carries the rest.
+func ResolveModel(reg *providers.Registry, unit route.Route, alias string, q ModelQuery, now time.Time) (ModelRoute, error) {
+	q.Route, q.Model = unit, alias
 	if !q.Route.IsZero() {
 		q.Provider, q.Profile, q.Account, q.Identity = q.Route.Provider, q.Route.Profile, q.Route.Account, q.Route.Identity
 	}

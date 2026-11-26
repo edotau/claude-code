@@ -495,10 +495,12 @@ func overlayCaps(ctx context.Context, value string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if caps := (agentconfig.Overlay{MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}).Doc(); caps != "" {
-		return []string{"--overlay", caps}, nil
+	caps, err := agentconfig.Overlay{}.Derive(agentconfig.Overlay{
+		MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, MaxDepth: o.MaxDepth, Runner: o.Runner}, agentconfig.HopAppend)
+	if err != nil || caps.Empty() && !caps.Routed() {
+		return nil, err
 	}
-	return nil, nil
+	return []string{"--overlay", caps.Doc()}, nil
 }
 
 // carryEnv is a child's env: the run values with rec as its parent dispatch.
@@ -509,7 +511,7 @@ func carryEnv(ctx context.Context, rec agent.Record) []string {
 	if rec.Request.Verify != "" {
 		values, keep = values.Merge(proc.Values{carryVerifyEnv: rec.Request.Verify}), []string{carryVerifyEnv}
 	}
-	return agent.EnvSpec{Mode: agent.EnvClaude, Keep: keep}.Environ(proc.WithValues(ctx, values))
+	return agent.EnvSpec{Mode: agent.EnvClaude, Keep: keep, Unset: []string{route.OverlayVar}}.Environ(proc.WithValues(ctx, values))
 }
 
 // carryVerifyEnv hands a carried child the spec's verify (ask has no flag for it); the child takes it once.

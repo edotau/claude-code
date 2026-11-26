@@ -15,7 +15,6 @@ import (
 	"os"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -245,19 +244,24 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 }
 
 // parseOverlay decodes one document strictly and checks it; errors name keys, never values.
-func parseOverlay(raw []byte) (Overlay, error) {
+func parseOverlay(raw []byte) (Overlay, error) { return parseOverlayFrom(raw, "typed", false) }
+
+func parseOverlayFrom(raw []byte, origin string, stored bool) (Overlay, error) {
 	raw = forgivingLimits(raw)
+	if stored {
+		raw = dropStoredUnknown(raw, origin)
+	}
 	var o Overlay
 	if err := checkOverlaySchema(raw); err != nil {
 		return Overlay{}, err
 	}
 	if _, err := schemas.Decode(overlayFormat, raw, &o); err != nil {
-		return Overlay{}, overlayJSONErr(err)
+		return Overlay{}, overlayJSONErr(err, origin)
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(new(Overlay)); err != nil {
-		return Overlay{}, overlayJSONErr(err)
+		return Overlay{}, overlayJSONErr(err, origin)
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return Overlay{}, errors.New("trailing data after the JSON object")
@@ -286,7 +290,7 @@ func checkOverlaySchema(raw []byte) error {
 }
 
 // overlayJSONErr names the key a decode error is about, never its value or Go type names.
-func overlayJSONErr(err error) error {
+func overlayJSONErr(err error, origin string) error {
 	if se, ok := errors.AsType[*json.SyntaxError](err); ok {
 		return fmt.Errorf("not valid JSON at byte %d", se.Offset)
 	}
@@ -294,11 +298,8 @@ func overlayJSONErr(err error) error {
 		key, _, _ := strings.Cut(strings.TrimPrefix(te.Field, "."), ".")
 		return fmt.Errorf("%s: want %s", key, keyType(key))
 	}
-	if _, q, ok := strings.Cut(err.Error(), "json: unknown field "); ok { // encoding/json has no typed error for it
-		key, uerr := strconv.Unquote(q)
-		if uerr != nil {
-			key = q
-		}
+	if key, ok := unknownFieldKey(err); ok {
+		reportUnknownKey([]string{key}, origin)
 		return route.UnknownKey(key, overlayNames())
 	}
 	return err
@@ -739,6 +740,15 @@ func DispatchOverlayContext(ctx context.Context, flag string) string {
 
 // LoadOverlayContext reads value, else the run's $COWORKER_OVERLAY: a file, inline JSON or - for stdin; "" is none.
 func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Overlay, error) {
+	return LoadOverlayFrom(ctx, value, stdin, value != "")
+}
+
+// LoadOverlayFrom is LoadOverlayContext with the caller stating whether the user typed the overlay or it is stored.
+func LoadOverlayFrom(ctx context.Context, value string, stdin io.Reader, typed bool) (Overlay, error) {
+	origin, stored := "typed", !typed
+	if stored {
+		origin = "env " + route.OverlayVar
+	}
 	value = cmp.Or(value, proc.Value(ctx, route.OverlayVar))
 	if value == "" {
 		return Overlay{}, nil
@@ -749,7 +759,7 @@ func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Ove
 	}
 	var o Overlay
 	if err == nil {
-		o, err = parseOverlay(raw)
+		o, err = parseOverlayFrom(raw, origin, stored)
 	}
 	if err != nil {
 		return Overlay{}, fmt.Errorf("%s: %w", where, err)

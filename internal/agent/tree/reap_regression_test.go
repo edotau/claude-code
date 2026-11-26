@@ -2,6 +2,7 @@ package tree
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -180,5 +181,26 @@ func TestReapKeepsSavedBudgetKind(t *testing.T) {
 	got, err := agent.LoadRecord(rec.ID)
 	if err != nil || got.BudgetKind != "idle" || resendHolder(contract.Contract{Holders: []string{rec.ID}}) != "" {
 		t.Fatalf("saved budget kind lost on reap: %v %+v", err, got)
+	}
+}
+
+// A holder the user cancelled is terminal (never re-sent); a lost one is re-sent once.
+func TestResendHolderSkipsCancelledHolder(t *testing.T) {
+	reapSocketConfig(t)
+	calls := 0
+	old := resend
+	resend = func(context.Context, string) (string, error) { calls++; return "next", nil }
+	t.Cleanup(func() { resend = old })
+	rec := saveReapRecord(t, deadPID, time.Now())
+	lost := resendHolder(contract.Contract{Holders: []string{rec.ID}})
+	if lost != "next" || calls != 1 {
+		t.Fatalf("lost holder: got %q after %d re-sends, want next after 1", lost, calls)
+	}
+	rec.Status, rec.FailKind = "error", agent.FailCancelled
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if got := resendHolder(contract.Contract{Holders: []string{rec.ID}}); got != "" || calls != 1 {
+		t.Fatalf("cancelled holder: got %q after %d re-sends, want none", got, calls)
 	}
 }

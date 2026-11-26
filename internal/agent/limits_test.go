@@ -216,11 +216,12 @@ func TestDispatchLimitOverlayPrecedence(t *testing.T) {
 			env, doc string
 			want     int
 		}{
-			{"7", `{"maxChildren":2,"maxTreeTokens":2}`, 7},
+			{"7", `{"maxChildren":2,"maxTreeTokens":2}`, 2},
+			{"1", `{"maxChildren":2,"maxTreeTokens":2}`, 1},
 			{"", `{"maxChildren":2,"maxTreeTokens":2}`, 2},
 			{"", `{"maxChildren":0,"maxTreeTokens":0}`, 0},
 			{"", `{"maxChildren":-1,"maxTreeTokens":"bad"}`, 8},
-			{"bad", `{"maxChildren":2,"maxTreeTokens":2}`, 8},
+			{"bad", `{"maxChildren":2,"maxTreeTokens":2}`, 2},
 			{"", "{}", 8},
 		} {
 			ctx := proc.WithValues(t.Context(), proc.Values{key: tc.env, "COWORKER_OVERLAY": tc.doc})

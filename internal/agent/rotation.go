@@ -689,8 +689,8 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, true, exhaustedPool(q.Agent, alias, p, q.Tools, now)
 	}
 	pq := q
-	pq.Route, pq.Model, pq.Profile, pq.Default = rowRoute(reg, base.Profile), m, "", ""
-	r, err := ResolveModel(reg, pq, now)
+	pq.Profile, pq.Default = "", ""
+	r, err := ResolveModel(reg, rowRoute(reg, base.Profile), m, pq, now)
 	if err != nil {
 		return base, true, err
 	}

@@ -213,8 +213,9 @@ func TestRemoteScriptRelaysIdentity(t *testing.T) {
 // The confinement must cross to the remote: ApplyRouteOverlay exports it as env, which ssh drops, so it ran unconfined.
 func TestRemoteScriptRelaysCoworker(t *testing.T) {
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
+	t.Setenv("AGENT_ERROR_FALLBACK", "") // the ambient mode would join the document
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
-	if err != nil || !strings.Contains(script, ` --overlay '{"provider":"databricks","profile":"dev"}'`) {
+	if err != nil || !strings.Contains(script, ` --overlay '{"schema":2,"provider":"databricks","profile":"dev"}'`) {
 		t.Fatalf("script = %s, err = %v; want the databricks:dev overlay relayed", script, err)
 	}
 }

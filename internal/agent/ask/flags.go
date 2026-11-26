@@ -949,6 +949,9 @@ func claimRecover(ctx context.Context) error {
 	if rec.Alive() {
 		return checkResumable(rec)
 	}
+	if _, err := agent.ResendGate(rec.ID); err != nil { // the gate every automatic re-send passes, re-read at launch
+		return err
+	}
 	marker := agent.WatchMarker("resumed", rec.ID)
 	if marker == "" {
 		return fmt.Errorf("dispatch id %q cannot be claimed", rec.ID)

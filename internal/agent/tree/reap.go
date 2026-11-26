@@ -116,6 +116,9 @@ func ContractEnv() contract.Env {
 	return contract.Env{Lost: holderLost, Successor: resendHolder, Claimed: agent.ResendClaimed}
 }
 
+// resend is agent.Resend; tests swap it.
+var resend = agent.Resend
+
 // resendHolder is the new dispatch of c's lost holder, "" when it cannot be re-sent (c is then failed owner-dead).
 func resendHolder(c contract.Contract) string {
 	holder := c.Holders[len(c.Holders)-1]
@@ -123,11 +126,11 @@ func resendHolder(c contract.Contract) string {
 		if rec.Status == wire.StatusOK {
 			return "" // it finished: only its settle failed, and a re-run would repeat its edits
 		}
-		if rec.LostBudgetEnd(time.Now()) {
-			return "" // lost past its own deadline is a budget end, not a lost process (A4)
+		if rec.NoResend(time.Now()) {
+			return "" // a user cancel or a budget end (lost past its own deadline) is not a lost process (A4)
 		}
 	}
-	next, err := agent.Resend(context.Background(), holder)
+	next, err := resend(context.Background(), holder)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "reap: contract %s: re-send: %v\n", c.ID, err)
 		return ""

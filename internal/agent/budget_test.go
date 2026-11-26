@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 func TestIdleTimeoutBudgetKinds(t *testing.T) {
@@ -109,5 +112,68 @@ func TestLateBudgetMarkKeepsStopPoint(t *testing.T) {
 	rec.Finish(wire.Result{}, retry.WithBudget(errors.New("late"), retry.BudgetContract), 0)
 	if rec.BudgetKind != "contract" || rec.StoppedAt == nil || len(rec.Changed) != 1 {
 		t.Fatalf("late mark lost the stop point: %+v %+v", rec, rec.StoppedAt)
+	}
+}
+
+// TestResendGateRefusesCancelAndBudget: the one re-send gate reads the saved record and refuses a cancel or budget end.
+func TestResendGateRefusesCancelAndBudget(t *testing.T) {
+	setConfigDir(t)
+	save := func(edit func(*Record)) string {
+		rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+		edit(&rec)
+		return fixtureRecord(t, rec).ID
+	}
+	for name, edit := range map[string]func(*Record){
+		"cancelled": func(r *Record) { r.Status, r.FailKind = "error", FailCancelled },
+		"budget":    func(r *Record) { r.BudgetKind = "deadline" },
+	} {
+		if _, err := ResendGate(save(edit)); !errors.Is(err, ErrNotResent) || !strings.Contains(err.Error(), name) {
+			t.Fatalf("%s: gate err = %v, want not re-sent: %s", name, err, name)
+		}
+	}
+	if _, err := ResendGate(save(func(*Record) {})); err != nil {
+		t.Fatalf("an in-budget lost run was refused: %v", err)
+	}
+}
+
+// TestCancelWithKillSettlesHeldContract: a cancel whose process is killed cannot settle, so cancel fails the contract.
+func TestCancelWithKillSettlesHeldContract(t *testing.T) {
+	setConfigDir(t)
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	rec.PID = os.Getpid()
+	rec.PIDStart, _ = proc.StartTime(rec.PID)
+	fixtureRecord(t, rec)
+	c, _ := contract.Open(contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		contract.Party{Role: contract.RoleOwner, Agent: "pi"}, contract.Limits{Depth: 1, Leaves: 1}, contract.Facts{})
+	c, err := c.Start(rec.ID)
+	if err == nil {
+		err = contract.Save(c)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := stopJob
+	stopJob = func(*Record) error { return nil } // killed: the record stays running for cancel to settle
+	t.Cleanup(func() { stopJob = old })
+	if _, err := CancelJob(context.Background(), "codex", "", rec.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := contract.Load(c.ID)
+	if err != nil || got.State() != contract.StateFailed || got.Failed != contract.ReasonCancelled {
+		t.Fatalf("contract after a killed cancel: %v %q, %v; want failed cancelled", got.State(), got.Failed, err)
+	}
+	if left, _ := contract.Pending(); len(left) != 0 {
+		t.Fatalf("a working contract is left for the reaper: %d", len(left))
+	}
+}
+
+// TestNoResendCoversCancel: a user-cancelled run is never re-sent, like a budget end; an ordinary lost run may be.
+func TestNoResendCoversCancel(t *testing.T) {
+	now := time.Now()
+	if !(Record{FailKind: FailCancelled, Time: now}).NoResend(now) {
+		t.Fatal("cancelled record may be re-sent")
+	}
+	if (Record{FailKind: FailAvailability, Time: now}).NoResend(now) {
+		t.Fatal("availability failure blocks a re-send")
 	}
 }

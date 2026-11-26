@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -150,5 +151,21 @@ func TestFailuresSinceWithinTimeoutKeepsCursor(t *testing.T) {
 	lines, _, err := FailuresSinceWithin(root, "sess", 5, time.Second)
 	if err != nil || len(lines) != 1 {
 		t.Fatalf("after timeout: lines=%d err=%v, want the failure still unseen", len(lines), err)
+	}
+}
+
+func TestOverlayUnknownKeyFailureDedup(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var keys []string
+	for i := range 600 {
+		keys = append(keys, "bogus"+strconv.Itoa(i))
+	}
+	for range 2 {
+		agentconfig.ReportUnknownKey(keys, "typed")
+	}
+	got, err := ListFailures(FailuresDir())
+	if err != nil || len(got) != 1 || got[0].Kind != FailOverlayKey || !strings.Contains(got[0].Subject, "+590 more") {
+		t.Fatalf("failures = %+v, %v; want one overlay_unknown_key entry for 600 keys", got, err)
 	}
 }

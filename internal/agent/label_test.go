@@ -42,7 +42,7 @@ func TestLadderHopIsTheRunModel(t *testing.T) {
 			if err != nil || note != "" {
 				t.Fatalf("hop = %+v, %q, %v", hop, note, err)
 			}
-			r, err := ResolveModel(reg, hop, time.Now())
+			r, err := resolveQ(reg, hop, time.Now())
 			if err != nil || r.Label() != tc.wantModel {
 				t.Errorf("hop %+v labels %q (%v), want %q", hop, r.Label(), err, tc.wantModel)
 			}
@@ -184,7 +184,7 @@ func TestResolveRunTierNotServed(t *testing.T) {
 	}
 	q := ModelQuery{Agent: "opencode", Profile: "dev", Default: "haiku"}
 	r, err := ResolveRun(reg, q, now)
-	base, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Profile: "dev"}, now)
+	base, _ := resolveQ(reg, ModelQuery{Agent: "opencode", Profile: "dev"}, now)
 	if err != nil || r.Model != base.Model || !strings.Contains(r.Note, "task tier haiku is not served") {
 		t.Errorf("ResolveRun = %+v, %v; want the untiered %s with a note", r, err, base.Model)
 	}
@@ -351,7 +351,7 @@ func TestResolveRunAuto(t *testing.T) {
 		t.Fatalf("fixture has no teeth: standard %s is the alias", std)
 	}
 	strongest := slices.MaxFunc(weak, func(a, b string) int { return catalog.RankOf(a).Capability - catalog.RankOf(b).Capability })
-	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, time.Now())
+	prodOpus, _ := resolveQ(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, time.Now())
 	for _, tc := range []struct{ name, agent, model, profile, pin, task, want, note string }{
 		{"typed concrete", "opencode", pin, "dev", "", deepBrief, pin, ""},
 		{"pin with nothing typed", "opencode", "", "dev", pin, deepBrief, pin, ""},

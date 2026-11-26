@@ -319,21 +319,28 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 		req.Lead = ""
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
-	if ov.Runner != "" { // an explicit runner on the line, seen by the re-pick guards
-		req.Runner = ov.Runner
-		req.Values = req.Values.Merge(nil)
-		req.Values[route.OverlayVar] = withRunner(req.Values[route.OverlayVar], ov.Runner)
+	if f.model == "" && ov.Model != "" {
+		req.ModelTyped = !agent.IsAuto(ov.Model) // the line overlay's model won: typed unless auto, so no fallback swaps it
 	}
+	if ov.Runner == "" {
+		return nil
+	}
+	req.Runner = ov.Runner // an explicit runner on the line, seen by the re-pick guards
+	req.Values = req.Values.Merge(nil)
+	var held agentconfig.Overlay
+	var err error
+	if doc := req.Values[route.OverlayVar]; doc != "" {
+		held, err = agentconfig.LoadOverlayContext(context.Background(), doc, nil)
+	}
+	if err != nil {
+		return err
+	}
+	held, err = held.Derive(agentconfig.Overlay{Runner: ov.Runner}, agentconfig.HopAppend) // the other keys stay
+	if err != nil {
+		return err
+	}
+	req.Values[route.OverlayVar] = held.Doc()
 	return nil
-}
-
-// withRunner is the overlay document doc with its runner key set; the other keys stay.
-func withRunner(doc, runner string) string {
-	keys := map[string]json.RawMessage{}
-	_ = json.Unmarshal([]byte(doc), &keys) // an empty or unreadable document starts from none
-	keys["runner"], _ = json.Marshal(runner)
-	out, _ := json.Marshal(keys)
-	return string(out)
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {

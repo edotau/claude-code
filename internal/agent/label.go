@@ -178,8 +178,9 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 
 // rowDefault is an untyped run's model on profile: the concrete pin, else the row's opus, by id if refused as an alias.
 func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile string, now time.Time) (ModelRoute, error) {
-	q.Model, q.Profile, q.Default, q.PinModel, q.Route = "", "", "", need.pin, rowRoute(reg, profile)
-	r, err := ResolveModel(reg, q, now)
+	q.Profile, q.Default, q.PinModel = "", "", need.pin
+	unit := rowRoute(reg, profile)
+	r, err := ResolveModel(reg, unit, "", q, now)
 	p := reg.Row(profile)
 	if err == nil || p == nil || !errors.Is(err, ErrModelRoute) {
 		return r, err
@@ -188,19 +189,19 @@ func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile st
 	if serr != nil {
 		return r, err
 	}
-	q.Model, q.PinModel, q.rowSpelled = wire, "", true
-	return ResolveModel(reg, q, now)
+	q.PinModel, q.rowSpelled = "", true
+	return ResolveModel(reg, unit, wire, q, now)
 }
 
 // resolveTier is ResolveModel with q.Default as the task tier; a tier the row cannot serve keeps the untiered pick.
 func resolveTier(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
-	r, err := ResolveModel(reg, q, now)
+	r, err := ResolveModel(reg, q.Route, q.Model, q, now)
 	if q.Default == "" || q.Model != "" || err == nil && (q.PinModel != "" || tierServed(reg, r, now)) {
 		return r, err
 	}
 	tier := q.Default
 	q.Default = ""
-	base, berr := ResolveModel(reg, q, now)
+	base, berr := ResolveModel(reg, q.Route, q.Model, q, now)
 	if berr != nil {
 		return r, err
 	}
@@ -605,8 +606,8 @@ func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoN
 		return autoFallback(reg, q, base, need, c, cmp.Or(why, "no served model fits"), now), c, nil
 	}
 	pq := q
-	pq.Route, pq.Model, pq.Profile, pq.Default = rowRoute(reg, base.Profile), c.Ranked[0].Model, "", ""
-	r, err := ResolveModel(reg, pq, now)
+	pq.Profile, pq.Default = "", ""
+	r, err := ResolveModel(reg, rowRoute(reg, base.Profile), c.Ranked[0].Model, pq, now)
 	if err != nil {
 		return autoFallback(reg, q, base, need, c, strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "), now), c, nil
 	}
@@ -661,8 +662,8 @@ func coldRanModel(p *providers.Provider, model, alias string) string {
 func registryAuto(reg *providers.Registry, q ModelQuery, base ModelRoute, alias, why string, now time.Time) (ModelRoute, string) {
 	why += "; its model auto is " + base.Profile + "'s own router, not a pick"
 	for _, in := range autoStandIns(q.Agent, alias, reg.Row(base.Profile)) {
-		q.Route, q.Model, q.Profile, q.Default = rowRoute(reg, base.Profile), in.model, "", ""
-		if r, err := ResolveModel(reg, q, now); err == nil && r.Model != AutoModel {
+		q.Profile, q.Default = "", ""
+		if r, err := ResolveModel(reg, rowRoute(reg, base.Profile), in.model, q, now); err == nil && r.Model != AutoModel {
 			r.Source = base.Source
 			return r, why + "; ran " + in.from
 		}
@@ -724,7 +725,7 @@ func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provide
 	if m.Task != chatTask || !m.IsReady() || catalog.ID(m.ID) == AutoModel {
 		return "", false
 	}
-	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Route: rowRoute(reg, p.Name), Model: m.ID, menu: q.menu}, now)
+	r, err := ResolveModel(reg, rowRoute(reg, p.Name), m.ID, ModelQuery{Agent: q.Agent, menu: q.menu}, now)
 	return r.Model, err == nil && agentRunsIn(q.menuIn(), q.Agent, p, r.Model)
 }
 

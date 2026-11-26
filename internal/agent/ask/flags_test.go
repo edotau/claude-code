@@ -651,7 +651,7 @@ func TestFlagRouteTakenWhole(t *testing.T) {
 
 func TestRecoverClaimReleasedOnlyByHolder(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("t", agent.RunOptions{Prompt: "x"}, time.Now().Add(-time.Hour))
+	rec := agent.NewRecord("t", agent.RunOptions{Prompt: "x"}, time.Now().Add(-time.Minute)) // in budget
 	rec.Status = "error"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)

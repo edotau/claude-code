@@ -9,6 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestFamilyWordPicksHighestRankedAvailable(t *testing.T) {
@@ -88,7 +89,7 @@ func TestResolveModelAppliesFamilyWord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := agent.ResolveModel(reg, agent.ModelQuery{Agent: "copilot", Model: "gpt", Profile: "copilot"}, time.Now())
+	r, err := agent.ResolveModel(reg, route.Route{}, "gpt", agent.ModelQuery{Agent: "copilot", Profile: "copilot"}, time.Now())
 	if err != nil || r.Model != "gpt-6.1-sol" {
 		t.Fatalf("route = %+v, %v; want gpt-6.1-sol", r, err)
 	}

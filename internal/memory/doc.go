@@ -404,6 +404,59 @@ func splitOn(body string, isMarker func(string) bool) (header string, blocks []s
 	return strings.TrimRight(strings.Join(hdr, "\n"), "\n"), blocks
 }
 
+// blankAfterHeadings puts a blank line after each "#" heading followed directly by text (MDS013); code and HTML stay.
+func blankAfterHeadings(text string) string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines)+4)
+	fence, htmlEnd := "", "" // open CommonMark fence run; closing tag of an open raw HTML block
+	for i, ln := range lines {
+		out = append(out, ln)
+		t := strings.TrimSpace(ln)
+		indent := len(ln) - len(strings.TrimLeft(ln, " "))
+		switch {
+		case fence != "":
+			if indent <= 3 && fenceCloses(t, fence) {
+				fence = ""
+			}
+			continue
+		case htmlEnd != "":
+			if strings.Contains(strings.ToLower(ln), htmlEnd) {
+				htmlEnd = ""
+			}
+			continue
+		case indent <= 3 && (strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")):
+			fence = fenceRun(t)
+			continue
+		}
+		if end := rawHTMLEnd(strings.ToLower(t)); end != "" {
+			if !strings.Contains(strings.ToLower(t)[1:], end) {
+				htmlEnd = end
+			}
+			continue
+		}
+		if !strings.HasPrefix(ln, "#") || i+1 == len(lines) || strings.TrimSpace(lines[i+1]) == "" {
+			continue
+		}
+		if h := strings.TrimLeft(ln, "#"); len(ln)-len(h) <= 6 && strings.HasPrefix(h, " ") {
+			out = append(out, ln[len(strings.TrimRight(ln, "\r")):])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// rawHTMLEnd is the closing marker of a raw HTML block that starts the lower-cased line t, else "".
+func rawHTMLEnd(t string) string {
+	if strings.HasPrefix(t, "<!--") {
+		return "-->"
+	}
+	for _, tag := range []string{"pre", "script", "style", "textarea"} {
+		if strings.HasPrefix(t, "<"+tag) {
+			return "</" + tag + ">"
+		}
+	}
+	return ""
+}
+
 // rejoin reassembles a bank file from its header and kept blocks.
 func rejoin(header string, blocks []string) string {
 	var b strings.Builder
@@ -416,7 +469,7 @@ func rejoin(header string, blocks []string) string {
 		b.WriteString(blk)
 		b.WriteString("\n")
 	}
-	out := strings.TrimLeft(b.String(), "\n")
+	out := blankAfterHeadings(strings.TrimLeft(b.String(), "\n"))
 	if !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
@@ -447,7 +500,7 @@ func appendedText(path, body string, blocks []string) string {
 		b.WriteString(block)
 		b.WriteByte('\n')
 	}
-	return b.String()
+	return blankAfterHeadings(b.String())
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
@@ -591,7 +644,7 @@ func assignFileIDs(name, prefix string, now time.Time) (int, string, error) {
 		return 0, "", err
 	}
 	res, n := stampIDs(name, prefix, string(data), now)
-	res = formatBankMarkdown(res) // wrapped here, in memory, so settle never re-reads the file to wrap it
+	res = formatBankMarkdown(blankAfterHeadings(res)) // wrapped here, in memory, so settle never re-reads the file to wrap it
 	if res != string(data) {
 		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
 			return n, res, err

@@ -345,13 +345,12 @@ func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
 	return depth, maxDepth
 }
 
-// envDepthCap is HARNESS_DISPATCH_MAX_DEPTH; unset, invalid or negative is the default and not set.
+// envDepthCap is the tighter of the overlay's maxDepth and HARNESS_DISPATCH_MAX_DEPTH; none is the default, not set.
 func envDepthCap(ctx context.Context) (int, bool) {
-	n, err := strconv.Atoi(proc.Value(ctx, maxDispatchDepthEnv))
-	if err != nil || n < 0 {
-		return DefaultMaxDispatchDepth, false
+	if n := dispatchLimit(ctx, maxDispatchDepthEnv, -1); n >= 0 {
+		return n, true
 	}
-	return n, true
+	return DefaultMaxDispatchDepth, false
 }
 
 // parentRecord is the dispatch record named exactly id, read from disk rather than trusted from the caller's env.

@@ -2,7 +2,9 @@
 package agent
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -10,10 +12,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -49,28 +53,157 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		base = runEnviron(ctx)
 	}
 	base, _ = s.Mode.scrub(ctx, base, s.Keep)
+	base = withoutCarried(ctx, base)
 	base = withoutShimPath(base) // only Pi's own launch (Set) puts the rtk shim dir on PATH
 	base = withToolchainPath(base)
 	drop := s.dropper(ctx)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
-	if doc := confinementDocContext(ctx); doc != "" && drop(route.OverlayVar+"=") { // one hop: only the confinement goes down
-		env = append(env, route.OverlayVar+"="+doc)
-	}
+	child := confinementOverlay(ctx)
+	env = withOverlayDoc(env, childDoc(child), drop)
 	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
 	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
-	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents cancel --lost` can find it once orphaned
-		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
-		env = append(slices.DeleteFunc(env, func(e string) bool {
-			return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
-		}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
-		if !slices.ContainsFunc(s.Extra, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
-			env = withDispatchProxy(env, id) // a typed --env value wins
-		}
+	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok {
+		env = s.dispatchMarks(ctx, env, id)
 	}
+	env = withOverlayCodemode(ctx, env, child.Codemode)
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
 	}
 	return withMemoryOrigin(withRTKQuiet(env))
+}
+
+// withOverlayDoc adds the child's overlay unless a drop rule names it: one hop, only the confinement goes down.
+func withOverlayDoc(env []string, doc string, drop func(string) bool) []string {
+	if doc == "" || !drop(route.OverlayVar+"=") {
+		return env
+	}
+	return append(env, route.OverlayVar+"="+doc)
+}
+
+// withoutCarried is base without the env a dispatch child gets from its overlay copy instead (proc.DispatchCarried).
+func withoutCarried(ctx context.Context, base []string) []string {
+	if !inDispatch(ctx) {
+		return base
+	}
+	return proc.Drop(base, nil, proc.DispatchCarried)
+}
+
+// withOverlayCodemode sets a dispatch child's CODEMODE from its overlay copy, unless the launch already set one.
+func withOverlayCodemode(ctx context.Context, env []string, codemode string) []string {
+	if codemode == "" || !inDispatch(ctx) || slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, rtkwrap.CodemodeEnv+"=") }) {
+		return env
+	}
+	return append(env, rtkwrap.CodemodeEnv+"="+codemode) // hooks and shims read it from the env
+}
+
+// dispatchMarks is env for a dispatch child: its id and depth and its proxy scope.
+func (s EnvSpec) dispatchMarks(ctx context.Context, env []string, id string) []string {
+	// the ids mark the child so `agents cancel --lost` can find it once orphaned
+	depth, _ := ctx.Value(dispatchDepthKey{}).(int)
+	env = append(slices.DeleteFunc(env, func(e string) bool {
+		return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
+	}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
+	if !slices.ContainsFunc(s.Extra, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
+		env = withDispatchProxy(env, id) // a typed --env value wins
+	}
+	return env
+}
+
+// ChildDoc is the overlay document a child of ctx's run gets for the unit provider/profile; "" when nothing crosses.
+func ChildDoc(ctx context.Context, provider, profile string) string {
+	return childDoc(ChildOverlay(ctx, provider, profile))
+}
+
+// childDoc is o as its document, "" when it holds nothing but its schema.
+func childDoc(o agentconfig.Overlay) string {
+	if o.Empty() && !o.Routed() {
+		return ""
+	}
+	return o.Doc()
+}
+
+// ChildOverlay is the run's overlay copied for a child (D5), over the env this process reads at the top of a tree.
+func ChildOverlay(ctx context.Context, provider, profile string) agentconfig.Overlay {
+	own, loadErr := agentconfig.LoadOverlayContext(ctx, "", nil)
+	hop := agentconfig.HopSessionChild
+	if inDispatch(ctx) {
+		hop = agentconfig.HopDispatchChild
+	}
+	merged, err := DeriveUnit(ambientOverlay(ctx), own, agentconfig.HopAppend)
+	if err == nil {
+		merged, err = DeriveUnit(merged, UnitOf(own, provider, profile), hop)
+	}
+	if err != nil || loadErr != nil { // fail closed: the unit under a fence that admits no profile
+		return agentconfig.Overlay{Provider: provider, Profile: profile, Fence: &route.Fence{}}
+	}
+	return merged
+}
+
+// inDispatch reports a run that is a dispatch or a dispatch's child: its id is on ctx or in its run values.
+func inDispatch(ctx context.Context) bool {
+	return DispatchIDOf(ctx) != "" || proc.Value(ctx, proc.DispatchIDEnv) != ""
+}
+
+// DeriveUnit is Derive that also takes a provider-only unit (no profile), which Derive refuses as a document.
+func DeriveUnit(base, add agentconfig.Overlay, hop agentconfig.Hop) (agentconfig.Overlay, error) {
+	baseOnly, addOnly := splitProviderOnly(&base), splitProviderOnly(&add)
+	out, err := base.Derive(add, hop)
+	if err != nil {
+		return out, err
+	}
+	kept := cmp.Or(addOnly, baseOnly) // base's unit stands unless add set a full one
+	if out.Provider != "" && addOnly == "" {
+		kept = ""
+	}
+	if err := keepsProvider(out.Fence, cmp.Or(baseOnly, base.Provider), cmp.Or(kept, out.Provider)); err != nil || kept == "" {
+		return out, err
+	}
+	out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = "", kept, "", "", ""
+	return out, nil
+}
+
+// keepsProvider refuses a provider change under a closed fence.
+func keepsProvider(fence *route.Fence, from, to string) error {
+	if fence != nil && !fence.Open && from != "" && to != "" && from != to {
+		return errors.New("provider: outside the fence (a fenced overlay keeps its provider)")
+	}
+	return nil
+}
+
+// splitProviderOnly clears o's unit when it names a provider and no profile, and returns that provider.
+func splitProviderOnly(o *agentconfig.Overlay) string {
+	if o.Provider == "" || o.Profile != "" {
+		return ""
+	}
+	p := o.Provider
+	o.Provider, o.Identity, o.Account = "", "", ""
+	return p
+}
+
+// UnitOf is the add that sets own's unit to provider/profile; endpoint, as and account stay only on the same provider.
+func UnitOf(own agentconfig.Overlay, provider, profile string) agentconfig.Overlay {
+	add := agentconfig.Overlay{Provider: provider, Profile: profile}
+	if provider == own.Provider {
+		add.Endpoint, add.Identity, add.Account = own.Endpoint, own.Identity, own.Account
+	}
+	return add
+}
+
+// ambientOverlay is this process's own env as overlay keys, read once at the top of a tree (children get it scrubbed).
+func ambientOverlay(ctx context.Context) agentconfig.Overlay {
+	var o agentconfig.Overlay
+	if raw := strings.TrimSpace(proc.Value(ctx, router.EnvFallback)); raw != "" && slices.Contains(route.FallbackModes, router.ParseFallback(raw)) {
+		o.Fallback = router.ParseFallback(raw)
+	}
+	if mode := strings.ToLower(strings.TrimSpace(proc.Value(ctx, rtkwrap.CodemodeEnv))); slices.Contains(route.Codemodes, mode) {
+		o.Codemode = mode
+	}
+	for key, dst := range map[string]**int{maxDispatchChildrenEnv: &o.MaxChildren, maxTreeTokensEnv: &o.MaxTreeTokens, maxDispatchDepthEnv: &o.MaxDepth} {
+		if n, err := strconv.Atoi(proc.Value(ctx, key)); err == nil && n >= 0 {
+			*dst = &n
+		}
+	}
+	return o
 }
 
 const dispatchProxyEnv = "HARNESS_DISPATCH_PROXY"

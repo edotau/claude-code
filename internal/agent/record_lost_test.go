@@ -8,7 +8,7 @@ import (
 
 func TestRecoverableRequiresPreviousBootDeadBackgroundJob(t *testing.T) {
 	boot := time.Now().Add(-time.Minute)
-	base := NewRecord("codex", RunOptions{Prompt: "saved request"}, boot.Add(-time.Hour))
+	base := NewRecord("codex", RunOptions{Prompt: "saved request"}, boot.Add(-time.Minute))
 	base.Background, base.PID, base.FallbackPolicy = true, adapterDeadPID(t), "all"
 	setConfigDir(t)
 	fixtureRecord(t, base)
@@ -37,6 +37,9 @@ func TestRecoverableRequiresPreviousBootDeadBackgroundJob(t *testing.T) {
 		{"success", func(r *Record) { r.Status = "ok" }, false},
 		{"cancelled", func(r *Record) { r.Status, r.Error = "error", "cancelled" }, false},
 		{"unrelated lost", func(r *Record) { r.Status = "lost" }, false},
+		{"cancel kind", func(r *Record) { r.FailKind = FailCancelled }, false},
+		{"overdue", func(r *Record) { r.Time = boot.Add(-2 * AttemptTimeoutFor(r.Request)) }, false},
+		{"budget end", func(r *Record) { r.BudgetKind = "deadline" }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := base

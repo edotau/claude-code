@@ -246,7 +246,7 @@ func TestSpawnArgvUsesJobIdentity(t *testing.T) {
 func TestRecoverJobExactlyOnce(t *testing.T) {
 	setConfigDir(t)
 	boot := time.Now().Add(-time.Minute)
-	r := NewRecord("codex", RunOptions{Prompt: "saved task", WorkDir: t.TempDir()}, boot.Add(-time.Hour))
+	r := NewRecord("codex", RunOptions{Prompt: "saved task", WorkDir: t.TempDir()}, boot.Add(-time.Minute))
 	r.Background, r.PID, r.Cwd, r.FallbackPolicy = true, adapterDeadPID(t), r.Request.WorkDir, "none"
 	fixtureRecord(t, r)
 	r, err := LoadRecord(r.ID)
@@ -280,7 +280,7 @@ func TestRecoverJobExactlyOnce(t *testing.T) {
 func assertRecoveredRecord(t *testing.T, r Record, boot time.Time) {
 	t.Helper()
 	got, err := LoadRecord(r.ID)
-	if err != nil || got.PID <= 0 || got.PID == r.PID || !got.Time.After(boot) || got.PPID != 0 {
+	if err != nil || got.PID <= 0 || got.PID == r.PID || !got.Time.Equal(r.Time) || !got.Time.Before(boot) || got.PPID != 0 { // the budget clock spans the reboot
 		t.Fatalf("recovered process = %+v, err %v", got, err)
 	}
 	r.PID, r.PIDStart, r.Time, r.Log = got.PID, got.PIDStart, got.Time, got.Log
@@ -295,7 +295,7 @@ func assertRecoveredRecord(t *testing.T, r Record, boot time.Time) {
 func TestRecoverJobHandlesReapedRecordsAndSpawnFailure(t *testing.T) {
 	setConfigDir(t)
 	boot := time.Now().Add(-time.Minute)
-	r := NewRecord("codex", RunOptions{Prompt: "saved task"}, boot.Add(-time.Hour))
+	r := NewRecord("codex", RunOptions{Prompt: "saved task"}, boot.Add(-time.Minute))
 	r.Background, r.PID, r.FallbackPolicy = true, adapterDeadPID(t), "all"
 	fixtureRecord(t, r)
 	if got := reapLost(r); got.Status != "lost" {
@@ -319,7 +319,7 @@ func TestRecoverJobHandlesReapedRecordsAndSpawnFailure(t *testing.T) {
 func TestRecoverJobSkipsHistoricallyLostRecord(t *testing.T) {
 	setConfigDir(t)
 	boot := time.Now().Add(-time.Minute)
-	r := NewRecord("codex", RunOptions{Prompt: "saved task"}, boot.Add(-time.Hour))
+	r := NewRecord("codex", RunOptions{Prompt: "saved task"}, boot.Add(-time.Minute))
 	r.Background, r.PID, r.Status, r.Error, r.FallbackPolicy = true, adapterDeadPID(t), "lost", LostError, "all"
 	fixtureRecord(t, r)
 	path := filepath.Join(paths.DispatchDir(), r.ID+".json")

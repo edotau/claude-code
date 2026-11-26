@@ -57,7 +57,7 @@ func TestResolveModel(t *testing.T) {
 		{"gemini", "antigravity", "gemini-3-8-flash-high", "gemini-3.8-flash"},
 	}
 	for _, c := range cells {
-		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Profile: c.profile, Model: c.model}, time.Now())
+		r, err := resolveQ(reg, ModelQuery{Agent: c.agent, Profile: c.profile, Model: c.model}, time.Now())
 		if err != nil || r.Profile != c.profile || r.Model != c.wire {
 			t.Errorf("%s --profile %s %s = %+v, %v; want %s %s", c.agent, c.profile, c.model, r, err, c.profile, c.wire)
 		}
@@ -66,7 +66,7 @@ func TestResolveModel(t *testing.T) {
 
 func familyWire(t *testing.T, agent, row, model string) (string, error) {
 	t.Helper()
-	r, err := ResolveModel(routeRegistry(t), ModelQuery{Agent: agent, Profile: row, Model: model}, time.Now())
+	r, err := resolveQ(routeRegistry(t), ModelQuery{Agent: agent, Profile: row, Model: model}, time.Now())
 	return r.Model, err
 }
 
@@ -126,7 +126,7 @@ func TestResolveModelMarkedAlias(t *testing.T) {
 		{wire + "[1m]", true},
 	} {
 		t.Run(c.input, func(t *testing.T) {
-			r, err := ResolveModel(reg, ModelQuery{Agent: "claude", Model: c.input, Profile: "dev"}, time.Now())
+			r, err := resolveQ(reg, ModelQuery{Agent: "claude", Model: c.input, Profile: "dev"}, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -156,7 +156,7 @@ func TestResolveModelOwnLoginPinIgnoresSession(t *testing.T) {
 		{"copilot", "aueric_boehcp", "prod", "aueric_boehcp"},
 		{"codex", "dev", "prod", "prod"},
 	} {
-		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, PinProfile: c.pin, Session: c.session}, time.Now())
+		r, err := resolveQ(reg, ModelQuery{Agent: c.agent, PinProfile: c.pin, Session: c.session}, time.Now())
 		if err != nil || r.Profile != c.profile {
 			t.Errorf("%s pin %s session %s = %+v, %v; want %s", c.agent, c.pin, c.session, r, err, c.profile)
 		}
@@ -172,11 +172,11 @@ func TestResolveModelRefuses(t *testing.T) {
 		{"gemini", "antigravity", "gemini-3-8-flash-xhigh"}, {"gemini", "antigravity", "gemini-4-argon-xhigh"},
 		{"gemini", "antigravity", "databricks-claude-sonnet-5-5"}, {"gemini", "antigravity", "claude-haiku-5-5"},
 	} {
-		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Profile: c[1], Model: c[2], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
+		if _, err := resolveQ(reg, ModelQuery{Agent: c[0], Profile: c[1], Model: c[2], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s --profile %s %s: err = %v; want ErrModelRoute", c[0], c[1], c[2], err)
 		}
 	}
-	if r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "dev", Model: "opus", Session: "prod"}, time.Now()); err != nil || r.Model != "databricks-gemini-4-argon" {
+	if r, err := resolveQ(reg, ModelQuery{Agent: "gemini", Profile: "dev", Model: "opus", Session: "prod"}, time.Now()); err != nil || r.Model != "databricks-gemini-4-argon" {
 		t.Errorf("gemini --profile dev opus = %+v, %v; want databricks-gemini-4-argon", r, err)
 	}
 }
@@ -186,13 +186,13 @@ func TestSpellModelAccepts(t *testing.T) {
 	setConfigDir(t)
 	reg := routeRegistry(t)
 	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"})
-	_, err := ResolveModel(reg, ModelQuery{Agent: "codex", Model: "bogus-model-xyz", Profile: "dev"}, time.Now())
+	_, err := resolveQ(reg, ModelQuery{Agent: "codex", Model: "bogus-model-xyz", Profile: "dev"}, time.Now())
 	if ue, ok := errors.AsType[*UnacceptedError](err); !ok || !errors.Is(err, ErrModelRoute) || len(ue.Nearest) == 0 {
 		t.Errorf("typed: err = %v; want an UnacceptedError with nearest ids", err)
 	}
 	ctx := proc.WithValues(t.Context(), proc.Values{"CODEX_MODEL": "bogus-model-xyz"})
 	q := ModelQuery{ctx: ctx, Agent: "codex", Profile: "dev", PinModel: "bogus-model-xyz"}
-	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "CODEX_MODEL=") {
+	if _, err := resolveQ(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "CODEX_MODEL=") {
 		t.Errorf("env pin: err = %v; want a refusal naming CODEX_MODEL", err)
 	}
 }
@@ -201,12 +201,12 @@ func TestSpellModelAccepts(t *testing.T) {
 func TestResolveModelAgyEfforts(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, e := range []string{"low", "medium", "high", "xhigh"} {
-		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gemini-4-hydrogen-" + e}, time.Now())
+		r, err := resolveQ(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gemini-4-hydrogen-" + e}, time.Now())
 		if err != nil || r.Effort != e || r.Model != "gemini-4-hydrogen" {
 			t.Errorf("hydrogen-%s = %+v, %v", e, r, err)
 		}
 	}
-	_, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gpt-oss-120b-high"}, time.Now())
+	_, err := resolveQ(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gpt-oss-120b-high"}, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "takes effort medium") {
 		t.Errorf("gpt-oss-120b-high err = %v; want the accepted levels named", err)
 	}
@@ -232,7 +232,7 @@ func TestResolveModelCodexAliasUsesRecordModel(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, alias := range []string{"opus", "sonnet"} {
 		q := ModelQuery{Agent: "codex", Model: alias, Profile: "dev", PinModel: "databricks-gpt-6-1-sol"}
-		if r, err := ResolveModel(reg, q, time.Now()); err != nil || r.Model != "databricks-gpt-6-1-sol" {
+		if r, err := resolveQ(reg, q, time.Now()); err != nil || r.Model != "databricks-gpt-6-1-sol" {
 			t.Errorf("codex %s = %+v, %v; want databricks-gpt-6-1-sol", alias, r, err)
 		}
 	}
@@ -272,18 +272,18 @@ func TestResolveModelGeminiNoProfile(t *testing.T) {
 		{"claude-* keeps the pin in force", "claude-sonnet-5-5", "dev", "antigravity", "antigravity"},
 		{"claude-* keeps the session when unpinned", "claude-sonnet-5-5", "dev", "", "dev"},
 	} {
-		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: c.model, Session: c.session, PinProfile: c.pin}, time.Now())
+		r, err := resolveQ(reg, ModelQuery{Agent: "gemini", Model: c.model, Session: c.session, PinProfile: c.pin}, time.Now())
 		if err != nil || r.Profile != c.profile {
 			t.Errorf("%s: got %s, %v; want %s", c.name, r.Profile, err, c.profile)
 		}
 	}
 	q := ModelQuery{Agent: "gemini", Model: "databricks-claude-sonnet-5-5", Profile: "antigravity", Session: "dev"}
-	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
+	if _, err := resolveQ(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
 		t.Errorf("explicit --profile antigravity must win and refuse a databricks- model: %v", err)
 	}
 	reg.Default = "antigravity"
 	q = ModelQuery{Agent: "gemini", Model: "databricks-claude-sonnet-5-5", PinProfile: "antigravity"}
-	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
+	if _, err := resolveQ(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
 		t.Errorf("no Databricks row anywhere must refuse, got %v", err)
 	}
 }
@@ -303,12 +303,12 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := ModelQuery{Agent: "codex", Model: "gpt-6-1-sol", Profile: poolName}
-	if r, err := ResolveModel(reg, q, now); err != nil || r.Profile != "dev" {
+	if r, err := resolveQ(reg, q, now); err != nil || r.Profile != "dev" {
 		t.Fatalf("refreshable pool = %v, %v", r, err)
 	}
 	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"tokenCommand":[]}`})
 	q = QueryFor(ctx, q)
-	if _, err := ResolveModel(reg, q, now); err == nil {
+	if _, err := resolveQ(reg, q, now); err == nil {
 		t.Fatal("disabled command accepted short token")
 	}
 }
@@ -324,16 +324,21 @@ func TestResolveModelKeepsRouteWhole(t *testing.T) {
 		t.Fatalf("pin = %+v, %q; want %+v", q.PinRoute, q.PinProfile, pinned)
 	}
 	q.Session = ""
-	r, err := ResolveModel(reg, q, time.Now())
+	r, err := resolveQ(reg, q, time.Now())
 	if err != nil || r.Overlay().Route() != pinned {
 		t.Fatalf("pinned = %+v, %v; want %+v", r, err, pinned)
 	}
 	want := route.Route{Provider: "anthropic", Profile: "ultra"}
 	q.Route = want
-	r, err = ResolveModel(reg, q, time.Now())
+	r, err = resolveQ(reg, q, time.Now())
 	if err != nil || r.Overlay().Route() != want {
 		t.Fatalf("overlay route = %+v, %v; want %+v", r, err, want)
 	}
+}
+
+// resolveQ resolves q as written: its own unit and alias.
+func resolveQ(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+	return ResolveModel(reg, q.Route, q.Model, q, now)
 }
 
 func agentRuns(agentName string, p *providers.Provider, wire string) bool {

@@ -762,7 +762,7 @@ func rungDispatches(ctx context.Context, reg *providers.Registry) []string {
 func familyEntryCases(t *testing.T, reg *providers.Registry) []familyCase {
 	ctx, dev := context.Background(), reg.Providers["dev"]
 	direct := func(q ModelQuery) []string {
-		r, err := ResolveModel(reg, q, time.Now())
+		r, err := resolveQ(reg, q, time.Now())
 		return append(chainModels(Chain{}, err), r.Model)
 	}
 	target := func(req RunOptions) []string {

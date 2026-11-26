@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
@@ -26,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxyteam"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -94,6 +96,71 @@ func TestEnvironLaunchSetSurvivesScrub(t *testing.T) {
 		Environ(context.Background())
 	if n := count(pre, name+"="); n != 1 || !slices.Contains(pre, name+"=http://launch.invalid") {
 		t.Errorf("prescrubbed base + Set %s: want only the launch value, got %d entries", name, n)
+	}
+}
+
+// A dispatch child gets the carried env as its overlay copy only; a plain launch keeps the inherited names.
+func TestEnvironDispatchChildTakesCarriedFromOverlay(t *testing.T) {
+	for _, n := range proc.DispatchCarried {
+		t.Setenv(n, "")
+	}
+	t.Setenv("AGENT_ERROR_FALLBACK", "none")
+	t.Setenv("CODEMODE", "on")
+	t.Setenv("CODEX_MODEL", "x")
+	t.Setenv("HARNESS_KEEP_ENV", "FOO")
+	t.Setenv("HARNESS_DISPATCH_MAX_CHILDREN", "3")
+	child := EnvSpec{Mode: EnvAgent, Unset: []string{route.OverlayVar}}.Environ(withDispatchID(context.Background(), "d1", 0))
+	for _, n := range []string{"AGENT_ERROR_FALLBACK", "CODEX_MODEL", "HARNESS_KEEP_ENV", "HARNESS_DISPATCH_MAX_CHILDREN"} {
+		if v := proc.LastEnv(child, n); v != "" {
+			t.Errorf("dispatch child inherited %s", n)
+		}
+	}
+	doc := proc.LastEnv(child, "COWORKER_OVERLAY")
+	for _, want := range []string{`"fallback":"none"`, `"codemode":"on"`, `"maxChildren":3`} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("overlay copy %s lacks %s", doc, want)
+		}
+	}
+	if strings.Contains(doc, "model") {
+		t.Errorf("overlay copy %s carries a model", doc)
+	}
+	if got := proc.LastEnv(child, "CODEMODE"); got != "on" {
+		t.Errorf("child CODEMODE = %q, want on from the overlay", got)
+	}
+	carried := proc.WithValues(t.Context(), proc.Values{proc.DispatchIDEnv: "p1", "CODEMODE": "on"}) // a carried child: id in values only
+	if got := proc.LastEnv(EnvSpec{Mode: EnvClaude}.Environ(carried), "CODEMODE"); got != "on" {
+		t.Errorf("carried child CODEMODE = %q, want on", got)
+	}
+	if got := proc.LastEnv(EnvSpec{Mode: EnvAgent}.Environ(context.Background()), "CODEX_MODEL"); got != "x" {
+		t.Errorf("a non-dispatch launch lost CODEX_MODEL: %q", got)
+	}
+}
+
+// A provider-only unit keeps its caps in the child's copy; an unreadable parent doc leaves a fence nothing passes.
+func TestChildOverlayProviderOnlyAndUnreadable(t *testing.T) {
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"maxChildren":2}`})
+	if o := ChildOverlay(ctx, "openai", ""); o.Provider != "openai" || o.MaxChildren == nil || *o.MaxChildren != 2 || o.Fence != nil {
+		t.Errorf("provider-only copy %+v, want openai with maxChildren 2 and no fence", o)
+	}
+	bad := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"maxChildren":2`}) // malformed: a stored unknown key now loads, dropped
+	o := ChildOverlay(bad, "databricks", "dev")
+	if _, err := agentconfig.LoadOverlayContext(t.Context(), childDoc(o), nil); err == nil || !strings.Contains(err.Error(), "outside the fence") {
+		t.Errorf("unreadable parent: child doc %s (%v), want a fence the child refuses to open", childDoc(o), err)
+	}
+	stored := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"nope":1,"maxChildren":2}`})
+	if o := ChildOverlay(stored, "openai", ""); o.Fence != nil || o.MaxChildren == nil || *o.MaxChildren != 2 {
+		t.Errorf("stored unknown key: child %+v, want the known keys kept and no fence", o)
+	}
+}
+
+// A fenced provider-only base refuses a unit on another provider, as Derive does for a full unit.
+func TestDeriveUnitKeepsFencedProvider(t *testing.T) {
+	base := agentconfig.Overlay{Provider: "openai", Fence: &route.Fence{}}
+	if _, err := DeriveUnit(base, agentconfig.Overlay{Provider: "databricks", Profile: "dev"}, agentconfig.HopAppend); err == nil {
+		t.Error("a fenced openai base accepted a databricks unit")
+	}
+	if _, err := DeriveUnit(base, agentconfig.Overlay{Provider: "databricks"}, agentconfig.HopAppend); err == nil {
+		t.Error("a fenced openai base accepted a provider-only databricks unit")
 	}
 }
 
@@ -397,5 +464,25 @@ func TestParentTeamFirst(t *testing.T) {
 	got := parentTeamFirst(cfg, cfg.Routes(proxyteam.KindNested))
 	if len(got) == 0 || got[0].Name != "phase" || got[len(got)-1].Name != "shared" {
 		t.Fatalf("routes = %v", got)
+	}
+}
+
+// UnitOf keeps an endpoint, as and account on the same provider only.
+func TestUnitOfKeepsEndpointOnSameProvider(t *testing.T) {
+	own := agentconfig.Overlay{Endpoint: "e", Provider: "p", Profile: "x", Identity: "sp", Account: "a"}
+	if got := UnitOf(own, "p", "y"); got.Endpoint != "e" || got.Identity != "sp" || got.Account != "a" || got.Profile != "y" {
+		t.Errorf("same provider: %+v", got)
+	}
+	if got := UnitOf(own, "q", "y"); got.Endpoint != "" || got.Identity != "" || got.Account != "" {
+		t.Errorf("other provider: %+v", got)
+	}
+}
+
+// A provider-only unit replaces the base's route whole, its endpoint included.
+func TestDeriveUnitProviderOnlyDropsEndpoint(t *testing.T) {
+	base := agentconfig.Overlay{Endpoint: "https://e.example/v1", Provider: "openai", Profile: "x"}
+	got, err := DeriveUnit(base, agentconfig.Overlay{Provider: "google"}, agentconfig.HopAppend)
+	if err != nil || got.Endpoint != "" || got.Provider != "google" || got.Profile != "" {
+		t.Errorf("got %+v, %v; want provider google alone", got, err)
 	}
 }

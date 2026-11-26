@@ -132,7 +132,7 @@ func rotationRan(oneOf []string, note string) func(ModelRoute, error) bool {
 func TestRotationPickOutcomes(t *testing.T) {
 	reg, _, pair := autoFixture(t)
 	now, dev := time.Now(), reg.Providers["dev"]
-	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, now)
+	prodOpus, _ := resolveQ(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, now)
 	if len(band(pair, "deep", false, nil)) != 0 || len(band(pair, "standard", false, nil)) == 0 {
 		t.Fatalf("fixture: xf must serve standard but not deep, got %v", pair)
 	}
@@ -177,7 +177,7 @@ func TestRotationClaudeKeepsTier(t *testing.T) {
 	for _, tc := range []struct{ task, alias string }{
 		{fastBrief, models.Haiku}, {standardBrief, models.Sonnet}, {deepBrief, models.Opus}, {"", models.Sonnet},
 	} {
-		want, err := ResolveModel(reg, ModelQuery{Agent: "claude", Profile: "dev", Model: tc.alias}, now)
+		want, err := resolveQ(reg, ModelQuery{Agent: "claude", Profile: "dev", Model: tc.alias}, now)
 		if err != nil {
 			t.Fatal(err)
 		}

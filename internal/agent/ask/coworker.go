@@ -95,10 +95,9 @@ func withValues(ctx context.Context, set proc.Values) context.Context {
 	return proc.WithValues(ctx, values.Merge(set))
 }
 
-// confinement is $COWORKER_OVERLAY as provider[:p] plus the run's caps: the router and nested dispatches read it there.
+// confinement is $COWORKER_OVERLAY as provider[:p] plus what a child inherits (D5), read by the router and nested asks.
 func confinement(ctx context.Context, provider, p string) proc.Values {
-	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable doc carries no caps
-	return proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: provider, Profile: p, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()}
+	return proc.Values{route.OverlayVar: agent.ChildDoc(ctx, provider, p)}
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -563,7 +562,11 @@ func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context,
 		ov.Remote = egress.HostContext(ctx)
 	}
 	// resolved (never auto): the relaunch inherits it as its confinement
-	ov.Provider, ov.Profile, _ = router.OverlayRoute(ctx)
+	provider, profile, _ := router.OverlayRoute(ctx)
+	ov, err := agent.DeriveUnit(ov, agent.UnitOf(ov, provider, profile), agentconfig.HopAppend)
+	if err != nil {
+		return ctx, err
+	}
 	doc, err := json.Marshal(ov) // set holds names and @secret refs: validation refused credential values
 	if err != nil {
 		return ctx, err

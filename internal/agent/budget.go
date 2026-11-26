@@ -53,6 +53,11 @@ func (r Record) LostBudgetEnd(now time.Time) bool {
 	return r.BudgetKind != "" || r.LostRanFor(now) > AttemptTimeoutFor(r.Request)
 }
 
+// NoResend reports a dead run no automatic path may re-send: cancelled by the user, or a budget end.
+func (r Record) NoResend(now time.Time) bool {
+	return r.FailKind == FailCancelled || r.LostBudgetEnd(now)
+}
+
 // SettleLostPastDeadline marks a dead run that ran past its attempt timeout a deadline budget end; true when it is one.
 func (r *Record) SettleLostPastDeadline(now time.Time) bool {
 	if r.BudgetKind == "" && r.LostBudgetEnd(now) {

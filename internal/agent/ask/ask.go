@@ -244,7 +244,7 @@ func LoadOverlay(ctx context.Context, value, busy string) (agentconfig.Overlay, 
 		}
 		return agentconfig.Overlay{}, errors.New(from + ": " + busy)
 	}
-	return agentconfig.LoadOverlayContext(ctx, agentconfig.DispatchOverlayContext(ctx, value), os.Stdin)
+	return agentconfig.LoadOverlayFrom(ctx, agentconfig.DispatchOverlayContext(ctx, value), os.Stdin, value != "")
 }
 
 // remoteWithHost refuses an overlay remote on a run that goes to --host (typed, or restored from a record).

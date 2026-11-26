@@ -109,9 +109,9 @@ func refusePinnedPrefix(ctx context.Context, name string, o LaunchOptions) error
 	if o.Model != "" {
 		return nil // a typed model outranks every pin
 	}
-	env := providers.AgentModelEnv(name)
+	shell, env := providers.EnvModel(ctx, name)
 	for _, src := range [][2]string{
-		{"env " + env, proc.Value(ctx, env)},
+		{"env " + env, shell},
 		{"vault env " + env, providers.CustomEnv()[env]}, // merged into the child after resolution: checked here
 		{name + " record model", vault.GetAgentRecord(name).Model},
 	} {
@@ -157,7 +157,9 @@ func launchRoute(ctx context.Context, reg *providers.Registry, name string, o La
 	}
 	resolve := ResolveRun
 	if ownConnectorQuery(q) {
-		resolve = ResolveModel // a launch checks an own-plan model against the row; only a run reports it unrouted
+		resolve = func(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+			return ResolveModel(reg, q.Route, q.Model, q, now) // a launch checks an own-plan model against the row; only a run reports it unrouted
+		}
 	}
 	r, err := resolve(reg, q, time.Now())
 	if errors.Is(err, ErrModelRoute) {

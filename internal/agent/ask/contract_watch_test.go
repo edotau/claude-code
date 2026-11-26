@@ -367,3 +367,36 @@ func TestTerminalContractRecoveryRefusesBeforeModelRun(t *testing.T) {
 		t.Fatalf("refusal was not concluded: %+v %v", rec, err)
 	}
 }
+
+// TestClaimRecoverGate: --recover of a cancelled dispatch is refused at launch; a plain --retry is not gated.
+func TestClaimRecoverGate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	rec.Status, rec.FailKind = "error", agent.FailCancelled
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), recoverKey{}, &recoverClaim{from: rec.ID})
+	if err := claimRecover(ctx); !errors.Is(err, agent.ErrNotResent) {
+		t.Fatalf("recover of a cancelled dispatch: %v, want not re-sent", err)
+	}
+	if err := claimRecover(context.Background()); err != nil {
+		t.Fatalf("plain retry was gated: %v", err)
+	}
+}
+
+// TestRefusedFleetStartLeavesNoRunningRecord: a fleet start refused for its parent settles the claimed record as error.
+func TestRefusedFleetStartLeavesNoRunningRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, time.Now())
+	o := &contractOpen{Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner: contract.Party{Role: contract.RoleFleet, Agent: "pi"}, Limits: contract.Limits{Depth: contract.MaxDepth},
+		Parent: "no-such-owner"}
+	if err := startAsk(withContract(context.Background(), o), nil, &rec); err == nil {
+		t.Fatal("fleet start with a missing parent was not refused")
+	}
+	got, err := agent.LoadRecord(rec.ID)
+	if err != nil || got.Status != wire.StatusError {
+		t.Fatalf("record after refusal: %v, status %q error %q; want error", err, got.Status, got.Error)
+	}
+}

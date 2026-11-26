@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"io/fs"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/mdlint"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -695,4 +697,70 @@ func TestShowBlockRefForms(t *testing.T) {
 func assignIDsT(now time.Time) (int, error) {
 	n, _, err := assignIDTexts(now)
 	return n, err
+}
+
+func TestBankRendererLintClean(t *testing.T) {
+	lintRoot := mdlint.Root(".")
+	if bin := cmp.Or(mdlint.Mdsmith(lintRoot), mdlint.Mdsmith(paths.MainCheckout(lintRoot))); bin != "" {
+		t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	long := strings.Repeat("a long prose sentence that must wrap ", 12)
+	fence := "```go\nx := 1\n```"
+	now := time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC)
+	kinds := map[string]struct {
+		header, prefix string
+		blocks         []string
+	}{
+		"decisionLog.md":    {"# Decisions\n\n> contract", "## ", []string{"## 2026-11-25 — a\n" + long + "\n\n- " + long + "\n\n" + fence, "## 2026-11-24 — b\nshort"}},
+		"sessionHistory.md": {"# Session history", "## ", []string{"## 2026-11-25 — s\n" + long, "## 2026-11-24 — t\nx"}},
+		"conventions.md":    {"# Conventions", "- ", []string{"- " + long, "- short"}},
+	}
+	for name, k := range kinds {
+		text, _ := stampIDs(name, k.prefix, rejoin(k.header, k.blocks), now)
+		text = formatBankMarkdown(text)
+		if blankAfterHeadings(text) != text || blankAfterHeadings("## h\nbody\n```\n## x\ny\n```\n") != "## h\n\nbody\n```\n## x\ny\n```\n" {
+			t.Errorf("%s: blankAfterHeadings is not idempotent or touches fences", name)
+		}
+		lintClean(t, lintRoot, name, text)
+		if got := string(ParseDoc(name, []byte(text)).Render()); got != text {
+			t.Errorf("%s: round trip differs", name)
+		}
+		before := docIDs(ParseDoc(name, []byte(stampedOnly(name, k.prefix, rejoin(k.header, k.blocks), now))))
+		if after := docIDs(ParseDoc(name, []byte(text))); !slices.Equal(before, after) || len(after) != len(k.blocks) {
+			t.Errorf("%s: entry ids %v, want %v", name, after, before)
+		}
+		arch := appendedText(filepath.Join("archive", strings.TrimSuffix(name, ".md")+"-2026-10.md"), "", k.blocks)
+		lintClean(t, lintRoot, strings.TrimSuffix(name, ".md")+"-2026-10.md", formatBankMarkdown(arch))
+	}
+	for _, name := range []string{"activeContext.md", "progress.md"} {
+		lintClean(t, lintRoot, name, formatBankMarkdown("# "+name+"\n\n## Now\n\n- "+long+"\n\n## Later\n\n- c\n"))
+	}
+}
+
+func docIDs(d Doc) []string {
+	ids := make([]string, len(d.Entries))
+	for i, e := range d.Entries {
+		ids[i] = ownerID(strings.Join(e.Lines, "\n")) // wrapping may move the marker off the first line
+	}
+	return ids
+}
+
+func stampedOnly(name, prefix, text string, now time.Time) string {
+	out, _ := stampIDs(name, prefix, text, now)
+	return out
+}
+
+func TestBlankAfterHeadingsCases(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"indented closer", "~~~\n    ~~~\n# literal\nbody\n~~~\n", "~~~\n    ~~~\n# literal\nbody\n~~~\n"},
+		{"html pre", "<pre>\n# literal\nbody\n</pre>\n# h\nbody\n", "<pre>\n# literal\nbody\n</pre>\n# h\n\nbody\n"},
+		{"html comment", "<!--\n# c\nx\n-->\n", "<!--\n# c\nx\n-->\n"},
+		{"crlf", "## h <!-- id:0a1b2c3d -->\r\nbody\r\n", "## h <!-- id:0a1b2c3d -->\r\n\r\nbody\r\n"},
+		{"short closer", "```\n  ```\n## h\nb\n", "```\n  ```\n## h\n\nb\n"},
+		{"tilde not backtick", "~~~\n```\n## h\nb\n~~~\n## i\nb\n", "~~~\n```\n## h\nb\n~~~\n## i\n\nb\n"},
+	} {
+		if got := blankAfterHeadings(c.in); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
 }

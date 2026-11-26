@@ -174,13 +174,36 @@ func TestBatchRejectsUnknownProvider(t *testing.T) {
 }
 
 // A line's runner joins an inherited overlay document and keeps its other keys.
-func TestWithRunnerKeepsInheritedKeys(t *testing.T) {
-	got := withRunner(`{"effort":"high"}`, "pi")
-	if !strings.Contains(got, `"effort":"high"`) || !strings.Contains(got, `"runner":"pi"`) {
-		t.Fatalf("withRunner = %s, want effort and runner", got)
+func TestLineRunnerKeepsInheritedKeys(t *testing.T) {
+	lines, err := readTaskLines(strings.NewReader(`{"prompt":"x","overlay":{"runner":"pi"}}` + "\n"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := withRunner("", "own"); got != `{"runner":"own"}` {
-		t.Fatalf("withRunner(empty) = %s", got)
+	for doc, want := range map[string]string{`{"effort":"high"}`: `"effort":"high"`, "": `"runner":"pi"`} {
+		req, _, err := lineRequest(lines[0], "codex", agent.RunOptions{Values: proc.Values{route.OverlayVar: doc}})
+		if got := req.Values[route.OverlayVar]; err != nil || !strings.Contains(got, want) || !strings.Contains(got, `"runner":"pi"`) {
+			t.Fatalf("doc %q: values %q, err %v; want runner pi and %s", doc, got, err, want)
+		}
+	}
+}
+
+// A line overlay's model is typed, so a fallback never swaps it; auto and no model stay untyped.
+func TestBatchLineOverlayModelIsTyped(t *testing.T) {
+	for overlay, want := range map[string]bool{`{"model":"sonnet"}`: true, `{"model":"auto"}`: false, `{"effort":"high"}`: false} {
+		lines, err := readTaskLines(strings.NewReader(`{"prompt":"x","overlay":` + overlay + "}\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, _, err := lineRequest(lines[0], "codex", agent.RunOptions{})
+		if err != nil || req.ModelTyped != want {
+			t.Errorf("overlay %s: ModelTyped %v (%v), want %v", overlay, req.ModelTyped, err, want)
+		}
+		if overlay == `{"model":"auto"}` { // an auto line overlay replaces a typed base model
+			req, _, err = lineRequest(lines[0], "codex", agent.RunOptions{Model: "sonnet", ModelTyped: true})
+			if err != nil || req.ModelTyped {
+				t.Errorf("auto over a typed base: ModelTyped %v (%v), want false", req.ModelTyped, err)
+			}
+		}
 	}
 }
 

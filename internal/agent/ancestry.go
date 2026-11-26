@@ -54,27 +54,16 @@ func withAncestorDispatch(values proc.Values) proc.Values {
 		return values
 	}
 	set := proc.Values{proc.DispatchIDEnv: rec.ID, proc.DispatchDepthEnv: strconv.Itoa(rec.Depth)}
-	if doc := (agentconfig.Overlay{Provider: rec.Route.Provider, Profile: rec.Route.Profile}).Doc(); doc != "" { // the parent's fence beats any ambient one
-		set[route.OverlayVar] = doc
+	parent := agentconfig.Overlay{Provider: rec.Route.Provider, Profile: rec.Route.Profile,
+		MaxChildren: rec.MaxChildren, MaxTreeTokens: rec.MaxTreeTokens, MaxDepth: rec.MaxDepth}
+	own, err := DeriveUnit(parent, agentconfig.Overlay{}, agentconfig.HopDispatchChild)
+	if err != nil { // fail closed: the parent's unit under a fence that admits no profile
+		own = agentconfig.Overlay{Provider: rec.Route.Provider, Profile: rec.Route.Profile, Fence: &route.Fence{}}
 	}
-	return values.Merge(set).Merge(inheritedCaps(values, rec))
-}
-
-// inheritedCaps is rec's depth, children and tree-token caps, each tightened by a valid value already in values.
-func inheritedCaps(values proc.Values, rec Record) proc.Values {
-	set := proc.Values{}
-	for key, n := range map[string]*int{
-		maxDispatchDepthEnv: rec.MaxDepth, maxDispatchChildrenEnv: rec.MaxChildren, maxTreeTokensEnv: rec.MaxTreeTokens,
-	} {
-		if n != nil {
-			limit := *n
-			if existing, err := strconv.Atoi(values[key]); err == nil && existing >= 0 {
-				limit = minDispatchCap(n, &existing, limit)
-			}
-			set[key] = strconv.Itoa(limit)
-		}
+	if doc := childDoc(own); doc != "" {
+		set[route.OverlayVar] = doc // the parent's fence beats any ambient one
 	}
-	return set
+	return values.Merge(set) // an env cap already in values still tightens: dispatchLimit takes the smaller
 }
 
 // findAncestorDispatch recovers a unique nearest live dispatch or refuses a shared or finished parent.

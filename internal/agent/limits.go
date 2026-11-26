@@ -27,16 +27,25 @@ const (
 
 var dispatchChildrenLockWait = 250 * time.Millisecond
 
+// dispatchLimit is the tighter of the overlay's cap and the env's (a top of tree only: children never inherit it).
 func dispatchLimit(ctx context.Context, key string, fallback int) int {
-	if proc.Value(ctx, key) == "" {
-		o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
-		return o.Limit(key, fallback)
+	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+	var ov, env *int
+	if n := o.Limit(key, -1); n >= 0 {
+		ov = &n
 	}
-	n, err := strconv.Atoi(proc.Value(ctx, key))
-	if err != nil || n < 0 {
+	if n, err := strconv.Atoi(proc.Value(ctx, key)); err == nil && n >= 0 {
+		env = &n
+	}
+	switch {
+	case ov == nil && env == nil:
 		return fallback
+	case ov == nil:
+		return *env
+	case env == nil:
+		return *ov
 	}
-	return n
+	return minDispatchCap(ov, env, fallback)
 }
 
 // ErrTreeBudget marks a nested dispatch refused because its tree spent its token budget.
