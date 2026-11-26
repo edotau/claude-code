@@ -823,3 +823,58 @@ func TestDreamReadTokenAppliesUnderDBTruth(t *testing.T) {
 		t.Fatalf("apply with the listed read %q: %v", read, err)
 	}
 }
+
+func TestOpenBankStoreImportTakesTheBankLock(t *testing.T) {
+	openStoreEnv(t) // files truth: every open imports first
+	old := memory.BankLockWait
+	memory.BankLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { memory.BankLockWait = old })
+	err := memory.WithBankLock(0, func() error {
+		if _, _, err := memory.OpenBankStore(false); !errors.Is(err, memory.ErrBankBusy) {
+			t.Errorf("unlocked open imported under another holder's lock: err=%v, want ErrBankBusy", err)
+		}
+		s, closeFn, err := memory.OpenBankStore(true)
+		if err != nil {
+			return err
+		}
+		_ = s
+		return closeFn()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, closeFn, err := memory.OpenBankStore(false)
+	if err != nil {
+		t.Fatalf("unlocked open with a free lock: %v", err)
+	}
+	_ = s
+	if err := closeFn(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOpenBankStoreMissingTruthKeepsUnexportedRow(t *testing.T) {
+	e := newParityEnv(t, "db")
+	if err := os.Remove(filepath.Join(paths.StateDir(), "memory", "truth")); err != nil {
+		t.Fatal(err)
+	}
+	old := memory.OpenExportDB
+	t.Cleanup(func() { memory.OpenExportDB = old })
+	memory.OpenExportDB = nil // the write commits but its export fails
+	truthAdd(t, e, "committed not exported")
+	memory.OpenExportDB = old
+	if strings.Contains(activeMarkdown(t), "committed not exported") {
+		t.Fatal("setup: the row reached the Markdown")
+	}
+	s, closeFn, err := memory.OpenBankStore(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, _, err := s.Load()
+	if err != nil || !strings.Contains(string(docs["activeContext.md"].Render()), "committed not exported") {
+		t.Fatalf("an open under a missing truth file dropped the unexported row: err=%v", err)
+	}
+	if err := closeFn(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,14 +26,22 @@ func init() {
 	memory.OpenBankStore = openBankStore
 }
 
-// openBankStore opens, migrates and imports per call; it takes no lock (locked=true means the caller holds it).
-func openBankStore(bool) (memory.BankStore, func() error, error) {
+// openBankStore opens and migrates per call; the import takes the bank lock unless locked says the caller holds it.
+func openBankStore(locked bool) (memory.BankStore, func() error, error) {
+	// migration and the imported() check stay unlocked: the worst case is a redundant import
 	db, err := openMigratedShadow(context.Background())
 	if err != nil {
 		return nil, nil, err
 	}
-	if !storedTruthIsDB() || !imported(db) { // a missing or files truth, or a never-imported db, imports first
-		docs, _, err := importShadow()
+	// a db truth (a missing file counts) skips the import once the db is imported: the export guard owns outside edits
+	if truth, terr := memory.TruthErr(); terr != nil || truth != "db" || !imported(db) {
+		var docs []string
+		run := func() (err error) { docs, _, err = importShadow(); return err }
+		if locked {
+			err = run()
+		} else {
+			err = memory.WithBankLock(0, run)
+		}
 		if err == nil && len(docs) > 0 {
 			err = fmt.Errorf("memory: docs do not round-trip through the db: %s", strings.Join(docs, ", "))
 		}
@@ -49,12 +56,6 @@ func openBankStore(bool) (memory.BankStore, func() error, error) {
 		once.Do(func() { cerr = db.Close() })
 		return cerr
 	}, nil
-}
-
-// storedTruthIsDB reads the truth file itself: a missing file or any other value is not "db".
-func storedTruthIsDB() bool {
-	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "truth"))
-	return err == nil && strings.TrimSpace(string(b)) == "db"
 }
 
 func imported(db *sql.DB) bool {

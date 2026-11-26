@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -629,5 +630,127 @@ func TestAcquireNamesHolderWhileWaiting(t *testing.T) {
 	close(release)
 	if err != errLandBusy || by != "holder-x" {
 		t.Fatalf("err %v, holder %q, want errLandBusy and holder-x", err, by)
+	}
+}
+
+// A second land waits in line with a named holder and gives up with the "another land is running" line.
+func TestWithLandRunWaitsInLine(t *testing.T) {
+	repo, _, _ := laneLandFixture(t)
+	oldWait, oldPoll := maxLandWait, pollInterval
+	t.Cleanup(func() { maxLandWait, pollInterval = oldWait, oldPoll })
+	maxLandWait, pollInterval = 30*time.Millisecond, 5*time.Millisecond
+
+	var out bytes.Buffer
+	var waitErr error
+	ran, err := paths.TryFileLock(operationLeasePath(repo.Main, landRunName), 0, func() error {
+		waitErr = withLandRun(t.Context(), repo, "b", &out, func(time.Duration) error { return nil })
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("hold the lease: ran=%v err=%v", ran, err)
+	}
+	if waitErr == nil || !strings.Contains(waitErr.Error(), "another land is running") {
+		t.Fatalf("want an another-land-is-running error, got %v", waitErr)
+	}
+	if !strings.Contains(out.String(), "waiting in line") {
+		t.Fatalf("want the waiting line, got %q", out.String())
+	}
+	got := false
+	if err := withLandRun(t.Context(), repo, "b", &out, func(time.Duration) error { got = true; return nil }); err != nil || !got {
+		t.Fatalf("free lease: ran=%v err=%v", got, err)
+	}
+}
+
+// A commit on main during the gate re-checks instead of failing, and both attempts are recorded.
+func TestPromoteRevalidates(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
+	flag := filepath.Join(t.TempDir(), "moved")
+	var out bytes.Buffer
+	req := laneRequest("a", &out)
+	req.NoVerify = false
+	req.Verify = "[ -e " + textutil.ShellQuote(flag) + " ] || { : > " + textutil.ShellQuote(flag) +
+		"; git -C " + textutil.ShellQuote(main) + " commit -q --allow-empty -m moved; }"
+	if _, err := Land(t.Context(), repo, req); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	requireContains(t, "output", out.String(), "rebase:     skipped", "rebased:", "re-check:", "landed a:")
+	var outcomes []Outcome
+	for _, a := range readAttempts(t) {
+		outcomes = append(outcomes, a.Outcome)
+	}
+	if len(outcomes) != 2 || outcomes[0] != OutcomeTargetMoved || outcomes[1] != OutcomeLanded {
+		t.Fatalf("attempt outcomes = %v, want [target_moved landed]", outcomes)
+	}
+}
+
+// A re-check that fails after the target moved stops the land: nothing reaches main.
+func TestPromoteFailedRecheckNeverLands(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
+	flag := filepath.Join(t.TempDir(), "moved")
+	var out bytes.Buffer
+	req := laneRequest("a", &out)
+	req.NoVerify = false
+	req.Verify = "if [ -e " + textutil.ShellQuote(flag) + " ]; then printf 'FAIL\\tex/z\\t0.1s\\n'; exit 1; fi; : > " + textutil.ShellQuote(flag) +
+		"; git -C " + textutil.ShellQuote(main) + " commit -q --allow-empty -m moved"
+	if _, err := Land(t.Context(), repo, req); err == nil || !strings.Contains(err.Error(), "verify failed") {
+		t.Fatalf("Land = %v, want verify failed\n%s", err, out.String())
+	}
+	if _, err := os.Stat(filepath.Join(main, "lane.txt")); err == nil {
+		t.Fatalf("a failed re-check still landed the lane\n%s", out.String())
+	}
+	if got := readAttempts(t); len(got) == 0 || strings.Join(got[len(got)-1].FailedPkgs, ",") != "ex/z" {
+		t.Fatalf("last attempt must name the failed package ex/z: %+v", got)
+	}
+	if got, _ := ListFailures(FailuresDir()); len(got) != 1 || got[0].Kind != FailLaneGate {
+		t.Fatalf("failed gate must broadcast one lane_gate failure: %+v", got)
+	}
+}
+
+func readAttempts(t *testing.T) []LandAttempt {
+	t.Helper()
+	raw, err := os.ReadFile(LandAttemptsFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parseAttempts(raw)
+}
+
+// A gate that is not a Go package gate names its command and exit code in the broadcast summary.
+func TestGateFailTextNamesCommandAndExit(t *testing.T) {
+	err := exec.Command("sh", "-c", "exit 3").Run()
+	if got := gateFailText("false", err); got != "verify `false` exited 3" {
+		t.Fatalf("gateFailText = %q", got)
+	}
+}
+
+// A held gate gets a warm slot; with every slot busy it gives up after the wait and gates in the lane.
+func TestHoldGate(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	top, sha := auditFixtureRepo(t)
+	ctx := context.Background()
+	oldWait, oldPoll := gateSlotWait, gateSlotPoll
+	t.Cleanup(func() { gateSlotWait, gateSlotPoll = oldWait, oldPoll })
+	gateSlotWait, gateSlotPoll = 0, time.Millisecond
+	var held []*HeldGate
+	for range slotCount {
+		h := HoldGate(ctx, top, sha, "lane", &bytes.Buffer{})
+		if h == nil || h.Where("lane-dir") == "lane-dir" {
+			t.Fatalf("slot %d not held: %v", len(held), h)
+		}
+		held = append(held, h)
+	}
+	if h := HoldGate(ctx, top, sha, "lane", &bytes.Buffer{}); h != nil || h.Where("lane-dir") != "lane-dir" {
+		t.Fatalf("all slots busy: got %v, want nil (lane)", h)
+	}
+	if err := held[0].Reset(ctx, sha); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range held {
+		h.Release()
+	}
+	if !usesGateSlot(fullGoGate, "go.mod") || usesGateSlot("make test", "Makefile") {
+		t.Error("usesGateSlot picks the wrong gates")
 	}
 }

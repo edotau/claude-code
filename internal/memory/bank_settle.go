@@ -190,7 +190,7 @@ func settleFiles(now time.Time, extra []string, subject string) (rotated int, er
 	if rotated, err = settleDir(now); err != nil {
 		return rotated, err
 	}
-	if err := sweepNotes(); err != nil {
+	if err := sweepNotes(nil); err != nil {
 		return rotated, err
 	}
 	rep, ierr := refreshIndexFiles(now, extra)
@@ -218,17 +218,14 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	}
 	defer func() { err = errors.Join(err, closeDB()) }()
 	root := paths.MemoryStoreDir()
-	ierr, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
+	ierr, held, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
 	if err != nil {
 		return 0, err
 	}
-	if rotated, err = settleDir(now); err != nil {
+	if rotated, err = settleFilesSkipping(now, held); err != nil {
 		return rotated, err
 	}
-	if err := sweepNotes(); err != nil {
-		return rotated, err
-	}
-	gerr, err := guardPass(edb, root) // imports the file steps' result (the rotation) and exports the db
+	gerr, _, err := guardPass(edb, root) // imports the file steps' result (the rotation) and exports the db
 	if err != nil {
 		return rotated, err
 	}
@@ -242,8 +239,28 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	return rotated, errors.Join(commitBanks(subject), ierr, gerr, rerr)
 }
 
+// settleFilesSkipping runs the file steps except those whose paths the first guard pass left conflicted.
+func settleFilesSkipping(now time.Time, held []string) (rotated int, err error) {
+	if len(held) > 0 {
+		fmt.Fprintln(os.Stderr, "notice: memory settle skipped conflicted paths:", strings.Join(held, ", "))
+	}
+	if !conflictsTouch(held, "sessionHistory.md", "archive/sessionHistory-"+now.Format("2006-01")+".md") { // a rotation would overwrite the kept side
+		if rotated, err = settleDir(now); err != nil {
+			return rotated, err
+		}
+	}
+	return rotated, sweepNotes(held)
+}
+
+// conflictsTouch reports whether a conflicted path is one of rels or a stranded hold copy of it.
+func conflictsTouch(conflicts []string, rels ...string) bool {
+	return slices.ContainsFunc(conflicts, func(c string) bool {
+		return slices.ContainsFunc(rels, func(p string) bool { return c == p || strings.HasPrefix(c, p+holdMark) })
+	})
+}
+
 // guardPass runs the export guard without retaking the held lock, printing what it imported or kept apart.
-func guardPass(db ExportDB, root string) (indexErr, err error) {
+func guardPass(db ExportDB, root string) (indexErr error, conflicts []string, err error) {
 	rep, err := ExportGuardLocked(db, root)
 	if len(rep.Imported) > 0 {
 		fmt.Fprintln(os.Stderr, "notice: memory settle imported outside edits:", strings.Join(rep.Imported, ", "))
@@ -252,9 +269,9 @@ func guardPass(db ExportDB, root string) (indexErr, err error) {
 		fmt.Fprintln(os.Stderr, "notice: memory export conflicts (both sides kept):", strings.Join(rep.Conflicts, ", "))
 	}
 	if errors.Is(err, errIndexProblem) && !errors.Is(err, errExportSync) {
-		return err, nil
+		return err, rep.Conflicts, nil
 	}
-	return nil, err
+	return nil, rep.Conflicts, err
 }
 
 // shadowSettle imports into the shadow db and logs a change in its divergent docs; it never fails the settle.
@@ -545,8 +562,8 @@ var noteDirs = []string{"feedback", "notes", techdebtDir}
 // techdebtDir is searched and cataloged but kept out of prompt recall.
 const techdebtDir = "techdebt"
 
-// sweepNotes moves top-level native notes into feedback/ or notes/.
-func sweepNotes() error {
+// sweepNotes moves top-level native notes into feedback/ or notes/, leaving any whose target is in held.
+func sweepNotes(held []string) error {
 	dir := paths.MemoryStoreDir()
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -558,6 +575,9 @@ func sweepNotes() error {
 			continue
 		}
 		to := filepath.Join(dir, folder, e.Name())
+		if conflictsTouch(held, folder+"/"+e.Name()) {
+			continue // the target is conflicted: a rename would be imported over the db row
+		}
 		if _, err := os.Stat(to); err == nil {
 			continue // a same-named note already lives in the folder: leave the stray for a person to merge
 		}

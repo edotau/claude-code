@@ -12,13 +12,13 @@ internal/worktree/failures.go:trimFailures	unversioned: json: failures.jsonl cut
 internal/worktree/failures.go:writeOffer	unversioned: json: a failure's fix-now deliveries: sessions, last time, fallback sent
 internal/worktree/land.go:acquire	unversioned: text: the land-lock holder pid and who, beside the land lock
 internal/worktree/land.go:editQueueWithin	land-queue
+internal/worktree/land.go:withLandRun	unversioned: text: the land-lease owner file (pid and lane) beside the lease lock
 internal/worktree/landbatch.go:DrainQueue	unversioned: text: the drainer lease holder pid and who, beside the drain lease
 internal/worktree/landstats.go:recordAttempt	land-attempts
 internal/worktree/landstats.go:trimAttempts	land-attempts
 internal/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close
 internal/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree ledger log line and task fill
 internal/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger open
-internal/worktree/lock.go:withLandRun	unversioned: text: the land-lease owner file (pid and lane) beside the lease lock
 internal/worktree/resolve.go:SaveOperation	worktree-land-op
 internal/worktree/resolve.go:WithLandLease	unversioned: text: lease holder pid and who, attribution for a waiting land
 internal/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree

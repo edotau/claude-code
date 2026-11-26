@@ -43,17 +43,21 @@ var (
 	_ agent.Authenticator = copilotEngine{}
 )
 
-func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (res wire.Result, err error) {
 	ctx = agent.DirectCtx(ctx, req)
-	agent.TakeChosenProxy(agent.DispatchIDOf(ctx))       // a stale label from an earlier attempt must not reach this one
-	defer agent.TakeChosenProxy(agent.DispatchIDOf(ctx)) // the child env has read it by the time the run ends
+	agent.TakeChosenProxy(agent.DispatchIDOf(ctx)) // a stale label from an earlier attempt must not reach this one
+	var t providers.Target
+	defer func() {
+		res.Transport = agent.StampProxy(res.Transport, proxyLabel(agent.TakeChosenProxy(agent.DispatchIDOf(ctx)), t, agent.IsDirect(ctx)))
+	}()
 	cs := copilotSchema()
 	// copilot never resolves its own login: every target has a provider
-	t, _, err := cs.TargetCtx(ctx, req)
+	t, _, err = cs.TargetCtx(ctx, req)
 	if err != nil {
+		t = providers.Target{}
 		return wire.Result{}, err
 	}
-	res, err := initialResult(cs, t)
+	res, err = initialResult(cs, t)
 	if err != nil {
 		return res, err
 	}
@@ -71,27 +75,40 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	}
 	opts.OnUsage = liveUsage(sink)
 	out, err := copilotAsk(ctx, opts, prompt, images)
-	res.Transport = out.Transport
+	res.Transport, res.Model, res.Reported = out.Transport, cmp.Or(out.Model, res.Model), strings.TrimSpace(out.Model)
 	lg, err := wire.EventLogFor(ctx), markToolRan(out, sink, noResponse(out, err))
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
 			// tokens the exhausted run spent still count
 			res.Usage, res.Written = out.Usage, out.Written
-			res.Model = cmp.Or(out.Model, res.Model)
-			res.Reported = strings.TrimSpace(out.Model)
 			return copilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
 	lg.Emit("assistant", out.Text)
-	res.Model = cmp.Or(out.Model, res.Model)
-	res.Reported = strings.TrimSpace(out.Model)
 	res.SessionID, res.Answer, res.Usage, res.Written = out.SessionID, out.Text, out.Usage, out.Written
 	if strings.TrimSpace(out.Text) == "" {
 		return emptyText(res, out, sink)
 	}
 	return res, sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text})
+}
+
+// proxyLabel preserves a chosen route, otherwise names the resolved authentication path.
+func proxyLabel(chosen string, t providers.Target, direct bool) string {
+	if chosen != "" {
+		return chosen
+	}
+	if t.Provider == nil {
+		return "none (unresolved)"
+	}
+	if t.Provider.Auth.Login != "" {
+		return "none (own login)"
+	}
+	if direct {
+		return "none (direct)"
+	}
+	return "unknown (proxy)"
 }
 
 // liveUsage emits each cumulative total as an inert usage event; a write failure surfaces on the final emit.
@@ -300,8 +317,6 @@ func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
 func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
 	res.Written = out.Written
-	res.Model = cmp.Or(out.Model, res.Model)
-	res.Reported = strings.TrimSpace(out.Model)
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)

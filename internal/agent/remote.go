@@ -345,9 +345,9 @@ func (t touchWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ListRemote runs `<bin> agents list --format <format>` on host and copies stdout to out; failure carries ssh's stderr.
-func ListRemote(host, bin, format string, out io.Writer) error {
-	script, err := listScript(bin, format)
+// ListRemote runs `claude-code agents list --format F` on host, copying stdout to out; failure carries ssh stderr.
+func ListRemote(host, format string, out io.Writer) error {
+	script, err := listScript(remote.Bin(), format)
 	if err != nil {
 		return fmt.Errorf("agents: %w", err)
 	}

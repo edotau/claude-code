@@ -3,7 +3,12 @@ package shadow
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,4 +188,179 @@ func TestEnvelopeRebuildKeepsEveryChangesRow(t *testing.T) {
 		"a rebuild pruned changes or peer watermarks")
 	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND origin = ?`, uid, a.id) == 1,
 		"a rebuild lost the entry's uid or its last change")
+}
+
+func writeStoreFile(t *testing.T, root, rel, body string) {
+	t.Helper()
+	envOK(t, os.WriteFile(filepath.Join(root, filepath.FromSlash(rel)), []byte(body), 0o600) == nil, "write %s", rel)
+}
+
+// rebuiltPeer is a peer whose db was imported from a fixture store: every entry has an empty origin (rendered_rev 1).
+func rebuiltPeer(t *testing.T) (envPeer, string) {
+	t.Helper()
+	root := t.TempDir()
+	writeShadowStore(t, root, false)
+	a := newEnvPeer(t)
+	_, err := shadowRebuild(context.Background(), a.db, root)
+	envOK(t, err == nil, "rebuild: %v", err)
+	return a, root
+}
+
+func TestEnvelopeSyncDropLeavesTombstone(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	uidOf := func(q string) string {
+		var u string
+		envOK(t, a.db.QueryRow(q).Scan(&u) == nil, "uid of %s", q)
+		return u
+	}
+	older := uidOf(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND lines LIKE '%Older one%'`)
+	kept := uidOf(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = '0123abcd'`)
+	report := uidOf(`SELECT uid FROM entries WHERE doc = 'reports/r.md'`)
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-15 — Pick zebrafish storage <!-- id:0123abcd -->\n\nWhy: speed.\n")
+	envOK(t, os.Remove(filepath.Join(root, "reports", "r.md")) == nil, "remove report")
+	_, err := shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	for _, u := range []string{older, report} {
+		envOK(t, a.count(t, `SELECT count(*) FROM tombstones WHERE uid = ?`, u) == 1, "dropped entry %s left no tombstone", u)
+	}
+	envOK(t, a.count(t, `SELECT count(*) FROM tombstones WHERE uid = ?`, kept) == 0, "a kept entry was tombstoned")
+	_, err = shadowRebuild(context.Background(), a.db, root)
+	envOK(t, err == nil, "rebuild: %v", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM tombstones`) == 2, "a full rebuild changed the tombstones")
+	e := memory.Envelope{Origin: strings.Repeat("cd", 16), Seq: 1, Schema: memory.EnvelopeSchema, EntryRef: older,
+		BaseVersion: "x/9", Op: memory.EnvelopeOpUpsert, Payload: []byte(`{"doc":"decisionLog.md","kind":"heading","lines":"back"}`)}
+	conflict, err := a.st.ApplyEnvelope(e)
+	envOK(t, err == nil && conflict, "a stale upsert resurrected a dropped entry: conflict=%v err=%v", conflict, err)
+}
+
+func TestEnvelopeFileEditOfEmptyOriginIsCaptured(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	var uid string
+	envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = '0123abcd'`).Scan(&uid) == nil, "uid")
+	envOK(t, a.count(t, `SELECT count(*) FROM changes`) == 0, "an import captured a change")
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-15 — Pick zebrafish storage <!-- id:0123abcd -->\n\nWhy: speed and cost.\n\n## 2026-01-10 — Older one\n\nbody\n")
+	_, err := shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	got, err := a.st.ChangesAfter(a.id, 0, 10)
+	envOK(t, err == nil && len(got) == 1 && got[0].EntryRef == uid && got[0].BaseVersion == "" && got[0].Op == "upsert",
+		"changes after an outside edit = %+v (%v), want one upsert over the empty base", got, err)
+	writeStoreFile(t, root, "notes/new.md", "fresh\n") // adoption of a new doc stays uncaptured
+	_, err = shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil && a.count(t, `SELECT count(*) FROM changes`) == 1, "adopting a new doc captured a change (%v)", err)
+}
+
+func TestEnvelopeGuardImportOfEmptyOriginIsCaptured(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	edb := &exportDB{db: a.db, root: root}
+	cur, err := edb.Render("conventions.md")
+	envOK(t, err == nil, "render: %v", err)
+	sum := sha256.Sum256(cur)
+	writeStoreFile(t, root, "conventions.md", "# Conventions\n\n- use gofmt -s\n- wrap errors\n  continued\n")
+	envOK(t, edb.Import("conventions.md", hex.EncodeToString(sum[:])) == nil, "guard import")
+	got, err := a.st.ChangesAfter(a.id, 0, 10)
+	envOK(t, err == nil && len(got) == 1 && got[0].BaseVersion == "" && strings.Contains(string(got[0].Payload), "gofmt -s"),
+		"changes after a guard import = %+v (%v)", got, err)
+}
+
+const decisionEntry = "## 2026-01-15 — Pick zebrafish storage <!-- id:0123abcd -->\n\nWhy: speed.\n"
+
+func TestEnvelopeHarnessRewritesCaptureNothing(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n"+decisionEntry+
+		"\n## 2026-01-10 — Older one <!-- id:deadbeef -->\n\nbody\n")
+	writeStoreFile(t, root, "conventions.md", "# Conventions\n\n- use gofmt\n- wrap errors continued\n")
+	_, err := shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM changes`) == 0, "an id stamp or a re-wrap was captured as a local change")
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE id = 'deadbeef' AND uid IS NOT NULL`) == 1, "stamped entry lost its row")
+	writeStoreFile(t, root, "conventions.md", "# Conventions\n\n- use gofmt\n- wrap errors differently\n") // negative control
+	_, err = shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil && a.count(t, `SELECT count(*) FROM changes`) == 1, "a real edit was not captured (%v)", err)
+}
+
+func TestEnvelopeFullRebuildCapturesNothing(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	writeStoreFile(t, root, "conventions.md", "# Conventions\n\n- use gofmt\n- wrap errors differently\n")
+	_, err := shadowRebuild(context.Background(), a.db, root)
+	envOK(t, err == nil && a.count(t, `SELECT count(*) FROM changes`) == 0, "a full rebuild captured a change (%v)", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE lines LIKE '%differently%'`) == 1, "rebuild did not take the file")
+}
+
+func TestEnvelopeRotatedEntryKeepsUID(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	var uid string
+	envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = '0123abcd'`).Scan(&uid) == nil, "uid")
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-10 — Older one\n\nbody\n")
+	writeStoreFile(t, root, "archive/decisionLog-2026-10.md", "# Decision Log archive\n\n## 2026-10-01 — Archived\n\nold\n\n"+decisionEntry)
+	_, err := shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND doc = 'archive/decisionLog-2026-10.md' AND deleted = 0`, uid) == 1,
+		"a rotated entry lost its uid")
+	envOK(t, a.count(t, `SELECT count(*) FROM tombstones WHERE uid = ?`, uid) == 0, "a rotated entry was tombstoned")
+	got, err := a.st.ChangesAfter(a.id, 0, 10)
+	envOK(t, err == nil && len(got) == 1 && got[0].EntryRef == uid && strings.Contains(string(got[0].Payload), "archive/"),
+		"the move is not one upsert under the same uid: %+v (%v)", got, err)
+}
+
+func TestEnvelopeGuardImportIgnoresIDStamp(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	edb := &exportDB{db: a.db, root: root}
+	cur, err := edb.Render("decisionLog.md")
+	envOK(t, err == nil, "render: %v", err)
+	sum := sha256.Sum256(cur)
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n"+decisionEntry+
+		"\n## 2026-01-10 — Older one <!-- id:deadbeef -->\n\nbody\n")
+	envOK(t, edb.Import("decisionLog.md", hex.EncodeToString(sum[:])) == nil, "guard import")
+	envOK(t, a.count(t, `SELECT count(*) FROM changes`) == 0, "a guard import captured an id stamp")
+}
+
+func TestEnvelopeStampedEntryKeepsUID(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	var uid string
+	envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND lines LIKE '%Older one%'`).Scan(&uid) == nil, "uid")
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n"+decisionEntry+
+		"\n## 2026-01-10 — Older one <!-- id:deadbeef -->\n\nbody\n")
+	_, err := shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND id = 'deadbeef'`, uid) == 1, "a stamped entry got a new uid")
+	envOK(t, a.count(t, `SELECT count(*) FROM tombstones`) == 0, "a stamped entry tombstoned its old uid")
+}
+
+func TestEnvelopeCanonIDMatchRunsBeforeStampMatch(t *testing.T) {
+	a, root := rebuiltPeer(t)
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-10 — Dup\n\nbody\n\n## 2026-01-10 — Dup <!-- id:deadbeef -->\n\nbody\n")
+	_, err := shadowRebuild(context.Background(), a.db, root)
+	envOK(t, err == nil, "rebuild: %v", err)
+	var uidPlain, uidStamped string
+	envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = ''`).Scan(&uidPlain) == nil, "uidPlain")
+	envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = 'deadbeef'`).Scan(&uidStamped) == nil, "uidStamped")
+	writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-10 — Dup <!-- id:cafebabe -->\n\nbody\n\n## 2026-01-10 — Dup <!-- id:deadbeef -->\n\n  body\n")
+	_, err = shadowSync(context.Background(), a.db, root, false)
+	envOK(t, err == nil, "sync: %v", err)
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND id = 'deadbeef'`, uidStamped) == 1, "re-wrapped entry lost its uid to stamp match")
+	envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND id = 'cafebabe'`, uidPlain) == 1, "newly stamped entry did not take the unstamped uid")
+	envOK(t, a.count(t, `SELECT count(*) FROM changes`) == 0, "id stamp and re-wrap captured a change")
+}
+
+func TestEnvelopeGuardRotatedEntryKeepsUID(t *testing.T) {
+	for _, target := range []string{"archive/decisionLog-2026-10.md", "sessionHistory.md"} {
+		a, root := rebuiltPeer(t)
+		edb := &exportDB{db: a.db, root: root}
+		rep, err := memory.ExportGuardLocked(edb, root)
+		envOK(t, err == nil && len(rep.Conflicts) == 0, "initial guard: %+v (%v)", rep, err)
+		var uid string
+		envOK(t, a.db.QueryRow(`SELECT uid FROM entries WHERE doc = 'decisionLog.md' AND id = '0123abcd'`).Scan(&uid) == nil, "uid")
+		writeStoreFile(t, root, "decisionLog.md", "# Decision Log\n\n> Dated decisions.\n\n## 2026-01-10 — Older one\n\nbody\n")
+		writeStoreFile(t, root, target, "# Target\n\n## 2026-10-01 — Archived\n\nold\n\n"+decisionEntry)
+		rep, err = memory.ExportGuardLocked(edb, root)
+		envOK(t, err == nil && len(rep.Conflicts) == 0, "guard rotate to %s: %+v (%v)", target, rep, err)
+		envOK(t, a.count(t, `SELECT count(*) FROM entries WHERE uid = ? AND doc = ? AND deleted = 0`, uid, target) == 1,
+			"guard move to %s lost the entry's uid", target)
+		got, err := a.st.ChangesAfter(a.id, 0, 10)
+		envOK(t, err == nil && slices.ContainsFunc(got, func(e memory.Envelope) bool {
+			return e.EntryRef == uid && e.Op == "upsert" && strings.Contains(string(e.Payload), target)
+		}) && !slices.ContainsFunc(got, func(e memory.Envelope) bool {
+			return e.EntryRef == uid && e.Op == "delete"
+		}), "guard move to %s changes = %+v (%v)", target, got, err)
+	}
 }

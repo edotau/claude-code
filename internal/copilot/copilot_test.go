@@ -809,3 +809,102 @@ func TestRouteEnvDirectUnitSkipsRegistry(t *testing.T) {
 		t.Fatalf("routeEnv on a direct unit: registry route %v, discover calls %d; want BYOK", rt, calls)
 	}
 }
+
+// Every path a copilot run takes records a proxy label: the chosen route's, else the explicit no-proxy value.
+func TestRunStampsProxyLabel(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  sdk.Result
+		err  error
+	}{
+		{"success on own login", sdk.Result{Text: "ok", Transport: &wire.Transport{Attempts: 1}}, nil},
+		{"success without sdk transport", sdk.Result{Text: "ok"}, nil},
+		{"failure", sdk.Result{Text: "half", Transport: &wire.Transport{Attempts: 2}}, errors.New("503 service unavailable")},
+		{"quota handoff", sdk.Result{Text: "half", Transport: &wire.Transport{Attempts: 3}}, errors.New("402 payment required")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runScratch(t, func(context.Context, sdk.Options, string, []string) (sdk.Result, error) {
+				return tc.out, tc.err
+			})
+			res, err := runPersonal(t)
+			if (err != nil) != (tc.err != nil) {
+				t.Fatalf("err = %v, want error = %v", err, tc.err != nil)
+			}
+			if res.Transport == nil || res.Transport.Proxy != "none (own login)" {
+				t.Fatalf("transport = %+v, want own-login proxy label", res.Transport)
+			}
+			if tc.out.Transport != nil && (res.Transport.Attempts != tc.out.Transport.Attempts || tc.out.Transport.Proxy != "") {
+				t.Fatalf("transport = %+v, SDK transport = %+v; metrics changed or SDK transport mutated", res.Transport, tc.out.Transport)
+			}
+		})
+	}
+}
+
+func TestProxyLabel(t *testing.T) {
+	for _, tc := range []struct {
+		name, chosen, login, preset, want string
+		direct                            bool
+	}{
+		{"shared", "shared", "", "", "shared", false},
+		{"phase", "phase:x-w1", "", "", "phase:x-w1", false},
+		{"own login", "", "copilot", "", "none (own login)", false},
+		{"direct keyed", "", "", "", "none (direct)", true},
+		{"login-free Databricks", "", "", providers.PresetDatabricks, "none (direct)", true},
+		{"proxy without recorded label", "", "", "", "unknown (proxy)", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := providers.Target{Provider: &providers.Provider{Preset: tc.preset,
+				Auth: providers.Auth{Type: "key", Login: tc.login}}}
+			if got := proxyLabel(tc.chosen, target, tc.direct); got != tc.want {
+				t.Errorf("proxyLabel(%q) = %q, want %q", tc.chosen, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunStampsProxyBeforeSDK(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider, want string
+		attach               bool
+	}{
+		{"target resolution failure", "missing-profile", "none (unresolved)", false},
+		{"prompt failure", "work", "none (own login)", true},
+		{"direct keyed", "alt", "none (direct)", false},
+		{"login-free Databricks", "dev", "none (direct)", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			asked := false
+			runScratch(t, func(context.Context, sdk.Options, string, []string) (sdk.Result, error) {
+				asked = true
+				return sdk.Result{Text: "ok"}, nil
+			})
+			if tc.provider == "alt" || tc.provider == "dev" {
+				vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+					`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"COPILOT_TEST_KEY"},`+
+					`"models":{"opus":"databricks-claude-opus-5-5"}}},"anthropic":{"alt":{"protocol":"anthropic",`+
+					`"base_url":"https://alt.example.com","auth":{"type":"key","env":"COPILOT_TEST_KEY"},`+
+					`"models":{"opus":"claude-opus-5-5"}}}}}`)
+				t.Setenv("COPILOT_TEST_KEY", "test-key")
+			}
+			oldGOOS, oldDiscover := copilotGOOS, discoverModels
+			copilotGOOS = "darwin"
+			discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+				t.Fatal("direct keyed run must bypass the registry")
+				return nil, nil
+			}
+			t.Cleanup(func() { copilotGOOS, discoverModels = oldGOOS, oldDiscover })
+			req := agent.RunOptions{Prompt: "do it", Provider: tc.provider, WorkDir: t.TempDir(), Direct: true}
+			if tc.attach {
+				req.Attach = []string{filepath.Join(t.TempDir(), "missing.txt")}
+			}
+			res, err := copilotAgent.Run(t.Context(), req, wire.Discard)
+			wantErr := tc.provider == "missing-profile" || tc.attach
+			if (err != nil) != wantErr || asked == wantErr {
+				t.Fatalf("err = %v, SDK called = %v; want error = %v", err, asked, wantErr)
+			}
+			if res.Transport == nil || res.Transport.Proxy != tc.want {
+				t.Fatalf("transport = %+v, want proxy %q", res.Transport, tc.want)
+			}
+		})
+	}
+}

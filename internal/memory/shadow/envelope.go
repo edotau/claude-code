@@ -78,23 +78,33 @@ func entryUIDV5(tx *sql.Tx) (string, error) {
 // priorEntry is a live entry's identity as an import found it: uid, version and the change it was last at.
 type priorEntry struct {
 	uid, id, lines, origin string
+	doc                    string
 	version, originSeq     int
 	capture                bool // a synced entry edited in its file: recorded as a local change after the insert
 }
 
+var idMarkRE = regexp.MustCompile(`\s*<!-- id:[0-9a-f]{8} -->`)
+
+// canonText is an entry's content without id markers, whitespace or line wrapping: what a real edit changes.
+func canonText(s string) string {
+	return strings.Join(strings.Fields(idMarkRE.ReplaceAllString(s, "")), " ")
+}
+
 // shadowIdentity matches re-imported entries to prior ones: by (doc, id) when that id is unique, else by (doc, seq).
 type shadowIdentity struct {
-	byID   map[[2]string]priorEntry
-	bySeq  map[string]priorEntry
-	byText map[[3]string][]priorEntry // unedited entries keep their uid when a neighbour shifts their position
-	used   map[string]bool
+	byID    map[[2]string]priorEntry
+	bySeq   map[string]priorEntry
+	byText  map[[3]string][]priorEntry // unedited entries keep their uid when a neighbour shifts their position
+	byCanon map[[3]string][]priorEntry // the same by canonText: an id stamp or a re-wrap keeps the uid too
+	used    map[string]bool
+	adopt   bool // a full rebuild reconstructs the db from files: it captures nothing
 }
 
 func seqKey(doc string, seq int) string { return doc + "\x00" + strconv.Itoa(seq) }
 
 func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
 	ids := shadowIdentity{byID: map[[2]string]priorEntry{}, bySeq: map[string]priorEntry{},
-		byText: map[[3]string][]priorEntry{}, used: map[string]bool{}}
+		byText: map[[3]string][]priorEntry{}, byCanon: map[[3]string][]priorEntry{}, used: map[string]bool{}}
 	rows, err := tx.QueryContext(ctx, `SELECT doc, id, seq, uid, lines, version, origin, origin_seq,
 		COUNT(*) OVER (PARTITION BY doc, id) FROM entries WHERE deleted = 0 AND uid IS NOT NULL`)
 	if err != nil {
@@ -108,12 +118,15 @@ func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
 		if err := rows.Scan(&doc, &p.id, &seq, &p.uid, &p.lines, &p.version, &p.origin, &p.originSeq, &dup); err != nil {
 			return ids, err
 		}
+		p.doc = doc
 		if p.id != "" && dup == 1 {
 			ids.byID[[2]string{doc, p.id}] = p
 		}
 		ids.bySeq[seqKey(doc, seq)] = p
 		key := [3]string{doc, p.id, p.lines}
 		ids.byText[key] = append(ids.byText[key], p)
+		canon := [3]string{doc, p.id, canonText(p.lines)}
+		ids.byCanon[canon] = append(ids.byCanon[canon], p)
 	}
 	return ids, rows.Err()
 }
@@ -137,15 +150,22 @@ func (s shadowIdentity) assign(doc string, entries []shadowEntry) []priorEntry {
 		}
 	}
 	for i := range out {
-		out[i] = out[i].reimported(entries[i].lines)
+		out[i] = out[i].reimported(doc, entries[i].lines, s.adopt)
 	}
 	return out
 }
 
 // takeSameText first: an insert above an unedited entry must not shift uids down the file.
 func (s shadowIdentity) takeSameText(doc string, entries []shadowEntry, out []priorEntry) {
+	s.takeByKey(entries, out, s.byText, func(e shadowEntry) [3]string { return [3]string{doc, e.id, e.lines} })
+	s.takeByKey(entries, out, s.byCanon, func(e shadowEntry) [3]string { return [3]string{doc, e.id, canonText(e.lines)} })
+	// an unstamped prior matches after exact-id canon matches, so a re-wrapped entry keeps its own uid
+	s.takeByKey(entries, out, s.byCanon, func(e shadowEntry) [3]string { return [3]string{doc, "", canonText(e.lines)} })
+}
+
+func (s shadowIdentity) takeByKey(entries []shadowEntry, out []priorEntry, m map[[3]string][]priorEntry, key func(shadowEntry) [3]string) {
 	for i, e := range entries {
-		for _, p := range s.byText[[3]string{doc, e.id, e.lines}] {
+		for _, p := range m[key(e)] {
 			if out[i].uid == "" && !s.used[p.uid] {
 				out[i], s.used[p.uid] = p, true
 			}
@@ -153,17 +173,52 @@ func (s shadowIdentity) takeSameText(doc string, entries []shadowEntry, out []pr
 	}
 }
 
-// reimported is p after its file gave it lines: a fresh entry starts at version 1, an edited one is a local change.
-func (p priorEntry) reimported(lines string) priorEntry {
+// tombstoneGone files a tombstone for each prior live entry the sync dropped without re-inserting its uid.
+func (s shadowIdentity) tombstoneGone(ctx context.Context, tx *sql.Tx) error {
+	for _, p := range s.bySeq {
+		if s.used[p.uid] {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO tombstones(uid, origin, origin_seq, at)
+			SELECT ?1, ?2, ?3, NULL WHERE NOT EXISTS (SELECT 1 FROM entries WHERE uid = ?1)`, p.uid, p.origin, p.originSeq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reimported is p after its file gave it lines in doc: a fresh entry is version 1, a real edit or move a local change.
+func (p priorEntry) reimported(doc, lines string, adopt bool) priorEntry {
 	switch {
 	case p.uid == "":
 		p.version = 1 // a fresh uid comes from the entries_uid_ai trigger
-	case p.origin != "" && p.lines != lines:
-		p.capture = true // inserted at its old base, then bumped so the capture trigger records the edit over it
-	case p.lines != lines:
+	case !adopt && (canonText(p.lines) != canonText(lines) || p.doc != doc):
+		p.capture = true // inserted at its old base (empty origin: base ""), then bumped so the trigger records it
+	case p.lines != lines || p.doc != doc:
 		p.version++
 	}
 	return p
+}
+
+// claimMoved lets an entry with an id marker keep its uid when its file moved it to another doc (rotation, sweeps).
+func (s shadowIdentity) claimMoved(docs []shadowDoc) {
+	holders, stay, count := map[string][]string{}, map[string]bool{}, map[string]int{}
+	for _, d := range docs {
+		stay[d.path] = d.same
+		for _, e := range d.entries {
+			holders[e.id] = append(holders[e.id], d.path)
+		}
+	}
+	for _, p := range s.bySeq {
+		count[p.id]++
+	}
+	for _, p := range s.bySeq {
+		hs := holders[p.id]
+		if p.id == "" || count[p.id] > 1 || stay[p.doc] || len(hs) != 1 || hs[0] == p.doc {
+			continue
+		}
+		s.byID[[2]string{hs[0], p.id}] = p
+	}
 }
 
 // sqlEnvelopeStore applies envelopes to the db truth; lock and truthDB are seams so tests never touch the live store.

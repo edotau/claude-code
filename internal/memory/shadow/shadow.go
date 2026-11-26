@@ -255,6 +255,8 @@ func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (Sha
 	if err != nil {
 		return n, nil, err
 	}
+	ids.adopt = full
+	ids.claimMoved(docs)
 	if full {
 		for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
 			if _, err := tx.ExecContext(ctx, q); err != nil {
@@ -274,7 +276,7 @@ func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (Sha
 		changed = append(changed, d)
 		n.Docs, n.Entries = n.Docs+1, n.Entries+len(d.entries)
 	}
-	return n, changed, nil
+	return n, changed, ids.tombstoneGone(ctx, tx)
 }
 
 // readFingerprints maps imported paths to their "size:mtime_ns" (meta stat:<path>); nil means import everything.

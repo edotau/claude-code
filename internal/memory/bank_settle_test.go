@@ -503,3 +503,97 @@ func TestSetTruthFilesRefreshesCatalog(t *testing.T) {
 		t.Fatal("catalog.md stayed stale after the flip to files")
 	}
 }
+
+// overflowHistory is a sessionHistory.md body holding two entries past the cap.
+func overflowHistory() string {
+	entries := make([]string, sessionHistoryMaxEntries+2)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
+	}
+	return rejoin("# Session history", entries)
+}
+
+// settledArchive settles once with an archive file on disk so the db holds it and has rendered it.
+func settledArchive(t *testing.T, db *fakeExportDB, now time.Time) string {
+	t.Helper()
+	archive := "archive/sessionHistory-" + now.Format("2006-01") + ".md"
+	write(t, Path(archive), "# Archive\n\n## Old entry\n\nprior archived body.\n")
+	if _, err := settleBankWith(now, nil, "settle: seed"); err != nil || !strings.Contains(db.docs[archive], "prior archived body") {
+		t.Fatalf("seed settle = %v, db archive %q", err, db.docs[archive])
+	}
+	return archive
+}
+
+func TestSettleDBKeepsArchiveWhenItWasDeletedOutside(t *testing.T) {
+	db := dbTruthBank(t)
+	now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	archive := settledArchive(t, db, now)
+	if err := os.Remove(Path(archive)); err != nil {
+		t.Fatal(err)
+	}
+	write(t, Path("sessionHistory.md"), overflowHistory())
+	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 0 {
+		t.Fatalf("settle = %d, %v; want 0 rotated, nil", rotated, err)
+	}
+	if !strings.Contains(db.docs[archive], "prior archived body") {
+		t.Fatalf("db archive lost its prior rows: %q", db.docs[archive])
+	}
+	if _, kept := splitHeadingBlocks(db.docs["sessionHistory.md"]); len(kept) != sessionHistoryMaxEntries+2 {
+		t.Fatalf("db sessionHistory holds %d entries, want all %d", len(kept), sessionHistoryMaxEntries+2)
+	}
+}
+
+func TestSettleDBKeepsEntriesWhenArchiveChangedOnBothSides(t *testing.T) {
+	db := dbTruthBank(t)
+	now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	archive := settledArchive(t, db, now)
+	db.docs[archive] += "\n## Db entry\n\ndb side body.\n"
+	write(t, Path(archive), "# Archive\n\n## Old entry\n\nprior archived body.\n\n## Disk entry\n\ndisk side body.\n")
+	write(t, Path("sessionHistory.md"), overflowHistory())
+	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 0 {
+		t.Fatalf("settle = %d, %v; want 0 rotated, nil", rotated, err)
+	}
+	if _, kept := splitHeadingBlocks(db.docs["sessionHistory.md"]); len(kept) != sessionHistoryMaxEntries+2 {
+		t.Fatalf("db sessionHistory holds %d entries, want all %d (the rotation must not truncate it)", len(kept), sessionHistoryMaxEntries+2)
+	}
+	if !strings.Contains(db.docs[archive], "db side body") {
+		t.Fatalf("db archive lost its side: %q", db.docs[archive])
+	}
+}
+
+func TestSettleDBSweepSkipsNoteDeletedOutside(t *testing.T) {
+	db := dbTruthBank(t)
+	now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	write(t, Path("notes/n.md"), "# N\n\ndb row body.\n")
+	if _, err := settleBankWith(now, nil, "settle: seed"); err != nil || !strings.Contains(db.docs["notes/n.md"], "db row body") {
+		t.Fatalf("seed settle = %v, db %q", err, db.docs["notes/n.md"])
+	}
+	if err := os.Remove(Path("notes/n.md")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, Path("n.md"), "# N\n\nstray top-level body.\n")
+	if _, err := settleBankWith(now, nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(db.docs["notes/n.md"], "db row body") {
+		t.Fatalf("db note overwritten by the swept stray: %q", db.docs["notes/n.md"])
+	}
+	if _, err := os.Stat(Path("n.md")); err != nil {
+		t.Fatalf("stray n.md was moved into a conflicted target: %v", err)
+	}
+}
+
+func TestSettleDBStillRotatesWhenAnotherPathConflicts(t *testing.T) {
+	db := dbTruthBank(t)
+	now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	write(t, Path("conventions.md"), "# Conventions\n\n- a\n")
+	if _, err := settleBankWith(now, nil, "settle: seed"); err != nil {
+		t.Fatal(err)
+	}
+	db.docs["conventions.md"] += "\n- db edit\n"
+	write(t, Path("conventions.md"), "# Conventions\n\n- a\n- disk edit\n")
+	write(t, Path("sessionHistory.md"), overflowHistory())
+	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 2 {
+		t.Fatalf("settle = %d, %v; want 2 rotated, nil", rotated, err)
+	}
+}

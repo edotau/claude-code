@@ -40,8 +40,9 @@ func exportBeforeFlip() error {
 }
 
 type exportDB struct {
-	db   *sql.DB
-	root string
+	db    *sql.DB
+	root  string
+	moved map[int64]bool
 }
 
 func openExportDB() (memory.ExportDB, func() error, error) {
@@ -185,7 +186,7 @@ func (e *exportDB) Import(rel, wantSum string) error {
 		if err := checkImportBase(ctx, tx, rel, wantSum); err != nil {
 			return err
 		}
-		if err := upsertImportDoc(ctx, tx, d); err != nil {
+		if err := e.upsertImportDoc(ctx, tx, d); err != nil {
 			return err
 		}
 		for k, v := range map[string]string{"render:" + rel: hex.EncodeToString(sum[:]), "stat:" + rel: d.stamp} {
@@ -246,7 +247,7 @@ func adoptedRev(ctx context.Context, tx *sql.Tx, doc string) (int, error) {
 	return 1 - min(had, 1), err
 }
 
-func upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
+func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 	adopted, err := adoptedRev(ctx, tx, d.path)
 	if err != nil {
 		return err
@@ -265,48 +266,164 @@ func upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 		return err
 	}
 	rowids := matchRows(oldRows, d.entries)
-	used := make(map[int64]bool, len(oldRows))
-	for i, e := range d.entries {
+	oldLines, err := e.claimMovedRows(ctx, tx, d.path, oldRows, d.entries, rowids)
+	if err != nil {
+		return err
+	}
+	used := make(map[int64]bool, len(oldLines))
+	for i, en := range d.entries {
 		if rowid := rowids[i]; rowid != 0 {
 			used[rowid] = true
-			if _, err := tx.ExecContext(ctx, `UPDATE entries SET id = ?1, seq = ?2, kind = ?3, date = ?4, area = ?5,
-				version = version + (lines <> ?6 OR id <> ?1 OR kind <> ?3 OR date <> ?4), lines = ?6 WHERE rowid = ?7`,
-				e.id, e.seq, e.kind, e.date, deriveArea(e.lines), e.lines, rowid); err != nil {
+			if err := updateMatched(ctx, tx, d.path, en, rowid, oldLines[rowid] != canonText(en.lines)); err != nil {
 				return err
 			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version, rendered_rev)
 			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), ?)`,
-			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines), adopted); err != nil {
+			d.path, en.id, en.seq, en.kind, en.lines, en.date, deriveArea(en.lines), adopted); err != nil {
 			return err
 		}
 	}
+	return deleteUnused(ctx, tx, oldRows, used, e.moved)
+}
+
+// claimMovedRows lets an unmatched id-marked entry reuse a unique row with the same id whose old doc dropped it.
+func (e *exportDB) claimMovedRows(ctx context.Context, tx *sql.Tx, doc string, oldRows []liveEntry, entries []shadowEntry, rowids []int64) (map[int64]string, error) {
+	if e.moved == nil {
+		e.moved = map[int64]bool{}
+	}
+	oldLines := make(map[int64]string, len(oldRows))
 	for _, r := range oldRows {
-		if !used[r.rowid] {
-			if _, err := tx.ExecContext(ctx, `UPDATE entries SET deleted = 1, version = version + 1 WHERE rowid = ?`, r.rowid); err != nil {
-				return err
-			}
+		oldLines[r.rowid] = canonText(r.lines)
+	}
+	count := map[string]int{}
+	for _, en := range entries {
+		count[en.id]++
+	}
+	for i, en := range entries {
+		if rowids[i] != 0 || en.id == "" || count[en.id] != 1 {
+			continue
+		}
+		rowid, ok, err := e.findMovedRow(ctx, tx, doc, en.id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			rowids[i], oldLines[rowid] = rowid, "\x00" // a doc move always counts as edited so its change is captured
+		}
+	}
+	return oldLines, nil
+}
+
+// findMovedRow claims the one entries row with id in another doc when that doc already dropped it or lacks it on disk.
+func (e *exportDB) findMovedRow(ctx context.Context, tx *sql.Tx, doc, id string) (int64, bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT rowid, doc, deleted FROM entries WHERE id = ? AND doc <> ?`, id, doc)
+	if err != nil {
+		return 0, false, err
+	}
+	defer rows.Close()
+	var rowid int64
+	var src string
+	var del, n int
+	for rows.Next() {
+		if err := rows.Scan(&rowid, &src, &del); err != nil {
+			return 0, false, err
+		}
+		n++
+	}
+	if err := rows.Err(); err != nil || n != 1 {
+		return 0, false, err
+	}
+	ok := e.moved[rowid]
+	if del == 0 {
+		ok = e.missingFromDocFile(src, id)
+	}
+	if !ok {
+		return 0, false, nil
+	}
+	delete(e.moved, rowid)
+	_, err = tx.ExecContext(ctx, `UPDATE entries SET seq = -rowid WHERE rowid = ?`, rowid)
+	return rowid, err == nil, err
+}
+
+// missingFromDocFile reports whether src on disk lacks id (or is gone), so a later import of src will drop it.
+func (e *exportDB) missingFromDocFile(src, id string) bool {
+	kind, perEntry, err := scopeForRel(src)
+	if err != nil || !perEntry {
+		return false
+	}
+	d, ok, err := readShadowDoc(e.root, src, kind, perEntry, nil)
+	if err != nil {
+		return false
+	}
+	return !ok || !slices.ContainsFunc(d.entries, func(en shadowEntry) bool { return en.id == id })
+}
+
+// deleteUnused marks every old row the file no longer holds as deleted and records id-marked ones for a later doc.
+func deleteUnused(ctx context.Context, tx *sql.Tx, oldRows []liveEntry, used, moved map[int64]bool) error {
+	for _, r := range oldRows {
+		if used[r.rowid] {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET deleted = 1, version = version + 1 WHERE rowid = ?`, r.rowid); err != nil {
+			return err
+		}
+		if r.id != "" {
+			moved[r.rowid] = true
 		}
 	}
 	return nil
 }
 
+// updateMatched rewrites a kept row; a doc move un-deletes an earlier guard-dropped row and rewrites its delete change.
+func updateMatched(ctx context.Context, tx *sql.Tx, doc string, e shadowEntry, rowid int64, edited bool) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE changes SET op = 'upsert', payload = json_object('doc', ?1, 'id', ?2, 'seq', ?3,
+		'kind', ?4, 'lines', ?5, 'date', ?6) WHERE entry_rowid = ?7 AND op = 'delete' AND origin = `+machineQ+`
+		AND origin_seq = (SELECT origin_seq FROM entries WHERE rowid = ?7 AND deleted = 1)`,
+		doc, e.id, e.seq, e.kind, e.lines, e.date, rowid); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET doc = ?9, id = ?1, seq = ?2, kind = ?3, date = ?4, area = ?5, deleted = 0,
+		version = version + ((?8 OR (id <> '' AND ?1 <> '' AND id <> ?1) OR kind <> ?3 OR date <> ?4) AND deleted = 0), lines = ?6 WHERE rowid = ?7`,
+		e.id, e.seq, e.kind, e.date, deriveArea(e.lines), e.lines, rowid, edited, doc)
+	return err
+}
+
 // matchRows gives each entry its kept row (0 = new): same text, a lone edited id, then the same id by position.
 func matchRows(old []liveEntry, entries []shadowEntry) []int64 {
 	m := rowMatch{old: old, entries: entries, out: make([]int64, len(entries)), taken: make([]bool, len(old))}
-	for i, e := range entries {
-		m.take(i, func(r liveEntry) bool { return r.id == e.id && r.lines == e.lines })
-	}
-	for i, e := range entries {
-		if m.out[i] == 0 && e.id != "" && m.countOld(e.id) == 1 && m.countNew(e.id) == 1 {
-			m.take(i, func(r liveEntry) bool { return r.id == e.id })
+	for pass := range 5 {
+		for i, e := range entries {
+			if ok := m.rule(pass, i, e); ok != nil {
+				m.take(i, ok)
+			}
 		}
 	}
-	for i, e := range entries { // an edited entry without an id (or a repeated id) keeps its row by position
-		m.take(i, func(r liveEntry) bool { return r.id == e.id && r.seq == int64(e.seq) })
-	}
 	return m.out
+}
+
+// loneID matches an entry whose id is held once on each side.
+func (m rowMatch) loneID(i int, e shadowEntry) func(liveEntry) bool {
+	if m.out[i] != 0 || e.id == "" || m.countOld(e.id) != 1 || m.countNew(e.id) != 1 {
+		return nil
+	}
+	return func(r liveEntry) bool { return r.id == e.id }
+}
+
+// rule is pass's row test for entry i: exact text, text without id marks or wrapping, a lone id, then id by position.
+func (m rowMatch) rule(pass, i int, e shadowEntry) func(liveEntry) bool {
+	switch pass {
+	case 0:
+		return func(r liveEntry) bool { return r.id == e.id && r.lines == e.lines }
+	case 1:
+		return func(r liveEntry) bool { return r.id == e.id && canonText(r.lines) == canonText(e.lines) }
+	case 2:
+		return m.loneID(i, e)
+	case 3: // an id stamp on an unstamped row
+		return func(r liveEntry) bool { return r.id == "" && canonText(r.lines) == canonText(e.lines) }
+	}
+	return func(r liveEntry) bool { return r.id == e.id && r.seq == int64(e.seq) }
 }
 
 type rowMatch struct {

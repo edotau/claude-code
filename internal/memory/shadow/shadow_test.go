@@ -190,6 +190,10 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	execShadow(t, db, "INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
 		`INSERT INTO changes(origin, origin_seq, schema, entry_rowid, entry_uid, base_version, op, payload, at)
 		SELECT 'o', 1, 1, rowid, uid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'`)
+	var kept int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM changes`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +208,7 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	var left int
 	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM docs WHERE path = 'conventions.md') +
 		(SELECT count(*) FROM entries WHERE doc = 'conventions.md') + (SELECT count(*) FROM conflicts) +
-		abs((SELECT count(*) FROM changes) - 1)`).Scan(&left); err != nil || left != 0 { // the one changes row is kept
+		abs((SELECT count(*) FROM changes) - ?)`, kept).Scan(&left); err != nil || left != 0 { // every changes row is kept
 		t.Fatalf("rows left for a vanished doc (or changes pruned): %d (%v)", left, err)
 	}
 }

@@ -1,0 +1,2 @@
+internal/memory/shadow/bootstrap.go:BootstrapCopy	unversioned: sqlite: the memory db copied for a new peer, published without overwriting
+internal/memory/shadow/bootstrap.go:copyPeer	unversioned: sqlite: owned temp copy of the memory db (VACUUM INTO) before publish

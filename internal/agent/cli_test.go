@@ -354,10 +354,10 @@ func TestEmptyOrWorked(t *testing.T) {
 }
 
 func TestStampProxyNamesRouteInRanOn(t *testing.T) {
-	if got := stampProxy(nil, ""); got != nil {
+	if got := StampProxy(nil, ""); got != nil {
 		t.Fatalf("empty label: %+v, want nil", got)
 	}
-	tr := stampProxy(&wire.Transport{Attempts: 2}, "phase:x-w1")
+	tr := StampProxy(&wire.Transport{Attempts: 2}, "phase:x-w1")
 	if tr.Proxy != "phase:x-w1" || tr.Attempts != 2 {
 		t.Fatalf("stamped = %+v", tr)
 	}
