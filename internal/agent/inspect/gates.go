@@ -514,9 +514,9 @@ func complexityGate(ctx context.Context, in gateInput) (string, string, error) {
 // errAdvisory is a gate result that is shown but does not fail the gate.
 var errAdvisory = errors.New("advisory findings")
 
-const complexityEnv = "HARNESS_COMPLEXITY_GATE"
+const complexityEnv = "COMPLEXITY_GATE"
 
-// complexityMode reads vault env HARNESS_COMPLEXITY_GATE (process env first): "recommended" or (anything else, unset) "strict".
+// complexityMode reads vault env COMPLEXITY_GATE (process env first): "recommended" or (anything else, unset) "strict".
 func complexityMode() string {
 	v := cmp.Or(strings.TrimSpace(os.Getenv(complexityEnv)), strings.TrimSpace(providers.CustomEnv()[complexityEnv]))
 	if strings.EqualFold(v, "recommended") {

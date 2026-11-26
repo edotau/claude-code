@@ -323,7 +323,7 @@ func TestDocsGateAllChecksWholeBankOnLiveDir(t *testing.T) {
 	}
 }
 
-// HARNESS_COMPLEXITY_GATE=recommended shows a function's complexity once, as advisory, and does not fail; strict fails.
+// COMPLEXITY_GATE=recommended shows a function's complexity once, as advisory, and does not fail; strict fails.
 func TestGatesComplexityRecommendedAdvisory(t *testing.T) {
 	dir, files := gateRepo(t)
 	out := `{"files":[{"file":"` + dir + `/pkg/p.go","complexity":[{"rule":"cyclomatic-complexity","severity":"warn",` +
@@ -331,12 +331,12 @@ func TestGatesComplexityRecommendedAdvisory(t *testing.T) {
 		`"severity":"medium","message":"Function 'f' has complexity 12 (max: 10)","location":"f"}]}}]}`
 	(&fakeGates{simpOut: out}).install(t)
 	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Env, "HARNESS_COMPLEXITY_GATE", "recommended")
+	vaulttest.Put(t, vault.Env, "COMPLEXITY_GATE", "recommended")
 	rs := runGates(context.Background(), dir, "HEAD", files)
 	if rs[4].Status != "ok" || rs[4].Reason != "advisory" || len(rs[4].Findings) != 1 {
 		t.Errorf("recommended = %s %q %v; want ok advisory with one finding", rs[4].Status, rs[4].Reason, rs[4].Findings)
 	}
-	vaulttest.Put(t, vault.Env, "HARNESS_COMPLEXITY_GATE", "strict")
+	vaulttest.Put(t, vault.Env, "COMPLEXITY_GATE", "strict")
 	if rs = runGates(context.Background(), dir, "HEAD", files); rs[4].Status != "FAIL" {
 		t.Errorf("strict = %s; want FAIL", rs[4].Status)
 	}
