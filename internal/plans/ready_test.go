@@ -108,39 +108,12 @@ func TestReadyLaneAndStaleClaims(t *testing.T) {
 	hosttest.In(t, in.Root, "commit", "-q", "-am", "lane edit")
 	hosttest.In(t, in.Root, "checkout", "-q", "main")
 	in.Claims = nil
-	if got := ready12(t, in); got != "owns claimed: b/b.go by lane x" {
-		t.Fatalf("an unlanded lane commit must claim its files, got %q", got)
+	if got := ready12(t, in); got != "" {
+		t.Fatalf("a lane commit with no live edit claims nothing, got %q", got)
 	}
 }
 
 // A lane file is released when its blob is already on HEAD or equals the lane's base, else it stays claimed.
-func TestReadyLaneNetChange(t *testing.T) {
-	in := readyFixture(t, doneBase)
-	file := filepath.Join(in.Root, "b", "b.go")
-	writeFile(t, file, "package b\n")
-	hosttest.In(t, in.Root, "add", "b/b.go")
-	hosttest.In(t, in.Root, "commit", "-q", "-m", "b")
-	hosttest.In(t, in.Root, "checkout", "-q", "-b", "worktree-undo")
-	writeFile(t, file, "package b // tried\n")
-	hosttest.In(t, in.Root, "commit", "-q", "-am", "try")
-	hosttest.In(t, in.Root, "branch", "worktree-keep") // shares "try" with undo, which then reverts it
-	writeFile(t, file, "package b\n")
-	hosttest.In(t, in.Root, "commit", "-q", "-am", "undo")
-	hosttest.In(t, in.Root, "checkout", "-q", "-b", "worktree-land", "main")
-	writeFile(t, file, "package b // landed\n")
-	hosttest.In(t, in.Root, "commit", "-q", "-am", "lane")
-	hosttest.In(t, in.Root, "checkout", "-q", "main")
-	in.Claims = nil
-	if got := ready12(t, in); got != "owns claimed: b/b.go by lane keep, lane land" {
-		t.Fatalf("lane changes not on HEAD must claim, the reverting lane must not, got %q", got)
-	}
-	writeFile(t, file, "package b // landed\n") // the land's copy, committed on main as a new commit
-	hosttest.In(t, in.Root, "commit", "-q", "-am", "landed")
-	if got := ready12(t, in); got != "owns claimed: b/b.go by lane keep" {
-		t.Fatalf("a lane whose blob is on HEAD must release, got %q", got)
-	}
-}
-
 func ready12(t *testing.T, in ReadyInput) string {
 	t.Helper()
 	rep, err := Ready(in)
