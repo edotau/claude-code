@@ -174,7 +174,8 @@ a block; an unknown id or two-entry cycle is left unmarked (`memory review` repo
 (`A; ~~B~~`) stays live.
 
 Recall serves the replacing entry instead (up to 8 hops, before limiting results); an unresolved target or longer
-chain returns the original flagged unavailable. `memory search` still lists it and `memory search --id` prints the pointer.
+chain returns the original flagged unavailable. `memory search` still lists it and `memory search --id` prints the
+pointer.
 
 ## Caps
 

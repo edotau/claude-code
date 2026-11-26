@@ -34,7 +34,8 @@ paths:
   record (no last-used profile exists).
 - Agents run on their pins (gemini on Google); per-call routes use the overlay: keys, precedence and fallback in
   `agent.md` → Dispatch behavior. A standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
-  (`claude-code vault set env COWORKER_OVERLAY <value>` / `vault rm env COWORKER_OVERLAY`). Brief fields: `skills/subagent-workflows/SKILL.md`.
+  (`claude-code vault set env COWORKER_OVERLAY <value>` / `vault rm env COWORKER_OVERLAY`). Brief fields:
+  `skills/subagent-workflows/SKILL.md`.
 - The proxy replaces itself: `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
   replaces a stale daemon (`proxy.json` `exe` sha256 differs from the installed binary, the one staleness test, also
   doctor's) at its first poll with no request in flight; in-flight streams drain (up to 2 min, then are cut) while the
@@ -184,7 +185,8 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
 - On the Google route `gateway resolve`, `agents label` and `usage` read `agy -p /usage` (cached 10 min, spends no
   quota): the note carries the pool's percent left, under 15% warns, and a model at 0% is held until its reset.
 - VS Code chat: the Claude Code Agents extension registers a "Claude Code Databricks" chat provider; its models come
-  from `claude-code configure vscode --dry-run --format json` and it fetches a session token with `claude-code resolve --proxy`,
+  from `claude-code configure vscode --dry-run --format json` and it fetches a session token with
+  `claude-code resolve --proxy`,
   so no token sits in any file. `configure vscode` removes the `Databricks <profile>` groups an older run wrote
   into `chatLanguageModels.json` (loopback `/p/<profile>/` URLs and `${input:harnessProxyToken}`); other groups stay.
 

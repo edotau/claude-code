@@ -120,7 +120,8 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 `state/harness/<owner>/` (versioned per the `internal/schemas` registry; formats migrate on read, `doctor` reports
 `formats`), `state/harness/backups/` (every plaintext backup, via `paths.Backup`). Outside `state/` on purpose: the
 bench lock in `/tmp/claude-code-bench-<uid>` (machine-wide across config roots), verify trees in
-`$TMPDIR/claude-code-verify` (outside the module), `~/.claude/run/clip.sock` (the SSH `RemoteForward` target), `bin/`, `plans/`,
+`$TMPDIR/claude-code-verify` (outside the module), `~/.claude/run/clip.sock` (the SSH `RemoteForward` target), `bin/`,
+`plans/`,
 `memory/`, `settings.json` and vendor homes.
 `docs/templates/` indexes every embedded (`//go:embed`) template.
 `container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no

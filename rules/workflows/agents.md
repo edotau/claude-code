@@ -41,7 +41,8 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   There is no `/claude`: the name could collide.
 - `/coworker` (same flags plus `[--codemode on|only]`) — Pi in code mode: the session runs `agents ask --background
-  --agent pi --provider databricks --profile <p> --codemode on [flags] --tools --autonomous - < brief` plain (`--carry` refuses
+  --agent pi --provider databricks --profile <p> --codemode on [flags] --tools --autonomous - < brief`
+  plain (`--carry` refuses
   pi), then `agents result -f <id>`; `--provider`/`--profile` replace the Databricks default. The run is typed
   `coworker` (receipt `coworker`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
   There is no `/pi`. A route that travels whole (provider, profile, host, remote) is `agents ask --overlay`; workflow
