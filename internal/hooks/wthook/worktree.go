@@ -269,25 +269,63 @@ var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 
 // failureLines caps the failure lines per prompt (about 1.2 KB), apart from the 4000-byte inbox drains.
 const (
-	failureLines        = 3
-	failureSubjectRunes = 120
-	failureSummaryRunes = 240
-	failureWait         = 200 * time.Millisecond
+	failureLines = 3
+	failureFetch = 500 // the log keeps 500 records; filter by repo before the cap
+	failureCols  = 80
+	failureWait  = 200 * time.Millisecond
 )
+
+// repoFailures keeps the records of the session's main checkout and those carrying no repo.
+func repoFailures(fails []worktree.Failure, top string) []worktree.Failure {
+	return slices.DeleteFunc(slices.Clone(fails), func(f worktree.Failure) bool {
+		return f.Repo != "" && realDir(f.Repo) != realDir(top)
+	})
+}
+
+func realDir(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
+}
+
+// failureNotice renders f as one line within failureCols; open is true while nobody holds or finished it.
+func failureNotice(f worktree.Failure) (line string, open bool) {
+	holder, done := worktree.FailureHolder(worktree.FailuresDir(), f.ID)
+	kind, holder := string(f.Kind), textutil.CapRunes(holder, 16, "…")
+	room := failureCols - len("failure  ") - len(kind) - 1 // the ellipsis
+	if holder != "" {
+		room -= len(assets.HookFailureLine("", "", holder)) - len("failure  ")
+	}
+	body := textutil.CapRunes(strings.Join(strings.Fields(f.Subject+": "+f.Summary), " "), max(room, 8), "…")
+	return assets.HookFailureLine(kind, body, holder), holder == "" && !done
+}
 
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
 	var lines []string
-	fails, more, failErr := worktree.FailuresSinceWithin(worktree.FailuresDir(), in.SessionID, failureLines, failureWait)
+	fails, more, failErr := worktree.FailuresSinceWithin(worktree.FailuresDir(), in.SessionID, failureFetch, failureWait)
 	if errors.Is(failErr, paths.ErrLockTimeout) { // busy log: stay silent, the cursor did not move
 		failErr = nil
 	}
+	_, mainRepo := paths.CheckoutOf(run.dir)
+	fails = repoFailures(fails, mainRepo)
+	if len(fails) > failureLines {
+		more, fails = more+len(fails)-failureLines, fails[:failureLines]
+	}
+	claim := ""
 	for _, f := range fails {
-		lines = append(lines, assets.HookNoticeLine("failure, "+string(f.Kind),
-			textutil.CapRunes(f.Subject, failureSubjectRunes, "…")+": "+textutil.CapRunes(f.Summary, failureSummaryRunes, "…")))
+		line, open := failureNotice(f)
+		lines = append(lines, line)
+		if open && claim == "" {
+			claim = assets.HookFailureClaim(f.ID)
+		}
 	}
 	if more > 0 {
 		lines = append(lines, assets.HookFailuresMore(more))
+	}
+	if claim != "" {
+		lines = append(lines, claim)
 	}
 	if failErr != nil {
 		warn += assets.HookFailuresWarn(failErr.Error())

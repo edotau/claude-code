@@ -135,7 +135,7 @@ var (
 // askEnvelope is the subset of wire.Envelope (`claude-code agents ask --format json`) that resolve reads.
 type askEnvelope struct {
 	Answer         string `json:"answer"`
-	Fallback       string `json:"fallback,omitempty"`
+	Fallback       string `json:"fallback_from,omitempty"`
 	FallbackReason string `json:"fallback_reason,omitempty"`
 	Error          *struct {
 		Message string `json:"message"`

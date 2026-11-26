@@ -3,8 +3,6 @@ package wthook
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -337,8 +336,7 @@ func laneTarget(root, file, worker string) (create, dir string) {
 	if filepath.IsAbs(file) {
 		slug = paths.Slug(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), "", 40, slug)
 	}
-	sum := sha256.Sum256([]byte(worker))
-	slug += "-" + hex.EncodeToString(sum[:4])
+	slug += "-" + textutil.SHA256Hex([]byte(worker))[:8]
 	quoted := "'" + strings.ReplaceAll(root, "'", "'\\''") + "'" // single quotes keep $() and backticks inert
 	return "cd " + quoted + " && claude-code worktree create " + slug, filepath.Join(paths.LaneRoot(root), slug)
 }

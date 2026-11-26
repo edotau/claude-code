@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -132,21 +133,29 @@ func failureSession(flagVal string) string {
 	return fmt.Sprintf("cli-%d", os.Getppid())
 }
 
-// failureFix is the ready-to-run command that fixes f, built from its kind.
-func failureFix(f worktree.Failure) string {
+// failureFix is the fix command for f; path is the brief file it wrote, for the caller to delete.
+func failureFix(f worktree.Failure) (cmd, path string, err error) {
 	where := "its log"
 	if f.Log != "" {
 		where = f.Log
 	}
 	switch f.Kind {
 	case worktree.FailProxyDown, worktree.FailProxy5xx:
-		return "claude-code doctor"
+		return "claude-code doctor", "", nil // plan: doctor --proxy, which does not exist yet
 	case worktree.FailBench, worktree.FailHookP95:
 		return "claude-code agents ask --agent claude --tools -- " + textutil.QuoteSH(
-			fmt.Sprintf("Profile and fix the %s regression %s without dropping any check; evidence: %s", f.Kind, f.Subject, where))
+			fmt.Sprintf("Profile and fix the %s regression %s without dropping any check; evidence: %s", f.Kind, f.Subject, where)), "", nil
 	}
-	return "claude-code agents ask --agent claude --tools -- " + textutil.QuoteSH(
-		fmt.Sprintf("Fix the %s failure %s; read %s first", f.Kind, f.Subject, where))
+	path, err = agent.NewBriefPath("claude")
+	if err != nil {
+		return "", "", err
+	}
+	task := fmt.Sprintf("Fix the %s failure %s.\n\nLog: %s\nRead it first.\n", f.Kind, f.Subject, where)
+	if err := os.WriteFile(path, []byte(task), 0o600); err != nil {
+		_ = os.Remove(path)
+		return "", "", err
+	}
+	return "claude-code agents ask --agent claude --tools - < " + textutil.QuoteSH(path), path, nil
 }
 
 func failuresClaim(root string, args []string) int {
@@ -171,16 +180,23 @@ func failuresClaim(root string, args []string) int {
 	if _, done := worktree.FailureHolder(root, id); done {
 		return helptext.FailUsage("failures claim: %s is already done", id)
 	}
-	me := worktree.SessionSlug(failureSession(*session))
-	holder, err := worktree.ClaimFailure(root, id, me)
+	fix, brief, err := failureFix(f) // before the claim, so a failed write never leaves one held
 	if err != nil {
 		return helptext.Fail("failures claim: %v", err)
 	}
-	if holder != me {
+	me := worktree.SessionSlug(failureSession(*session))
+	holder, err := worktree.ClaimFailure(root, id, me)
+	if err != nil || holder != me {
+		if brief != "" {
+			_ = os.Remove(brief)
+		}
+		if err != nil {
+			return helptext.Fail("failures claim: %v", err)
+		}
 		fmt.Fprintf(os.Stderr, "held by %s\n", holder)
 		return helptext.ExitAuth
 	}
-	fmt.Println(failureFix(f))
+	fmt.Println(fix)
 	return 0
 }
 

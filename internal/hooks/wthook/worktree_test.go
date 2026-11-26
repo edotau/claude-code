@@ -716,7 +716,7 @@ func TestNoticeContextDrainsFailures(t *testing.T) {
 		}
 	}
 	got := Busy(&core.Input{SessionID: "sF", CWD: cwd})
-	if n := strings.Count(got.Context, "notice (failure, audit): s"); n != failureLines ||
+	if n := strings.Count(got.Context, "failure audit s"); n != failureLines ||
 		!strings.Contains(got.Context, "2 more failures: claude-code failures ls") || got.Decision != core.Allow {
 		t.Fatalf("first prompt = %+v, want %d failures and a more line", got, failureLines)
 	}
@@ -744,7 +744,42 @@ func TestNoticeContextFailuresBusyLog(t *testing.T) {
 	if strings.Contains(held.Context, "failure") || strings.Contains(held.Stderr, "failures") {
 		t.Fatalf("locked prompt = %+v, want no failure lines or warning", held)
 	}
-	if next := Busy(&core.Input{SessionID: "sB", CWD: cwd}); !strings.Contains(next.Context, "notice (failure, audit): busy") {
+	if next := Busy(&core.Input{SessionID: "sB", CWD: cwd}); !strings.Contains(next.Context, "failure audit busy") {
 		t.Fatalf("next prompt = %q, want the failure", next.Context)
+	}
+}
+
+// TestNoticeContextFailuresRepoAndClaim: another repo's failure is hidden; lines fit 80 columns and show the claim.
+func TestNoticeContextFailuresRepoAndClaim(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := hosttest.Repo(t)
+	_, top := paths.CheckoutOf(cwd)
+	root := worktree.FailuresDir()
+	for _, f := range []worktree.Failure{
+		{Kind: worktree.FailAudit, Subject: "other", Summary: "x", Repo: "/elsewhere"},
+		{Kind: worktree.FailAudit, Subject: "mine", Summary: strings.Repeat("long ", 40), Repo: top},
+		{Kind: worktree.FailBench, Subject: "held", Summary: "slow", Repo: top},
+	} {
+		if _, err := worktree.ReportFailure(root, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := worktree.ClaimFailure(root, worktree.FailureID(worktree.FailBench, "held"), "peer"); err != nil {
+		t.Fatal(err)
+	}
+	res := Busy(&core.Input{SessionID: "sR", CWD: cwd})
+	got := res.Context
+	for _, want := range []string{"failure audit mine: long", "claim: claude-code failures claim ", "failure bench held: slow [claimed by peer]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("context = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "other") {
+		t.Fatalf("context = %q, want no other-repo failure", got)
+	}
+	for l := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(l, "failure") && len([]rune(l)) > 80 {
+			t.Fatalf("line %q over 80 columns", l)
+		}
 	}
 }
