@@ -1,7 +1,6 @@
 package ask
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -9,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -64,22 +64,57 @@ func settingsKeys(raw []byte) ([]byte, error) {
 	}
 	if v, ok := doc["route"]; ok {
 		delete(doc, "route")
-		var r route.Route
-		dec := json.NewDecoder(bytes.NewReader(v))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(&r); err != nil {
+		if err := routeKeys(doc, v); err != nil {
 			return nil, fmt.Errorf("spec route: %w", err)
-		}
-		if r.Profile == route.AutoArm { // the pool picks: a provider alone
-			r.Profile = ""
-		}
-		for k, val := range map[string]string{"provider": r.Provider, "profile": r.Profile, "as": r.Identity} {
-			if val != "" {
-				doc[k], _ = json.Marshal(val)
-			}
 		}
 	}
 	return json.Marshal(doc)
+}
+
+// routeFlags maps a spec route key to the flag key it types; an empty value reaches that flag's validator.
+var routeFlags = map[string]string{"provider": "provider", "profile": "profile", "identity": "as",
+	"agent": "agent", "runner": "runner", "fallback": "fallback"}
+
+// routeIgnored are the keys route.Route has but a spec never applied; they and a null are noted, not refused.
+var routeIgnored = []string{"account", "host", "remote"}
+
+// routeKeys adds the spec route's keys to doc as flag keys; an unknown key fails, an ignored one is noted on stderr.
+func routeKeys(doc map[string]json.RawMessage, v json.RawMessage) error {
+	var r map[string]json.RawMessage
+	if err := json.Unmarshal(v, &r); err != nil {
+		return errors.New("want an object")
+	}
+	if r == nil {
+		specIgnored("route")
+	}
+	for _, k := range slices.Sorted(maps.Keys(r)) {
+		flagKey, ok := routeFlags[k]
+		var val string
+		switch {
+		case string(r[k]) == "null" || slices.Contains(routeIgnored, k):
+			specIgnored("route." + k)
+			continue
+		case !ok:
+			return fmt.Errorf("%s: unknown key (%s)", k, strings.Join(slices.Sorted(maps.Keys(routeFlags)), ", "))
+		case json.Unmarshal(r[k], &val) != nil:
+			return fmt.Errorf("%s: want a string", k)
+		}
+		if k == "profile" && val == route.AutoArm { // the pool picks: a provider alone
+			continue
+		}
+		if newKey := flagKey == "agent" || flagKey == "runner" || flagKey == "fallback"; newKey && doc[flagKey] != nil {
+			fmt.Fprintf(os.Stderr, "spec: route.%s is ignored (the top-level %s wins)\n", k, flagKey)
+			continue
+		} else if !newKey && val == "" {
+			continue
+		}
+		doc[flagKey], _ = json.Marshal(val)
+	}
+	return nil
+}
+
+func specIgnored(key string) {
+	fmt.Fprintf(os.Stderr, "spec: %s is ignored (it has no effect)\n", key)
 }
 
 // specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.

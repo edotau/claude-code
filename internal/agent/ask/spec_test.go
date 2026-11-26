@@ -95,7 +95,7 @@ func appendDryRun(args []string) []string {
 			return append(out, args[i:]...)
 		}
 	}
-	return append(args, "--dry-run")
+	return append([]string{"--dry-run"}, args...)
 }
 
 func TestSpecArgsParsedNotScanned(t *testing.T) {
@@ -290,4 +290,73 @@ func TestSpecRouteStrict(t *testing.T) {
 	if err != nil || strings.Contains(strings.Join(argv, " "), "--profile") {
 		t.Errorf("auto: %v %v", argv, err)
 	}
+}
+
+func TestSpecRouteKeys(t *testing.T) {
+	for _, c := range []struct{ name, spec, want string }{
+		{"agent", `{"route":{"agent":"codex"},"prompt":"x"}`, "--agent codex"},
+		{"runner pi", `{"route":{"runner":"pi"},"prompt":"x"}`, "--runner pi"},
+		{"runner own", `{"route":{"runner":"own"},"prompt":"x"}`, "--runner own"},
+		{"fallback", `{"route":{"fallback":"none"},"prompt":"x"}`, "--fallback none"},
+		{"coworker", `{"route":{"agent":"coworker"},"prompt":"x"}`, "--agent coworker"},
+		{"unknown key", `{"route":{"bogus":"x"},"prompt":"x"}`, "unknown key"},
+		{"bad runner", `{"route":{"runner":"zzz"},"prompt":"x"}`, "runner"},
+		{"bad fallback", `{"route":{"fallback":"zzz"},"prompt":"x"}`, "fallback"},
+		{"empty fallback", `{"route":{"fallback":""},"prompt":"x"}`, "fallback"},
+		{"null agent", `{"route":{"agent":null},"prompt":"x"}`, ""},
+		{"null route", `{"route":null,"prompt":"x"}`, ""},
+		{"host key", `{"route":{"host":"box"},"prompt":"x"}`, ""},
+		{"duplicate empty", `{"agent":"claude","route":{"agent":""},"prompt":"x"}`, "--agent claude"},
+		{"duplicate auto", `{"profile":"dev","route":{"provider":"databricks","profile":"auto"},"prompt":"x"}`, "--profile dev"},
+		{"duplicate", `{"agent":"claude","route":{"agent":"codex"},"prompt":"x"}`, "--agent claude"},
+	} {
+		argv, _, _, err := specParts(c.spec, nil)
+		got := strings.Join(argv, " ")
+		if err != nil {
+			got = err.Error()
+		}
+		if !strings.Contains(got, c.want) || c.want == "" && err != nil {
+			t.Errorf("%s: got %q err %v, want %q", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestSpecRouteEqualsFlags(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	run := func(args ...string) string {
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd(append([]string{"--dry-run"}, args...)) })
+		if code != 0 {
+			t.Fatalf("args %q exit %d\nstderr=%s", args, code, stderr)
+		}
+		return out
+	}
+	spec := run("--spec", `{"route":{"agent":"claude","fallback":"none"},"prompt":"say ok"}`)
+	flags := run("--agent", "claude", "--fallback", "none", "--", "say ok")
+	if spec != flags {
+		t.Fatalf("spec != flags\nspec=%s\nflags=%s", spec, flags)
+	}
+}
+
+func TestSpecRouteIgnoredKeysNote(t *testing.T) {
+	for spec, want := range map[string]string{
+		`{"route":{"host":"box"},"prompt":"x"}`:                     "spec: route.host is ignored (it has no effect)",
+		`{"route":null,"prompt":"x"}`:                               "spec: route is ignored (it has no effect)",
+		`{"route":{"agent":null},"prompt":"x"}`:                     "spec: route.agent is ignored (it has no effect)",
+		`{"agent":"claude","route":{"agent":"codex"},"prompt":"x"}`: "spec: route.agent is ignored (the top-level agent wins)",
+	} {
+		_, _, stderr := hosttest.CaptureOutput(t, func() int { _, _, _, err := specParts(spec, nil); return btoi(err != nil) })
+		if !strings.Contains(stderr, want) {
+			t.Errorf("%s: stderr %q, want %q", spec, stderr, want)
+		}
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

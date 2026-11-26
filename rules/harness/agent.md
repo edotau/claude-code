@@ -169,10 +169,14 @@ paths:
   takes the same selector; `--host` with `--agents` exits 2.
 - `agents ask --spec FILE|-|'{...}'`: one JSON object whose keys are ask's own flag names (generated from its FlagSet;
   `prompt` is the task; `overlay`, `agents`, `output-schema` also take an object). An unknown key or bad value exits 2
-  naming the nearest key; typed flags beat the spec, typed list flags add to it. `--batch` lines use the same keys
-  (`id`, `plan_task` extra; a batch-wide key on a line exits naming it). `--dry-run` prints agent, route (as `gateway
-  resolve`), hops, overlay and the canonical argv through the real resolvers; it saves no record and
-  calls no model and stamps neither workspace nor model picks; not with `--live`, `--batch`, `--job`.
+  naming the nearest key; typed flags beat the spec, typed list flags add to it. A `route` object takes provider,
+  profile, identity (`--as`), agent, runner (`pi|own`) and fallback (`--fallback`), each equal to its flag and checked
+  by the same validators (`coworker` as agent is Pi in code mode); an unknown key exits 2;
+  `host`, `remote`, `account` and a null are ignored with a stderr line, and a top-level key wins. `--batch` lines use
+  the same keys (`id`, `plan_task` extra; a batch-wide key on a line exits naming it).
+  `--dry-run` prints agent, route (as `gateway resolve`), hops, overlay and the canonical argv through the real
+  resolvers; it saves no record and calls no model and stamps neither workspace nor model picks;
+  not with `--live`, `--batch`, `--job`.
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
   (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
   normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
