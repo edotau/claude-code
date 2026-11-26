@@ -110,7 +110,7 @@ func cmdVaultSet(args []string) int {
 		Usage: "claude-code vault set [<secrets|env|overlay> NAME [VALUE]] [flags]",
 		About: "secrets NAME: sealed; value from a hidden prompt or stdin (bare: dialog).\n" +
 			"env NAME VALUE: plain value injected into launches.\n" +
-			"overlay KEY --file PATH|-: validated document. " + vaultOverlaySetAbout,
+			"overlay KEY --file PATH|-: validated document. " + overlaySetAbout(),
 	})
 	ts := fs.Bool("tailscale", false, "add a Tailscale credential (OAuth or API key) instead of NAME")
 	apiKey := fs.Bool("api-key", false, "with --tailscale: piped stdin is one TAILSCALE_API_KEY value")

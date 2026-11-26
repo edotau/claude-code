@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -294,5 +296,37 @@ func assertOverlayStored(t *testing.T, key, want string) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The overlay table is the one behaviour list: its names are vaultdoc's, and a row added to it is helped and validated.
+func TestOverlayTableIsTheOneList(t *testing.T) {
+	var names []string
+	for _, e := range overlayTable {
+		names = append(names, e.key)
+	}
+	if strings.Join(names, ",") != strings.Join(vaultdoc.SettableOverlayKeys, ",") {
+		t.Fatalf("overlayTable keys %v != vaultdoc.SettableOverlayKeys %v", names, vaultdoc.SettableOverlayKeys)
+	}
+	orig := overlayTable
+	t.Cleanup(func() { overlayTable = orig })
+	overlayTable = append(slices.Clone(orig), overlayEntry{"throwaway-key", func(doc []byte) error {
+		if string(doc) != "{}" {
+			return errors.New("no")
+		}
+		return nil
+	}})
+	_, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdVaultSet([]string{"-h"}) })
+	if help := stdout + stderr; !strings.Contains(help, "opencode-models, throwaway-key.") {
+		t.Fatalf("vault set -h omits the new row: %q", help)
+	}
+	doc := filepath.Join(t.TempDir(), "d.json")
+	for body, want := range map[string]int{"{}": 0, "[]": 1} {
+		if err := os.WriteFile(doc, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, _ := hosttest.CaptureOutput(t, func() int { return vaultOverlaySet("throwaway-key", doc, true) }); code != want {
+			t.Errorf("body %s: exit %d, want %d", body, code, want)
+		}
 	}
 }

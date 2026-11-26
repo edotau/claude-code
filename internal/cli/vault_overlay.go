@@ -20,9 +20,16 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models.\n" +
-	"providers.prev is a backup and cannot be set. All settable keys are JSON.\n" +
-	"Set prints byte sizes only, never document values."
+// overlaySetAbout is the settable-key help, listing the keys of overlayTable.
+func overlaySetAbout() string {
+	keys := make([]string, len(overlayTable))
+	for i, e := range overlayTable {
+		keys[i] = e.key
+	}
+	return "Settable keys: " + strings.Join(keys, ", ") + ".\n" +
+		"providers.prev is a backup and cannot be set. All settable keys are JSON.\n" +
+		"Set prints byte sizes only, never document values."
+}
 
 // vaultOverlayList is `vault ls overlays`: every overlay key with its stored size.
 func vaultOverlayList() int {
@@ -92,21 +99,26 @@ func validateAgentRecords(doc []byte) error {
 	return err
 }
 
-// overlayValidators hold each settable key's own parser; a key with none is refused.
-var overlayValidators = map[string]func(doc []byte) error{
-	"providers":     providers.Validate,
-	"agent-records": validateAgentRecords,
-	"opencode-models": func(doc []byte) error {
-		_, err := providers.ParseOpencodeMenu(doc)
-		return err
-	},
-	"proxy-teams": func(doc []byte) error {
+type overlayEntry struct {
+	key      string
+	validate func(doc []byte) error
+}
+
+// overlayTable is each settable overlay key's own parser in help order; its names are vaultdoc.SettableOverlayKeys.
+var overlayTable = []overlayEntry{
+	{"proxy-teams", func(doc []byte) error {
 		_, ps := proxyteam.Parse(assets.ProxyTeams(), doc)
 		if len(ps) > 0 {
 			return errors.New("invalid proxy-teams document")
 		}
 		return nil
-	},
+	}},
+	{"providers", providers.Validate},
+	{"agent-records", validateAgentRecords},
+	{"opencode-models", func(doc []byte) error {
+		_, err := providers.ParseOpencodeMenu(doc)
+		return err
+	}},
 }
 
 // vaultOverlaySet is `vault set overlay KEY --file PATH|-`: validate, then store and audit (--dry-run stops before).
@@ -114,15 +126,15 @@ func vaultOverlaySet(key, file string, dryRun bool) int {
 	if file == "" {
 		return helptext.FailUsage("vault set overlay: KEY needs --file PATH|-")
 	}
-	validate, ok := overlayValidators[key]
-	if !ok {
+	i := slices.IndexFunc(overlayTable, func(e overlayEntry) bool { return e.key == key })
+	if i < 0 {
 		return helptext.Fail("vault set overlay: key has no validator; settable keys: %s", strings.Join(vaultdoc.SettableOverlayKeys, ", "))
 	}
 	raw, err := readOverlayDoc(file)
 	if err != nil {
 		return helptext.Fail("vault set overlay: %v", err)
 	}
-	if err := validate(raw); err != nil {
+	if err := overlayTable[i].validate(raw); err != nil {
 		why := "invalid document"
 		if key == vault.AgentRecordsKey { // validateAgentRecords errors never echo a value
 			why = err.Error()
