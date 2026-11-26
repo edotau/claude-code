@@ -19,7 +19,8 @@ simplify --fail`), which also advises on retired words in added Go JSON tags and
 trim comments first.
 
 Vault env `COMPLEXITY_GATE=strict|recommended` (default `strict`): `recommended` makes `agents diff --check` show
-complexity (high_complexity, cyclomatic-complexity) once per function as advisory, never failing; the other caps still fail.
+complexity (high_complexity, cyclomatic-complexity) once per function as advisory, never failing; the other caps
+still fail.
 
 **What the caps are for (owner, 2026-11-25):** they push toward reusable, stable code: write a function once,
 stress-test it, then reuse it with minimal further tests. They are not there to limit complexity or file size for its
