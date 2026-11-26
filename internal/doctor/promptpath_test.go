@@ -220,11 +220,15 @@ func runCaptured(t *testing.T, args ...string) (int, string) {
 	}
 	saved := os.Stdout
 	os.Stdout = w
+	done := make(chan []byte, 1) // read while Run writes: output past the pipe buffer would block it
+	go func() {
+		out, _ := io.ReadAll(r)
+		done <- out
+	}()
 	code := Run(args)
 	os.Stdout = saved
 	w.Close()
-	out, _ := io.ReadAll(r)
-	return code, string(out)
+	return code, string(<-done)
 }
 
 func TestPromptsListJSONAccessorsAreArrays(t *testing.T) {

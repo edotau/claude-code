@@ -340,6 +340,10 @@ func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed 
 	case routed:
 		return "openai", base + "/" + w, w, runtimeModelID(canonical, model), nil
 	}
+	// an endpoint URL the unit chose (EndpointURL checked it against the row) is kept for every wire
+	if own, _ := p.Route(dialect); base != own {
+		return "openai", base, w, "", nil
+	}
 	// --direct: the profile's own endpoint for that wire
 	if b, ok = p.Route(w); !ok {
 		return "", "", "", "", fmt.Errorf("copilot: profile %s has no %s route for %s", p.Name, w, model)

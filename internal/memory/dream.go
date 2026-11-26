@@ -293,6 +293,7 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 	}
 	if lockErr == nil && run.runErr == nil && run.typed && o.Run != nil {
 		run.runAgent(o) // no store lock across the model call
+		dreamExtract(o, run.runErr)
 	}
 	run.fill(res)
 	flags := dreamPerformance(o.Out)

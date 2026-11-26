@@ -31,7 +31,8 @@ Before Gate 2 on any runnable surface: the live check (quality.md step 2) and th
 
 This harness: `claude-code agents diff --check --path <files>` (checks only; `agents fix --path <files>` fixes
 yours; `make fmt`, `audit` and `install` are the main session's) → scoped `rtk go test ./internal/<pkg>` per
-iteration; `rtk make audit` only in Gate 3.
+iteration in the main session or the collector (a leaf writes tests, does not run them; R37); `rtk make audit` only
+in Gate 3.
 
 ## Gate Loop (max 5 iterations per change set)
 

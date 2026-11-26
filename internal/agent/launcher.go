@@ -552,9 +552,8 @@ func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Reg
 	}
 	if name == "gemini" {
 		gateway := GeminiGatewayRow(target.Provider)
-		if from := target.Model; gateway && models.FamilyKind(from) != models.FamilyGemini {
+		if gateway && models.FamilyKind(target.Model) != models.FamilyGemini { // a non-Gemini session model is replaced silently
 			target.Model = cmp.Or(router.DatabricksModel(name, models.Opus, target.Provider), "")
-			note = joinNotes(note, fmt.Sprintf("gemini: %s is not a Gemini model; using %s", from, target.Model))
 		}
 		target = PinnedTarget(ctx, name, target)
 		if gateway && agentModelPinContext(ctx, name) != "" {

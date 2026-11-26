@@ -33,7 +33,8 @@ that makes it safe`. No stated assumption = a flag, not a fix.
 
 Merge duplicate findings, then apply the safe ones, gated by the Gate section below.
 Edit in place and minimally: every changed line traces to a finding; no drive-by formatting or renames.
-Re-run lint, scoped tests and the live check; on a regression revert your edit by hand (never
+Re-run lint and the live check (a leaf never runs tests; the main session runs the scoped tests); on a
+regression revert your edit by hand (never
 `git checkout`/`restore`/`stash` in the shared checkout) and downgrade it to a flag.
 
 ## Phase 4 - Report

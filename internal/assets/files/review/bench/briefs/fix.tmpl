@@ -4,7 +4,7 @@ Verify: {{.Verify}}
 Tier: standard
 
 Task:
-Make {{.Benchmark}} in {{.Package}} perform the same work faster; hand back uncommitted with before/after numbers.
+Make {{.Benchmark}} in {{.Package}} perform the same work faster; hand back uncommitted; the before/after numbers come from the main session.
 Work in the lane {{.Workdir}}. Candidate cause (a hypothesis to verify): {{.Cause}}
 
 ## Measurement evidence
@@ -12,15 +12,15 @@ Work in the lane {{.Workdir}}. Candidate cause (a hypothesis to verify): {{.Caus
 {{.Numbers}}
 
 Before run file: {{.BeforeFile}}
-Read that evidence before editing. Measure the unchanged code and the fix with the same command and inputs:
+Read that evidence before editing. You are a leaf (R37): run no test or benchmark command. Make the change and name this command for the main session to run on the unchanged code and the fix:
 
 ```bash
 cd {{sh .Workdir}}
 {{.BenchCommand}}
 ```
 
-Record ns/op, B/op, allocs/op and any spawn counts available, sample count, noise, and the numeric before/after delta.
-Defer when the machine is busy; a noisy run cannot establish a win. The driver performs the final interleaved A/B run.
+The main session records ns/op, B/op, allocs/op, spawn counts, sample count, noise and the before/after delta; those measured numbers are not yours.
+A noisy run cannot establish a win. The driver performs the final interleaved A/B run.
 
 ## Preserve behaviour
 
@@ -33,14 +33,19 @@ If a safe fix needs files outside Owned, stop and report the blocker.
 
 ## Verification
 
-Format only owned Go files, then lint; live-check output identity before scoped tests:
+Format only owned Go files, then lint; run only these:
 
 ```bash
 cd {{sh .Workdir}}
 go vet {{sh .Package}}
+{{if not .CodeMode}}rtk {{end}}git diff --no-ext-diff --no-textconv HEAD
+```
+
+Name these commands in your report for the main session to run (output identity, then scoped tests); do not run them:
+
+```bash
 {{.IdentityCommand}}
 {{.Verify}}
-{{if not .CodeMode}}rtk {{end}}git diff --no-ext-diff --no-textconv HEAD
 ```
 
 Check successful and failing inputs, errors, side effects, and cancellation against the parent, not just timing.
@@ -61,6 +66,6 @@ Inspect the entire lane diff for ownership and unchanged benchmarks. Run Skill(s
 ## Reporting contract
 
 Return the full report in your final answer, opening with DONE, DONE_WITH_CONCERNS, or BLOCKED.
-Include absolute files with numstat, commands and exit codes, before/after numbers, output-identity evidence,
+Include absolute files with numstat, commands run and exit codes, the commands left for the main session, output-identity evidence to come from it,
 checks preserved, cache/concurrency risks, gross production lines added/deleted, and anything blocked.
 Name the unchanged benchmark epoch evidence and what the driver needs for its interleaved run and Opus review.

@@ -50,7 +50,8 @@ func (e *effortPlan) benchNote(cwd, task string) string {
 	for _, pkg := range benchPackages(cwd, task) {
 		dashed := strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-")
 		line := fmt.Sprintf(
-			"perf: %s has benchmarks; run rtk bypass go test -run ^$ -bench . -benchmem -count=10 ./%s/ before and after, compare with benchstat against state/harness/bench/%s/rolling.txt, and report the table",
+			"perf: %s has benchmarks; do not run them (R37): name the ones your change touches, and the collector runs "+
+				"rtk bypass go test -run ^$ -bench . -benchmem -count=10 ./%s/ before and after against state/harness/bench/%s/rolling.txt",
 			pkg, pkg, dashed)
 		if strings.HasPrefix(pkg+"/", "internal/hooks/") || strings.HasPrefix(pkg+"/", "internal/permission/") {
 			line += "; hook package: cost only, never what it allows or blocks (R27)"

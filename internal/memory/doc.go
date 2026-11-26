@@ -593,8 +593,9 @@ func assignFileIDs(name, prefix string, now time.Time) (int, string, error) {
 	res, n := stampIDs(name, prefix, string(data), now)
 	res = formatBankMarkdown(res) // wrapped here, in memory, so settle never re-reads the file to wrap it
 	if res != string(data) {
-		if err := paths.AtomicWrite(path, []byte(res), 0o600); err != nil {
-			return n, res, err
+		ok, err := writeIfStill(path, data, true, []byte(res), 0o600)
+		if err != nil || !ok {
+			return n, "", err // an outside edit stays; the later steps read it fresh
 		}
 	}
 	return n, res, nil

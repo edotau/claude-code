@@ -16,13 +16,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -41,6 +41,7 @@ var (
 	watchOwner  = inflight.SessionOwner
 	watchJobs   = agent.Watch
 	startResume = launchResume
+	watchWait   = 4 * time.Second // the join cuts the check here (worktree-busy budget 5s)
 )
 
 // watchMode is HARNESS_WATCH: "off" (off|false|0), "dry" (report the resume, start nothing), else "on".
@@ -60,53 +61,94 @@ func BusyWatched(in *core.Input) core.Result { return watched(wthook.Busy, in) }
 // ReminderWatched is the Stop slot of docs-plan-reminder, which now only hosts the watchdog check.
 func ReminderWatched(in *core.Input) core.Result { return watchTick(in) }
 
-// watched runs r, then the watchdog check, joining their notes.
+// watched runs r beside the watchdog check; a check past watchWait is cut and records nothing it did not return.
 func watched(r core.Runner, in *core.Input) core.Result {
-	var res, w core.Result
-	parallel.Rethrow(parallel.All(2, func(i int) error { // the runner and the tick touch different state
-		if i == 0 {
-			res = r(in)
-		} else {
-			w = watchTick(in)
+	deadline, g := time.Now().Add(watchWait), &tickGate{}
+	defer time.AfterFunc(watchWait, g.stop).Stop() // cuts even while the runner is still running
+	tick := make(chan tickResult, 1)               // buffered: a cut tick never blocks its goroutine
+	go func() {
+		defer func() { _ = recover() }() // a check panic costs only its own note
+		tick <- watchTickGated(in, g)
+	}()
+	res := r(in) // the dispatcher recovers the runner's own panic
+	var w core.Result
+	select {
+	case t := <-tick:
+		if g.live() && time.Now().Before(deadline) {
+			w = t.Result
+			if t.commit != nil {
+				w.Stderr = core.JoinNonEmpty("\n", w.Stderr, errText("watch", t.commit()))
+			}
+			break
 		}
-		return nil
-	})...) // the dispatcher recovers the runner's own value
+		w.Stderr = "watch: check cut at the hook budget"
+	case <-time.After(time.Until(deadline)):
+		g.stop()
+		w.Stderr = "watch: check cut at the hook budget"
+	}
 	res.Context = core.JoinContext(res.Context, w.Context)
 	res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, w.SystemMessage)
 	res.Stderr = core.JoinNonEmpty("\n", res.Stderr, w.Stderr)
 	return res
 }
 
+// tickGate cuts a late tick: it starts no resume (one launching is marked) and its seen keys are never committed.
+type tickGate struct{ cut atomic.Bool }
+
+func (g *tickGate) stop() { g.cut.Store(true) }
+
+func (g *tickGate) live() bool { return g == nil || !g.cut.Load() }
+
+func stderrTick(text string) (t tickResult) {
+	t.Stderr = text
+	return t
+}
+
+// tickResult is a check's note plus the write that records what it reported as seen.
+type tickResult struct {
+	core.Result
+	commit func() error
+}
+
 // watchTick checks the main session's jobs once per watchEvery and reports each stale job once per reason.
 func watchTick(in *core.Input) core.Result {
+	t := watchTickGated(in, nil)
+	if t.commit != nil {
+		t.Stderr = core.JoinNonEmpty("\n", t.Stderr, errText("watch", t.commit()))
+	}
+	return t.Result
+}
+
+func watchTickGated(in *core.Input, g *tickGate) tickResult {
 	mode := watchMode()
 	if mode == "off" || in.Agent() != core.AgentClaude || in.SubagentID() != "" || in.StopHookActive {
-		return core.Result{}
+		return tickResult{}
 	}
 	owner := watchOwner()
 	if owner <= 1 {
-		return core.Result{}
+		return tickResult{}
 	}
 	key, now := watchKey(in.SessionID, owner), watchNow()
 	if err := os.MkdirAll(agent.WatchDir(), 0o700); err != nil {
-		return core.Result{Stderr: errText("watch", err)}
+		return stderrTick(errText("watch", err))
 	}
-	var res core.Result
+	var res tickResult
 	_, err := paths.TryFileLock(filepath.Join(agent.WatchDir(), key+".lock"), 0, func() error {
-		res = watchTickLocked(key, owner, now, mode)
+		res = watchTickLocked(key, owner, now, mode, g)
 		return nil
 	})
 	res.Stderr = core.JoinNonEmpty("\n", res.Stderr, errText("watch", err))
 	return res
 }
 
-func watchTickLocked(key string, owner int, now time.Time, mode string) core.Result {
+func watchTickLocked(key string, owner int, now time.Time, mode string, g *tickGate) tickResult {
 	if due, err := claimTick(key, now); !due {
-		return core.Result{Stderr: errText("watch", err)}
+		return stderrTick(errText("watch", err))
 	}
 	rep, err := watchJobs(owner, now, agent.WatchLimitsFromEnv())
-	lines, werr := freshLines(key, rep.Stale, mode)
-	res := core.Result{Stderr: core.JoinNonEmpty("\n", errText("watch", err), errText("watch", werr))}
+	lines, commit, werr := freshLines(key, rep.Stale, mode, g)
+	res := stderrTick(core.JoinNonEmpty("\n", errText("watch", err), errText("watch", werr)))
+	res.commit = commit
 	if len(lines) > 0 {
 		res.Context = strings.Join(lines, "\n")
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
@@ -211,8 +253,8 @@ func pruneWatch(now time.Time) error {
 	return errors.Join(errs...)
 }
 
-// freshLines is one context line per stale job and reason not yet reported this session; it records them as seen.
-func freshLines(key string, stale []agent.StaleJob, mode string) ([]string, error) {
+// freshLines is a line per unreported stale job and reason, plus the seen write to commit once they are returned.
+func freshLines(key string, stale []agent.StaleJob, mode string, g *tickGate) ([]string, func() error, error) {
 	seenPath := filepath.Join(agent.WatchDir(), key+".seen")
 	seen, seenErr := readSeen(seenPath)
 	var lines, add []string
@@ -224,16 +266,16 @@ func freshLines(key string, stale []agent.StaleJob, mode string) ([]string, erro
 		case len(lines) == watchLinesMax:
 			more++
 		default:
-			lines, add = append(lines, watchLine(s, mode)), append(add, k)
+			lines, add = append(lines, watchLine(s, mode, g)), append(add, k)
 		}
 	}
 	if more > 0 {
 		lines = append(lines, fmt.Sprintf("watch: %d more stale job(s): claude-code agents watch --once", more))
 	}
 	if len(add) == 0 {
-		return lines, seenErr
+		return lines, nil, seenErr
 	}
-	return lines, errors.Join(seenErr, writeWatch(seenPath, []byte(strings.Join(add, "\n")+"\n"), os.O_APPEND))
+	return lines, func() error { return writeWatch(seenPath, []byte(strings.Join(add, "\n")+"\n"), os.O_APPEND) }, seenErr
 }
 
 // readSeen is the keys already reported; a missing file is none, a read error comes back with what was read.
@@ -252,7 +294,7 @@ func readSeen(path string) (map[string]bool, error) {
 }
 
 // watchLine is the context line for one stale job; a resumable dead job is resumed once first.
-func watchLine(s agent.StaleJob, mode string) string {
+func watchLine(s agent.StaleJob, mode string, g *tickGate) string {
 	if s.Queue != "" {
 		return "watch: job " + s.ID + " " + s.Queue + "; next: " + strings.Join(s.Next, " ")
 	}
@@ -267,6 +309,9 @@ func watchLine(s agent.StaleJob, mode string) string {
 		}
 	}
 	if s.Resumable() {
+		if mode != "dry" && !g.live() { // a cut tick starts nothing it cannot report
+			return head + "; next: " + strings.Join(s.Next, " ")
+		}
 		return head + "; " + resumeOnce(s, mode)
 	}
 	return head + "; next: " + strings.Join(s.Next, " ")

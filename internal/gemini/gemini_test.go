@@ -407,6 +407,25 @@ func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 	}
 }
 
+// One launch mints one session token and refuses a direct unit.
+func TestGeminiGatewayMintsOnceAndRefusesDirect(t *testing.T) {
+	t.Cleanup(agent.StubRouter("http://127.0.0.1:19876"))
+	agent.ResetSessionTokens()
+	t.Cleanup(agent.ResetSessionTokens)
+	mints := 0
+	origMint := agent.MintSession
+	agent.MintSession = func(context.Context, []string, int) (string, error) { mints++; return "test-session", nil }
+	t.Cleanup(func() { agent.MintSession = origMint })
+	p := &providers.Provider{Name: t.Name(), Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}}
+	if _, _, err := geminiGateway(context.Background(), p, "gemini-3.8-flash", nil); err != nil || mints != 1 {
+		t.Fatalf("err = %v, mints = %d; want one mint", err, mints)
+	}
+	_, _, err := geminiEngine{}.Wire(agent.WithDirect(context.Background()), agent.WireRoute{Provider: p}, nil)
+	if err == nil || mints != 1 {
+		t.Fatalf("direct Wire err = %v, mints = %d; want a refusal before any mint", err, mints)
+	}
+}
+
 // A non-Gemini Databricks model rides agy's openai wire on the router's chat/completions route.
 func TestGeminiGatewayForeignModelUsesOpenAIWire(t *testing.T) {
 	t.Cleanup(agent.StubRouter("http://127.0.0.1:19876"))

@@ -788,3 +788,24 @@ func TestSameInstructions(t *testing.T) {
 		t.Errorf("a workdir with no CLAUDE.md must keep discovery, got %q", got)
 	}
 }
+
+// A unit whose endpoint is direct skips the registry: routeEnv takes the BYOK path and discovers nothing.
+func TestRouteEnvDirectUnitSkipsRegistry(t *testing.T) {
+	hosttest.PinScratch(t)
+	t.Setenv("DBX_CLI_TOKEN", "fixture-token")
+	setGOOS(t, "linux")
+	calls := 0
+	old := discoverModels
+	t.Cleanup(func() { discoverModels = old })
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		calls++
+		return nil, nil
+	}
+	dbx := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks,
+		Auth: providers.Auth{Type: "key", Env: "DBX_CLI_TOKEN"}}, Model: "claude-sonnet-5-5"}
+	ctx := agent.WithDirect(context.Background())
+	rt, _, _ := copilotEngine{}.routeEnv(ctx, copilotSchema(), agent.RunOptions{}, dbx) // BYOK may fail on credentials
+	if rt != nil || calls != 0 {
+		t.Fatalf("routeEnv on a direct unit: registry route %v, discover calls %d; want BYOK", rt, calls)
+	}
+}

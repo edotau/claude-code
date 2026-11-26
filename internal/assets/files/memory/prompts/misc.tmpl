@@ -1,3 +1,12 @@
+{{define "filed-by-go"}}{{/* fields: . */}}
+
+Filed by Go (decisionLog.md entries for this session's DECISION events; not in the tag list):
+{{.}}{{end}}
+
+{{define "handoff-request"}}{{/* fields: Identity Path */}}
+
+Also write a handoff to exactly {{.Path}} (this name, not another): first line exactly {{.Identity}}; then ## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it.{{end}}
+
 {{define "home-overflow"}}{{/* fields: . */}}- … {{.}} more (memory search)
 {{end}}
 
@@ -12,6 +21,14 @@ Open plan tasks: {{.}}
 {{end}}
 
 {{define "previous-session"}}{{/* fields: . */}} Previous session: {{.}}.{{end}}
+
+{{define "residue"}}{{/* fields: Rows */}}The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.
+{{.Rows}}Return only a typed Batch of ops that places them; write no files.{{end}}
+
+{{define "retry-note"}}{{/* fields: . */}}
+
+Your previous answer failed: {{.}}
+Return a corrected typed batch.{{end}}
 
 {{define "scaffold"}}{{/* fields: . */}}Memory bank scaffolded at {{.}} — it fills automatically at session end (optionally enrich with `claude-code memory init`).{{end}}
 

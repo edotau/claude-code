@@ -33,6 +33,11 @@ Check the complete lane diff, not just the supplied excerpt, against the named p
 ```bash
 cd {{sh .Workdir}}
 {{if not .CodeMode}}rtk {{end}}git diff --no-ext-diff --no-textconv HEAD
+```
+
+You are a leaf (R37): run no test command. Name these commands for the main session to run; the measured numbers come from it:
+
+```bash
 {{.IdentityCommand}}
 {{.Verify}}
 ```

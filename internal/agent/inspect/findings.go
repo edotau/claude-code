@@ -46,10 +46,9 @@ type parseFn func(out string) []Finding
 type step struct {
 	kind, gate string
 	globs, cmd []string
-	wholeCmd   []string // the command for --all without --path, when the tool's own config picks the files (mdsmith)
-	install    string   // how the Makefile installs the tool; empty for a tool that is always present
-	listsFiles bool     // the tool exits 0 and prints the files that need work (gofmt -l)
-	optional   bool     // a missing tool skips even under --gates, as the Makefile always did for it
+	install    string // how the Makefile installs the tool; empty for a tool that is always present
+	listsFiles bool   // the tool exits 0 and prints the files that need work (gofmt -l)
+	optional   bool   // a missing tool skips even under --gates, as the Makefile always did for it
 	parse      parseFn
 	fix        []string // the command `agents fix` runs on {files}, the one `make fmt` runs for this kind; nil: no fixer
 	dry        []string // what lists the files fix would rewrite, when cmd is not that (golangci-lint fmt -d)
@@ -72,8 +71,7 @@ var steps = []step{
 		dryParse: parseFmtDiff,
 		cmd:      []string{"golangci-lint", "run", "--allow-parallel-runners", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
 	{kind: "markdown", gate: "docs", globs: []string{mdGlob}, install: "make mdsmith", parse: parseDocs,
-		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, fix: []string{"mdsmith", "fix", "--no-color", "--", "{files}"},
-		wholeCmd: []string{"mdsmith", "check", "--no-color"}},
+		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, fix: []string{"mdsmith", "fix", "--no-color", "--", "{files}"}},
 	{kind: "markdown", gate: "spell", globs: []string{mdGlob}, install: "make typos", optional: true, parse: parseTypos,
 		cmd: []string{"typos", "--format", "brief", "--no-check-filenames", "--", "{files}"}},
 	{kind: "yaml", gate: "yaml", globs: []string{"**/*.yml", "**/*.yaml"}, install: "make install", optional: true,

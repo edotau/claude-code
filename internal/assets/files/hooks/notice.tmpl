@@ -15,3 +15,5 @@ notices: WARNING — could not read failures ({{.Err}}); skipped{{end}}
 {{define "failure-line"}}{{/* fields: Body Holder Kind */}}failure {{.Kind}} {{.Body}}{{if .Holder}} [claimed by {{.Holder}}]{{end}}{{end}}
 
 {{define "failure-claim"}}{{/* fields: ID */}}claim: claude-code failures claim {{.ID}}{{end}}
+
+{{define "fixnow"}}{{/* fields: ID Idle Kind Present Report Subject Summary */}}fix now: {{.Kind}} {{.Subject}}: {{.Summary}}; claim: claude-code failures claim {{.ID}}. Once the current task is done, claim it, then {{if .Present}}investigate and give the owner options with a recommendation, and wait for his answer (owner present: a prompt in the last {{.Idle}}){{else}}apply the recommended fix now, log what was found, done and rejected to {{.Report}}, and raise it at the owner's next message (owner idle: no prompt for {{.Idle}}){{end}}. A fix that deletes owner data or adds a restriction waits for the owner in both modes.{{end}}

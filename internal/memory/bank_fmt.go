@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/mdlint"
-	"github.com/edotau/claude-code/internal/paths"
 )
 
 var (
@@ -99,8 +98,12 @@ func formatFiles(files []string, check bool) (changed []string, err error) {
 			continue
 		}
 		if !check {
-			if err := paths.AtomicWrite(f, []byte(next), 0o600); err != nil {
+			ok, err := writeIfStill(f, data, true, []byte(next), 0o600)
+			if err != nil {
 				return changed, err
+			}
+			if !ok {
+				continue // an outside edit stays; it is not reported as wrapped
 			}
 		}
 		changed = append(changed, f)

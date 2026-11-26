@@ -73,7 +73,8 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
   `references/style.md` → Strings); only the editor shows those.
 - **Dependency APIs:** check a third-party API against its source (`go doc <pkg>.<Sym>`, or the module cache at
   `$(go env GOMODCACHE)`), never from memory.
-- Verify per `quality.md` → Verification Order (`rtk go test ./internal/<pkg>/...` scoped,
+- Verify per `quality.md` → Verification Order (`go test` is run by a main session only (targeted when verifying a
+  hand-back, the full suite once in the collector); a leaf never runs it;
   `agents diff --check --path <files>`, `rtk make audit` at wrap-up); prove other platforms with
   `GOOS=linux rtk go build ./...`
   / `GOOS=windows go vet ./...`.

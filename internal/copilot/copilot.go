@@ -45,6 +45,8 @@ var (
 
 func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = agent.DirectCtx(ctx, req)
+	agent.TakeChosenProxy(agent.DispatchIDOf(ctx))       // a stale label from an earlier attempt must not reach this one
+	defer agent.TakeChosenProxy(agent.DispatchIDOf(ctx)) // the child env has read it by the time the run ends
 	cs := copilotSchema()
 	// copilot never resolves its own login: every target has a provider
 	t, _, err := cs.TargetCtx(ctx, req)
@@ -187,7 +189,7 @@ func armBYOK(o *sdk.Options) {
 // routeEnv prepares the registry route or the BYOK route env for target t.
 func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (rt *copilotRegistryRoute, env []string, err error) {
-	if copilotRegistryEligible(req.Direct, t) {
+	if copilotRegistryEligible(req.Direct || agent.IsDirect(ctx), t) {
 		rt, err = prepareCopilotRegistry(ctx, t)
 		return rt, nil, err
 	}

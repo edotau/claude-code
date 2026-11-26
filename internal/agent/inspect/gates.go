@@ -290,9 +290,6 @@ func stepDef(gate string, needsBuild bool) gateDef {
 func stepGate(st step) gateFn {
 	return func(ctx context.Context, in gateInput) (string, string, error) {
 		files, cmd := match(in.files, st.globs), st.cmd
-		if in.whole && st.wholeCmd != nil {
-			cmd = st.wholeCmd
-		}
 		switch {
 		case slices.Contains(cmd, "{files}") && len(files) == 0:
 			return "", "no " + st.kind + " files", nil

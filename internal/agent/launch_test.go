@@ -14,10 +14,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -638,5 +640,33 @@ func TestWithChosenDocLeavesCallerEnv(t *testing.T) {
 	}
 	if !strings.Contains(out[0], "phase:g1") {
 		t.Fatalf("chosen team not carried: %q", out[0])
+	}
+}
+
+// A gemini launch with no typed model takes its own default silently; a typed model is spelled as typed.
+func TestCliTargetGeminiDefaultIsSilent(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("GEMINI_MODEL", "")
+	const opus = "databricks-claude-opus-5-5"
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, Host: "https://dbx.example.com",
+		Auth: providers.Auth{Type: providers.AuthKey, Env: "DBX_GEMINI_DEFAULT_TEST"}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dbx": p}}
+	sel := providers.Selection{Provider: p, Aliases: map[string]providers.Target{
+		models.Opus: {Provider: p, Model: opus, Pinned: true}}}
+	want := router.DatabricksModel("gemini", models.Opus, p)
+	for _, c := range []struct{ name, typed, model string }{
+		{"no typed model", "", want},
+		{"typed claude model", "claude-opus-4-1", "claude-opus-4-1"},
+	} {
+		got, note, err := cliTarget(t.Context(), SchemaFor("gemini"), "gemini", reg, sel, true, c.typed)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got.Model != c.model || note != "" {
+			t.Errorf("%s: model=%q note=%q, want model %q and no note", c.name, got.Model, note, c.model)
+		}
+		if got.Model == opus {
+			t.Errorf("%s: the session's Claude model leaked into the gemini launch", c.name)
+		}
 	}
 }

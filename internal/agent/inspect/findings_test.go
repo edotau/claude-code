@@ -184,20 +184,17 @@ func TestQualityGateRunsSimplifyFailAndReadsRows(t *testing.T) {
 	}
 }
 
-// Whole-tree docs lets mdsmith's own config pick the files; an explicit file list would bypass its ignore list.
-func TestAllDocsLetsMdsmithPickItsFiles(t *testing.T) {
+// Whole-tree docs lints the git file list, so a Markdown file under .git/ is never handed to mdsmith.
+func TestAllDocsSkipsGitDir(t *testing.T) {
 	dir, calls := scopeRepo(t)
 	writeRepoFile(t, dir, "notes.md", "# N\n")
+	writeRepoFile(t, dir, ".git/x/bad.md", "no heading\n\n\n\nx")
 	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true, All: true, Gates: []string{"docs"}}); code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
-	if got := callOf(*calls, "mdsmith"); !slices.Equal(got, []string{"check", "--no-color"}) {
-		t.Errorf("--all mdsmith args = %v, want no file list", got)
-	}
-	*calls = nil
-	runDiff(t, DiffOptions{Dir: dir, Check: true, Gates: []string{"docs"}})
-	if got := callOf(*calls, "mdsmith"); !slices.Equal(got, []string{"check", "--no-color", "--", "notes.md"}) {
-		t.Errorf("dirty mdsmith args = %v, want the changed file after --", got)
+	got := callOf(*calls, "mdsmith")
+	if !slices.Contains(got, "notes.md") || slices.ContainsFunc(got, func(a string) bool { return strings.HasPrefix(a, ".git/") }) {
+		t.Errorf("--all mdsmith args = %v, want notes.md and nothing under .git/", got)
 	}
 }
 

@@ -27,7 +27,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -79,7 +78,7 @@ func (geminiEngine) Login(_ context.Context, p *providers.Provider, model string
 
 // Wire serves only a Databricks row: Serves refuses agy every other non-login row.
 func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
-	if agent.IsDirect(ctx) { // --direct skips the router that swaps the Databricks token
+	if agent.IsDirect(ctx) { // direct skips the router that swaps the Databricks token
 		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
 	}
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: router fixes agy's Databricks requests
@@ -233,16 +232,16 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, err
 	}
-	var rb, tok string
-	if agent.IsDryRun(ctx) {
-		rb, tok = agent.PreviewRouterBase(ctx), "<redacted>"
-	} else {
-		if rb, err = agent.EnsureRouter(agent.WithScopedProxy(ctx, "gemini")); err != nil {
-			return nil, nil, fmt.Errorf("gemini: router: %w", err)
-		}
-		if tok, err = agent.SessionTokenWithFailover(ctx, rb, agent.AutoFailoverProvider(ctx), p.Name); err != nil {
-			return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
-		}
+	unit, err := agent.RunUnit(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gemini: %w", err)
+	}
+	ep, err := agent.EndpointURL(agent.WithScopedProxy(ctx, "gemini"), p, unit, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("gemini: %w", err)
+	}
+	if !ep.Routed {
+		return nil, nil, fmt.Errorf("gemini: profile %s needs the router's token swap; its endpoint is not the proxy", p.Name)
 	}
 	route, wireProto, list, lite := providers.ProtocolOpenAI, "openai", base, base // Gemini ids stay off the openai wire
 	if !agyForeign(base) {
@@ -250,8 +249,8 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		list, lite = agyGatewayModels(p, base, time.Now())
 	}
 	env := proc.Values{
-		"AGY_LLM_GATEWAY_URL":     proxy.SessionBase(rb, p.Name) + "/" + route,
-		"AGY_LLM_GATEWAY_API_KEY": tok, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": wireProto, "AGY_LLM_GATEWAY_MODELS": list,
+		"AGY_LLM_GATEWAY_URL":     ep.Base + "/" + route,
+		"AGY_LLM_GATEWAY_API_KEY": ep.Key, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": wireProto, "AGY_LLM_GATEWAY_MODELS": list,
 		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
 		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,
 		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router

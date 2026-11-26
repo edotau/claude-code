@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,10 +56,10 @@ func rotateSessionHistory(now time.Time) (int, error) {
 		return 0, nil
 	}
 	archive := paths.MemorySub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
-	if err := appendUnarchived(archive, overflow); err != nil {
+	if ok, err := appendUnarchived(archive, overflow); err != nil || !ok {
 		return 0, err // never truncate unarchived entries
 	}
-	if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
+	if ok, err := writeIfStill(path, data, true, []byte(rejoin(header, keep)), 0o600); err != nil || !ok {
 		return 0, err
 	}
 	return len(overflow), nil
@@ -88,10 +89,10 @@ func sessionOverflow(body string) (header string, keep, overflow []string) {
 }
 
 // appendUnarchived appends the blocks archive does not already hold, so a retried rotation never duplicates them.
-func appendUnarchived(archive string, blocks []string) error {
+func appendUnarchived(archive string, blocks []string) (bool, error) {
 	existing, err := os.ReadFile(archive)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return false, err
 	}
 	_, held := splitHeadingBlocks(string(existing))
 	seen := make(map[string]bool, len(held))
@@ -105,9 +106,29 @@ func appendUnarchived(archive string, blocks []string) error {
 		}
 	}
 	if len(missing) == 0 {
-		return nil
+		return true, nil
 	}
-	return appendBlocks(archive, missing)
+	return writeIfStill(archive, existing, err == nil, []byte(appendedText(archive, string(existing), missing)), 0o600)
+}
+
+// writeIfStill writes next over path only while it holds seen; an outside edit stays, next kept as a listed guard copy.
+func writeIfStill(path string, seen []byte, existed bool, next []byte, mode os.FileMode) (bool, error) {
+	cur, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if (err == nil) != existed || (err == nil && !bytes.Equal(cur, seen)) {
+		kept := path + ".db-conflict-" + sha256Hex(next)[:12]
+		if err := keepSidecar(kept, path, next); err != nil {
+			return false, fmt.Errorf("memory settle: keep %s: %w", kept, err)
+		}
+		if err := paths.SyncDir(filepath.Dir(kept)); err != nil {
+			return false, fmt.Errorf("memory settle: sync %s: %w", filepath.Dir(kept), err)
+		}
+		fmt.Fprintln(os.Stderr, "notice: memory settle kept an outside edit of", path, "and saved its own result as", kept)
+		return false, nil
+	}
+	return true, paths.AtomicWrite(path, next, mode)
 }
 
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
@@ -154,6 +175,17 @@ func settleBankWith(now time.Time, extra []string, subject string) (rotated int,
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
+	truth, terr := TruthErr()
+	switch {
+	case terr != nil:
+		return 0, terr // never settle files on a truth that cannot be read
+	case truth == truthDB:
+		return settleDB(now, extra, subject)
+	}
+	return settleFiles(now, extra, subject)
+}
+
+func settleFiles(now time.Time, extra []string, subject string) (rotated int, err error) {
 	// an unscaffolded repo gets its store from Init (with its origin), never here
 	if rotated, err = settleDir(now); err != nil {
 		return rotated, err
@@ -173,6 +205,56 @@ func settleBankWith(now time.Time, extra []string, subject string) (rotated int,
 		shadowSettle(now)
 	}
 	return rotated, errors.Join(commitErr, ierr)
+}
+
+// settleDB settles in db truth under the held bank lock: guard, file steps on the export, guard, index, commit.
+func settleDB(now time.Time, extra []string, subject string) (rotated int, err error) {
+	if OpenExportDB == nil {
+		return 0, errors.New("memory truth is db but no export db is linked")
+	}
+	edb, closeDB, err := OpenExportDB()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { err = errors.Join(err, closeDB()) }()
+	root := paths.MemoryStoreDir()
+	ierr, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
+	if err != nil {
+		return 0, err
+	}
+	if rotated, err = settleDir(now); err != nil {
+		return rotated, err
+	}
+	if err := sweepNotes(); err != nil {
+		return rotated, err
+	}
+	gerr, err := guardPass(edb, root) // imports the file steps' result (the rotation) and exports the db
+	if err != nil {
+		return rotated, err
+	}
+	rep, rerr := refreshIndexFiles(now, extra)
+	if rerr != nil && !errors.Is(rerr, errIndexProblem) {
+		return rotated, rerr
+	}
+	if rep.notable() {
+		fmt.Fprintln(os.Stderr, "memory index:", rep)
+	}
+	return rotated, errors.Join(commitBanks(subject), ierr, gerr, rerr)
+}
+
+// guardPass runs the export guard without retaking the held lock, printing what it imported or kept apart.
+func guardPass(db ExportDB, root string) (indexErr, err error) {
+	rep, err := ExportGuardLocked(db, root)
+	if len(rep.Imported) > 0 {
+		fmt.Fprintln(os.Stderr, "notice: memory settle imported outside edits:", strings.Join(rep.Imported, ", "))
+	}
+	if len(rep.Conflicts) > 0 {
+		fmt.Fprintln(os.Stderr, "notice: memory export conflicts (both sides kept):", strings.Join(rep.Conflicts, ", "))
+	}
+	if errors.Is(err, errIndexProblem) && !errors.Is(err, errExportSync) {
+		return err, nil
+	}
+	return nil, err
 }
 
 // shadowSettle imports into the shadow db and logs a change in its divergent docs; it never fails the settle.

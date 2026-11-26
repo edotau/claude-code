@@ -156,10 +156,9 @@ var relayGoValue = sync.OnceValue(func() map[string][]string { return shell.Guar
 
 var relayGoBool = sync.OnceValue(func() map[string][]string { return shell.GuardTools("relay_go_bool_flags") })
 
-// relayGoShapes names the allowed go shapes in one line for the refusal message.
-const relayGoShapes = "go vet|test <./packages> [-tags -p -race -v], go test also [-run -skip -count -timeout -shuffle -list " +
-	"-short -failfast -cover -covermode -coverpkg -bench -benchmem -benchtime -parallel -cpu -vet -json], " +
-	"go build ./... or go build <./packages> -o /dev/null, gofmt -l <./paths>"
+// relayGoShapes names the go shapes to offer in the refusal message; no test run, a leaf may not run one (R37).
+const relayGoShapes = "go vet <./packages> [-tags -p -race -v], go build ./... or go build <./packages> -o /dev/null, " +
+	"gofmt -l <./paths> (no test run: tests run in the collector, R37)"
 
 // relayWrapRe is one leading wrapper in a safe shape; env takes no flag, and an assignment after it fails the go check.
 var relayWrapRe = sync.OnceValue(func() *regexp.Regexp {

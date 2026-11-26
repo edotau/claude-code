@@ -155,7 +155,7 @@ a lead or owner, Sonnet or Haiku for executing leaves. Name first-party Anthropi
 - [ ] Every Target-shape row has evidence you ran or read; every approach has a `DECISION:` or `Rejected:` line
 - [ ] File paths and line ranges are real (you read them)
 - [ ] Names and signatures are consistent across phases
-- [ ] No placeholders; every phase has a live check + scoped test command
+- [ ] No placeholders; every phase has a live check + scoped test command (the collector runs it, never a leaf)
 - [ ] Dependencies and parallel-safe markers are explicit
 - [ ] Verification commands use the repo's own tooling (`go test`, `make`, `.venv/bin/pytest` — never bare
       `python`/`pytest`)

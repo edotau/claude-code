@@ -263,7 +263,7 @@ var pointerBound = map[string]core.Runner{
 	"dispatch-failure": dispatchhook.Release, "review-grep-exit": quality.GrepExit, "dispatch-workflow": dispatchhook.AfterTool, "dispatch-stop": dispatchhook.Stop,
 	"dispatch-handback": dispatchhook.Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": dispatchhook.ReminderWatched,
 	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
-	"worktree-clean-end": wthook.CleanEnd, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
+	"worktree-clean-end": wthook.CleanEnd, "worktree-fixnow": wthook.FixNow, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
 	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": web.Tavily,
 	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,
 }
@@ -917,5 +917,30 @@ func TestBashTimeoutComposesWithRewrite(t *testing.T) {
 		if got, _ := dispatchhook.BashTimeoutMs(cmd); got != want {
 			t.Errorf("%q: got %d want %d", cmd, got, want)
 		}
+	}
+}
+
+// TestMergeDecisionStopJoinsBlocks: two Stop continuations both reach the model; elsewhere the first reason wins.
+func TestMergeDecisionStopJoinsBlocks(t *testing.T) {
+	for event, want := range map[string]string{settings.EventStop: "decide\nfix now", settings.EventPreToolUse: "decide"} {
+		var m core.Result
+		mergeDecision(&m, core.Result{Decision: core.Block, Reason: "decide"}, event)
+		mergeDecision(&m, core.Result{Decision: core.Block, Reason: "fix now"}, event)
+		if m.Reason != want {
+			t.Errorf("%s reason = %q, want %q", event, m.Reason, want)
+		}
+	}
+}
+
+// TestJoinContextKeepsWorktreeOverCap: over the cap the worktree group's notice goes first; under it order holds.
+func TestJoinContextKeepsWorktreeOverCap(t *testing.T) {
+	big := strings.Repeat("r", core.ContextCapChars)
+	m := &dispatchMerge{ctx: []string{big, "fix now: x"}, wtAt: []int{1}}
+	if got := m.joinContext(); !strings.HasPrefix(got, "fix now: x") {
+		t.Fatalf("over cap = %.40q…, want the worktree notice first", got)
+	}
+	m = &dispatchMerge{ctx: []string{"recall", "fix now: x"}, wtAt: []int{1}}
+	if got := m.joinContext(); got != core.JoinContext("recall", "fix now: x") {
+		t.Fatalf("under cap = %q, want declaration order", got)
 	}
 }

@@ -47,7 +47,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: path, report, fmt, watch,\n" +
-		"          import, sandbox, upgrade, extract, shadow (off menu)\n" +
+		"          import, sandbox, upgrade, extract, shadow, store (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -69,6 +69,7 @@ var memoryPlumbing = map[string][2]string{
 	"upgrade": {"[--dry-run] [--to N] [--model M] [--no-resolve]", "bring every memory file to the current store version, one commit per step"},
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
+	"store":   {"[--truth files|db]", "show which store is the source of truth, or switch it"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -225,6 +226,29 @@ func cmdMemoryShadow(args []string) int {
 	return 0
 }
 
+// cmdMemoryStore prints the store's truth, or switches it with --truth.
+func cmdMemoryStore(args []string) int {
+	fs := memoryFlagSet("store")
+	truth := fs.String("truth", "", "switch the source of truth to files or db")
+	if code, done := memoryParseNoArgs(fs, "store", args); done {
+		return code
+	}
+	if helptext.Explicit(fs, "truth") {
+		if *truth != "files" && *truth != "db" {
+			return helptext.FailUsage("memory store: --truth %q: want files or db (usage: %s)", *truth, memorySubPage("store").Usage)
+		}
+		if err := memory.SetTruth(*truth); err != nil {
+			return helptext.Fail("memory store: %v", err)
+		}
+	}
+	t, err := memory.TruthErr()
+	if err != nil {
+		return helptext.Fail("memory store: %v", err)
+	}
+	fmt.Printf("truth: %s\n", t)
+	return 0
+}
+
 func cmdMemoryWatch(args []string) int {
 	fs := helptext.NewFlagSet("memory watch", helptext.Page{Usage: "claude-code memory watch [flags]",
 		About: "Detached per-session watcher the Stop gate spawns; updates the bank once the session goes idle."})
@@ -262,6 +286,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"upgrade": cmdMemoryUpgrade,
 		"extract": cmdMemoryExtract,
 		"shadow":  cmdMemoryShadow,
+		"store":   cmdMemoryStore,
 	}
 }
 
@@ -305,6 +330,7 @@ func memorySpec() *helptext.Node {
 		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to"), helptext.Plain("model"), helptext.BoolFlag("no-resolve")}},
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild"), helptext.BoolFlag("conflicts"), helptext.ValuedFlag("clear", nil)}},
+		"store":   {Flags: []helptext.Flag{helptext.ValuedFlag("truth", func() []string { return []string{"files", "db"} })}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},

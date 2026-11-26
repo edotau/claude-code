@@ -104,6 +104,32 @@ func TestMemoryShadowRebuild(t *testing.T) {
 	}
 }
 
+func TestMemoryStore(t *testing.T) {
+	memCfg(t)
+	oldExp := memory.ExportBeforeFlip
+	t.Cleanup(func() { memory.ExportBeforeFlip = oldExp })
+	memory.ExportBeforeFlip = nil
+	if out := memCLIOK(t, "store"); out != "truth: files\n" {
+		t.Fatalf("show = %q", out)
+	}
+	if out := memCLIOK(t, "store", "--truth", "db"); out != "truth: db\n" {
+		t.Fatalf("set db = %q", out)
+	}
+	code, _, stderr := memCLI(t, "store", "--truth", "files")
+	if code != 1 || !strings.Contains(stderr, "export unavailable") || memory.Truth() != "db" {
+		t.Fatalf("set files without exporter: code %d stderr %q truth %s", code, stderr, memory.Truth())
+	}
+	memory.ExportBeforeFlip = func() error { return nil }
+	if out := memCLIOK(t, "store", "--truth", "files"); out != "truth: files\n" {
+		t.Fatalf("set files = %q", out)
+	}
+	for _, bad := range []string{"bogus", ""} {
+		if code, _, stderr := memCLI(t, "store", "--truth="+bad); code != 2 || !strings.Contains(stderr, "want files or db") {
+			t.Fatalf("bad value %q: code %d stderr %q", bad, code, stderr)
+		}
+	}
+}
+
 func TestMemoryCLIRejections(t *testing.T) {
 	memCfg(t)
 	cases := []struct {

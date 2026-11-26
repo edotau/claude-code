@@ -43,8 +43,9 @@ func TestEffortBenchNoteOnlyForBenchedPackage(t *testing.T) {
 	effortHome(t)
 	stubLabelModels(t, "")
 	repo := writeBenchRepoFixture(t)
-	want := "perf: internal/alpha/sub has benchmarks; run rtk bypass go test -run ^$ -bench . -benchmem -count=10 " +
-		"./internal/alpha/sub/ before and after, compare with benchstat against state/harness/bench/alpha-sub/rolling.txt, and report the table"
+	want := "perf: internal/alpha/sub has benchmarks; do not run them (R37): name the ones your change touches, and the " +
+		"collector runs rtk bypass go test -run ^$ -bench . -benchmem -count=10 ./internal/alpha/sub/ before and after " +
+		"against state/harness/bench/alpha-sub/rolling.txt"
 
 	for _, header := range []string{
 		`Owned: ["internal/alpha/sub/sub.go", "internal/beta/beta.go"]`,

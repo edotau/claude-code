@@ -149,6 +149,7 @@ var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 type dispatchMerge struct {
 	merged         core.Result
 	ctx, sys, errs []string
+	wtAt           []int // ctx indexes of the worktree group: recorded deliveries, kept first when over the cap
 	firstErr       error
 	log            io.Writer
 	rows           []hooktelemetry.Row
@@ -177,16 +178,15 @@ func (m *dispatchMerge) fail(err error) {
 // add folds one successful handler result into the merge.
 func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 	merged := &m.merged
-	if r.Decision > merged.Decision {
-		merged.Decision, merged.Reason = r.Decision, r.Reason
-	} else if r.Decision == merged.Decision && merged.Reason == "" {
-		merged.Reason = r.Reason
-	}
+	mergeDecision(merged, r, event)
 	merged.Floor = merged.Floor || r.Floor
 	if r.ExitCode != 0 {
 		r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
 	}
 	m.ctx, m.sys, m.errs = append(m.ctx, r.Context), append(m.sys, r.SystemMessage), append(m.errs, r.Stderr)
+	if b.Group == "worktree" {
+		m.wtAt = append(m.wtAt, len(m.ctx)-1)
+	}
 	if r.UpdatedInput != nil {
 		if merged.UpdatedInput != nil {
 			m.fail(fmt.Errorf("%s/%s: second updatedInput on %s", b.Group, b.Spec.Name, event))
@@ -202,6 +202,35 @@ func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 		merged.UpdatedToolOutput = r.UpdatedToolOutput
 	}
 	m.addWorktree(b, r)
+}
+
+// joinContext joins the contexts in order; over the cap the worktree group's go first, so the cut falls elsewhere.
+func (m *dispatchMerge) joinContext() string {
+	joined := core.JoinContext(m.ctx...)
+	if capped := core.CapContext(joined); len(m.wtAt) == 0 || capped == joined {
+		return capped
+	}
+	first, rest := make([]string, 0, len(m.ctx)), []string{}
+	for i, c := range m.ctx {
+		if slices.Contains(m.wtAt, i) {
+			first = append(first, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return core.CapContext(core.JoinContext(append(first, rest...)...))
+}
+
+// mergeDecision keeps the strongest decision's reason; Stop joins every block's reason so each continuation is read.
+func mergeDecision(merged *core.Result, r core.Result, event string) {
+	switch {
+	case r.Decision > merged.Decision:
+		merged.Decision, merged.Reason = r.Decision, r.Reason
+	case r.Decision == merged.Decision && merged.Reason == "":
+		merged.Reason = r.Reason
+	case r.Decision == core.Block && r.Decision == merged.Decision && event == settings.EventStop:
+		merged.Reason = core.JoinNonEmpty("\n", merged.Reason, r.Reason)
+	}
 }
 
 // addWorktree folds the worktree group's exit code and raw stdout, the only group allowed either.
@@ -302,7 +331,7 @@ func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 		drain(&wg, log)
 	}
 	m.applyTimeout()
-	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
+	m.merged.Context = m.joinContext()
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
 	for i := range m.rows {
@@ -445,6 +474,7 @@ var native = map[string]core.Runner{
 	"worktree-create":      wthook.Create,
 	"worktree-remove":      viaStderr(wthook.Remove),
 	"worktree-busy":        dispatchhook.BusyWatched,
+	"worktree-fixnow":      wthook.FixNow,
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": claimCheckRun,
 	"worktree-clean-end":   wthook.CleanEnd,

@@ -127,16 +127,19 @@ func Busy(in *core.Input) core.Result {
 	defer cancel()
 	run := newRun(ctx, in)
 	busy, busyWarn := "", ""
+	err := notePrompt(ctx, in) // before the notices, so this prompt counts the owner present
 	if !worktreeModeOff() {
-		var err error
-		busy, err = busyLine(in, run)
-		if err != nil {
-			busyWarn = fmt.Sprintf("worktree-busy: WARNING — %v", err)
-		}
+		var berr error
+		busy, berr = busyLine(in, run)
+		err = cmp.Or(berr, err)
+	}
+	if err != nil {
+		busyWarn = fmt.Sprintf("worktree-busy: WARNING — %v", err)
 	}
 	notes, warn := noticeContext(ctx, in, run)
 	audits := strings.Join(worktree.AuditReports(), "\n")
-	return core.Result{Context: core.JoinContext(busy, audits, notes), Stderr: core.JoinContext(busyWarn, warn)}
+	// notes lead with fix-now directives, already recorded as delivered, so unbounded peer and audit text goes after
+	return core.Result{Context: core.JoinContext(notes, busy, audits), Stderr: core.JoinContext(busyWarn, warn)}
 }
 
 // checkoutInfo is CheckoutPeersInfo's result.
@@ -300,15 +303,41 @@ func failureNotice(f worktree.Failure) (line string, open bool) {
 	return assets.HookFailureLine(kind, body, holder), holder == "" && !done
 }
 
+// inboxLines is this session's drained notices plus the divergence line, and the warning an infra error earns.
+func inboxLines(ctx context.Context, in *core.Input, run *hookRun) (lines []string, warn string) {
+	notices, drainErr := worktree.DrainFor(in.SessionID, func() string { return run.checkout().top })
+	for _, n := range notices {
+		who := n.Kind + ", from " + n.From
+		if n.Kind == n.From {
+			who = n.Kind
+		}
+		lines = append(lines, assets.HookNoticeLine(who, n.Text))
+	}
+	if drainErr != nil {
+		warn += assets.HookNoticeDrainWarn(drainErr.Error())
+	}
+	line, err := divergedLine(ctx, in, run)
+	if err != nil {
+		warn = strings.TrimSpace(warn + assets.HookNoticeDivergeWarn(err.Error()))
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines, warn
+}
+
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
-	var lines []string
 	fails, more, failErr := worktree.FailuresSinceWithin(worktree.FailuresDir(), in.SessionID, failureFetch, failureWait)
 	if errors.Is(failErr, paths.ErrLockTimeout) { // busy log: stay silent, the cursor did not move
 		failErr = nil
 	}
 	_, mainRepo := paths.CheckoutOf(run.dir)
-	fails = repoFailures(fails, mainRepo)
+	tail, warn := inboxLines(ctx, in, run) // the slow reads run first: a directive is recorded only just before the return
+	lines, sent, fixErr := fixNowLines(ctx, in, mainRepo, true)
+	failErr = cmp.Or(failErr, fixErr)
+	main := mainSession(ctx, in)
+	fails = slices.DeleteFunc(repoFailures(fails, mainRepo), func(f worktree.Failure) bool { return fixNowHides(ctx, main, sent, f) })
 	if len(fails) > failureLines {
 		more, fails = more+len(fails)-failureLines, fails[:failureLines]
 	}
@@ -329,24 +358,7 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 	if failErr != nil {
 		warn += assets.HookFailuresWarn(failErr.Error())
 	}
-	notices, drainErr := worktree.DrainFor(in.SessionID, func() string { return run.checkout().top })
-	for _, n := range notices {
-		who := n.Kind + ", from " + n.From
-		if n.Kind == n.From {
-			who = n.Kind
-		}
-		lines = append(lines, assets.HookNoticeLine(who, n.Text))
-	}
-	if drainErr != nil {
-		warn += assets.HookNoticeDrainWarn(drainErr.Error())
-	}
-	line, err := divergedLine(ctx, in, run)
-	if err != nil {
-		warn = strings.TrimSpace(warn + assets.HookNoticeDivergeWarn(err.Error()))
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
+	lines = append(lines, tail...)
 	return core.CapContext(strings.Join(lines, "\n")), warn
 }
 

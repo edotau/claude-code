@@ -20,7 +20,24 @@ import (
 	"github.com/edotau/claude-code/internal/sqlite"
 )
 
-func init() { memory.OpenExportDB = openExportDB }
+func init() {
+	memory.OpenExportDB = openExportDB
+	memory.ExportBeforeFlip = exportBeforeFlip
+}
+
+// exportBeforeFlip runs under SetTruth's bank lock; a conflict refuses the flip (the db side is kept beside the file).
+func exportBeforeFlip() error {
+	edb, closeDB, err := openExportDB()
+	if err != nil {
+		return err
+	}
+	rep, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir())
+	err = errors.Join(err, closeDB())
+	if err == nil && len(rep.Conflicts) > 0 {
+		return fmt.Errorf("memory: export conflicts %v: resolve them with `memory conflicts`, then flip again", rep.Conflicts)
+	}
+	return err
+}
 
 type exportDB struct {
 	db   *sql.DB

@@ -2,13 +2,17 @@ package memory
 
 import (
 	"cmp"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -91,6 +95,621 @@ type ExtractGroup struct {
 	Bytes       int64         `json:"bytes"`
 	YoungestAge time.Duration `json:"youngest_age"`
 	RecallDays  int           `json:"recall_days"` // maximum per-file distinct recall days
+}
+
+type ExtractEntry struct {
+	Title   string   `json:"title"`
+	Text    string   `json:"text"`
+	Sources []string `json:"sources"`
+}
+
+type ExtractRewriteAnswer struct {
+	Entries []ExtractEntry `json:"entries"`
+	Purge   []string       `json:"purge"`
+}
+
+var (
+	extractIDPattern    = regexp.MustCompile(`z?[0-9a-f]{8}`)
+	extractDatePattern  = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+	extractPathPattern  = regexp.MustCompile(`(?:/Users/|/home/|/tmp/|/var/|/etc/|/opt/|~/|\$HOME/)[^\s\x60"'<>()[\]{}*|#]+`)
+	extractSHAPattern   = regexp.MustCompile(`[0-9a-f]{7,40}`)
+	extractQuotePattern = regexp.MustCompile(`"[^"]+"|\x{201c}[^\x{201d}]+\x{201d}|(?:^|[\s(])'[^'\n]{3,}'`)
+	extractTickPattern  = regexp.MustCompile("`[^`\\n]+`")
+	extractOpenPattern  = regexp.MustCompile(`^\s*(?:- \[ \]|NEXT:)|TODO|UNRESOLVED`)
+)
+
+// CheckExtractLoss refuses a rewrite that drops source facts needed for recall.
+func CheckExtractLoss(sources map[string][]byte, ans ExtractRewriteAnswer, live func(string) bool) error {
+	entries := make(map[string]string, len(sources))
+	for _, entry := range ans.Entries {
+		for _, source := range entry.Sources {
+			entries[source] += "\n" + entry.Text
+		}
+	}
+	paths := make([]string, 0, len(sources))
+	for source := range sources {
+		paths = append(paths, source)
+	}
+	slices.Sort(paths)
+	for _, source := range paths {
+		purged := slices.Contains(ans.Purge, source)
+		body := string(sources[source])
+		if err := extractLossTokens(source, body, entries[source], purged, live); err != nil {
+			return err
+		}
+		if err := extractLossLines(source, body, entries[source], purged); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractLossTokens(source, body, entry string, purged bool, live func(string) bool) error {
+	for _, rule := range []struct {
+		kind string
+		re   *regexp.Regexp
+	}{
+		{"id", extractIDPattern}, {"date", extractDatePattern},
+		{"path", extractPathPattern}, {"commit sha", extractSHAPattern},
+		{"search term", extractTickPattern},
+	} {
+		for _, match := range rule.re.FindAllStringIndex(body, -1) {
+			item := extractLossItem(body, match, rule.kind)
+			if !extractLossToken(body, match, rule.kind, live) {
+				continue
+			}
+			if purged || !strings.Contains(entry, item) {
+				return fmt.Errorf("extract loss %s: dropped %s %q", source, rule.kind, item)
+			}
+		}
+	}
+	return nil
+}
+
+// extractLiveSHA is true for a token with a digit, or a prefix of an object in the repo (one batch listing, lazy).
+func extractLiveSHA(repo storeRepo) func(string) bool {
+	var names []string
+	var loaded bool
+	return func(item string) bool {
+		if strings.ContainsAny(item, "0123456789") {
+			return true
+		}
+		if !loaded {
+			loaded = true
+			out, err := repo.run("cat-file", "--batch-all-objects", "--batch-check=%(objectname)")
+			if err == nil {
+				names = splitLines(out)
+			}
+		}
+		return slices.ContainsFunc(names, func(name string) bool { return strings.HasPrefix(name, item) })
+	}
+}
+
+func extractLossItem(body string, match []int, kind string) string {
+	item := body[match[0]:match[1]]
+	if kind == "search term" {
+		return strings.Trim(item, "`")
+	}
+	if kind != "path" {
+		return item
+	}
+	return extractPathItem(body, match, item)
+}
+
+func extractPathItem(body string, match []int, item string) string {
+	line := body[strings.LastIndex(body[:match[0]], "\n")+1 : match[0]]
+	strike := strings.Contains(line, "~~") || strings.HasSuffix(line, "~") && strings.HasPrefix(item, "~/Users/")
+	if strike && strings.HasSuffix(item, "~~") {
+		item = strings.TrimSuffix(item, "~~")
+	}
+	if strings.HasSuffix(line, "~") && strings.HasPrefix(item, "~/Users/") {
+		item = strings.TrimPrefix(item, "~")
+	}
+	if strings.Contains(line, "_") && strings.HasSuffix(item, "_") {
+		item = strings.TrimSuffix(item, "_")
+	}
+	return strings.TrimRight(item, ".,:;!?")
+}
+
+func extractLossToken(body string, match []int, kind string, live func(string) bool) bool {
+	item := body[match[0]:match[1]]
+	if kind == "search term" {
+		return true
+	}
+	if kind == "date" {
+		return true
+	}
+	if !extractTokenBounded(body, match) {
+		return false
+	}
+	if kind != "commit sha" {
+		return true
+	}
+	if len(item) == 8 {
+		return false
+	}
+	if live != nil {
+		return live(item)
+	}
+	return strings.ContainsAny(item, "0123456789")
+}
+
+func extractTokenBounded(body string, match []int) bool {
+	if match[0] > 0 && extractWordByte(body[match[0]-1]) {
+		return false
+	}
+	return match[1] == len(body) || !extractWordByte(body[match[1]])
+}
+
+func extractWordByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+func extractLossLines(source, body, entry string, purged bool) error {
+	for line := range strings.SplitSeq(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		kind := ""
+		switch {
+		case strings.HasPrefix(trimmed, ">"):
+			kind = "owner words"
+		case strings.HasPrefix(trimmed, "DECISION:"):
+			kind = "decision"
+		case extractOpenPattern.MatchString(line):
+			kind = "open item"
+		}
+		if kind != "" && (purged || !strings.Contains(entry, line)) {
+			return fmt.Errorf("extract loss %s: dropped %s %q", source, kind, line)
+		}
+		if err := extractOwnerQuoteLoss(source, line, entry, purged); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractOwnerQuoteLoss(source, line, entry string, purged bool) error {
+	if !strings.Contains(strings.ToLower(line), "owner") {
+		return nil
+	}
+	for _, quote := range extractQuotePattern.FindAllString(line, -1) {
+		quote = strings.TrimLeft(quote, " \t(")
+		if purged || !strings.Contains(entry, quote) {
+			return fmt.Errorf("extract loss %s: dropped owner quote %q", source, quote)
+		}
+	}
+	return nil
+}
+
+// ExtractRewriteSchema types a group's replacement entries and explicitly purged sources.
+func ExtractRewriteSchema() string {
+	entry := schemaObj{"type": "object", "additionalProperties": false,
+		"required": []string{"title", "text", "sources"}, "properties": schemaObj{
+			"title": schemaObj{"type": "string", "minLength": 1}, "text": schemaObj{"type": "string", "minLength": 1},
+			"sources": schemaObj{"type": "array", "minItems": 1, "items": schemaObj{"type": "string"}},
+		}}
+	return jsonString(schemaObj{"type": "object", "additionalProperties": false,
+		"required": []string{"entries", "purge"}, "properties": schemaObj{
+			"entries": schemaObj{"type": "array", "minItems": 1, "items": entry},
+			"purge":   schemaObj{"type": "array", "items": schemaObj{"type": "string"}},
+		}})
+}
+
+type extractPromptFile struct {
+	Path string `json:"path"`
+	Text string `json:"text"`
+}
+
+// RewriteExtractGroup asks code mode for a typed replacement without changing the store.
+func RewriteExtractGroup(ctx context.Context, storeRoot string, group ExtractGroup, modelName string) (rewrite ExtractRewriteAnswer, err error) {
+	if group.Action != ExtractRewrite || len(group.Paths) == 0 {
+		return rewrite, errors.New("extract rewrite requires a nonempty rewrite group")
+	}
+	if CodeModeRun == nil {
+		return rewrite, errors.New("no code-mode agent registered")
+	}
+	model, err := FallbackModel(modelName)
+	if err != nil {
+		return rewrite, fmt.Errorf("extract rewrite model: %w", err)
+	}
+	root, err := os.OpenRoot(storeRoot)
+	if err != nil {
+		return rewrite, fmt.Errorf("extract rewrite store: %w", err)
+	}
+	defer root.Close()
+	files, allowed, err := extractPromptFiles(root, group.Paths)
+	if err != nil {
+		return rewrite, err
+	}
+	data, err := json.Marshal(files)
+	if err != nil {
+		return rewrite, fmt.Errorf("extract rewrite prompt: %w", err)
+	}
+	prompt := "Consolidate these memory files into entries. Keep the owner's quotes, decisions, and open tasks verbatim. " +
+		"Each entry must name its source paths; explicitly purge only files with no facts to retain. " +
+		"Write nothing and return only the typed JSON answer. Files: " + string(data)
+	answer, who, err := runExtractRewrite(ctx, prompt, model)
+	if err != nil {
+		return rewrite, fmt.Errorf("extract rewrite on %s: %w", who, err)
+	}
+	return decodeExtractRewrite(answer, allowed)
+}
+
+func runExtractRewrite(ctx context.Context, prompt, model string) (answer, who string, err error) {
+	dir, err := os.MkdirTemp("", "memory-extract-")
+	if err != nil {
+		return "", "", fmt.Errorf("extract rewrite workdir: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(dir); removeErr != nil {
+			err = errors.Join(err, removeErr)
+		}
+	}()
+	return CodeModeRun(ctx, prompt, dir, ExtractRewriteSchema(), model)
+}
+
+func extractPromptFiles(root *os.Root, paths []string) ([]extractPromptFile, map[string]bool, error) {
+	files, allowed := make([]extractPromptFile, 0, len(paths)), make(map[string]bool, len(paths))
+	for _, rel := range paths {
+		if !fs.ValidPath(rel) || rel == "." || strings.Contains(rel, "\\") || allowed[rel] {
+			return nil, nil, fmt.Errorf("extract rewrite invalid group path %q", rel)
+		}
+		allowed[rel] = true
+		data, err := root.ReadFile(filepath.FromSlash(rel))
+		if err != nil {
+			return nil, nil, fmt.Errorf("extract rewrite read %s: %w", rel, err)
+		}
+		files = append(files, extractPromptFile{Path: rel, Text: string(data)})
+	}
+	return files, allowed, nil
+}
+
+func decodeExtractRewrite(answer string, allowed map[string]bool) (ExtractRewriteAnswer, error) {
+	var result ExtractRewriteAnswer
+	decoder := json.NewDecoder(strings.NewReader(answer))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return ExtractRewriteAnswer{}, fmt.Errorf("extract rewrite answer: %w", err)
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return ExtractRewriteAnswer{}, errors.New("extract rewrite answer has trailing content")
+	}
+	if len(result.Entries) == 0 || result.Purge == nil {
+		return ExtractRewriteAnswer{}, errors.New("extract rewrite needs entries and purge")
+	}
+	for i := range result.Entries {
+		result.Entries[i].Title = strings.TrimSpace(result.Entries[i].Title)
+		result.Entries[i].Text = strings.TrimSpace(result.Entries[i].Text)
+	}
+	if err := validateExtractRewrite(result, allowed); err != nil {
+		return ExtractRewriteAnswer{}, err
+	}
+	return result, nil
+}
+
+func validateExtractRewrite(result ExtractRewriteAnswer, allowed map[string]bool) error {
+	seen := make(map[string]bool, len(allowed))
+	for _, entry := range result.Entries {
+		if strings.TrimSpace(entry.Title) == "" || strings.TrimSpace(entry.Text) == "" || len(entry.Sources) == 0 {
+			return errors.New("extract rewrite entry needs title, text, and sources")
+		}
+		for _, source := range entry.Sources {
+			if err := checkExtractSource(source, allowed, seen); err != nil {
+				return err
+			}
+		}
+	}
+	for _, source := range result.Purge {
+		if err := checkExtractSource(source, allowed, seen); err != nil {
+			return err
+		}
+	}
+	if len(seen) != len(allowed) {
+		return errors.New("extract rewrite leaves a group file unaccounted for")
+	}
+	return nil
+}
+
+func checkExtractSource(source string, allowed, seen map[string]bool) error {
+	if !allowed[source] {
+		return fmt.Errorf("extract rewrite source %q is outside the group", source)
+	}
+	if seen[source] {
+		return fmt.Errorf("extract rewrite source %q is repeated", source)
+	}
+	seen[source] = true
+	return nil
+}
+
+// ApplyExtractRewrite replaces one validated group in a single memory-repo commit.
+func ApplyExtractRewrite(repo storeRepo, group ExtractGroup, ans ExtractRewriteAnswer, now time.Time) (sha string, err error) {
+	if err := extractApplyPreflight(repo, group, now); err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(repo.Dir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	before, after, successors, notes, err := extractApplyPrepare(repo, root, group, ans, now)
+	if err != nil {
+		return "", err
+	}
+	created := make(map[string]bool)
+	if err := extractWriteChanges(root, after, before, created); err != nil {
+		return "", errors.Join(err, extractApplyRollback(root, before, created))
+	}
+	sha, committed, err := extractCommit(repo, after, group.Paths, notes, successors)
+	if err != nil && !committed {
+		return "", errors.Join(err, extractApplyRollback(root, before, created))
+	}
+	return sha, err
+}
+
+func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans ExtractRewriteAnswer, now time.Time) (map[string][]byte, map[string][]byte, map[string]string, []string, error) {
+	files, allowed, err := extractPromptFiles(root, group.Paths)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if len(ans.Entries) == 0 || ans.Purge == nil {
+		return nil, nil, nil, nil, errors.New("extract rewrite needs entries and purge")
+	}
+	if err := validateExtractRewrite(ans, allowed); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	sources := make(map[string][]byte, len(files))
+	for _, file := range files {
+		sources[file.Path] = []byte(file.Text)
+	}
+	if err := CheckExtractLoss(sources, ans, extractLiveSHA(repo)); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	notes, successors, err := extractNotePaths(repo, root, ans.Entries, now)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	before, after, err := extractApplyChanges(repo, root, group.Paths, successors)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	for i, entry := range ans.Entries {
+		before[notes[i]] = nil
+		after[notes[i]] = []byte("# " + strings.TrimSpace(entry.Title) + "\n\n" + strings.TrimSpace(entry.Text) + "\n\nSources:\n- " + strings.Join(entry.Sources, "\n- ") + "\n")
+	}
+	return before, after, successors, notes, nil
+}
+
+func extractApplyPreflight(repo storeRepo, group ExtractGroup, now time.Time) error {
+	if group.Action != ExtractRewrite || len(group.Paths) == 0 || now.IsZero() || !repo.Exists() {
+		return errors.New("extract apply requires a rewrite group, time, and memory repo")
+	}
+	for _, rel := range group.Paths {
+		if err := repo.validateRel(rel); err != nil {
+			return err
+		}
+	}
+	staged, err := repo.run("diff", "--cached", "--name-only", "-z")
+	if err != nil {
+		return err
+	}
+	if staged != "" {
+		return errors.New("extract apply requires an unstaged memory index")
+	}
+	return extractCleanSources(repo, group.Paths)
+}
+
+func extractCleanSources(repo storeRepo, rels []string) error {
+	dirty, err := repo.run(append([]string{"--no-optional-locks", "status", "--porcelain", "--"}, rels...)...)
+	if err != nil {
+		return err
+	}
+	if dirty != "" {
+		return fmt.Errorf("extract apply refuses uncommitted source edits: %s", strings.ReplaceAll(dirty, "\n", "; "))
+	}
+	return nil
+}
+
+func extractCommit(repo storeRepo, after map[string][]byte, sources, notes []string, successors map[string]string) (string, bool, error) {
+	var body strings.Builder
+	for _, source := range sources {
+		target := successors[source]
+		if target == "" {
+			target = "(purged)"
+		}
+		fmt.Fprintf(&body, "%s -> %s\n", source, target)
+	}
+	rels := make([]string, 0, len(after))
+	for rel := range after {
+		rels = append(rels, rel)
+	}
+	slices.Sort(rels)
+	return repo.Commit(rels, fmt.Sprintf("memory: extract %d files into %d notes", len(sources), len(notes)), body.String())
+}
+
+func extractNotePaths(repo storeRepo, root *os.Root, entries []ExtractEntry, now time.Time) ([]string, map[string]string, error) {
+	notes := make([]string, 0, len(entries))
+	successors := make(map[string]string)
+	used := make(map[string]bool)
+	for _, entry := range entries {
+		base := "notes/extract-" + now.UTC().Format(dateLayout) + "-" + extractSlug(entry.Title)
+		for i := 1; ; i++ {
+			rel := base + ".md"
+			if i > 1 {
+				rel = fmt.Sprintf("%s-%d.md", base, i)
+			}
+			_, err := root.Lstat(rel)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return nil, nil, err
+			}
+			if used[rel] || err == nil {
+				continue
+			}
+			if err := repo.validateRel(rel); err != nil {
+				return nil, nil, err
+			}
+			used[rel] = true
+			notes = append(notes, rel)
+			for _, source := range entry.Sources {
+				successors[source] = rel
+			}
+			break
+		}
+	}
+	return notes, successors, nil
+}
+
+func extractSlug(title string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(title) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			lastDash = false
+		} else if b.Len() > 0 && !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "note"
+	}
+	if len(slug) > 80 {
+		slug = strings.TrimRight(slug[:80], "-")
+	}
+	return slug
+}
+
+func extractApplyChanges(repo storeRepo, root *os.Root, sources []string, successors map[string]string) (map[string][]byte, map[string][]byte, error) {
+	before, after := make(map[string][]byte), make(map[string][]byte)
+	for _, rel := range sources {
+		data, err := extractReadRegular(root, rel)
+		if err != nil {
+			return nil, nil, fmt.Errorf("extract source %s: %w", rel, err)
+		}
+		before[rel], after[rel] = data, nil
+	}
+	out, err := repo.run("ls-files", "-z")
+	if err != nil {
+		return nil, nil, err
+	}
+	tracked := textutil.SplitNUL(out)
+	for _, source := range sources {
+		if !slices.Contains(tracked, source) {
+			return nil, nil, fmt.Errorf("extract source %s is not tracked", source)
+		}
+	}
+	if err := extractRepointTracked(repo, root, tracked, before, after, successors); err != nil {
+		return nil, nil, err
+	}
+	return before, after, nil
+}
+
+func extractRepointTracked(repo storeRepo, root *os.Root, tracked []string, before, after map[string][]byte, successors map[string]string) error {
+	for _, rel := range tracked {
+		if !strings.HasSuffix(rel, ".md") {
+			continue
+		}
+		if _, removed := before[rel]; removed {
+			continue
+		}
+		if err := repo.validateRel(rel); err != nil {
+			return err
+		}
+		data, err := extractReadRegular(root, rel)
+		if err != nil {
+			return fmt.Errorf("extract link source %s: %w", rel, err)
+		}
+		updated := extractRepoint(rel, string(data), successors)
+		if updated != string(data) {
+			before[rel], after[rel] = data, []byte(updated)
+		}
+	}
+	return nil
+}
+
+func extractReadRegular(root *os.Root, rel string) ([]byte, error) {
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("extract path %s is not a regular file", rel)
+	}
+	return root.ReadFile(rel)
+}
+
+func extractRepoint(rel, body string, successors map[string]string) string {
+	sources := make([]string, 0, len(successors))
+	for source := range successors {
+		sources = append(sources, source)
+	}
+	slices.SortFunc(sources, func(a, b string) int { return cmp.Or(cmp.Compare(len(b), len(a)), cmp.Compare(a, b)) })
+	for _, source := range sources {
+		target := successors[source]
+		relSource, err := filepath.Rel(filepath.Dir(rel), source)
+		if err != nil {
+			continue
+		}
+		relTarget, err := filepath.Rel(filepath.Dir(rel), target)
+		if err != nil {
+			continue
+		}
+		body = strings.ReplaceAll(body, source, target)
+		body = strings.ReplaceAll(body, filepath.ToSlash(relSource), filepath.ToSlash(relTarget))
+	}
+	return body
+}
+
+func extractApplyRollback(root *os.Root, before map[string][]byte, created map[string]bool) error {
+	changes := make(map[string][]byte, len(before))
+	for rel, data := range before {
+		if data != nil || created[rel] {
+			changes[rel] = data
+		}
+	}
+	return extractWriteChanges(root, changes, nil, nil)
+}
+
+func extractWriteChanges(root *os.Root, changes, before map[string][]byte, created map[string]bool) error {
+	rels := make([]string, 0, len(changes))
+	for rel := range changes {
+		rels = append(rels, rel)
+	}
+	slices.Sort(rels)
+	for _, rel := range rels {
+		if err := extractWriteOne(root, rel, changes[rel], before, created); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][]byte, created map[string]bool) error {
+	if data == nil {
+		if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("extract remove %s: %w", rel, err)
+		}
+		return nil
+	}
+	if err := root.MkdirAll(path.Dir(rel), 0o700); err != nil {
+		return fmt.Errorf("extract mkdir %s: %w", rel, err)
+	}
+	if before != nil && before[rel] == nil {
+		f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return fmt.Errorf("extract create %s: %w", rel, err)
+		}
+		created[rel] = true
+		_, writeErr := f.Write(data)
+		if err := errors.Join(writeErr, f.Close()); err != nil {
+			return fmt.Errorf("extract write %s: %w", rel, err)
+		}
+		return nil
+	}
+	if err := root.WriteFile(rel, data, 0o600); err != nil {
+		return fmt.Errorf("extract write %s: %w", rel, err)
+	}
+	return nil
 }
 
 type ExtractTotal struct {

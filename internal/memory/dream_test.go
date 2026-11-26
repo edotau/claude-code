@@ -945,3 +945,132 @@ func TestDreamUncertainCommitAttemptsNoSideEntry(t *testing.T) {
 		t.Error("labels wrote a side file")
 	}
 }
+
+func TestDreamExtractUnderBudgetCallsNoModel(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	calls := 0
+	old := CodeModeRun
+	CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
+		calls++
+		return "", "", nil
+	}
+	t.Cleanup(func() { CodeModeRun = old })
+	var out strings.Builder
+	dreamExtract(dreamOptions{Out: &out}, nil)
+	if calls != 0 || out.Len() != 0 {
+		t.Fatalf("under budget: calls=%d out=%q", calls, out.String())
+	}
+}
+
+func TestDreamExtractOverBudgetConsolidatesOnce(t *testing.T) {
+	for _, withLog := range []bool{true, false} {
+		t.Run(fmt.Sprint("log=", withLog), func(t *testing.T) { dreamExtractOverBudget(t, withLog) })
+	}
+}
+
+func dreamExtractOverBudget(t *testing.T, withLog bool) {
+	t.Setenv("HARNESS_KEYRING", "off")
+	isolatedConfig(t)
+	initStore(t)
+	root := paths.MemoryStoreDir()
+	extractQuietRepo(t, storeRepo{Dir: root})
+	if withLog {
+		dreamWriteAccessLog(t)
+	}
+	dreamSeedHandoffs(t, root)
+	calls := 0
+	dreamExtractFake(t, &calls)
+	var out strings.Builder
+	dreamExtract(dreamOptions{Out: &out}, nil)
+	want, wantCalls := "extract handoffs consolidated", 1
+	if !withLog {
+		want, wantCalls = ErrExtractNoAccessLog.Error(), 0
+	}
+	if calls != wantCalls || !strings.Contains(out.String(), want) {
+		t.Fatalf("withLog=%v: calls=%d out=%q", withLog, calls, out.String())
+	}
+}
+
+func dreamSeedHandoffs(t *testing.T, root string) {
+	t.Helper()
+	seedExtractHandoffs(t, root, time.Now())
+	var rels []string
+	for i := range 62 {
+		rels = append(rels, fmt.Sprintf("handoffs/%03d.md", i))
+	}
+	if _, committed, err := (storeRepo{Dir: root}).Commit(rels, "seed", ""); err != nil || !committed {
+		t.Fatalf("seed commit: committed=%v err=%v", committed, err)
+	}
+}
+
+func dreamWriteAccessLog(t *testing.T) { dreamWriteAccessLogFor(t, "notes/other.md") }
+
+func dreamWriteAccessLogFor(t *testing.T, entry string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(accessLogPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := time.Now().UTC().Format(time.RFC3339) + " -- " + entry + " -- " + AccessSearch + "\n"
+	if err := os.WriteFile(accessLogPath(), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// dreamExtractFake answers an extract prompt with one entry that keeps every source's text.
+func dreamExtractFake(t *testing.T, calls *int) {
+	t.Helper()
+	old := CodeModeRun
+	CodeModeRun = func(_ context.Context, prompt, _, _, _ string) (string, string, error) {
+		*calls++
+		_, data, _ := strings.Cut(prompt, "Files: ")
+		var files []extractPromptFile
+		if err := json.Unmarshal([]byte(data), &files); err != nil {
+			t.Fatal(err)
+		}
+		entry := ExtractEntry{Title: "Handoffs"}
+		for _, f := range files {
+			entry.Text += f.Text + "\n"
+			entry.Sources = append(entry.Sources, f.Path)
+		}
+		answer, err := json.Marshal(ExtractRewriteAnswer{Entries: []ExtractEntry{entry}, Purge: []string{}})
+		return string(answer), "fake-pi", err
+	}
+	t.Cleanup(func() { CodeModeRun = old })
+}
+
+func TestDreamApplyCheckedCountsAccessesDuringTheModelCall(t *testing.T) {
+	t.Setenv("HARNESS_KEYRING", "off")
+	isolatedConfig(t)
+	initStore(t)
+	root := paths.MemoryStoreDir()
+	extractQuietRepo(t, storeRepo{Dir: root})
+	dreamSeedHandoffs(t, root)
+	dreamWriteAccessLogFor(t, "handoffs/000.md")
+	group := ExtractGroup{Action: ExtractRewrite, Paths: []string{"handoffs/000.md", "handoffs/001.md"}}
+	seen, err := dreamReadSources(root, group.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "H", Text: "handoff 1: distinct facts", Sources: []string{"handoffs/001.md"}}}, Purge: []string{"handoffs/000.md"}}
+	opts := ExtractOptions{Now: time.Now().Add(-time.Hour), AccessLogs: []string{accessLogPath()}}
+	if _, err := dreamApplyChecked(root, group, ans, seen, opts); err == nil || !strings.Contains(err.Error(), "limit 2%") {
+		t.Fatalf("a hit served after the snapshot time must count: %v", err)
+	}
+}
+
+func TestRecordExtractLossAppendsAndLeavesNoTemp(t *testing.T) {
+	dir := t.TempDir()
+	ledger := filepath.Join(dir, "state", "extract-loss.log")
+	now := time.Now()
+	for _, lost := range []int{1, 2} {
+		if err := RecordExtractLoss(ledger, now, lost); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, _ := os.ReadFile(ledger)
+	entries, _ := os.ReadDir(filepath.Dir(ledger))
+	if strings.Count(string(data), "\n") != 2 || len(entries) != 1 {
+		t.Fatalf("ledger %q, dir entries %d", data, len(entries))
+	}
+}

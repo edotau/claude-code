@@ -355,6 +355,12 @@ func hookRenderCases() []renderCase {
 		{"HookFailureClaim", "", func() string { return HookFailureClaim("abc") }},
 		{"HookFailuresMore", "", func() string { return HookFailuresMore(2) }},
 		{"HookFailuresWarn", "", func() string { return HookFailuresWarn("e") }},
+		{"HookFixNow", "present", func() string {
+			return HookFixNow(FixNow{ID: "abc", Kind: "audit", Subject: "s", Summary: "boom", Report: "r.md", Idle: "10m0s", Present: true})
+		}},
+		{"HookFixNow", "idle", func() string {
+			return HookFixNow(FixNow{ID: "abc", Kind: "audit", Subject: "s", Summary: "boom", Report: "r.md", Idle: "10m0s"})
+		}},
 		{"HookNoticeDivergeWarn", "", func() string { return HookNoticeDivergeWarn("e") }},
 		{"HookDiverged", "rewritten", func() string { return HookDiverged("main", "origin/main", 2, 3, true) }},
 		{"HookDiverged", "plain", func() string { return HookDiverged("main", "origin/main", 2, 3, false) }},
@@ -469,6 +475,10 @@ func memoryRenderCases() []renderCase {
 		{"MemoryBankHeading", "", func() string { return MemoryBankHeading("/root") }},
 		{"MemoryNativeContext", "", func() string { return MemoryNativeContext(two) }},
 		{"TranscriptHandoff", "", func() string { return TranscriptHandoff("/cwd", "/t", "note") }},
+		{"MemoryFiledByGo", "", func() string { return MemoryFiledByGo(two) }},
+		{"MemoryHandoffRequest", "", func() string { return MemoryHandoffRequest("/h.md", "<!-- session: s -->") }},
+		{"MemoryResiduePrompt", "", func() string { return MemoryResiduePrompt("- a: b\n") }},
+		{"MemoryRetryNote", "", func() string { return MemoryRetryNote("boom") }},
 	}
 }
 

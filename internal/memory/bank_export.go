@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // ExportDB is the db side of the export guard; the shadow package implements it over the shadow store.
@@ -41,13 +43,57 @@ var exportAfterHoldLink func(dest string)
 var exportBeforeSwap func(dest string)
 
 // ExportReport lists paths written to disk, imported to db, or skipped as conflicts.
-type ExportReport struct{ Written, Imported, Conflicts []string }
+type ExportReport struct {
+	Written, Imported, Conflicts []string
+	dirs                         map[string]bool // directories whose names the guard changed, synced before it returns
+}
+
+// errExportSync marks a failed directory fsync, which is never tolerated like an index problem.
+var errExportSync = errors.New("memory: export guard sync dirs")
+
+// exportSyncDir is a test seam over paths.SyncDir.
+var exportSyncDir = paths.SyncDir
+
+func (r *ExportReport) touch(dest string) {
+	if r.dirs == nil {
+		r.dirs = map[string]bool{}
+	}
+	r.dirs[filepath.Dir(dest)] = true
+}
+
+// syncTouched fsyncs each touched directory and its parents up to root, which may hold a directory the guard created.
+func (r *ExportReport) syncTouched(root string) error {
+	done := map[string]bool{}
+	var err error
+	for d := range r.dirs {
+		for ; !done[d]; d = filepath.Dir(d) {
+			done[d] = true
+			if _, serr := os.Stat(d); errors.Is(serr, fs.ErrNotExist) {
+				break // nothing was created there, so nothing to make durable
+			}
+			err = errors.Join(err, exportSyncDir(d))
+			if d == filepath.Clean(root) || !strings.HasPrefix(d, filepath.Clean(root)+string(filepath.Separator)) {
+				break
+			}
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %w", errExportSync, err)
+	}
+	return nil
+}
 
 // OpenExportDB opens the export db; the shadow package sets it in init, nil until then.
 var OpenExportDB func() (ExportDB, func() error, error)
 
 // ExportGuard reconciles root's Markdown files with db and refreshes MEMORY.md.
-func ExportGuard(db ExportDB, root string) (ExportReport, error) {
+func ExportGuard(db ExportDB, root string) (rep ExportReport, err error) {
+	err = WithBankLock(0, func() (e error) { rep, e = ExportGuardLocked(db, root); return })
+	return rep, err
+}
+
+// ExportGuardLocked is ExportGuard for a caller already holding the bank lock, which is not reentrant.
+func ExportGuardLocked(db ExportDB, root string) (ExportReport, error) {
 	var rep ExportReport
 	walked, err := db.Walk()
 	if err != nil {
@@ -61,22 +107,28 @@ func ExportGuard(db ExportDB, root string) (ExportReport, error) {
 	for _, p := range dbPaths {
 		inDB[p] = true
 	}
-	err = WithBankLock(0, func() error {
-		for _, rel := range unionSorted(walked, dbPaths) {
-			if err := sweepHolds(db, filepath.Join(root, filepath.FromSlash(rel)), rel, &rep); err != nil {
-				return err
-			}
-			if err := guardOne(db, root, rel, inDB[rel], &rep); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return rep, err
+	err = guardEach(db, root, unionSorted(walked, dbPaths), inDB, &rep)
+	if err == nil {
+		_, err = refreshNativeIndex(time.Now(), false, nil)
 	}
-	_, ierr := refreshNativeIndex(time.Now(), false, nil)
-	return rep, ierr
+	rep.touch(filepath.Join(root, routerFile)) // the index refresh renames files in root
+	rep.touch(asidePath())                     // and keeps the previous MEMORY.md in the state dir
+	if serr := rep.syncTouched(root); serr != nil {
+		return rep, serr // alone, so no index-problem filter upstream can swallow it
+	}
+	return rep, err
+}
+
+func guardEach(db ExportDB, root string, rels []string, inDB map[string]bool, rep *ExportReport) error {
+	for _, rel := range rels {
+		if err := sweepHolds(db, filepath.Join(root, filepath.FromSlash(rel)), rel, rep); err != nil {
+			return err
+		}
+		if err := guardOne(db, root, rel, inDB[rel], rep); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error {
@@ -124,6 +176,7 @@ func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error
 
 // conflictKeep saves the db side beside the file, one file per content, as a rebuild clears the db rows.
 func conflictKeep(db ExportDB, dest, rel, kind string, dbb []byte, rep *ExportReport) error {
+	rep.touch(dest)
 	if err := keepSidecar(dest+".db-conflict-"+sha256Hex(dbb)[:12], dest, dbb); err != nil {
 		return fmt.Errorf("memory: export guard keep db side of %s: %w", rel, err)
 	}
@@ -175,6 +228,7 @@ func importExport(db ExportDB, dest, rel, want string, dbb []byte, rep *ExportRe
 }
 
 func writeExport(db ExportDB, rel, dest, seen string, data []byte, sum string, rep *ExportReport) error {
+	rep.touch(dest)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return fmt.Errorf("memory: export guard mkdir %s: %w", rel, err)
 	}
@@ -298,6 +352,7 @@ func sweepHolds(db ExportDB, dest, rel string, rep *ExportReport) error {
 		if strings.HasPrefix(sha256Hex(cur), want) {
 			continue
 		}
+		rep.touch(dest)
 		if _, err := keepUnique(h, dest+".outside-"+sha256Hex(cur)[:12]); err != nil {
 			return fmt.Errorf("memory: export guard keep outside write %s: %w", h, err)
 		}

@@ -284,7 +284,7 @@ function stArgs(a, known) {
 // stageAsk runs one stage agent; a throw becomes null (cause in ST_ERR); st.done records an external stage's ran-on.
 const ST_ERR = {}
 const stWhy = (label, msg) => (ST_ERR[label] ? msg + ': ' + ST_ERR[label] : msg)
-const ST_RTK = ' Bash whose output you read goes through rtk (`rtk grep`, `rtk git diff`, `rtk go test`); one file is the Read tool, never cat/head.'
+const ST_RTK = ' Bash whose output you read goes through rtk (`rtk grep`, `rtk git diff`, `rtk go build`); one file is the Read tool, never cat/head.'
 const stageAsk = (ctx, st, label, ph, prompt, schema, pin) => agent(st.task(prompt + ST_RTK), {
   label, phase: ph, schema: st.schema(schema), ...st.type,
   model: (ctx.model || ((m) => m))((!st.ext && pin && pin.model) || st.model), effort: (pin && pin.effort) || st.effort,
@@ -298,7 +298,8 @@ const stShq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'"
 async function stLoopCheck(ctx, o, gate, label) {
   const paths = o.files.length ? o.files : o.scope
   const cmd = Array.isArray(gate) ? gate.join(' && ') : gate
-  const g = cmd ? await stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. Gate command: ' + cmd + '. Run it exactly once with pipefail; capture the real exit code. ' +
+  const g = cmd ? await stageAsk(ctx, o.check || ctx.S.gate || ctx.S.detect, label, 'Gate', ctx.cd + 'Report the check result. Gate command: ' + cmd + '. You are a leaf (R37): run only its build, vet and lint parts, once, with pipefail; capture the real exit code. ' +
+    'Never run a part that runs tests (go test, make test, pytest, npm test and the like); instead report "tests: not run in a leaf (R37); main session runs: <command>" with that part verbatim. ' +
     'Run `git status --porcelain` scoped to ' + JSON.stringify(paths) + '; return changed as one string per listed path: ' +
     '"<path> <git hash-object path output, or deleted>" (the bare path when hash-object is refused). Return gate, exit (null only if ' +
     'execution is impossible), changed, failures [{file,line,text}] from command output, repo-relative; keep errors without locations too.', ST_CHECK)
@@ -416,7 +417,7 @@ const stFixBrief = (ctx, o, own, list) => {
   return ctx.rules + ' Fix these confirmed ' + (merge ? 'findings' : 'defects') + ' in ' + o.pkg + ' and nothing else.' + own + merge + seam + ST_FIX_HOW + (o.owns ? '' : ' (gofmt + go vet ./' + o.pkg + '/... for Go)') + '. Return `files`: every repo-relative file you changed.\n' + list
 }
 const stTestBrief = (ctx, o, impl, tdirs, list) => ctx.rules + ' Fixes just landed in ' + o.pkg + ' (' + stDiff([o.pkg]) + '; changed: ' + (impl.files || []).join(', ') + '). ' +
-    'Run the tests of ' + tdirs.join(', ') + ' and repair only the tests these fixes broke. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). ' +
+    'Write or repair only the tests these fixes broke in ' + tdirs.join(', ') + ', report their exact names, and do not run them (the main session runs them). Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). ' +
     'Write NO new test.' + ST_PROPOSE + ' Put "n/a" in callers.\nThe fixes:\n' + list
 const stFixDone = (impl) => !!(impl && (impl.status === 'done' || (impl.status === 'partial' && impl.seams && impl.seams.length && !(impl.leftUndone || []).length)))
 const stFixNote = (label, impl) => impl ? impl.status + ' — ' + impl.summary + (stList(impl, 'leftUndone').length ? '; left undone: ' + impl.leftUndone.join(', ') : '') : stWhy(label, 'no result')
@@ -476,7 +477,7 @@ function stPolishNone(preRed) {
     decisions: d, report: d.join('\n') }
 }
 const stCutNote = (pkgs, preRed) => ' Name the assumption before every cut; flag instead of cutting when it has no covering test; never cut semantic comments, error context or distinct tests; never fix bugs (flag them). ' +
-    'After edits run gofmt, go vet and go test for ' + pkgs.filter((p) => !preRed.includes(p)).join(', ') + '; if a test regresses, revert your own edit by hand (never git checkout/restore/stash) and flag it. ' +
+    'After edits run gofmt and go vet for ' + pkgs.filter((p) => !preRed.includes(p)).join(', ') + '; write tests, do not run them; the collector runs them; if vet fails on your edit, revert it by hand (never git checkout/restore/stash) and flag it. ' +
     'Your net lines (measured by git diff --numstat afterwards) must be ≤ 0: remove more than you add, or apply nothing. ' +
     'Return applied[] and flagged[] as `file:line · what · assumption`, deltaLines (net changed lines, negative = removed) and status (clean = nothing to do).'
 async function stHeld(ctx, P, k, r) {

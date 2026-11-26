@@ -398,7 +398,7 @@ func filedByGoBlock(session string) string {
 	if out.Len() == 0 {
 		return ""
 	}
-	return "\n\nFiled by Go (decisionLog.md entries for this session's DECISION events; not in the tag list):\n" + out.String()
+	return assets.MemoryFiledByGo(out.String())
 }
 
 // decisionEntryLines maps each decisionLog.md title, and its part before " — ", to a "- date — title (id x)" line.

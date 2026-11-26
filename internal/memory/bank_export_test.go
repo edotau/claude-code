@@ -392,3 +392,26 @@ func TestExportSidecarSymlinkIsNotReused(t *testing.T) {
 		t.Fatalf("unique sidecars = %v, want one written beside the link", m)
 	}
 }
+
+func TestExportGuardSyncsTouchedDirs(t *testing.T) {
+	isolatedConfig(t)
+	root := paths.MemoryStoreDir()
+	old := exportSyncDir
+	t.Cleanup(func() { exportSyncDir = old })
+	var synced []string
+	exportSyncDir = func(d string) error { synced = append(synced, d); return nil }
+	db := &fakeExportDB{root: root, docs: map[string]string{"feedback/x.md": "# X\n\nbody\n"}, last: map[string]string{}}
+	exportGuard(t, db)
+	for _, want := range []string{filepath.Join(root, "feedback"), root} {
+		if !slices.Contains(synced, want) {
+			t.Fatalf("synced %v, want %s among them", synced, want)
+		}
+	}
+	exportSyncDir = func(string) error { return errors.New("disk gone") }
+	db.docs["feedback/y.md"] = "# Y\n"
+	if _, err := ExportGuard(db, root); err == nil {
+		t.Fatal("a failed directory sync reported success")
+	} else if !errors.Is(err, errExportSync) {
+		t.Fatalf("sync failure = %v, want errExportSync", err)
+	}
+}

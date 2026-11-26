@@ -363,3 +363,143 @@ func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
 		}
 	})
 }
+
+// dbTruthBank is an initialized bank in db truth over a fake export db wired as OpenExportDB.
+func dbTruthBank(t *testing.T) *fakeExportDB {
+	t.Helper()
+	isolatedConfig(t)
+	initStore(t)
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	db := &fakeExportDB{root: paths.MemoryStoreDir(), docs: map[string]string{}, last: map[string]string{}}
+	oldOpen, oldFlip := OpenExportDB, ExportBeforeFlip
+	OpenExportDB = func() (ExportDB, func() error, error) { return db, func() error { return nil }, nil }
+	t.Cleanup(func() { OpenExportDB, ExportBeforeFlip = oldOpen, oldFlip })
+	if err := SetTruth("db"); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func TestSettleDBImportsRotatesAndExportsByteIdentical(t *testing.T) {
+	db := dbTruthBank(t)
+	now := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+	entries := make([]string, sessionHistoryMaxEntries+2)
+	for i := range entries {
+		entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
+	}
+	write(t, Path("sessionHistory.md"), rejoin("# Session history", entries))
+	write(t, Path("conventions.md"), "# Conventions\n\n- outside edit\n")
+	rotated, err := settleBankWith(now, nil, "settle: test")
+	if err != nil || rotated != 2 {
+		t.Fatalf("db settle = %d, %v; want 2, nil", rotated, err)
+	}
+	if !strings.Contains(db.docs["conventions.md"], "- outside edit") {
+		t.Fatalf("outside edit not imported into the db: %q", db.docs["conventions.md"])
+	}
+	archive := "archive/sessionHistory-2026-11.md"
+	if _, held := splitHeadingBlocks(db.docs[archive]); len(held) != 2 {
+		t.Fatalf("db archive holds %d entries, want the 2 rotated: %q", len(held), db.docs[archive])
+	}
+	if _, kept := splitHeadingBlocks(db.docs["sessionHistory.md"]); len(kept) != sessionHistoryMaxEntries {
+		t.Fatalf("db sessionHistory keeps %d entries, want %d", len(kept), sessionHistoryMaxEntries)
+	}
+	wantExportMatchesDB(t, db)
+	if dirty, err := StoreRepo().Status(); err != nil || len(dirty) != 0 {
+		t.Errorf("export left dirty after settle: %v, %v", dirty, err)
+	}
+	if rep := exportGuard(t, db); len(rep.Written)+len(rep.Imported)+len(rep.Conflicts) != 0 {
+		t.Errorf("guard after settle = %+v, want nothing to do", rep)
+	}
+}
+
+func wantExportMatchesDB(t *testing.T, db *fakeExportDB) {
+	t.Helper()
+	for rel, want := range db.docs {
+		if got := mustRead(t, filepath.Join(db.root, filepath.FromSlash(rel))); got != want {
+			t.Errorf("%s export differs from the db:\n got: %q\nwant: %q", rel, got, want)
+		}
+	}
+}
+
+func TestSetTruthFilesExportsDBFirst(t *testing.T) {
+	db := dbTruthBank(t)
+	write(t, Path("conventions.md"), "# Conventions\n\n- old\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	db.docs["conventions.md"] = "# Conventions\n\n- db only\n"
+	ExportBeforeFlip = nil
+	if err := SetTruth("files"); err == nil || Truth() != "db" {
+		t.Fatalf("flip with no export = %v, truth %q; want a refusal and db", err, Truth())
+	}
+	ExportBeforeFlip = func() error { _, err := ExportGuardLocked(db, db.root); return err }
+	if err := SetTruth("files"); err != nil || Truth() != "files" {
+		t.Fatalf("flip = %v, truth %q; want nil and files", err, Truth())
+	}
+	if got := mustRead(t, Path("conventions.md")); got != "# Conventions\n\n- db only\n" {
+		t.Fatalf("file after flip = %q, want the db-only change exported first", got)
+	}
+}
+
+func TestWriteIfStillKeepsOutsideEdit(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		path := Path("conventions.md")
+		write(t, path, "# Conventions\n\n- seen\n")
+		write(t, path, "# Conventions\n\n- outside\n") // an editor saves after settle read the file
+		ok, err := writeIfStill(path, []byte("# Conventions\n\n- seen\n"), true, []byte("settled\n"), 0o600)
+		if ok || err != nil {
+			t.Fatalf("stale write = %v, %v; want skipped, nil", ok, err)
+		}
+		if got := mustRead(t, path); got != "# Conventions\n\n- outside\n" {
+			t.Fatalf("outside edit lost: %q", got)
+		}
+		kept := path + ".db-conflict-" + sha256Hex([]byte("settled\n"))[:12]
+		if got := mustRead(t, kept); got != "settled\n" {
+			t.Fatalf("kept copy = %q, want the settle result", got)
+		}
+		if _, isCopy := KeptCopyBase(filepath.Base(kept)); !isCopy {
+			t.Fatalf("%s is not a listed kept copy", kept)
+		}
+		write(t, path, "# Conventions\n\n- seen\n")
+		if ok, err := writeIfStill(path, []byte("# Conventions\n\n- seen\n"), true, []byte("settled\n"), 0o600); !ok || err != nil {
+			t.Fatalf("fresh write = %v, %v; want written", ok, err)
+		}
+		if got := mustRead(t, path); got != "settled\n" {
+			t.Fatalf("file = %q, want the settle result", got)
+		}
+	})
+}
+
+func TestSettleKeepsEditMadeAfterRead(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		path := Path("conventions.md")
+		write(t, path, "# Conventions\n\n- one\n- two\n")
+		data, _ := os.ReadFile(path)
+		write(t, path, "# Conventions\n\n- one\n- two\n- outside\n")
+		d := newBankDoc(path, string(data))
+		d.setBlock(0, "- one!")
+		if err := writeDirtyDocs([]*bankDoc{d}); err != nil {
+			t.Fatal(err)
+		}
+		if got := mustRead(t, path); !strings.Contains(got, "- outside") {
+			t.Fatalf("revision overwrote the outside edit: %q", got)
+		}
+	})
+}
+
+func TestSetTruthFilesRefreshesCatalog(t *testing.T) {
+	db := dbTruthBank(t)
+	write(t, Path("conventions.md"), "# Conventions\n\n- old\n")
+	if err := os.WriteFile(filepath.Join(paths.MemoryStoreDir(), routerFile), []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ExportBeforeFlip = func() error { _, err := ExportGuardLocked(db, db.root); return err }
+	if err := SetTruth("files"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, filepath.Join(paths.MemoryStoreDir(), routerFile)); got == "stale\n" {
+		t.Fatal("catalog.md stayed stale after the flip to files")
+	}
+}

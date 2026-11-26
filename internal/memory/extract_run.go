@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -575,4 +577,97 @@ func extractHashFile(p string, d fs.DirEntry) (string, error) {
 	}
 	data, err := os.ReadFile(p)
 	return "file:" + textutil.SHA256Hex(data), err
+}
+
+// dreamExtract consolidates one over-budget rewrite group (no model under budget) and prints the before and after line.
+func dreamExtract(o dreamOptions, agentErr error) {
+	if agentErr != nil {
+		return
+	}
+	root := paths.MemoryStoreDir()
+	opts, err := extractRunOptions(false)
+	if err != nil {
+		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		return
+	}
+	result, err := ClassifyExtract(root, opts)
+	if err != nil {
+		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		return
+	}
+	for _, folder := range result.Folders {
+		for _, group := range folder.Groups {
+			if folder.OverBudget == 0 || group.Action != ExtractRewrite {
+				continue
+			}
+			report, err := dreamExtractGroup(root, group, opts)
+			if err != nil {
+				fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+				return
+			}
+			fmt.Fprintf(o.Out, "memory dream: extract %s consolidated %d files; %s\n", folder.Folder, len(group.Paths), report)
+			return
+		}
+	}
+}
+
+func dreamExtractGroup(root string, group ExtractGroup, opts ExtractOptions) (report ExtractRecallReport, err error) {
+	if len(opts.AccessLogs) == 0 {
+		return report, ErrExtractNoAccessLog
+	}
+	if report.BytesBefore, report.ScanBefore, err = ExtractRecallMeasure(root); err != nil {
+		return report, err
+	}
+	sources, err := dreamReadSources(root, group.Paths)
+	if err != nil {
+		return report, err
+	}
+	ans, err := RewriteExtractGroup(context.Background(), root, group, "")
+	if err != nil {
+		return report, err
+	}
+	err = extractRunLocked(func() error {
+		checked, applyErr := dreamApplyChecked(root, group, ans, sources, opts)
+		report.Queried, report.Lost = checked.Queried, checked.Lost
+		return applyErr
+	})
+	if err != nil {
+		return report, err
+	}
+	report.BytesAfter, report.ScanAfter, err = ExtractRecallMeasure(root)
+	return report, err
+}
+
+func dreamReadSources(root string, rels []string) (map[string][]byte, error) {
+	sources := make(map[string][]byte, len(rels))
+	for _, rel := range rels {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			return nil, err
+		}
+		sources[rel] = data
+	}
+	return sources, nil
+}
+
+// dreamApplyChecked runs under the store lock: sources unchanged, recall check, ledger debit first, then apply.
+func dreamApplyChecked(root string, group ExtractGroup, ans ExtractRewriteAnswer, seen map[string][]byte, opts ExtractOptions) (ExtractRecallReport, error) {
+	now, err := dreamReadSources(root, group.Paths)
+	if err != nil {
+		return ExtractRecallReport{}, err
+	}
+	if !maps.EqualFunc(seen, now, bytes.Equal) {
+		return ExtractRecallReport{}, errors.New("extract sources changed while the model ran")
+	}
+	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
+	// An access logged after this read is not counted: the limit is statistical and a purged source stays in git.
+	report, err := CheckExtractRecall(opts.AccessLogs, ledger, now, ans, time.Now())
+	if err != nil {
+		return report, err
+	}
+	if err := RecordExtractLoss(ledger, time.Now(), report.Lost); err != nil {
+		return report, err
+	}
+	_, err = ApplyExtractRewrite(storeRepo{Dir: root}, group, ans, time.Now())
+	return report, err
 }

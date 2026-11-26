@@ -54,6 +54,7 @@ type bankDoc struct {
 	path   string
 	header string
 	text   string // current file text, rebuilt from the header and blocks on edit
+	seen   string // the file text as loaded, which the write must still find on disk
 	blocks []string
 	ids    []string   // ids[i] is blocks[i]'s persisted id, "" when it has none
 	refs   [][]string // refs[i] are the ids blocks[i] says it supersedes
@@ -256,7 +257,7 @@ func healPartial(docs []*bankDoc) {
 // newBankDoc splits text (the content of path) into blocks with their ids and the ids each supersedes.
 func newBankDoc(path, text string) *bankDoc {
 	header, blocks := entryBlocks(logicalName(path), text)
-	d := &bankDoc{path: path, header: header, text: text, blocks: blocks, ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
+	d := &bankDoc{path: path, header: header, text: text, seen: text, blocks: blocks, ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
 	for i, b := range blocks {
 		d.ids[i] = ownerID(b)
 		d.refs[i] = revisedIDs(b, d.ids[i])
@@ -534,7 +535,7 @@ func writeDirtyDocs(docs []*bankDoc) error {
 	for _, d := range docs {
 		if d.dirty {
 			d.text = formatBankMarkdown(d.text) // a strike or pointer may push a line past the wrap width
-			if err := paths.AtomicWrite(d.path, []byte(d.text), 0o600); err != nil {
+			if _, err := writeIfStill(d.path, []byte(d.seen), true, []byte(d.text), 0o600); err != nil {
 				return err
 			}
 		}

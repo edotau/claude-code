@@ -5,24 +5,21 @@ files:
 ignore:
   - "internal/**/testdata/**"
 overrides:
-  - glob: [".github/**/*.md"] # GitHub templates: title is the issue/PR form itself, sections hold an HTML-comment prompt
+  - glob: [".github/**/*.md"] # GitHub forms: the title is front matter, sections hold only an HTML-comment prompt
     rules:
       empty-section-body: false
       heading-increment: false
-  - glob: ["internal/assets/files/memory/templates/*.md"]
+  - glob: ["internal/assets/files/memory/templates/*.md"] # seed blank slots the updater fills; text there would enter the bank
     rules:
       empty-section-body: false
-  - glob: ["docs/templates/examples/memory/*.md"] # generated verbatim output, not hand-authored prose
+  - glob: ["docs/templates/examples/memory/*.md"] # generated verbatim: MEMORY.md/index.md have no H1 and no blanks
     rules:
-      empty-section-body: false
-      line-length: false
-      blank-line-around-lists: false
+      heading-increment: false
       blank-line-around-headings: false
-      cross-file-reference-integrity: false # bank links point at files a real store has, not this folder
-      no-undefined-reference-labels: false # generated rows end in [<entry id>], not a link label
-      heading-increment: false # MEMORY.md has no H1: it would load into every session
-      code-block-style: false # index.md records are 4-space indented on purpose, so no entry line reads as structure
-  - glob: ["memory/**/*.md"] # the store's generated bank files keep 4-space indented records
+      blank-line-around-lists: false
+      code-block-style: false # index.md records are 4-space indented on purpose
+      no-undefined-reference-labels: false # catalog rows end in [<entry id>], not a link label
+  - glob: ["memory/**/*.md"] # the live store is untracked and generated: 4-space records
     rules:
       code-block-style: false
 rules:

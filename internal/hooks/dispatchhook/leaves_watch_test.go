@@ -104,6 +104,9 @@ func TestWatchedJoinsRunnerThenTick(t *testing.T) {
 
 func TestWatchedRaisesARunnerPanicUnchanged(t *testing.T) {
 	watchStubs(t)
+	done := make(chan struct{}) // the tick outlives the panic: end it before the next test swaps the stubs
+	watchOwner = func() int { defer close(done); return 0 }
+	t.Cleanup(func() { <-done })
 	defer func() {
 		if got := recover(); got != "runner boom" {
 			t.Fatalf("recovered %#v, want the runner's own panic value", got)
@@ -258,5 +261,43 @@ func TestRunningLine(t *testing.T) {
 		if got := runningLine(c.running, c.stale, now); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+func TestCutWatchTickRecordsNothing(t *testing.T) {
+	now, _, resumes := watchStubs(t, deadStale())
+	g := &tickGate{}
+	g.stop()
+	got := watchTickGated(promptIn("s1"), g) // its commit is never called: the join cut it
+	if *resumes != 0 || !strings.Contains(got.Context, "dead-leaf") || strings.Contains(got.Context, "resumed once") {
+		t.Fatalf("cut tick: resumes %d context %q, want the line with no resume", *resumes, got.Context)
+	}
+	*now = now.Add(2 * time.Minute)
+	if again := watchTick(promptIn("s1")); *resumes != 1 || !strings.Contains(again.Context, "resumed once") {
+		t.Fatalf("next tick: resumes %d context %q, want the unreported job resumed and reported", *resumes, again.Context)
+	}
+}
+
+func TestWatchedCutsASlowTickAndRecordsNothing(t *testing.T) {
+	now, _, resumes := watchStubs(t, deadStale())
+	inner, done := watchJobs, make(chan struct{})
+	watchJobs = func(o int, n time.Time, l agent.WatchLimits) (agent.WatchReport, error) {
+		defer close(done)
+		time.Sleep(300 * time.Millisecond)
+		return inner(o, n, l)
+	}
+	old := watchWait
+	watchWait = 50 * time.Millisecond
+	t.Cleanup(func() { watchWait = old })
+	got := watched(func(*core.Input) core.Result { return core.Result{Context: "runner note"} }, promptIn("s1"))
+	if got.Context != "runner note" || !strings.Contains(got.Stderr, "cut at the hook budget") || *resumes != 0 {
+		t.Fatalf("watched = %+v resumes %d, want only the runner's note and a cut notice", got, *resumes)
+	}
+	<-done // the cut tick finishes in the background
+	time.Sleep(50 * time.Millisecond)
+	*now = now.Add(2 * time.Minute)
+	watchJobs = inner
+	if again := watchTick(promptIn("s1")); !strings.Contains(again.Context, "dead-leaf") {
+		t.Fatalf("next tick context %q, want the job reported since the cut tick recorded nothing", again.Context)
 	}
 }

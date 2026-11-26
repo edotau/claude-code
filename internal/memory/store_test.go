@@ -206,6 +206,9 @@ func TestMain(m *testing.M) {
 	if storeTmpl.dir != "" {
 		_ = os.RemoveAll(storeTmpl.dir)
 	}
+	for _, d := range seedSnaps.dir {
+		_ = os.RemoveAll(d)
+	}
 	os.Exit(code)
 }
 

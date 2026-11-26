@@ -188,9 +188,7 @@ func takeHandoffBlock(sessionID string) handoffClaim {
 		_ = os.Remove(handoffRunMarker(sessionID))
 		return handoffClaim{}
 	}
-	return handoffClaim{request: string(b), block: "\n\nAlso write a handoff to exactly " + fields[1] + " (this name, not another): " +
-		"first line exactly " + handoffIdentity(sessionID) + "; then " +
-		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."}
+	return handoffClaim{request: string(b), block: assets.MemoryHandoffRequest(fields[1], handoffIdentity(sessionID))}
 }
 
 func cleanHandoff(sessionID string, claim handoffClaim) {

@@ -259,6 +259,9 @@ func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) erro
 // syncDir makes a completed rename durable; a seam so tests observe and inject it.
 var syncDir = dirSync
 
+// SyncDir fsyncs dir so the names created or removed in it survive a crash; a no-op where a directory cannot be synced.
+func SyncDir(dir string) error { return syncDir(dir) }
+
 // NoReplaceWrite and NoReplaceLink are the write and link steps of WriteNoReplace; tests swap them to inject failures.
 var (
 	NoReplaceWrite = func(f *os.File, data []byte) error { _, err := f.Write(data); return err }

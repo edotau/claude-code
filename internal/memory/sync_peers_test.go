@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,18 +242,45 @@ func newTwoStores(t *testing.T) *twoStores {
 	syncStore(t)
 	ts := &twoStores{t: t, local: paths.ConfigDir(), peer: t.TempDir()}
 	ts.asPeer(func() { _, err := Init(); syncMust(t, err); syncMust(t, StoreRepo().Ensure()) })
-	for _, cfg := range []string{ts.local, ts.peer} {
-		git := []string{"-C", filepath.Join(cfg, "memory"), "-c", "user.name=t", "-c", "user.email=t@peer.example"}
-		for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "seed"}} {
-			if b, err := exec.Command("git", append(git, args...)...).CombinedOutput(); err != nil {
-				t.Fatalf("git %v: %v %s", args, err, b)
-			}
-		}
-	}
+	seedCommit(t, ts.local, "local")
+	seedCommit(t, ts.peer, "peer")
 	oldSSH, oldFetch := syncSSH, fetchRoot
 	t.Cleanup(func() { syncSSH, fetchRoot = oldSSH, oldFetch })
 	syncSSH, fetchRoot = ts.ssh, ts.fetch
 	return ts
+}
+
+// seedSnaps holds, per role, the .git of the first seeded store; later stores copy it instead of spawning git.
+var seedSnaps struct {
+	sync.Mutex
+	dir map[string]string
+}
+
+// seedCommit commits the fresh store under cfg once per role per package run, then restores that .git from a copy.
+func seedCommit(t *testing.T, cfg, role string) {
+	t.Helper()
+	gitDir := filepath.Join(cfg, "memory", ".git")
+	seedSnaps.Lock()
+	defer seedSnaps.Unlock()
+	if snap, ok := seedSnaps.dir[role]; ok {
+		syncMust(t, os.RemoveAll(gitDir))
+		syncMust(t, os.CopyFS(gitDir, os.DirFS(snap)))
+		markCopied(gitDir)
+		return
+	}
+	git := []string{"-C", filepath.Join(cfg, "memory"), "-c", "user.name=t", "-c", "user.email=t@peer.example"}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "seed"}} {
+		if b, err := exec.Command("git", append(git, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, b)
+		}
+	}
+	snap, err := os.MkdirTemp("", "memseed-")
+	syncMust(t, err)
+	syncMust(t, os.CopyFS(snap, os.DirFS(gitDir)))
+	if seedSnaps.dir == nil {
+		seedSnaps.dir = map[string]string{}
+	}
+	seedSnaps.dir[role] = snap
 }
 
 func (ts *twoStores) asPeer(fn func()) {

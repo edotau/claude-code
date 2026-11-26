@@ -131,6 +131,18 @@ func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/
 
 func MemoryKnowledgeHeading() string { return string(read("files/memory/prompts/knowledge.txt")) }
 
+func MemoryFiledByGo(entries string) string { return renderMemory("misc/filed-by-go", entries) }
+
+func MemoryHandoffRequest(path, identity string) string {
+	return renderMemory("misc/handoff-request", tmplFields{"Path": path, "Identity": identity})
+}
+
+func MemoryResiduePrompt(rows string) string {
+	return renderMemory("misc/residue", tmplFields{"Rows": rows})
+}
+
+func MemoryRetryNote(failure string) string { return renderMemory("misc/retry-note", failure) }
+
 func MemoryHomeOverflow(count int) string {
 	return renderMemory("misc/home-overflow", count)
 }

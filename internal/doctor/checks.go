@@ -50,7 +50,7 @@ var doctorSections = []doctorSection{
 	func(context.Context) ([]check, bool) { return []check{formatsCheck()}, true },
 	contractRows,
 	func(ctx context.Context) ([]check, bool) {
-		return append(hookTelemetryChecks(time.Now()), benchCoverageCheck(ctx)), true
+		return append(hookTelemetryChecks(time.Now()), benchCoverageCheck(ctx), fixNowCheck(ctx)), true
 	},
 }
 

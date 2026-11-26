@@ -8,6 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func hookTelemetryChecks(now time.Time) []check {
@@ -46,4 +47,18 @@ func benchCoverageCheck(ctx context.Context) check {
 	defer cancel()
 	detail, ok := docs.BenchCoverage(ctx, paths.ConfigDir(), benchCoverageCommits)
 	return check{Name: "post-commit bench", OK: ok, Detail: detail}
+}
+
+// fixNowCheck is the soft ✗ for failures whose fix-now directive went unclaimed DirectiveMax times.
+func fixNowCheck(ctx context.Context) check {
+	open, err := worktree.UnclaimedDirectives(ctx, worktree.FailuresDir())
+	if err != nil {
+		return check{Name: "failure directives", Detail: "failure log unreadable: " + err.Error()}
+	}
+	if len(open) == 0 {
+		return check{Name: "failure directives", OK: true, Detail: "none unclaimed"}
+	}
+	f := open[0]
+	return check{Name: "failure directives", Detail: fmt.Sprintf("%d unclaimed after %d deliveries; newest %s %s: claude-code failures claim %s",
+		len(open), worktree.DirectiveMax, f.Kind, f.Subject, f.ID)}
 }

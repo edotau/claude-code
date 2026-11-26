@@ -4,7 +4,6 @@ internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank 
 internal/memory/bank_commit.go:save	memory-journal
 internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
 internal/memory/bank_export.go:writeTemp	unversioned: memory-bank: exported memory store file
-internal/memory/bank_fmt.go:formatFiles	unversioned: memory-bank: bank markdown format
 internal/memory/bank_region.go:appendToCatalog	unversioned: memory-bank: memory/index.md entry records, append-only
 internal/memory/bank_region.go:refreshNativeIndex	unversioned: memory-bank: state/harness/memory/memory-md.gen, the last MEMORY.md installed
 internal/memory/bank_remember.go:appendText	unversioned: memory-bank: report and decisions append
@@ -13,17 +12,15 @@ internal/memory/bank_remember.go:writeNoteLocked	unversioned: memory-bank: feedb
 internal/memory/bank_remember.go:writeRememberFact	unversioned: memory-bank: bank remember
 internal/memory/bank_settle.go:appendShadowLog	unversioned: log: the shadow import's divergent docs, one JSON object per line
 internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report restored after a failed decisions append
-internal/memory/bank_settle.go:rotateSessionHistory	unversioned: memory-bank: sessionHistory rotation
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router
+internal/memory/bank_settle.go:writeIfStill	unversioned: memory-bank: settle step rewrite of a bank file, skipped when edited outside
 internal/memory/bank_store.go:SetTruth	unversioned: marker: which store is the memory source of truth
-internal/memory/bank_supersede.go:writeDirtyDocs	unversioned: memory-bank: replaced-entry pointers
 internal/memory/candidates.go:appendLocked	unversioned: text: proposed-test list, one JSON object per line
 internal/memory/candidates.go:ingestTestProposals	unversioned: text: report ingestion watermark, one timestamp
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
 internal/memory/catchup.go:save	memory-catchup-heads
 internal/memory/compact_handoff.go:WriteCompactHandoff	unversioned: text: PreCompact's fact-only handoff markdown in memory/handoffs
 internal/memory/doc.go:appendBlocks	unversioned: memory-bank: bank blocks
-internal/memory/doc.go:assignFileIDs	unversioned: memory-bank: bank id comments
 internal/memory/doctor.go:cacheDoctorNotice	unversioned: text: per-store doctor notice line
 internal/memory/doctor.go:markDoctorNoticeShown	unversioned: text: once-a-day doctor notice stamp (date, findings digest)
 internal/memory/doctor.go:recordIndexProblem	unversioned: text: last failed settle's cause, read by memory review
@@ -34,6 +31,7 @@ internal/memory/dream_audit.go:queueDreamBench	unversioned: log: dream benchmark
 internal/memory/dream_audit.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
 internal/memory/embed.go:embedQuery	unversioned: marker: semantic-recall backoff stamp
 internal/memory/embed_store.go:refreshEmbeddings	unversioned: marker: embedding refresh spawn stamp
+internal/memory/extract_recall.go:RecordExtractLoss	unversioned: log: extract loss ledger, text lines
 internal/memory/extract_run.go:extractClaimIndex	unversioned: git-index: exclusive purge index lock
 internal/memory/extract_run.go:extractIndexFile	unversioned: git-index: temporary purge index
 internal/memory/extract_run.go:extractInstallPurge	unversioned: git-index: restore the original index if purge fails before committing

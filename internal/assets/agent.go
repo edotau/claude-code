@@ -239,6 +239,17 @@ func HookFailuresWarn(err string) string {
 	return renderHook("notice/failures-warn", tmplFields{"Err": err})
 }
 
+// FixNow is one fix-now directive; Present picks investigate-and-ask over apply-and-log.
+type FixNow struct {
+	ID, Kind, Subject, Summary, Report, Idle string
+	Present                                  bool
+}
+
+func HookFixNow(d FixNow) string {
+	return renderHook("notice/fixnow", tmplFields{"ID": d.ID, "Kind": d.Kind, "Subject": d.Subject,
+		"Summary": d.Summary, "Report": d.Report, "Idle": d.Idle, "Present": d.Present})
+}
+
 func HookNoticeDivergeWarn(err string) string {
 	return renderHook("notice/diverge-warn", tmplFields{"Err": err})
 }

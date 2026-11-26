@@ -67,6 +67,9 @@ const (
 var FailureKinds = []FailureKind{FailAudit, FailLaneGate, FailPlanCheck, FailBench, FailDispatch, FailContract,
 	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded, FailOverlayKey}
 
+// DirectiveKinds reach a main session as a fix-now directive; a kind joins this closed list once it is logged.
+var DirectiveKinds = []FailureKind{FailAudit, FailLaneGate, FailBench, FailProxyDown, FailProxy5xx, FailContract}
+
 // Failure is one broadcast record; Time is unix seconds; Seq grows by one per appended record.
 type Failure struct {
 	ID      string      `json:"id"`
@@ -209,6 +212,7 @@ func reopenFailure(root, id string) {
 	if _, err := os.Stat(claimPath(root, id) + ".done"); err == nil {
 		_ = os.Remove(claimPath(root, id) + ".done")
 		_ = os.Remove(claimPath(root, id))
+		_ = os.Remove(claimPath(root, id) + ".offer")
 	}
 }
 
@@ -390,18 +394,178 @@ func DoneFailure(root, id string) error {
 // autofixHeld reports whether the record id names a "<lane>@<sha7>" subject whose autofix branch exists in its repo.
 func autofixHeld(root, id string) bool {
 	recs, _ := ListFailures(root)
-	for _, r := range recs {
-		if r.ID != id || r.Repo == "" {
+	return slices.ContainsFunc(recs, func(r Failure) bool { return r.ID == id && autofixBranch(context.Background(), r) })
+}
+
+// autofixBranch reports whether r's "<lane>@<sha7>" subject has an autofix branch in r's repo, probed on ctx.
+func autofixBranch(ctx context.Context, r Failure) bool {
+	_, sha, ok := strings.Cut(r.Subject, "@")
+	if r.Repo == "" || !ok || len(sha) != 7 {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Repo, "show-ref", "--verify", "--quiet", "refs/heads/worktree-autofix-"+sha)
+	return cmd.Run() == nil
+}
+
+// OfferResult is what one session gets of an open failure: nothing, the fix-now directive, or the plain fallback.
+type OfferResult int
+
+const (
+	OfferNone OfferResult = iota
+	OfferDirective
+	OfferNotice // DirectiveMax deliveries went unclaimed: the plain notice, once
+	OfferOwned  // a claim, done mark or autofix branch holds it: nothing, and its plain line stays
+)
+
+const (
+	DirectiveMax  = 2                      // directive deliveries with no claim before the plain notice and doctor row
+	offerLease    = 10 * time.Minute       // a delivered directive is the session's alone this long before another gets it
+	offerLockWait = 200 * time.Millisecond // hooks call it: a busy log is skipped, never waited on
+)
+
+// failureOffer is an id's directive deliveries: the sessions, the last delivery time, and whether the fallback went.
+type failureOffer struct {
+	Sessions []string `json:"sessions"`
+	Time     int64    `json:"time"`
+	Noticed  bool     `json:"noticed,omitempty"`
+}
+
+func readOffer(file string) (o failureOffer) {
+	raw, _ := os.ReadFile(file)
+	_ = json.Unmarshal(raw, &o) // a missing or torn record is no delivery yet
+	return o
+}
+
+// OfferFailure decides under the log lock what slug gets of f now and records it; fallback allows OfferNotice.
+func OfferFailure(ctx context.Context, root string, f Failure, slug string, fallback bool) (OfferResult, error) {
+	file, err := failureIDPath(root, f.ID, ".offer")
+	if err != nil {
+		return OfferNone, err
+	}
+	slug = paths.Slug(slug, "", 80, "session")
+	if _, res := nextOffer(readOffer(file), slug, time.Now().Unix(), fallback); res == OfferNone {
+		return OfferNone, nil // nothing due: no lock
+	}
+	if !FailureOpen(ctx, root, f) { // the git probe runs on ctx, outside the lock
+		return OfferOwned, ctx.Err()
+	}
+	res := OfferNone
+	err = paths.WithFileLockWithin(failuresLog(root), offerLockWait, func() error {
+		if holder, done := FailureHolder(root, f.ID); holder != "" || done || ctx.Err() != nil {
+			return nil // a spent hook budget records nothing it could not return
+		}
+		var o failureOffer
+		if o, res = nextOffer(readOffer(file), slug, time.Now().Unix(), fallback); res == OfferNone {
+			return nil
+		}
+		return writeOffer(file, o)
+	})
+	if err != nil {
+		return OfferNone, err
+	}
+	return res, nil
+}
+
+func writeOffer(file string, o failureOffer) error {
+	raw, err := json.Marshal(o)
+	if err == nil {
+		err = os.MkdirAll(filepath.Dir(file), 0o700)
+	}
+	if err == nil {
+		err = paths.AtomicWriteNoSync(file, raw, 0o600)
+	}
+	return err
+}
+
+// nextOffer is o after slug asks at now: one session per lease, DirectiveMax deliveries, then the fallback once.
+func nextOffer(o failureOffer, slug string, now int64, fallback bool) (failureOffer, OfferResult) {
+	switch {
+	case len(o.Sessions) > 0 && now-o.Time < int64(offerLease/time.Second):
+		return o, OfferNone
+	case len(o.Sessions) >= DirectiveMax:
+		if o.Noticed || !fallback {
+			return o, OfferNone
+		}
+		o.Noticed, o.Time = true, now
+		return o, OfferNotice
+	}
+	o.Sessions, o.Time = append(slices.Clone(o.Sessions), slug), now
+	return o, OfferDirective
+}
+
+// UnclaimedDirectives is the open records whose directive went out DirectiveMax times with no claim, newest first.
+func UnclaimedDirectives(ctx context.Context, root string) ([]Failure, error) {
+	recs, err := ListFailures(root)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []Failure
+	for _, r := range slices.Backward(recs) {
+		if seen[r.ID] {
 			continue
 		}
-		_, sha, ok := strings.Cut(r.Subject, "@")
-		if !ok || len(sha) != 7 {
-			continue
-		}
-		cmd := exec.CommandContext(context.Background(), "git", "-C", r.Repo, "show-ref", "--verify", "--quiet", "refs/heads/worktree-autofix-"+sha)
-		if cmd.Run() == nil {
-			return true
+		seen[r.ID] = true
+		if len(readOffer(claimPath(root, r.ID)+".offer").Sessions) >= DirectiveMax && FailureOpen(ctx, root, r) {
+			out = append(out, r)
 		}
 	}
-	return false
+	return out, nil
+}
+
+// FailureOpen reports whether nobody owns f: no claim, not done, and no autofix branch (probed on ctx) for it.
+func FailureOpen(ctx context.Context, root string, f Failure) bool {
+	holder, done := FailureHolder(root, f.ID)
+	return holder == "" && !done && !autofixBranch(ctx, f)
+}
+
+const promptKeep = 7 * 24 * time.Hour // a session stamp older than this is pruned when a new session stamps
+
+func promptStamp(root, slug string) string {
+	return filepath.Join(root, "prompts", "s-"+paths.Slug(slug, "", 80, "session"))
+}
+
+// NotePrompt records now as slug's last user prompt; a session's first stamp also prunes week-old ones.
+func NotePrompt(root, slug string) error {
+	dir, stamp := filepath.Join(root, "prompts"), promptStamp(root, slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	_, statErr := os.Stat(stamp)
+	if err := paths.AtomicWriteNoSync(stamp, strconv.AppendInt(nil, time.Now().Unix(), 10), 0o600); err != nil { // never behind the prune lock
+		return err
+	}
+	if !os.IsNotExist(statErr) {
+		return nil
+	}
+	err := paths.WithFileLockWithin(dir, offerLockWait, func() error {
+		ents, _ := os.ReadDir(dir)
+		for _, e := range ents {
+			info, err := e.Info()
+			if err != nil || e.Name() == filepath.Base(stamp) || time.Since(info.ModTime()) <= promptKeep {
+				continue
+			}
+			if again, err := os.Stat(filepath.Join(dir, e.Name())); err == nil && time.Since(again.ModTime()) > promptKeep {
+				_ = os.Remove(filepath.Join(dir, e.Name())) // best-effort; the age is read again so a refreshed stamp stays
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, paths.ErrLockTimeout) {
+		return nil // the next first stamp prunes
+	}
+	return err
+}
+
+// LastPrompt is slug's last user prompt; zero when none was recorded, now when a stamp exists but cannot be read.
+func LastPrompt(root, slug string) time.Time {
+	raw, err := os.ReadFile(promptStamp(root, slug))
+	switch n, perr := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64); {
+	case os.IsNotExist(err):
+		return time.Time{}
+	case err != nil || perr != nil || n <= 0:
+		return time.Now() // presence unknown reads as present: investigate and wait, never apply
+	default:
+		return time.Unix(n, 0)
+	}
 }

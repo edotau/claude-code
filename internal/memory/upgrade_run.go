@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -545,7 +546,7 @@ func (f *CodeFallback) Run(ctx context.Context, prompt, workdir, schema string) 
 
 // Retry gives the one fallback a failed first answer and applies the corrected Batch; both failures are named.
 func (f *CodeFallback) Retry(ctx context.Context, prompt, workdir, schema, first string, failed error, apply func(answer string) error) error {
-	prompt += "\n\nYour previous answer failed: " + failed.Error() + "\nReturn a corrected typed batch."
+	prompt += assets.MemoryRetryNote(failed.Error())
 	answer, who, err := f.Run(ctx, prompt, workdir, schema)
 	if err == nil {
 		if err = apply(answer); err == nil {
@@ -564,15 +565,13 @@ func ValidateBatchAnswer(answer string) error {
 // residuePrompt lists what the pure steps could not place; the agent answers with a typed Batch only.
 func residuePrompt(skipped []UpgradeSkip, dups []string) string {
 	var sb strings.Builder
-	sb.WriteString("The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.\n")
 	for _, s := range skipped {
 		fmt.Fprintf(&sb, "- %s: %s\n", s.Path, s.Reason)
 	}
 	for _, d := range dups {
 		fmt.Fprintf(&sb, "- duplicate id %s\n", d)
 	}
-	sb.WriteString("Return only a typed Batch of ops that places them; write no files.")
-	return sb.String()
+	return assets.MemoryResiduePrompt(sb.String())
 }
 
 // resolveResidue sends the residue to one code-mode agent over a store copy; a failed answer leaves the store as is.

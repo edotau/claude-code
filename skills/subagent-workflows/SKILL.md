@@ -220,7 +220,7 @@ are overlapping files, dependency order and an account's own rate limit.
 3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
    rounds in a row each finding a new HIGH in one area stop the loop and go to the owner. A review dispatch passes a
    typed non-Claude `--model` (a GPT or Gemini id) when the reviewer's route is auto, so other-family holds.
-4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
+4. Tests only at sign-off: a leaf writes tests, does not run them; the collector runs them in the merge gate.
 5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane (a relay type
    cannot commit, so the main session does); the main session lands ([Landing](#landing)).
 6. In a contract the Opus owner runs this fan-out; otherwise main.
@@ -383,7 +383,8 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
   (build, vet, touched-package tests, `agents diff --check`), and only then `worktree commit` and `worktree land`.
 - **Never commit a unit file.** It breaks the one-test-file-per-source rule (`rules/harness/go.md`); the gate catches
   one left behind.
-- A test leaf proves teeth on a scratch copy (`go test -overlay`), never by editing source an editor leaf owns.
+- A test leaf writes the teeth check on a scratch copy (`go test -overlay`) for the collector to run, never running
+  it (R37) and never editing source an editor leaf owns.
 
 ## Rules
 

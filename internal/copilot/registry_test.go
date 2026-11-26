@@ -13,11 +13,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/route"
 )
 
@@ -73,7 +70,7 @@ func TestPrepareCopilotRegistryEmptyModelUsesDefault(t *testing.T) {
 	setGOOS(t, "linux")
 	t.Setenv("COPILOT_HOME", t.TempDir())
 	stubSettingsRegistry(t)
-	route, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: &providers.Provider{Name: "fixture"}})
+	route, err := prepareCopilotRegistry(context.Background(), providers.Target{Provider: fixtureKeyedRow()})
 	if err != nil || route == nil || route.ref == "" {
 		t.Fatalf("prepareCopilotRegistry(empty model) = %+v, %v; want the default model selected", route, err)
 	}
@@ -112,7 +109,7 @@ func TestSDKRegistryWarnsAndDropsUnreadableSettings(t *testing.T) {
 	sink := wire.NewLogSink(logPath)
 	t.Cleanup(sink.Close)
 	ctx := wire.WithLog(context.Background(), sink)
-	route, err := prepareCopilotRegistry(ctx, providers.Target{Provider: &providers.Provider{Name: "fixture"}, Model: "claude-sonnet-5-5"})
+	route, err := prepareCopilotRegistry(ctx, providers.Target{Provider: fixtureKeyedRow(), Model: "claude-sonnet-5-5"})
 	if err != nil || route == nil {
 		t.Fatalf("prepareCopilotRegistry = %v, %v", route, err)
 	}
@@ -128,28 +125,39 @@ func TestSDKRegistryWarnsAndDropsUnreadableSettings(t *testing.T) {
 
 func stubSettingsRegistry(t *testing.T) {
 	t.Helper()
-	oldDiscover, oldRouter, oldMint := discoverModels, agent.EnsureRouter, mintSession
-	t.Cleanup(func() { discoverModels, agent.EnsureRouter, mintSession = oldDiscover, oldRouter, oldMint })
+	oldDiscover, oldRouter, oldMint := discoverModels, agent.EnsureRouter, agent.MintSession
+	agent.ResetSessionTokens()
+	t.Cleanup(func() {
+		discoverModels, agent.EnsureRouter, agent.MintSession = oldDiscover, oldRouter, oldMint
+		agent.ResetSessionTokens()
+	})
 	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
 		return []CopilotEndpoint{{ID: "claude-sonnet-5-5"}}, nil
 	}
 	agent.EnsureRouter = func(context.Context) (string, error) { return "http://127.0.0.1:1", nil }
-	mintSession = func(context.Context, string, []string, string) (string, error) { return "fixture-session", nil }
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return "fixture-session", nil }
 }
 
-// prepareRegistry mints its session token on the router base the registry was built on.
-func TestPrepareRegistryMintsOnRegistryBase(t *testing.T) {
+// The registry router base is the session base minus /p/<profile>; its token is the one EndpointURL minted.
+func TestCopilotRouterBaseAndKey(t *testing.T) {
 	stubSettingsRegistry(t)
-	var got string
-	mintSession = func(_ context.Context, base string, _ []string, _ string) (string, error) {
-		got = base
-		return "tok", nil
+	base, key, err := copilotRouter(context.Background(), fixtureKeyedRow())
+	if err != nil || base != "http://127.0.0.1:1" || key != "fixture-session" {
+		t.Fatalf("copilotRouter = %q, %q, %v; want the bare router base and the minted token", base, key, err)
 	}
-	r := copilotRegistry{Profile: "p", Base: "http://127.0.0.1:1"}
-	_, _ = prepareRegistry(context.Background(), r, "p", 1) // render fails on no models, after the mint under test
-	if got != "http://127.0.0.1:1" {
-		t.Fatalf("minted on base %q", got)
+}
+
+// A direct unit never reaches the registry: its row has no router to sit behind.
+func TestCopilotRouterRefusesDirectUnit(t *testing.T) {
+	stubSettingsRegistry(t)
+	ctx := agent.WithDirect(context.Background())
+	if _, _, err := copilotRouter(ctx, fixtureKeyedRow()); err == nil {
+		t.Fatal("copilotRouter on a direct unit succeeded; want the registry to refuse it")
 	}
+}
+
+func fixtureKeyedRow() *providers.Provider {
+	return &providers.Provider{Name: "fixture", Auth: providers.Auth{Type: "key", Env: "FIXTURE_TOKEN"}}
 }
 
 // A keyed Databricks row runs on the registry except on macOS, which takes routed BYOK.
@@ -169,18 +177,5 @@ func TestArmRegistryEligibility(t *testing.T) {
 		if got := copilotRegistryEligible(false, dbx); got != c.want {
 			t.Errorf("%s route %q: registry eligible = %v, want %v", c.goos, c.route, got, c.want)
 		}
-	}
-}
-
-// The dry router base follows the run's own egress host, not the process env's.
-func TestRouterBaseUsesRunEgressHost(t *testing.T) {
-	t.Setenv(egress.EnvHost, "")
-	old := runningRouter
-	t.Cleanup(func() { runningRouter = old })
-	runningRouter = func(context.Context) (proxy.State, bool) { return proxy.State{Port: 4321}, true }
-	ctx := proc.WithValues(t.Context(), proc.Values{egress.EnvHost: "edge.example"})
-	got, err := copilotRouterBase(ctx, true)
-	if want := proxy.Base(4321) + proxy.ViaPrefix + "edge.example"; err != nil || got != want {
-		t.Fatalf("router base = %q, %v; want %q", got, err, want)
 	}
 }

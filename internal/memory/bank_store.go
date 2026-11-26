@@ -43,7 +43,7 @@ var ShadowImport func() (diverged []string, changed bool, err error)
 // OpenBankStore is nil when no db store is linked; the close func releases the db.
 var OpenBankStore func(locked bool) (BankStore, func() error, error)
 
-// ExportBeforeFlip runs under the bank lock (not reentrant) when SetTruth leaves "db"; nil refuses; TODO(7.0): wire it.
+// ExportBeforeFlip runs under the bank lock (not reentrant) when SetTruth leaves "db"; nil refuses.
 var ExportBeforeFlip func() error
 
 const (
@@ -94,12 +94,27 @@ func SetTruth(t string) error {
 			if err := ExportBeforeFlip(); err != nil {
 				return fmt.Errorf("export before flip to files: %w", err)
 			}
+			if err := refreshCatalogForFlip(); err != nil {
+				return fmt.Errorf("refresh catalog before flip to files: %w", err)
+			}
 		}
 		if err := os.MkdirAll(filepath.Dir(truthPath()), 0o755); err != nil {
 			return err
 		}
 		return paths.AtomicWrite(truthPath(), []byte(t+"\n"), 0o644)
 	})
+}
+
+// refreshCatalogForFlip rewrites catalog.md and MEMORY.md for an existing store, as the settle does.
+func refreshCatalogForFlip() error {
+	if !statOK(paths.MemoryStoreDir()) {
+		return nil
+	}
+	_, err := refreshIndexFiles(time.Now(), nil)
+	if errors.Is(err, errIndexProblem) && checkIndexFiles() == nil {
+		return nil // the pin problem came after catalog.md was written
+	}
+	return err
 }
 
 // fileBankStore keeps the bank in its markdown files; locked means the caller already holds the bank lock.

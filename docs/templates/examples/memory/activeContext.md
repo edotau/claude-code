@@ -8,10 +8,16 @@ Documenting every embedded template under docs/templates/.
 
 ## Open Questions
 
+- None open.
+
 ## Blockers
+
+- None.
 
 ## Next Steps
 
 - Keep the golden examples in sync with their source templates.
 
 ## Parked
+
+- Nothing parked.

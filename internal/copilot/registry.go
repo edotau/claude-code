@@ -25,18 +25,13 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
-// Seams for tests: model discovery, the running router and the router's session tokens.
-var (
-	discoverModels = discoverCopilotEndpoints
-	mintSession    = func(ctx context.Context, base string, profiles []string, failover string) (string, error) {
-		return agent.SessionTokenWithFailover(ctx, base, failover, profiles...)
-	}
-	runningRouter = proxy.Running
-)
+// discoverModels is the model-discovery seam for tests.
+var discoverModels = discoverCopilotEndpoints
 
 // StubRegistry makes registry launches discover ids and mint tok offline, for tests in other packages.
 func StubRegistry(tok string, ids ...string) (restore func()) {
-	oldDiscover, oldMint := discoverModels, mintSession
+	oldDiscover, oldMint := discoverModels, agent.MintSession
+	agent.ResetSessionTokens()
 	eps := make([]CopilotEndpoint, len(ids))
 	for i, id := range ids {
 		eps[i] = CopilotEndpoint{ID: id}
@@ -44,8 +39,11 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
 		return eps, nil
 	}
-	mintSession = func(context.Context, string, []string, string) (string, error) { return tok, nil }
-	return func() { discoverModels, mintSession = oldDiscover, oldMint }
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return tok, nil }
+	return func() {
+		discoverModels, agent.MintSession = oldDiscover, oldMint
+		agent.ResetSessionTokens()
+	}
 }
 
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
@@ -67,7 +65,7 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: discover %s models: %w", t.Provider.Name, err)
 	}
-	base, err := agent.EnsureRouter(agent.WithScopedProxy(ctx, "copilot"))
+	base, tok, err := copilotRouter(ctx, t.Provider)
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +79,6 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	}
 	for _, w := range home.Warnings {
 		wire.EventLogFor(ctx).Emit("note", w)
-	}
-	tok, err := mintSession(ctx, base, []string{t.Provider.Name}, agent.AutoFailoverProvider(ctx))
-	if err != nil {
-		return nil, fmt.Errorf("copilot: mint session token: %w", err)
 	}
 	return &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}, nil
 }
@@ -418,11 +412,11 @@ func configureCopilotRegistry(
 	if err != nil {
 		return agent.RegistryLaunch{}, err
 	}
-	r, ref, err := registrySelection(ctx, reg, t, requested, dry)
+	r, ref, key, err := registrySelection(ctx, reg, t, requested)
 	if err != nil {
 		return agent.RegistryLaunch{}, err
 	}
-	file, files, err := registryFile(ctx, r, p.Name, os.Getpid(), dry)
+	file, files, err := registryFile(r, key, os.Getpid(), dry)
 	if err != nil {
 		return agent.RegistryLaunch{}, err
 	}
@@ -457,59 +451,44 @@ func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Pro
 }
 
 // registrySelection discovers t's profile models and selects requested (else t.Model, pin, default) on the router.
-func registrySelection(ctx context.Context, reg *providers.Registry, t providers.Target, requested []string, dry bool,
-) (copilotRegistry, string, error) {
+func registrySelection(ctx context.Context, reg *providers.Registry, t providers.Target, requested []string,
+) (copilotRegistry, string, string, error) {
 	p := t.Provider
 	eps, err := discoverModels(ctx, reg, p)
 	if err != nil {
-		return copilotRegistry{}, "", fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
+		return copilotRegistry{}, "", "", fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
 	}
-	rb, err := copilotRouterBase(ctx, dry)
+	rb, key, err := copilotRouter(ctx, p)
 	if err != nil {
-		return copilotRegistry{}, "", fmt.Errorf("copilot: router: %w", err)
+		return copilotRegistry{}, "", "", err
 	}
 	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested, t.Model))
 	if err != nil {
-		return copilotRegistry{}, "", fmt.Errorf("copilot: %w", err)
+		return copilotRegistry{}, "", "", fmt.Errorf("copilot: %w", err)
 	}
-	return r, ref, nil
+	return r, ref, key, nil
 }
 
-// copilotRouterBase is the router URL; dry (--print-env) only reads a running router and never starts one.
-func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
-	if !dry {
-		return agent.EnsureRouter(agent.WithScopedProxy(ctx, "copilot"))
-	}
-	if st, ok := runningRouter(ctx); ok {
-		return proxy.ViaBaseContext(ctx, proxy.Base(st.Port)), nil
-	}
-	return proxy.ViaBaseContext(ctx, proxy.Base(proxy.DefaultPort)), nil
-}
-
-// prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).
-func prepareRegistry(ctx context.Context, r copilotRegistry, profile string, pid int,
-) (agent.LaunchFile, error) {
-	token, err := mintSession(ctx, r.Base, []string{profile}, agent.AutoFailoverProvider(ctx))
+// copilotRouter is the router base (no /p/<profile>) and the one session token of the run's endpoint unit on p.
+func copilotRouter(ctx context.Context, p *providers.Provider) (base, key string, err error) {
+	unit, err := agent.RunUnit(ctx)
 	if err != nil {
-		return agent.LaunchFile{}, fmt.Errorf("copilot: session token for profile %s: %w", profile, err)
+		return "", "", fmt.Errorf("copilot: %w", err)
 	}
-	data, err := renderCopilotRegistry(r, token)
+	ep, err := agent.EndpointURL(agent.WithScopedProxy(ctx, "copilot"), p, unit, "")
 	if err != nil {
-		return agent.LaunchFile{}, fmt.Errorf("copilot: render registry: %w", err)
+		return "", "", fmt.Errorf("copilot: %w", err)
 	}
-	dir, err := CopilotRuntimeDir()
-	if err != nil {
-		return agent.LaunchFile{}, fmt.Errorf("copilot: %w", err)
+	if !ep.Routed {
+		return "", "", fmt.Errorf("copilot: profile %s on the registry needs the router: its endpoint is not the proxy", p.Name)
 	}
-	return agent.LaunchFile{Path: CopilotRegistryFile(dir, pid), Data: data}, nil
+	return strings.TrimSuffix(ep.Base, "/p/"+p.Name), ep.Key, nil
 }
 
 // registryFile is the registry file path and its launch file; dry only computes the path (--print-env creates nothing).
-func registryFile(
-	ctx context.Context, r copilotRegistry, profile string, pid int, dry bool,
-) (file string, files []agent.LaunchFile, err error) {
+func registryFile(r copilotRegistry, key string, pid int, dry bool) (file string, files []agent.LaunchFile, err error) {
 	if !dry {
-		f, err := prepareRegistry(ctx, r, profile, pid)
+		f, err := prepareRegistry(r, key, pid)
 		if err != nil {
 			return "", nil, err
 		}
@@ -520,6 +499,19 @@ func registryFile(
 		return "", nil, errors.New("copilot: no registry runtime directory")
 	}
 	return CopilotRegistryFile(filepath.Dir(glob), pid), nil, nil
+}
+
+// prepareRegistry renders the registry as a launch file in the verified runtime dir (Exec writes).
+func prepareRegistry(r copilotRegistry, token string, pid int) (agent.LaunchFile, error) {
+	data, err := renderCopilotRegistry(r, token)
+	if err != nil {
+		return agent.LaunchFile{}, fmt.Errorf("copilot: render registry: %w", err)
+	}
+	dir, err := CopilotRuntimeDir()
+	if err != nil {
+		return agent.LaunchFile{}, fmt.Errorf("copilot: %w", err)
+	}
+	return agent.LaunchFile{Path: CopilotRegistryFile(dir, pid), Data: data}, nil
 }
 
 // splitModelFlags removes every --model <v> / --model=<v> from args and returns the values in order.

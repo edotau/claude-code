@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 	"github.com/edotau/claude-code/internal/worktree/worktreetest"
@@ -703,6 +704,7 @@ func BenchmarkDivergedAtUnchangedUpstream(b *testing.B) {
 // TestNoticeContextDrainsFailures: each session sees a failure once, capped at failureLines plus a "more" line.
 func TestNoticeContextDrainsFailures(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "leaf") // a leaf gets the plain notice, never the fix-now directive
 	cwd := hosttest.Repo(t)
 	for i := range failureLines + 2 {
 		if _, err := worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailAudit,
@@ -723,6 +725,7 @@ func TestNoticeContextDrainsFailures(t *testing.T) {
 // TestNoticeContextFailuresBusyLog: a held log lock shows nothing and keeps the cursor, so the next prompt shows them.
 func TestNoticeContextFailuresBusyLog(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "leaf")
 	cwd := hosttest.Repo(t)
 	if _, err := worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailAudit,
 		Subject: "busy", Summary: "boom"}); err != nil {
@@ -747,6 +750,7 @@ func TestNoticeContextFailuresBusyLog(t *testing.T) {
 // TestNoticeContextFailuresRepoAndClaim: another repo's failure is hidden; lines fit 80 columns and show the claim.
 func TestNoticeContextFailuresRepoAndClaim(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "leaf")
 	cwd := hosttest.Repo(t)
 	_, top := paths.CheckoutOf(cwd)
 	root := worktree.FailuresDir()

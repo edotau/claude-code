@@ -169,3 +169,61 @@ func TestOverlayUnknownKeyFailureDedup(t *testing.T) {
 		t.Fatalf("failures = %+v, %v; want one overlay_unknown_key entry for 600 keys", got, err)
 	}
 }
+
+// TestNextOffer: one session per lease, DirectiveMax deliveries, then the fallback once.
+func TestNextOffer(t *testing.T) {
+	lease := int64(offerLease / time.Second)
+	o, res := nextOffer(failureOffer{}, "s1", 100, true)
+	steps := []struct {
+		slug     string
+		at       int64
+		fallback bool
+		want     OfferResult
+	}{
+		{"s2", 100 + lease - 1, true, OfferNone},  // s1's lease
+		{"s1", 100 + lease, true, OfferDirective}, // a delivery the hook may have lost comes back after the lease
+		{"s2", 100 + lease, true, OfferNone},      // s1's second lease
+		{"s3", 100 + 3*lease, false, OfferNone},   // Stop has no plain notice
+		{"s3", 100 + 3*lease, true, OfferNotice},
+		{"s4", 100 + 5*lease, true, OfferNone},
+	}
+	if res != OfferDirective {
+		t.Fatalf("first offer = %v", res)
+	}
+	for i, s := range steps {
+		if o, res = nextOffer(o, s.slug, s.at, s.fallback); res != s.want {
+			t.Fatalf("step %d (%s) = %v, want %v (%+v)", i, s.slug, res, s.want, o)
+		}
+	}
+	root := t.TempDir()
+	id := FailureID(FailAudit, "c")
+	if _, err := ClaimFailure(root, id, "peer"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := OfferFailure(t.Context(), root, Failure{ID: id, Kind: FailAudit, Subject: "c"}, "s1", true); res != OfferOwned || err != nil {
+		t.Fatalf("claimed offer = %v, %v", res, err)
+	}
+}
+
+func TestNotePromptPrunesOnlyStaleStamps(t *testing.T) {
+	root := t.TempDir()
+	if err := NotePrompt(root, "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := NotePrompt(root, "fresh"); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-promptKeep - time.Hour)
+	if err := os.Chtimes(promptStamp(root, "old"), past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := NotePrompt(root, "third"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(promptStamp(root, "old")); !os.IsNotExist(err) {
+		t.Fatalf("week-old stamp: %v, want pruned", err)
+	}
+	if _, err := os.Stat(promptStamp(root, "fresh")); err != nil {
+		t.Fatalf("fresh stamp: %v, want kept", err)
+	}
+}
