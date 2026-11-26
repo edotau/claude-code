@@ -301,7 +301,7 @@ func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error)
 	if len(rec.Request.CarryArgv) < 3 {
 		return agent.ModelRoute{}, errors.New("no inner line")
 	}
-	fs, f, args, pos, code, done := parseAsk("", rec.Request.CarryArgv[3:])
+	fs, f, args, pos, code, done := parseAsk(rec.Request.CarryArgv[3:])
 	if done {
 		return agent.ModelRoute{}, fmt.Errorf("parse inner ask: exit %d", code)
 	}

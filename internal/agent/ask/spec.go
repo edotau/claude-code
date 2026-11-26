@@ -247,38 +247,32 @@ func runWaves(f *askFlags, raw []string) int {
 }
 
 // parseAsk parses args, re-parses them with --spec's argv first, then refuses a leading agent word.
-func parseAsk(verb string, args []string) (*flag.FlagSet, *askFlags, []string, []string, int, bool) {
+func parseAsk(args []string) (*flag.FlagSet, *askFlags, []string, []string, int, bool) {
 	fs, f := askFlagSet()
-	if verb != "" {
-		retargetPage(fs, verb)
-	}
 	pos, code, done := parseAskArgs(fs, args)
 	raw := args
 	if !done && f.spec != "" {
-		fs, f, args, pos, code, done = reparseSpec(f, verb, args, pos)
+		fs, f, args, pos, code, done = reparseSpec(f, args, pos)
 	}
-	if !done && f.waves != "" && verb == "" && f.action == "" { // an action's own refusal names --waves
+	if !done && f.waves != "" && f.action == "" { // an action's own refusal names --waves
 		return fs, f, raw, pos, runWaves(f, raw), true
 	}
 	if done {
 		return fs, f, args, pos, code, true
 	}
-	if err := refuseAgentWord(fs, verb, args, pos); err != nil {
+	if err := refuseAgentWord(fs, args, pos); err != nil {
 		return fs, f, args, pos, failAskCode(f.format, f.name, err, 2), true
 	}
 	return fs, f, args, pos, 0, false
 }
 
 // reparseSpec re-parses args with the spec's argv first on a fresh FlagSet; f.spec survives for stdinTaken.
-func reparseSpec(f *askFlags, verb string, args, pos []string) (*flag.FlagSet, *askFlags, []string, []string, int, bool) {
+func reparseSpec(f *askFlags, args, pos []string) (*flag.FlagSet, *askFlags, []string, []string, int, bool) {
 	merged, err := withSpec(f, args, pos)
 	if err != nil {
 		return nil, f, args, nil, failAskCode(f.format, f.name, err, 2), true
 	}
 	fs, nf := askFlagSet()
-	if verb != "" {
-		retargetPage(fs, verb)
-	}
 	pos, code, done := parseAskArgs(fs, merged)
 	nf.spec, nf.verify, nf.contract = f.spec, f.verify, f.contract
 	nf.action, nf.actionOwn = f.action, f.actionOwn
@@ -286,10 +280,7 @@ func reparseSpec(f *askFlags, verb string, args, pos []string) (*flag.FlagSet, *
 }
 
 // refuseAgentWord rejects a first task word that is exactly an agent name when --agent was not given; "--" opts out.
-func refuseAgentWord(fs *flag.FlagSet, verb string, args, pos []string) error {
-	if verb != "" {
-		return nil
-	}
+func refuseAgentWord(fs *flag.FlagSet, args, pos []string) error {
 	if w, ok := askspec.LeadingAgentWord(args, pos, agent.RosterNames(), helptext.Explicit(fs, "agent")); ok {
 		return fmt.Errorf("%q is an agent name; use --agent %s (or -- before a prompt that starts with it)", w, w)
 	}

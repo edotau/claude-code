@@ -511,7 +511,7 @@ func TestRefuseAgentWord(t *testing.T) {
 		if done {
 			t.Fatalf("%v: parse exit %d", tc.args, code)
 		}
-		if err := refuseAgentWord(fs, "", tc.args, pos); (err != nil) != tc.bad {
+		if err := refuseAgentWord(fs, tc.args, pos); (err != nil) != tc.bad {
 			t.Errorf("%v: err=%v, want refusal=%v", tc.args, err, tc.bad)
 		}
 	}

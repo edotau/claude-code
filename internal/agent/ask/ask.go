@@ -45,17 +45,6 @@ func Cmd(args []string) int { return runCtx(context.Background(), args, os.Stdou
 // cmdTo is Cmd with the answer and envelope written to out instead of the process stdout.
 func cmdTo(args []string, out io.Writer) int { return runCtx(context.Background(), args, out) }
 
-// retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
-func retargetPage(fs *flag.FlagSet, name string) {
-	p := askPage
-	p.Usage = "claude-code " + name + " ask [flags] <task | ->"
-	fs.Lookup("agent").DefValue = name
-	fs.Usage = func() {
-		p.Flags = fs
-		p.Fprint(fs.Output())
-	}
-}
-
 // askRun is one ask invocation: its flags plus what the setup phases resolve.
 type askRun struct {
 	ctx         context.Context // the run's values: the phases that export lay theirs over a snapshot of the env
@@ -114,7 +103,7 @@ func envFallback(ctx context.Context) string {
 // runCtx is Cmd under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, out io.Writer) (exit int) {
 	ctx, carried := takeCarryVerify(ctx) // before anything snapshots the env or spawns, so no descendant inherits it
-	fs, f, args, pos, code, done := parseAsk("", args)
+	fs, f, args, pos, code, done := parseAsk(args)
 	if done {
 		return code
 	}
