@@ -122,9 +122,9 @@ func oneShotBody(dialect, model string, req RunOptions) ([]byte, error) {
 		body := map[string]any{"model": model, "messages": msgs, "stream": true}
 		if !strings.Contains(strings.ToLower(model), "gemini") {
 			body["stream_options"] = map[string]bool{"include_usage": true}
-		}
-		if req.Effort != "" {
-			body["reasoning_effort"] = req.Effort
+			if req.Effort != "" {
+				body["reasoning_effort"] = req.Effort
+			}
 		}
 		return json.Marshal(body)
 	}
