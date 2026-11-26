@@ -121,7 +121,8 @@ each Bash call in order:
    `settings.json` `safety-scan` matcher to name the edit tools (`Bash|Write|Edit|MultiEdit|NotebookEdit`).
 5. Whole-tree test run (owner, 2026-11-26, R37; `internal/hooks/safety/wholetree.go`): a leaf (same detection as rule 4)
    is denied a Bash command with a command, outside quotes and heredoc bodies (one level into `bash|sh|zsh -c '…'`),
-   that is exactly: `go test` on any `/...` tree pattern, `...` or `all` and none of `-run -bench -list -c -C -args -- -fuzz`;
+   that is exactly: `go test` on any `/...` tree pattern, `...` or `all` and none of
+   `-run -bench -list -c -C -args -- -fuzz`;
    `pytest` or `python[3] -m pytest` with only `-q -v -vv -x -s . src tests test`; `npm|pnpm|yarn|bun [run] test`,
    `npx vitest|jest`, `vitest` or `jest` with only `run src --run`; `make test|audit|verify` as the one word, no flag.
    Anything else passes, and so does any doubt. The deny says to run only the tests you wrote or repair by exact
