@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
@@ -212,7 +213,7 @@ func routeText(rec vault.AgentRecord, field string) string {
 	if rt.IsZero() {
 		return ""
 	}
-	return route.Target{Route: rt}.JSON()
+	return agentconfig.OverlayOf(rt, "").Doc()
 }
 
 func recordText(rec vault.AgentRecord, field string) string {

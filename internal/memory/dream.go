@@ -560,7 +560,7 @@ func checkSideCandidate(c candidate, seen map[string]int) error {
 	case len(c.Evidence) > 8:
 		err = errors.New("more than 8 evidence paths")
 	case c.Status != "" || c.EnforcedBy != "":
-		err = errors.New("a proposal carries no status or enforced_by; the owner's --approve sets them")
+		err = errors.New("a proposal carries no status or enforced_by; the owner's approval sets them")
 	}
 	if problems := checkCandidateLine(string(line), 1, seen); err == nil && len(problems) > 0 {
 		err = errors.New(problems[0])

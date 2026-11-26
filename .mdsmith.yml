@@ -14,6 +14,7 @@ overrides:
       empty-section-body: false
   - glob: ["docs/templates/examples/memory/*.md"] # generated verbatim: MEMORY.md/index.md have no H1 and no blanks
     rules:
+      line-length: false # the Layout and catalog lines are rendered by Go, unwrapped
       heading-increment: false
       blank-line-around-headings: false
       blank-line-around-lists: false

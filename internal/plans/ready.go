@@ -134,14 +134,25 @@ func ReadyNotice(in ReadyInput) string {
 		return ""
 	}
 	rep, err := Ready(in)
-	if err != nil || len(rep.Ready) == 0 {
+	if err != nil {
 		return ""
 	}
-	parts := make([]string, len(rep.Ready))
-	for i, t := range rep.Ready {
-		parts[i] = strings.TrimSuffix(filepath.Base(t.Plan), ".md") + " " + t.ID + ": " + t.Command
+	return noticeOf(rep, in.Slots, nil)
+}
+
+// noticeOf is rep's ready notice with the tasks keyed in skip ("<plan-slug> <id>", already sent) left out.
+func noticeOf(rep ReadyReport, slots int, skip []string) string {
+	var parts []string
+	for _, t := range rep.Ready {
+		key := strings.TrimSuffix(filepath.Base(t.Plan), ".md") + " " + t.ID
+		if !slices.Contains(skip, key) {
+			parts = append(parts, key+": "+t.Command)
+		}
 	}
-	return "plans: " + plural(len(rep.Ready), "task") + " ready, " + plural(rep.Slots, "slot") + " free: " + strings.Join(parts, "; ")
+	if len(parts) == 0 || slots <= 0 {
+		return ""
+	}
+	return "plans: " + plural(len(parts), "task") + " ready, " + plural(slots, "slot") + " free: " + strings.Join(parts, "; ")
 }
 
 func plural(n int, word string) string {

@@ -1,0 +1,5 @@
+fc-b  verb  medium  repeats 3  enforced
+change:   Add a flag.
+target:   internal/foo/a.go
+evidence: feedback/feedback-b.md
+enforced by rules/x.md:2: nothing to launch

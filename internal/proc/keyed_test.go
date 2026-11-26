@@ -158,3 +158,18 @@ func TestGoFlagsEnv(t *testing.T) {
 		t.Fatalf("empty env: %q", e)
 	}
 }
+
+func TestKeyedEnvFoldsNamesOnWindows(t *testing.T) {
+	env := []string{"Goflags=-v", "other=1"}
+	FoldCaseForTest(t, true)
+	if got := LastEnv(env, "GOFLAGS"); got != "-v" {
+		t.Errorf("fold LastEnv = %q", got)
+	}
+	if got := GoFlagsEnv(env, "-x"); len(got) != 2 || got[1] != "GOFLAGS=-v -x" {
+		t.Errorf("fold GoFlagsEnv = %q", got)
+	}
+	FoldCaseForTest(t, false)
+	if got := LastEnv(env, "GOFLAGS"); got != "" {
+		t.Errorf("no-fold LastEnv = %q", got)
+	}
+}

@@ -41,7 +41,8 @@ func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyRe
 	ctx = valuesContext(ctx, opts.Values)
 	env := slices.DeleteFunc(runEnviron(ctx), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		return slices.Contains(opts.Unset, name)
+		return slices.ContainsFunc(opts.Unset, func(u string) bool { return proc.EnvNameEqual(u, name) }) ||
+			slices.ContainsFunc(opts.Env, func(o string) bool { k, _, _ := strings.Cut(o, "="); return proc.EnvNameEqual(k, name) })
 	})
 	env = withRTKQuiet(append(env, opts.Env...))
 	env, _ = proc.ScrubAgentCredentials(env, keepSet(ctx, opts.KeepEnv), "") // go test runs edits

@@ -335,7 +335,7 @@ func (x *e2eRun) recallHook(t *testing.T) {
 }
 
 func (x *e2eRun) reviewCandidates(t *testing.T) {
-	x.e.mustRun(t, "", "memory", "review", "--candidates")
+	x.e.mustRun(t, "", "memory", "feedback", "list")
 }
 
 func (x *e2eRun) updateProcedure(t *testing.T) {

@@ -26,7 +26,7 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
 		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "claude-opus-5.5" {
+	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "claude-opus-5.5" {
 		t.Errorf("CLAUDE_OPUS_MODEL = %q, want the bare spec %q", got, "claude-opus-5.5")
 	}
 }
@@ -42,7 +42,7 @@ func TestApplyModelPinsRefusesOtherProfile(t *testing.T) {
 	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"all=claude-opus-5.5"}, nil); !handled || code == 0 {
 		t.Fatalf("ApplyModelPins: code=%d handled=%v, want the refusal", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Model; got != "" {
+	if got := vault.GetAgentRecord("claude").Model; got != "" {
 		t.Errorf("CLAUDE_MODEL = %q, want nothing written", got)
 	}
 }

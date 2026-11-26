@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -153,7 +153,7 @@ func withoutCodemode(name, reason string, req RunOptions) RunOptions {
 	req.Codemode, req.CodemodeReason = "off", reason
 	vendor := agentid.Routing(name).CodeMode.Var
 	req.Env = slices.DeleteFunc(slices.Clone(req.Env), func(kv string) bool {
-		return strings.HasPrefix(kv, rtkwrap.CodemodeEnv+"=") || (vendor != "" && strings.HasPrefix(kv, vendor+"="))
+		return proc.EnvHasPrefix(kv, rtkwrap.CodemodeEnv+"=") || (vendor != "" && proc.EnvHasPrefix(kv, vendor+"="))
 	})
 	return req
 }

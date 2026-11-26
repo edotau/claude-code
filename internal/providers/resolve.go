@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Target is one resolved (provider, wire model id) pair.
@@ -68,7 +69,7 @@ func SessionPin(reg *Registry, pin string) string {
 
 // Select resolves the session: profile = flag → record profile → default; alias = record alias → model → table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
-	recs, err := agentRecords()
+	recs, err := vault.ReadAgentRecords([]string{"claude"})
 	if err != nil {
 		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
 	}

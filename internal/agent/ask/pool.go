@@ -266,6 +266,8 @@ func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t batchTask, i int
 	cancelled := ctx.Err() != nil
 	if cancelled {
 		err = fmt.Errorf("cancelled before start: %w", context.Canceled)
+	} else if t.Req.Prompt != "" {
+		agent.NoteStartFailure(agent.TaskKey{Text: t.Req.Prompt, PlanTask: t.Plan}, err) // counts toward R34 like a run failure
 	}
 	stop := func() {
 		if b.o.FailFast && !cancelled {

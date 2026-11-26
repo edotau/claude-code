@@ -83,7 +83,7 @@ Go re-checks every change after the run and reopens what it cannot prove.
 
 ## Phase 6: Reflection
 
-`claude-code memory review --candidates` prints this phase alone as a read-only reflection: score and report, never
+`claude-code memory feedback list --rank` prints this phase alone as a read-only reflection: score and report, never
 edit, promote or create a file there; step 4 runs only inside `memory dream`.
 
 Inside dream, use the changed entries already read (no subagent, no re-read). Standalone, read `catalog.md` and the
@@ -144,7 +144,7 @@ them (the over-cap file being archived, the entry a change supersedes). The list
 
 ## Phase 3: Review recent sessions
 
-Run `claude-code memory review --timeline` for the recent update/dream trail:
+Run `claude-code memory review --timeline 20` for the recent update/dream trail:
 
 1. Extract recurring themes (patterns appearing in 2+ sessions)
 2. Extract corrections (things that failed and their fixes)
@@ -175,7 +175,7 @@ Run `claude-code memory review` for cap/staleness findings, then:
 
 Propose, never apply: this phase edits no code, no rule and no plan. A lesson that recurs across `feedback/` and
 `notes/` notes may belong in a tool instead of prose. Using the changed notes, Grep to find other notes that restate
-the same lesson, then add each new candidate with `claude-code memory review --propose '<json>'`; never rewrite
+the same lesson, then add each new candidate with `claude-code memory feedback add '<json>'`; never rewrite
 `knowledge/feedback-candidates.md` as a whole file (it can overwrite an approval). The JSON is one object with exactly
 these fields, no others:
 
@@ -217,7 +217,7 @@ open" in the report with one line of why. Go re-checks every change after the ru
 
 ## Phase 6: Reflection (legacy)
 
-`claude-code memory review --candidates` prints this phase alone as a read-only reflection: score and report, never
+`claude-code memory feedback list --rank` prints this phase alone as a read-only reflection: score and report, never
 edit, promote or create a file there; step 4 runs only inside `memory dream`.
 
 Inside dream, use the changed entries already read (no subagent, no re-read). Standalone, read `catalog.md` and the
@@ -291,4 +291,4 @@ After all updates:
 
 ## Integration
 
-- `claude-code memory review --timeline` — update/dream receipts + sessionHistory, the real recent-session trail
+- `claude-code memory review --timeline 20` — update/dream receipts + sessionHistory, the real recent-session trail

@@ -1,0 +1,7 @@
+fc-a  hook  small  repeats 1  proposed
+change:   Add a hook.
+target:   unknown
+evidence: feedback/feedback-a.md, notes/note-c.md
+after the owner's yes: claude-code memory review --candidate fc-a --approve
+launch:   Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {"cwd":"@CWD@","kind":"feature","task":"Add a hook. Target: unknown."}})
+when it lands: claude-code memory review --candidate fc-a --enforced <sha|file:line>

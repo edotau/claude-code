@@ -41,17 +41,6 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestTargetJSON(t *testing.T) {
-	tg := Target{Route{Provider: "databricks", Profile: "qa", Identity: "sp", Host: "h"}, `a/b[1m]"x"`}
-	want := `{"provider":"databricks","profile":"qa","identity":"sp","host":"h","model":"a/b[1m]\"x\""}`
-	if got := tg.JSON(); got != want {
-		t.Fatalf("got %s", got)
-	}
-	if got := (Target{}).JSON(); got != "{}" {
-		t.Fatalf("got %s", got)
-	}
-}
-
 func TestUnitWhole(t *testing.T) {
 	db := Route{Provider: "databricks", Profile: "qa"}
 	for _, tc := range []struct {

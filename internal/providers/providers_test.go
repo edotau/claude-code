@@ -181,7 +181,7 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 		t.Errorf("a local tag must stay a model: %v", err)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
-		if got := AgentRecord("claude").Model; got != "claude-opus-4-8" {
+		if got := vault.GetAgentRecord("claude").Model; got != "claude-opus-4-8" {
 			t.Errorf("vault pin = %q; want claude-opus-4-8", got)
 		}
 		return nil

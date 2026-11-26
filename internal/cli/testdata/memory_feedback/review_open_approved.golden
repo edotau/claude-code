@@ -1,0 +1,6 @@
+memory review: no problems found
+== memory stats (receipts on disk) ==
+updates: no receipts yet (state/harness/memory/update-results/)
+open feedback candidates (2, most repeated first; `memory review --candidate <id>`):
+  fc-b                               verb  medium x3  internal/foo/a.go  [approved]
+  fc-a                               hook  small  x1  unknown

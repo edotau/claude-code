@@ -52,7 +52,7 @@ func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, e
 	return s.Argv(raw)
 }
 
-// settingsKeys spells a spec in the record's names (route.AgentSettings) as ask's flag keys; flag keys pass through.
+// settingsKeys spells a spec in the record's names (the vault record) as ask's flag keys; flag keys pass through.
 func settingsKeys(raw []byte) ([]byte, error) {
 	var doc map[string]json.RawMessage
 	if json.Unmarshal(raw, &doc) != nil || (doc["fallback_mode"] == nil && doc["route"] == nil) {

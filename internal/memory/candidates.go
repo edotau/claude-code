@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -71,9 +72,18 @@ func jsonEncoder(w io.Writer) *json.Encoder {
 
 // readCandidates returns the file's valid records; none when it is absent or unreadable.
 func readCandidates() []candidate {
+	out, _ := readCandidatesErr()
+	return out
+}
+
+// readCandidatesErr is readCandidates that reports a read failure; a missing file is no error, just no records.
+func readCandidatesErr() ([]candidate, error) {
 	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		return nil, err
 	}
 	var out []candidate
 	blockRecords(strings.Split(string(data), "\n"), func(_ int, t string) {
@@ -81,12 +91,15 @@ func readCandidates() []candidate {
 			out = append(out, c)
 		}
 	})
-	return out
+	return out, nil
 }
 
 // openCandidates is every record not yet enforced, most repeated first.
-func openCandidates() []candidate {
-	open := slices.DeleteFunc(readCandidates(), func(c candidate) bool { return c.Status == statusEnforced })
+func openCandidates() []candidate { return openOf(readCandidates()) }
+
+// openOf filters records to the open ones, most repeated first.
+func openOf(all []candidate) []candidate {
+	open := slices.DeleteFunc(all, func(c candidate) bool { return c.Status == statusEnforced })
 	slices.SortStableFunc(open, func(a, b candidate) int {
 		if a.Repeats != b.Repeats {
 			return b.Repeats - a.Repeats
@@ -109,12 +122,13 @@ func openCandidatesNotice() string {
 }
 
 // writeOpenCandidates prints the open records as one compact block.
-func writeOpenCandidates(w io.Writer) {
-	open := openCandidates()
+func writeOpenCandidates(w io.Writer) { writeOpen(w, openCandidates()) }
+
+func writeOpen(w io.Writer, open []candidate) {
 	if len(open) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "open feedback candidates (%d, most repeated first; `memory review --candidate <id>`):\n", len(open))
+	fmt.Fprintf(w, "open feedback candidates (%d, most repeated first; `memory feedback show <id>`):\n", len(open))
 	for _, c := range open {
 		mark := ""
 		if c.Status == statusApproved {
@@ -128,7 +142,7 @@ func writeOpenCandidates(w io.Writer) {
 func candidateAction(w io.Writer, o ReviewOptions) error {
 	if o.Propose != "" {
 		if o.Candidate != "" || o.Approve || o.Enforced != "" {
-			return errors.New("--propose stands alone")
+			return errors.New("add stands alone")
 		}
 		return proposeCandidate(w, o.Propose)
 	}
@@ -172,7 +186,7 @@ func approveEdit(c *candidate) error {
 
 func enforceEdit(c *candidate, ref string) error {
 	if c.Status != statusApproved {
-		return errors.New("only an approved candidate can be marked enforced (--approve first)")
+		return errors.New("only an approved candidate can be marked enforced (approve it first)")
 	}
 	c.Status, c.EnforcedBy = statusEnforced, ref
 	return nil
@@ -246,20 +260,20 @@ func replaceCandidate(text, id string, edit func(*candidate) error) (string, err
 func enforcedRefProblem(ref string) error {
 	switch {
 	case !enforcedByRE.MatchString(ref):
-		return errors.New("--enforced wants a commit sha (7-40 hex digits) or file:line")
+		return errors.New("close wants a commit sha (7-40 hex digits) or file:line")
 	case strings.Contains(ref, ":"):
 		return fileLineProblem(ref)
 	}
 	dir := paths.ConfigDir()
 	if _, err := runGit([]string{"-C", dir, "rev-parse", "--verify", "--quiet", ref + "^{commit}"}); err != nil {
-		return errors.New("--enforced: no such commit in the repository")
+		return errors.New("close: no such commit in the repository")
 	}
 	for _, trunk := range []string{"main", "master"} {
 		if _, err := runGit([]string{"-C", dir, "merge-base", "--is-ancestor", ref, trunk}); err == nil {
 			return nil
 		}
 	}
-	return errors.New("--enforced: that commit is not reachable from main")
+	return errors.New("close: that commit is not reachable from main")
 }
 
 func fileLineProblem(ref string) error {
@@ -270,15 +284,15 @@ func fileLineProblem(ref string) error {
 		full = filepath.Join(paths.ConfigDir(), file)
 	}
 	if !paths.InsideDir(full, paths.ConfigDir()) {
-		return errors.New("--enforced: the file is outside the repository")
+		return errors.New("close: the file is outside the repository")
 	}
 	data, err := os.ReadFile(full)
 	if err != nil {
-		return errors.New("--enforced: the file does not exist")
+		return errors.New("close: the file does not exist")
 	}
 	n, _ := strconv.Atoi(line)
 	if n > bytes.Count(data, []byte("\n"))+1 {
-		return errors.New("--enforced: the file has no such line")
+		return errors.New("close: the file has no such line")
 	}
 	return nil
 }
@@ -293,9 +307,9 @@ func showCandidate(w io.Writer, c candidate) {
 		fmt.Fprintf(w, "enforced by %s: nothing to launch\n", c.EnforcedBy)
 		return
 	case "":
-		fmt.Fprintf(w, "after the owner's yes: claude-code memory review --candidate %s --approve\n", c.ID)
+		fmt.Fprintf(w, "after the owner's yes: claude-code memory feedback approve %s\n", c.ID)
 	}
-	fmt.Fprintf(w, "launch:   %s\nwhen it lands: claude-code memory review --candidate %s --enforced <sha|file:line>\n",
+	fmt.Fprintf(w, "launch:   %s\nwhen it lands: claude-code memory feedback close %s <sha|file:line>\n",
 		launchLine(c), c.ID)
 }
 
@@ -342,6 +356,24 @@ func candidateGate(target string) string {
 	return "go build ./... && go vet " + pkgs + " && go test " + pkgs
 }
 
+// WriteCandidates prints the open candidates (a missing file is none, an unreadable one an error), then the ranking.
+func WriteCandidates(w io.Writer, rank bool) error {
+	all, err := readCandidatesErr()
+	if err != nil {
+		return fmt.Errorf("read %s: %w", candidatesRel, err)
+	}
+	open := openOf(all)
+	if len(open) == 0 {
+		fmt.Fprintln(w, "no open feedback candidates")
+	}
+	writeOpen(w, open)
+	if rank {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, assets.MemoryReviewProcedure())
+	}
+	return nil
+}
+
 func (o ReviewOptions) candidateVerb() bool { return o.Candidate != "" || o.Propose != "" }
 
 // proposeCandidate appends one proposed record under the bank lock; Go owns the file shape.
@@ -351,7 +383,7 @@ func proposeCandidate(w io.Writer, record string) error {
 	case msg != "":
 		return errors.New(msg)
 	case c.Status != "" || c.EnforcedBy != "":
-		return errors.New("a proposal carries no status or enforced_by; the owner's --approve sets them")
+		return errors.New("a proposal carries no status or enforced_by; the owner's approval sets them")
 	}
 	var line bytes.Buffer
 	_ = jsonEncoder(&line).Encode(c) // a plain struct always encodes

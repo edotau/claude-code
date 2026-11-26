@@ -631,3 +631,13 @@ func TestOverlayRunKeysEmptyAnyCase(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlayOfDoc(t *testing.T) {
+	want := `{"provider":"databricks","profile":"qa","identity":"sp","host":"h","model":"a/b[1m]\"x\""}`
+	if got := OverlayOf(route.Route{Provider: "databricks", Profile: "qa", Identity: "sp", Host: "h"}, `a/b[1m]"x"`).Doc(); got != want {
+		t.Fatalf("got %s", got)
+	}
+	if got := OverlayOf(route.Route{}, "").Doc(); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}

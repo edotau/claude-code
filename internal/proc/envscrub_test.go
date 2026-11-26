@@ -132,3 +132,51 @@ func TestScrubPinNames(t *testing.T) {
 		}
 	}
 }
+
+// foldCase makes deny globs and keep names match regardless of case; off, case stays significant.
+func TestScrubFoldsCaseOnWindows(t *testing.T) {
+	environ := []string{"Anthropic_Api_Key=a", "github_token=b", "Databricks_Host=c", "Path=d"}
+	for _, tc := range []struct {
+		fold bool
+		keep map[string]bool
+		want []string
+	}{
+		{true, nil, []string{"Path=d"}},
+		{true, map[string]bool{"GITHUB_TOKEN": true}, []string{"github_token=b", "Path=d"}},
+		{false, nil, environ},
+	} {
+		FoldCaseForTest(t, tc.fold)
+		got := Drop(environ, tc.keep, []string{"ANTHROPIC_API_KEY", "*_TOKEN", "DATABRICKS_*"})
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("fold=%v keep=%v: got %q, want %q", tc.fold, tc.keep, got, tc.want)
+		}
+	}
+}
+
+// The cached Scrub globs hold upper-case patterns only, so they match the same under either fold setting.
+func TestScrubCachedGlobsFoldCase(t *testing.T) {
+	environ := []string{"Anthropic_Base_Url=a", "Harness_Vault_Key=b", "Path=c"}
+	for _, tc := range []struct {
+		fold             bool
+		wantScrub, wantA []string
+	}{
+		{true, []string{"Harness_Vault_Key=b", "Path=c"}, []string{"Path=c"}},
+		{false, environ, environ},
+	} {
+		FoldCaseForTest(t, tc.fold)
+		if got, _ := Scrub(environ, nil); !slices.Equal(got, tc.wantScrub) {
+			t.Errorf("fold=%v Scrub = %q, want %q", tc.fold, got, tc.wantScrub)
+		}
+		if got, _ := ScrubAgent(environ, nil); !slices.Equal(got, tc.wantA) {
+			t.Errorf("fold=%v ScrubAgent = %q, want %q", tc.fold, got, tc.wantA)
+		}
+	}
+	FoldCaseForTest(t, true)
+	if !EnvBlocked("harness_x") {
+		t.Error("EnvBlocked(harness_x) = false with fold on")
+	}
+	FoldCaseForTest(t, false)
+	if EnvBlocked("harness_x") {
+		t.Error("EnvBlocked(harness_x) = true with fold off")
+	}
+}

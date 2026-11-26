@@ -201,7 +201,7 @@ func TestTickGreenPostsReadyLine(t *testing.T) {
 	old := tickReady
 	t.Cleanup(func() { tickReady = old })
 	var calls int
-	tickReady = func(string) string { calls++; return "plans: READYLINE" }
+	tickReady = func(string, string) []string { calls++; return []string{"plans: READYLINE"} }
 	p, err := plans.Parse(filepath.Join(plans.Home(repo), name+".md"))
 	if err != nil {
 		t.Fatal(err)

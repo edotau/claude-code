@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -91,7 +92,7 @@ func ProbeLocal(ctx context.Context, reg *providers.Registry) LocalProbe {
 	if row == nil {
 		return LocalProbe{Down: LocalNoRow, At: localNow()}
 	}
-	key := row.Name + "|" + row.BaseURL + "|" + row.Models["sonnet"]
+	key := row.Name + "|" + probeURL(row) + "|" + row.Models["sonnet"]
 	probeCache.Lock()
 	defer probeCache.Unlock()
 	if c := probeCache.e; c.key == key && localNow().Sub(c.res.At) < localProbeTTL {
@@ -114,8 +115,26 @@ func probeOnce(parent context.Context, row *providers.Provider) LocalProbe {
 	return res
 }
 
+// probeURL is the models URL on the host traffic uses (routes.anthropic), with base_url's path when set.
+func probeURL(row *providers.Provider) string {
+	base := strings.TrimSuffix(row.BaseURL, "/")
+	route, err := url.Parse(row.Routes["anthropic"])
+	if err != nil || route.Scheme == "" || route.Host == "" {
+		return base + "/models"
+	}
+	origin := route.Scheme + "://" + route.Host
+	if base == "" {
+		return origin + strings.TrimSuffix(route.EscapedPath(), "/") + "/v1/models"
+	}
+	b, err := url.Parse(base)
+	if err != nil {
+		return base + "/models"
+	}
+	return origin + strings.TrimSuffix(b.EscapedPath(), "/") + "/models"
+}
+
 func fetchModels(ctx, parent context.Context, row *providers.Provider) (LocalDown, string, string) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(row.BaseURL, "/")+"/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL(row), nil)
 	if err != nil {
 		return LocalBadBody, err.Error(), ""
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // jobRows flattens ds's node tree into printed rows, so the text and the node tree fold carriers alike.
@@ -118,7 +119,7 @@ func (d Dispatch) where() string {
 		return cmp.Or(d.launch, d.Provider)
 	}
 	launched, _, _ := strings.Cut(d.Agent, "→") // a folded "codex→pi" row was launched on codex's pin
-	pinned := providers.AgentRecord(launched).EffectiveRoute()
+	pinned := vault.GetAgentRecord(launched).EffectiveRoute()
 	if pinned.Provider == providers.GroupDatabricks && pinned.Profile == route.AutoArm {
 		return pinned.Provider
 	}

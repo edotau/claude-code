@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // CodexAgentRoute fills a fresh, unpinned child's model; the builder renders the updated input as an allow.
@@ -82,7 +83,7 @@ func codexSpawnPinned(in *core.Input) bool {
 	if role != "" && role != "default" {
 		return true
 	}
-	rec := providers.AgentRecord("codex")
+	rec := vault.GetAgentRecord("codex")
 	return rec.Model != "" || rec.Effort != ""
 }
 

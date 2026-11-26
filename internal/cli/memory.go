@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,8 @@ var memorySubs = []memorySub{
 	{"search", "<terms>", "rank bank blocks for terms; --open N appends bodies, --id one block"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the bank"},
-	{"review", "", "doctor + bank stats + hook signals; --timeline lists entries"},
+	{"review", "", "doctor + bank stats + hook signals; --timeline N lists entries"},
+	{"feedback", "<list|show|add|approve|close>", "list, show, add, approve or close feedback candidates"},
 	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
 	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
@@ -272,6 +274,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"remember": cmdMemoryRemember,
 		"init":     cmdMemoryInit,
 		"review":   cmdMemoryReview,
+		"feedback": cmdMemoryFeedback,
 		"promote":  cmdMemoryPromote,
 		"update":   cmdMemoryUpdate,
 		"dream":    cmdMemoryDream,
@@ -312,9 +315,10 @@ func memorySpec() *helptext.Node {
 		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes), helptext.Plain("supersedes")}},
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
-			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n"), helptext.Plain("candidate"),
-			helptext.BoolFlag("approve"), helptext.Plain("enforced"),
-			helptext.Plain("propose")}},
+			helptext.BoolFlag("brief"), helptext.Plain("timeline")}},
+		"feedback": {Sub: map[string]*helptext.Node{"list": {Flags: []helptext.Flag{helptext.BoolFlag("rank")}},
+			"show": {Flags: []helptext.Flag{helptext.Plain("id")}}, "add": {Flags: []helptext.Flag{helptext.Plain("json")}},
+			"approve": {Flags: []helptext.Flag{helptext.Plain("id")}}, "close": {Flags: []helptext.Flag{helptext.Plain("id")}}}},
 		"promote": {Flags: []helptext.Flag{
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
@@ -657,47 +661,181 @@ func cmdMemoryFmt(args []string) int {
 	return 0
 }
 
-// reviewFlagProblem names the first invalid flag combination of `memory review`, "" when it is valid.
-func reviewFlagProblem(candidate, enforced, propose string, approve, timeline bool) string {
-	switch {
-	case (approve || enforced != "") && (candidate == "" || approve == (enforced != "")):
-		return "--approve or --enforced needs --candidate and takes only one"
-	case propose != "" && (timeline || candidate != ""):
-		return "--propose stands alone"
+// reviewRemoved maps each retired `memory review` flag to the verb that replaced it.
+var reviewRemoved = map[string]string{
+	"candidate":  "memory feedback show <id>",
+	"approve":    "memory feedback approve <id>",
+	"close":      "memory feedback close <id> <sha|file:line>",
+	"reject":     "memory feedback close <id> <sha|file:line>",
+	"enforced":   "memory feedback close <id> <sha|file:line>",
+	"propose":    "memory feedback add '<json>'",
+	"candidates": "memory feedback list --rank",
+	"n":          "memory review --timeline N",
+}
+
+// reviewRemovedForm names the retired flag's replacement by the old precedence: timeline, enforced, approve, the rest.
+func reviewRemovedForm(args []string) string {
+	seen := map[string]bool{}
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if name, val, _ := strings.Cut(strings.TrimLeft(a, "-"), "="); strings.HasPrefix(a, "-") && val != "false" {
+			seen[name] = true
+		}
+	}
+	order := []string{"enforced", "approve", "candidate", "close", "reject", "propose", "candidates", "n"}
+	if seen["n"] && seen["timeline"] {
+		order = []string{"n"}
+	}
+	for _, name := range order {
+		if use, ok := reviewRemoved[name]; ok && seen[name] {
+			return fmt.Sprintf("memory review: --%s is gone; use `claude-code %s`", name, use)
+		}
 	}
 	return ""
 }
 
+// dropFalseRetired removes a retired flag typed false or empty (--approve=false), which the old parse ignored.
+func dropFalseRetired(args []string) []string {
+	out := make([]string, 0, len(args))
+	for i, a := range args {
+		if a == "--" {
+			return append(out, args[i:]...)
+		}
+		name, val, has := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		retired := slices.Contains([]string{"candidate", "close", "reject", "propose", "enforced", "approve", "candidates"}, name)
+		if b, err := strconv.ParseBool(val); strings.HasPrefix(a, "-") && has && retired && (val == "" || err == nil && !b) {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// bareTimeline gives a bare --timeline (no integer after it) the old default of 20 entries.
+func bareTimeline(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	for i, a := range args {
+		out = append(out, a)
+		if a == "--" {
+			out = append(out, args[i+1:]...)
+			break
+		}
+		if (a == "--timeline" || a == "-timeline") && (i+1 == len(args) || strings.HasPrefix(args[i+1], "-")) {
+			out = append(out, "20")
+		}
+	}
+	return out
+}
+
 // cmdMemoryReview runs the doctor and stats engine calls and prints both output blocks.
 func cmdMemoryReview(args []string) int {
+	args = dropFalseRetired(args)
+	if msg := reviewRemovedForm(args); msg != "" {
+		return helptext.FailUsage("%s", msg)
+	}
+	args = bareTimeline(args)
 	fs := memoryFlagSet("review")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
-	candidates := fs.Bool("candidates", false, "also print the promotion-ranking procedure")
-	timeline := fs.Bool("timeline", false, "print recent bank entries and sessionHistory")
-	n := fs.Int("n", 20, "max timeline entries")
-	candidate := fs.String("candidate", "", "show a feedback candidate and its launch line")
-	approve := fs.Bool("approve", false, "with --candidate: the owner said yes; dream skips it")
-	enforced := fs.String("enforced", "", "with --candidate: close it with a main commit sha or file:line")
-	propose := fs.String("propose", "", "append one feedback candidate, a JSON record without status")
+	timeline := fs.Int("timeline", 0, "print the N most recent bank entries and sessionHistory")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
 	}
-	if msg := reviewFlagProblem(*candidate, *enforced, *propose, *approve, *timeline); msg != "" {
-		return helptext.FailUsage("memory review: %s", msg)
-	}
-	if *timeline {
-		if err := memory.TimelineReport(os.Stdout, *n); err != nil {
+	if helptext.Explicit(fs, "timeline") {
+		if err := memory.TimelineReport(os.Stdout, *timeline); err != nil {
 			return helptext.Fail("memory review: %v", err)
 		}
 		return 0
 	}
-	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief,
-		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced,
-		Propose: *propose})
+	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief, Notice: *notice})
 	if err != nil {
 		return helptext.Fail("memory review: %v", err)
+	}
+	return 0
+}
+
+// memoryFeedbackVerbs are `memory feedback`'s verbs: usage tail and blurb, in help order.
+var memoryFeedbackVerbs = []struct{ name, args, about string }{
+	{"list", "[--rank]", "print the open candidates; --rank adds the ranking procedure"},
+	{"show", "<id>", "print one candidate and its launch line"},
+	{"add", "'<json>'", "append one candidate, a JSON record without status"},
+	{"approve", "<id>", "record the owner's yes; dream skips the candidate"},
+	{"close", "<id> <sha|file:line>", "mark an approved candidate enforced by a main commit or file:line"},
+}
+
+var memoryFeedbackPage = helptext.Page{
+	Usage: "claude-code memory feedback <list|show|add|approve|close> [args]",
+	About: "Feedback candidates: list and show are read-only; add, approve and close write.",
+	Commands: func() (rows [][2]string) {
+		for _, v := range memoryFeedbackVerbs {
+			rows = append(rows, [2]string{v.name, v.about})
+		}
+		return rows
+	}(),
+}
+
+// cmdMemoryFeedback dispatches `memory feedback <verb>`.
+func cmdMemoryFeedback(args []string) int {
+	if len(args) == 0 || isHelpVerb(args[0]) {
+		memoryFeedbackPage.Fprint(os.Stderr)
+		return 0
+	}
+	for _, v := range memoryFeedbackVerbs {
+		if v.name == args[0] {
+			return memoryFeedbackRun(v.name, v.args, v.about, args[1:])
+		}
+	}
+	return helptext.FailUsage("memory feedback: unknown verb %q (claude-code memory feedback -h lists them)", args[0])
+}
+
+// memoryFeedbackRun parses one verb's args and runs it through the review engine call the old flag form used.
+func memoryFeedbackRun(verb, tail, about string, args []string) int {
+	usage := strings.TrimSpace("claude-code memory feedback " + verb + " [flags] " + tail)
+	fs := helptext.NewFlagSet("memory feedback "+verb, helptext.Page{Usage: usage, About: about})
+	var rank bool
+	if verb == "list" {
+		fs.BoolVar(&rank, "rank", false, "also print the promotion-ranking procedure")
+	}
+	flagName := "id"
+	if verb == "add" {
+		flagName = "json"
+	}
+	var viaFlag string
+	if verb != "list" {
+		fs.StringVar(&viaFlag, flagName, "", "the "+strings.Trim(tail[:strings.IndexByte(tail+" ", ' ')], "<>'")+", in place of the first argument")
+	}
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if helptext.Explicit(fs, flagName) {
+		pos = append([]string{viaFlag}, pos...)
+	}
+	want := map[string]int{"list": 0, "show": 1, "add": 1, "approve": 1, "close": 2}[verb]
+	if len(pos) != want || slices.ContainsFunc(pos, func(a string) bool { return strings.TrimSpace(a) == "" }) {
+		return helptext.FailUsage("memory feedback %s: usage: %s", verb, usage)
+	}
+	o := memory.ReviewOptions{StaleDays: memory.DefaultStaleDays}
+	switch verb {
+	case "list":
+		if err := memory.WriteCandidates(os.Stdout, rank); err != nil {
+			return helptext.Fail("memory feedback list: %v", err)
+		}
+		return 0
+	case "show":
+		o.Candidate = pos[0]
+	case "add":
+		o.Propose = pos[0]
+	case "approve":
+		o.Candidate, o.Approve = pos[0], true
+	case "close":
+		o.Candidate, o.Enforced = pos[0], pos[1]
+	}
+	if err := memory.ReviewReport(os.Stdout, o); err != nil {
+		return helptext.Fail("memory feedback %s: %v", verb, err)
 	}
 	return 0
 }

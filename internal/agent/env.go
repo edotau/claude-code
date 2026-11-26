@@ -90,7 +90,7 @@ func withoutCarried(ctx context.Context, base []string) []string {
 
 // withOverlayCodemode sets a dispatch child's CODEMODE from its overlay copy, unless the launch already set one.
 func withOverlayCodemode(ctx context.Context, env []string, codemode string) []string {
-	if codemode == "" || !inDispatch(ctx) || slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, rtkwrap.CodemodeEnv+"=") }) {
+	if codemode == "" || !inDispatch(ctx) || slices.ContainsFunc(env, func(e string) bool { return proc.EnvHasPrefix(e, rtkwrap.CodemodeEnv+"=") }) {
 		return env
 	}
 	return append(env, rtkwrap.CodemodeEnv+"="+codemode) // hooks and shims read it from the env
@@ -101,7 +101,7 @@ func (s EnvSpec) dispatchMarks(ctx context.Context, env []string, id string) []s
 	// the ids mark the child so `agents cancel --lost` can find it once orphaned
 	depth, _ := ctx.Value(dispatchDepthKey{}).(int)
 	env = append(slices.DeleteFunc(env, func(e string) bool {
-		return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
+		return proc.EnvHasPrefix(e, proc.DispatchIDEnv+"=") || proc.EnvHasPrefix(e, proc.DispatchDepthEnv+"=")
 	}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
 	return withChosenDoc(ctx, env)
 }
@@ -205,11 +205,11 @@ func ambientOverlay(ctx context.Context) agentconfig.Overlay {
 
 // withChosenDoc is a copy of env with the chosen scope proxy in its inline overlay document; a path document is left.
 func withChosenDoc(ctx context.Context, env []string) []string {
-	i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, route.OverlayVar+"=") })
+	i := slices.IndexFunc(env, func(e string) bool { return proc.EnvHasPrefix(e, route.OverlayVar+"=") })
 	if i < 0 {
 		return env
 	}
-	doc := strings.TrimPrefix(env[i], route.OverlayVar+"=")
+	_, doc, _ := strings.Cut(env[i], "=")
 	o, err := agentconfig.LoadOverlayContext(ctx, doc, nil)
 	if err != nil || !strings.HasPrefix(doc, "{") {
 		return env
@@ -253,7 +253,7 @@ func isTeamLabel(e string) bool {
 // withRTKQuiet adds the rtk banner and telemetry switches unless env already sets them.
 func withRTKQuiet(env []string) []string {
 	for _, name := range []string{paths.RTKQuietEnv, paths.RTKTelemetryEnv} {
-		if !slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, name+"=") }) {
+		if !slices.ContainsFunc(env, func(e string) bool { return proc.EnvHasPrefix(e, name+"=") }) {
 			env = append(env, name+"=1")
 		}
 	}
@@ -267,8 +267,9 @@ func vaultLayer(set map[string]string, unset []string, custom map[string]string)
 		merged = map[string]string{}
 	}
 	for k, v := range custom {
-		_, harness := set[k]
-		if !harness && !slices.Contains(unset, k) && k != rtkwrap.CodemodeEnv {
+		named := func(u string) bool { return proc.EnvNameEqual(u, k) }
+		harness := slices.ContainsFunc(slices.Collect(maps.Keys(set)), named)
+		if !harness && !slices.ContainsFunc(unset, named) && !proc.EnvNameEqual(k, rtkwrap.CodemodeEnv) {
 			merged[k] = v
 		}
 	}
@@ -281,8 +282,8 @@ func withoutShimPath(env []string) []string {
 	shimInfo, _ := os.Stat(shim)
 	return slices.Collect(func(yield func(string) bool) {
 		for _, kv := range env {
-			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-				kv = "PATH=" + strings.Join(slices.DeleteFunc(filepath.SplitList(v), func(d string) bool {
+			if k, v, ok := strings.Cut(kv, "="); ok && proc.EnvNameEqual(k, "PATH") {
+				kv = k + "=" + strings.Join(slices.DeleteFunc(filepath.SplitList(v), func(d string) bool {
 					if d == "" {
 						return false
 					}
@@ -308,7 +309,7 @@ func withToolchainPath(env []string) []string {
 	}
 	return slices.Collect(func(yield func(string) bool) {
 		for _, kv := range env {
-			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			if k, v, ok := strings.Cut(kv, "="); ok && proc.EnvNameEqual(k, "PATH") {
 				have := filepath.SplitList(v)
 				var add []string
 				for _, rel := range remote.LoginPathDirs {
@@ -317,7 +318,7 @@ func withToolchainPath(env []string) []string {
 						add = append(add, d)
 					}
 				}
-				kv = "PATH=" + strings.Join(append(add, have...), string(os.PathListSeparator))
+				kv = k + "=" + strings.Join(append(add, have...), string(os.PathListSeparator))
 			}
 			if !yield(kv) {
 				return
@@ -328,7 +329,7 @@ func withToolchainPath(env []string) []string {
 
 // withMemoryOrigin hands the child the launching workspace's store origin, so a scratch-folder session uses its memory.
 func withMemoryOrigin(env []string) []string {
-	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, memory.OriginEnv+"=") }) {
+	if slices.ContainsFunc(env, func(e string) bool { return proc.EnvHasPrefix(e, memory.OriginEnv+"=") }) {
 		return env
 	}
 	cwd, err := os.Getwd()
@@ -400,16 +401,16 @@ func (s EnvSpec) dropper(ctx context.Context) func(string) bool {
 	drop := map[string]bool{}
 	names, _ := ctx.Value(unsetKey{}).([]string)
 	for _, n := range slices.Concat(s.Unset, names) {
-		drop[n] = true
+		drop[proc.EnvFold(n)] = true
 	}
 	for _, kv := range slices.Concat(s.Set, s.Extra) {
 		n, _, _ := strings.Cut(kv, "=")
-		drop[n] = true
+		drop[proc.EnvFold(n)] = true
 	}
 	if s.PWD != "" {
-		drop["PWD"] = true
+		drop[proc.EnvFold("PWD")] = true
 	}
-	return func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return drop[n] }
+	return func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return drop[proc.EnvFold(n)] }
 }
 
 // scrubIsolated drops other profiles' credentials from the INHERITED env under batch isolation; launch values follow.
@@ -460,7 +461,7 @@ func scrubExcept(ctx context.Context, env []string, ownName string, mine, keepEn
 			continue
 		}
 		for _, n := range providers.CredentialNames(p) {
-			if !slices.Contains(mine, n) {
+			if !slices.ContainsFunc(mine, func(m string) bool { return proc.EnvNameEqual(m, n) }) {
 				foreign[n] = true
 			}
 		}

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -645,17 +646,12 @@ func (o Overlay) checkRouting() error {
 			return err
 		}
 	}
-	return cmp.Or(o.Settings().Validate(), o.checkCrossKeys())
+	return cmp.Or(route.OneOf("fallback_mode", o.Fallback, route.FallbackModes), route.OneOf("effort", o.Effort, agentid.EffortNames()),
+		route.OneOf("runner", o.Runner, route.Runners), o.checkCrossKeys())
 }
 
-// Settings is the overlay's shared-shape fields as route.AgentSettings; route.AgentSettings.Validate checks the enums.
-func (o Overlay) Settings() route.AgentSettings {
-	s := route.AgentSettings{Model: o.Model, Effort: o.Effort, FallbackMode: o.Fallback, Runner: o.Runner}
-	if !o.IsZero() {
-		s.Route = &o.routeUnit
-	}
-	return s
-}
+// OverlayOf is the overlay holding unit u and model.
+func OverlayOf(u route.Route, model string) Overlay { return Overlay{routeUnit: u, Model: model} }
 
 func (k routeKey) check(v string) error {
 	switch {

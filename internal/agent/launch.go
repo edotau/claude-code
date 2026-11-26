@@ -95,11 +95,11 @@ func RouteEnvLast(launchEnv, env []string) []string {
 	routeKeys := map[string]bool{}
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
-		routeKeys[k] = true
+		routeKeys[proc.EnvFold(k)] = true
 	}
 	var out []string
 	for _, kv := range launchEnv {
-		if k, _, _ := strings.Cut(kv, "="); !routeKeys[k] {
+		if k, _, _ := strings.Cut(kv, "="); !routeKeys[proc.EnvFold(k)] {
 			out = append(out, kv)
 		}
 	}
@@ -771,9 +771,10 @@ func (p Plan) Print(w io.Writer) {
 		}
 		fmt.Fprintf(w, "set      %s=%s\n", k, v)
 	}
+	planSet := p.foldedSet()
 	for _, k := range slices.Sorted(maps.Keys(providers.CustomEnv())) {
-		switch _, harness := p.Set[k]; {
-		case harness || slices.Contains(p.Unset, k):
+		switch {
+		case planSet[proc.EnvFold(k)] || slices.ContainsFunc(p.Unset, func(u string) bool { return proc.EnvNameEqual(u, k) }):
 			fmt.Fprintf(w, "custom   %s (overridden by the launch)\n", k)
 		default:
 			fmt.Fprintf(w, "custom   %s (vault env)\n", k)
@@ -787,18 +788,32 @@ func (p Plan) Print(w io.Writer) {
 	}
 }
 
+// foldedSet is the plan's Set names under the env case rule.
+func (p Plan) foldedSet() map[string]bool {
+	out := make(map[string]bool, len(p.Set))
+	for k := range p.Set {
+		out[proc.EnvFold(k)] = true
+	}
+	return out
+}
+
 // unsetNames is every inherited var this plan drops: the Anthropic wipe list plus the credential scrub, minus its sets.
 func (p Plan) unsetNames() []string {
 	ctx := withLaunchAgent(valuesContext(context.Background(), p.Values), p.Agent)
 	names := map[string]bool{}
+	set := p.foldedSet()
+	environ := runEnviron(ctx)
 	for _, k := range p.Unset {
-		if _, set := p.Set[k]; !set && proc.Value(ctx, k) != "" {
+		if !set[proc.EnvFold(k)] && slices.ContainsFunc(environ, func(kv string) bool {
+			name, v, _ := strings.Cut(kv, "=")
+			return v != "" && proc.EnvNameEqual(name, k)
+		}) {
 			names[k] = true
 		}
 	}
-	_, dropped := p.envMode().scrub(ctx, runEnviron(ctx), p.Keep)
+	_, dropped := p.envMode().scrub(ctx, environ, p.Keep)
 	for _, k := range dropped {
-		if _, set := p.Set[k]; !set {
+		if !set[proc.EnvFold(k)] {
 			names[k] = true
 		}
 	}
@@ -860,14 +875,14 @@ func CheckRouteNames(route, set, unset []string) error {
 	own := map[string]bool{}
 	for _, kv := range route {
 		k, _, _ := strings.Cut(kv, "=")
-		own[k] = true
+		own[proc.EnvFold(k)] = true
 	}
 	for _, op := range []struct {
 		verb  string
 		names []string
 	}{{"set", set}, {"unset", unset}} {
 		for _, n := range op.names {
-			if own[n] {
+			if own[proc.EnvFold(n)] {
 				return notStartedError{fmt.Errorf("overlay %s %s: set by the launch for its route; use --profile", op.verb, n)}
 			}
 		}
@@ -882,13 +897,14 @@ func (e notStartedError) Unwrap() error { return e.error }
 
 // checkOverlay refuses an overlay that sets or unsets a name the plan's launch sets for its route.
 func (p Plan) checkOverlay(r agentconfig.Resolved) error {
+	planSet := p.foldedSet()
 	for _, k := range slices.Sorted(maps.Keys(r.Set)) {
-		if _, own := p.Set[k]; own {
+		if planSet[proc.EnvFold(k)] {
 			return fmt.Errorf("overlay set %s: set by the launch for its route; use --profile", k)
 		}
 	}
 	for _, k := range r.Unset {
-		if _, own := p.Set[k]; own {
+		if planSet[proc.EnvFold(k)] {
 			return fmt.Errorf("overlay unset %s: set by the launch for its route; use --profile", k)
 		}
 	}
@@ -925,12 +941,14 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	if set == nil {
 		set = map[string]string{}
 	}
+	planSet := p.foldedSet()
+	maps.DeleteFunc(set, func(k string, _ string) bool { return planSet[proc.EnvFold(k)] })
 	maps.Copy(set, p.Set)
 	if doc := confinementDocContext(valuesContext(context.Background(), p.Values)); doc != "" {
 		set[route.OverlayVar] = doc
 	}
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)
-	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
+	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { return planSet[proc.EnvFold(k)] })
 	p.Unset = slices.Concat(p.Unset, unset, []string{route.OverlayVar})
 	return p
 }

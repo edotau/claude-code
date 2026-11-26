@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,6 +32,18 @@ func TestGitEnvStripsGitPrefixed(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("GitEnv() dropped a non-GIT_* var it should have kept")
+	}
+}
+
+func TestGitEnvFoldsPrefixOnWindows(t *testing.T) {
+	for _, tc := range []struct {
+		fold bool
+		want int
+	}{{true, 1}, {false, 2}} {
+		FoldCaseForTest(t, tc.fold)
+		if n := len(slices.DeleteFunc([]string{"git_dir=x", "Path=y", "GIT_DIR=z"}, func(kv string) bool { return EnvHasPrefix(kv, "GIT_") })); n != tc.want {
+			t.Errorf("fold=%v kept %d, want %d", tc.fold, n, tc.want)
+		}
 	}
 }
 

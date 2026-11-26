@@ -26,8 +26,8 @@ var readAudit = audit.Read
 
 // providerCredentialChecks runs providerCredentialCheck for names concurrently and returns the rows in names order.
 func providerCredentialChecks(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
-	agents := sync.OnceValue(providers.AgentRecords) // one vault read per run, not per profile
-	seals := sync.OnceValue(recentSealFailures)      // one audit read per run
+	agents := sync.OnceValue(storedAgentRecords) // one vault read per run, not per profile
+	seals := sync.OnceValue(recentSealFailures)  // one audit read per run
 	rows, err := parallel.Map(context.Background(), names, credentialProbeWorkers,
 		func(_ context.Context, name string) (check, error) {
 			return providerCredentialCheck(ctx, reg, sel, selectErr, name, agents, seals), nil
@@ -200,6 +200,16 @@ func sealFailureLabel(p *providers.Provider, seals []audit.Event) string {
 		ago = fmt.Sprintf("%dh", int(age/time.Hour))
 	}
 	return " · last token seal failed " + ago + " ago (audit: seal_failed)"
+}
+
+// storedAgentRecords is every stored agent record in one vault read; a read error is noted on stderr and reads as none.
+func storedAgentRecords() map[string]vault.AgentRecord {
+	var recs map[string]vault.AgentRecord
+	err := vault.View(func(tx *vault.Tx) (e error) { recs, e = tx.AgentRecords(); return e })
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: vault agent records unreadable, using defaults: %v\n", err)
+	}
+	return recs
 }
 
 // profileInUse reports whether the registry default/fallback chain or any agent's profile pin names the profile.

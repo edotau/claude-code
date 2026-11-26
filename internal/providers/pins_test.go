@@ -3,10 +3,13 @@ package providers
 import (
 	"bytes"
 	"errors"
+	"io"
 	"io/fs"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -325,7 +328,7 @@ func TestGithubAccountNameAndLoginRoundTrip(t *testing.T) {
 	}
 }
 
-// AgentRecord(s) read what a vault write stored; an unset agent is the zero record.
+// GetAgentRecord reads what a vault write stored; an unset agent is the zero record.
 func TestAgentRecordsReadStoredRecords(t *testing.T) {
 	vaulttest.Use(t)
 	if err := vault.Update(func(tx *vault.Tx) error {
@@ -333,14 +336,11 @@ func TestAgentRecordsReadStoredRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := AgentRecord("codex"); got.Route.Profile != "chatgpt" || got.Model != "m1" {
+	if got := vault.GetAgentRecord("codex"); got.Route.Profile != "chatgpt" || got.Model != "m1" {
 		t.Errorf("AgentRecord(codex) = %+v", got)
 	}
-	if got := AgentRecord("gemini"); !reflect.DeepEqual(got, vault.AgentRecord{}) {
+	if got := vault.GetAgentRecord("gemini"); !reflect.DeepEqual(got, vault.AgentRecord{}) {
 		t.Errorf("AgentRecord(gemini) = %+v, want zero", got)
-	}
-	if recs := AgentRecords(); len(recs) != 1 || recs["codex"].Route.Profile != "chatgpt" {
-		t.Errorf("AgentRecords = %+v, want only codex", recs)
 	}
 }
 
@@ -396,7 +396,7 @@ func TestProfilesOfOverlayRowsFollowDefaults(t *testing.T) {
 func TestPinProfileIsNotTheSessionMarker(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, " qa ")
-	if got := AgentRecord("claude").Route.Profile; got != "" {
+	if got := vault.GetAgentRecord("claude").Route.Profile; got != "" {
 		t.Errorf("claude record profile = %q, want empty: the session marker is read by SessionProfileContext only", got)
 	}
 	if got := SessionProfileContext(t.Context()); got != "qa" {
@@ -651,5 +651,22 @@ func TestStoredSessionProfileAndNote(t *testing.T) {
 	want := "this session: ultra (launched on it; relaunch to use gateway)"
 	if got := SessionNote("gateway"); got != want {
 		t.Fatalf("note = %q, want %q", got, want)
+	}
+}
+
+func TestWarnVaultOnceWritesOnce(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr, vaultWarn = w, sync.Once{}
+	t.Cleanup(func() { os.Stderr = orig })
+	warnVaultOnce(errors.New("lock timeout"))
+	warnVaultOnce(errors.New("lock timeout"))
+	w.Close()
+	b, _ := io.ReadAll(r)
+	if got := strings.Count(string(b), "unreadable"); got != 1 {
+		t.Fatalf("warning count = %d, want 1: %q", got, b)
 	}
 }

@@ -33,9 +33,10 @@ lists flags. A verb needing judgment prints its embedded procedure for the live 
 update`; the rest print none.
 
 - Read: `search <terms>`, `search --open N <terms>` (appends top bodies), `search --id <id>`, `path`,
-  `review` (caps, staleness; `--candidates` prints the promotion-ranking procedure; `--timeline [--n N]` lists recent
-  sessions).
-- Write: `remember <fact> [--type]`, `init` (prints a procedure while `projectContext.md` is the template), `update`
+  `review` (caps, staleness; `--timeline N` lists recent sessions), `feedback list [--rank]` (open candidates; `--rank`
+  prints the promotion-ranking procedure), `feedback show <id>`.
+- Write: `feedback add|approve|close` (candidate records), `remember <fact> [--type]`, `init` (prints a procedure while
+  `projectContext.md` is the template), `update`
   (live session or `--transcript`; neither prints the procedure; `--catchup [--dry-run] [--skip ID]` saves missed
   sessions), `report`, `fmt [--check|--own]`.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
@@ -244,9 +245,10 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   block, no more than two lines of prose. `memory review` validates it (unknown fields, evidence under 2 files or
   absent from the store, a target outside the repo and store, duplicate ids, credentials) and exits non-zero on any.
   A record may also carry `status` (`approved`, `enforced`) and `enforced_by` (a main commit sha or `file:line`); dream
-  skips those. Plain `review` lists the open ones, `--notice` counts them; `review --candidate <id>` prints one with
-  its launch line, and after the owner's yes the main session runs `--approve`, then the launch, then
-  `--enforced <sha|file:line>` (refused inside a memory job; the sha must be on main).
+  skips those. `feedback list` lists the open ones (plain `review` too), `review --notice` counts them;
+  `feedback show <id>` prints one with its launch line, and after the owner's yes the main session runs
+  `feedback approve <id>`, then the
+  launch, then `feedback close <id> <sha|file:line>` (refused inside a memory job; the sha must be on main).
   It also lists test proposals from recent hand-backs in `techdebt/tests.md`.
 - `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
   line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;

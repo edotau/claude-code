@@ -320,7 +320,7 @@ func chosenProfile(ctx context.Context, reg *providers.Registry, name string) (s
 		if slices.Contains(profs, s) {
 			return s, true
 		}
-	} else if c := providers.AgentRecord("claude").EffectiveRoute().Profile; slices.Contains(profs, c) {
+	} else if c := providers.RecordProfile("claude"); slices.Contains(profs, c) {
 		return c, true
 	}
 	return "", false

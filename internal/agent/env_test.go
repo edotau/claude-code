@@ -497,3 +497,49 @@ func TestDeriveUnitProviderOnlyDropsEndpoint(t *testing.T) {
 		t.Errorf("got %+v, %v; want provider google alone", got, err)
 	}
 }
+
+// With the Windows case rule on, mixed-case inherited names meet the upper-case unset, set and PATH rules.
+func TestEnvironFoldsInheritedNamesOnWindows(t *testing.T) {
+	proc.FoldCaseForTest(t, true)
+	shim := rtkwrap.Dir()
+	base := []string{"Anthropic_Model=x", "Claude_Code_Oauth_Token=t", "Gh_Mark=1", "Path=" + shim + string(os.PathListSeparator) + "/usr/bin"}
+	env := EnvSpec{Mode: EnvPrescrubbed, Base: base, Unset: []string{"ANTHROPIC_MODEL", "CLAUDE_CODE_OAUTH_TOKEN"}, Set: []string{"GH_MARK=2"}}.
+		Environ(context.Background())
+	for _, e := range env {
+		for _, bad := range []string{"Anthropic_Model=", "Claude_Code_Oauth_Token=", "Gh_Mark="} {
+			if strings.HasPrefix(e, bad) {
+				t.Errorf("env kept %q", e)
+			}
+		}
+		if v, ok := strings.CutPrefix(e, "Path="); ok && strings.Contains(v, shim) {
+			t.Errorf("Path kept the shim dir: %q", v)
+		}
+	}
+}
+
+// With the Windows case rule on, run values, the keep list and the env-entry prefix checks match any spelling.
+func TestRunEnvironAndPrefixChecksFoldOnWindows(t *testing.T) {
+	proc.FoldCaseForTest(t, true)
+	t.Setenv("Harness_Dispatch_Id", "stale")
+	ctx := proc.WithValues(context.Background(), proc.Values{"Harness_Dispatch_Id": "stale", "HARNESS_DISPATCH_ID": "new", "Harness_Keep_Env": "A_B"})
+	var ids []string
+	for _, kv := range runEnviron(ctx) {
+		if proc.EnvHasPrefix(kv, "HARNESS_DISPATCH_ID=") {
+			ids = append(ids, kv)
+		}
+	}
+	if !slices.Equal(ids, []string{"HARNESS_DISPATCH_ID=new"}) {
+		t.Errorf("dispatch id entries = %q, want only the upper-case harness spelling", ids)
+	}
+	if !keepSet(ctx, nil)["A_B"] {
+		t.Error("keepSet missed Harness_Keep_Env")
+	}
+	in := []string{"Coworker_Overlay=" + `{"x":1}`, "Other=1"}
+	if got := withChosenDoc(ctx, in); !slices.Equal(got, in) {
+		t.Errorf("withChosenDoc = %q, want the case-variant entry found and left as is", got)
+	}
+	req := withoutCodemode("claude", "r", RunOptions{Env: []string{"Codemode=on", "KEEP=1"}})
+	if !slices.Equal(req.Env, []string{"KEEP=1"}) {
+		t.Errorf("withoutCodemode env = %q, want Codemode dropped", req.Env)
+	}
+}

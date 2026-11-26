@@ -231,10 +231,10 @@ func assertFoldRepoint(t *testing.T, kind string, folded bool, out string) {
 	if !folded && kind != "settings" && !strings.Contains(out, "referenced by vault overlay") {
 		t.Fatalf("missing veto reason: %s", out)
 	}
-	if kind == "agent" && providers.AgentRecord("claude").EffectiveRoute().Profile != "dev" {
-		t.Fatalf("agent pin = %q, want dev", providers.AgentRecord("claude").EffectiveRoute().Profile)
+	if kind == "agent" && vault.GetAgentRecord("claude").EffectiveRoute().Profile != "dev" {
+		t.Fatalf("agent pin = %q, want dev", vault.GetAgentRecord("claude").EffectiveRoute().Profile)
 	}
-	if r := providers.AgentRecord("claude"); kind == "agent-refs" &&
+	if r := vault.GetAgentRecord("claude"); kind == "agent-refs" &&
 		(r.EffectiveFallbackRoute().Profile != "dev" || r.Model != "dev:m1" || r.Aliases["opus"] != "dev:m2" || !strings.Contains(out, "agent claude fallback")) {
 		t.Fatalf("agent refs not re-pointed: %+v\n%s", r, out)
 	}
@@ -248,7 +248,7 @@ func TestImportFoldRouteKeys(t *testing.T) {
 	seedLegacyRows(t)
 	seedFoldReference(t, dir, "agent-route")
 	mustFold(t, "--fold-legacy", "--apply")
-	r := providers.AgentRecord("claude")
+	r := vault.GetAgentRecord("claude")
 	primary := route.Route{Provider: "databricks", Profile: "dev", Identity: "sp", Host: "worker"}
 	fallback := route.Route{Provider: "databricks", Profile: "dev", Identity: "user", Remote: "backup"}
 	if r.EffectiveRoute() != primary || r.EffectiveFallbackRoute() != fallback {

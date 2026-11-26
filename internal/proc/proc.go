@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,19 +40,11 @@ func childEnv(unset, extraEnv []string) []string {
 	env := make([]string, 0, len(os.Environ())+len(extraEnv))
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if !slices.ContainsFunc(unset, func(u string) bool { return envNameEqual(k, u) }) {
+		if !slices.ContainsFunc(unset, func(u string) bool { return EnvNameEqual(k, u) }) {
 			env = append(env, kv)
 		}
 	}
 	return append(env, extraEnv...)
-}
-
-// envNameEqual: Windows env names are case-insensitive.
-func envNameEqual(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
 }
 
 func spawnDetachedPID(bin string, args []string, dir string, out *os.File, unset, extraEnv []string) int {

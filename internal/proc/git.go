@@ -19,7 +19,7 @@ func GitEnv() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_") {
+		if !EnvHasPrefix(kv, "GIT_") {
 			out = append(out, kv)
 		}
 	}

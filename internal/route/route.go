@@ -177,25 +177,3 @@ func (r Route) checkScoped() error {
 	}
 	return nil
 }
-
-// JSON is the canonical one-line overlay object: the unit keys, then model.
-func (t Target) JSON() string {
-	var b strings.Builder
-	b.WriteByte('{')
-	for _, kv := range [][2]string{{"endpoint", t.Endpoint}, {"provider", t.Provider}, {"profile", t.Profile}, {"identity", t.Identity},
-		{"account", t.Account}, {"host", t.Host}, {"remote", t.Remote}, {"model", t.Model}} {
-		if kv[1] == "" {
-			continue
-		}
-		if b.Len() > 1 {
-			b.WriteByte(',')
-		}
-		k, _ := json.Marshal(kv[0])
-		v, _ := json.Marshal(kv[1])
-		b.Write(k)
-		b.WriteByte(':')
-		b.Write(v)
-	}
-	b.WriteByte('}')
-	return b.String()
-}

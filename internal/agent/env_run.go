@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -91,6 +93,11 @@ func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.V
 	}
 	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok {
 		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
+		for k := range values {
+			if proc.EnvNameEqual(k, proc.DispatchIDEnv) || proc.EnvNameEqual(k, proc.DispatchDepthEnv) {
+				delete(values, k) // a case variant must not coexist with the harness's spelling
+			}
+		}
 		values[proc.DispatchIDEnv], values[proc.DispatchDepthEnv] = id, strconv.Itoa(depth)
 	}
 	if fromEnv {
@@ -109,12 +116,25 @@ func runEnviron(ctx context.Context) []string {
 	if host := egress.HostContext(ctx); host != values[egress.EnvHost] {
 		values = values.With(egress.EnvHost, host)
 	}
+	canon := make(map[string]string, len(values)) // folded name -> the one spelling that wins: upper-case, else first sorted
+	for _, k := range slices.Sorted(maps.Keys(values)) {
+		if cur, ok := canon[proc.EnvFold(k)]; !ok || k == proc.EnvFold(k) && cur != k {
+			canon[proc.EnvFold(k)] = k
+		}
+	}
+	for k := range values {
+		if canon[proc.EnvFold(k)] != k {
+			delete(values, k)
+		}
+	}
 	out := make([]string, 0, len(values))
 	for _, entry := range base {
 		name, _, _ := strings.Cut(entry, "=")
-		if value, found := values[name]; found {
-			out = append(out, name+"="+value)
-			delete(values, name)
+		if key, ok := canon[proc.EnvFold(name)]; ok {
+			if value, found := values[key]; found {
+				out = append(out, key+"="+value)
+				delete(values, key)
+			}
 		}
 	}
 	return append(out, values.Env()...)
@@ -134,7 +154,15 @@ func keepSet(ctx context.Context, names []string) map[string]bool {
 	for _, name := range names {
 		keep[name] = true
 	}
-	for name := range strings.SplitSeq(proc.Value(ctx, "HARNESS_KEEP_ENV"), ",") {
+	raw := proc.Value(ctx, "HARNESS_KEEP_ENV")
+	if values, ok := proc.ValuesFromContext(ctx); ok && raw == "" {
+		for k, v := range values {
+			if proc.EnvNameEqual(k, "HARNESS_KEEP_ENV") {
+				raw = v
+			}
+		}
+	}
+	for name := range strings.SplitSeq(raw, ",") {
 		if name = strings.TrimSpace(name); name != "" {
 			keep[name] = true
 		}

@@ -31,7 +31,7 @@ func MemoryInitProcedure() string { return memoryProcedure(read("files/memory/pr
 
 func MemoryPromoteProcedure() string { return memoryProcedure(read("files/memory/prompts/promote.md")) }
 
-// MemoryReviewProcedure is dream's Phase 6, so `review --candidates` and dream share one scoring rubric.
+// MemoryReviewProcedure is dream's Phase 6, so `feedback list --rank` and dream share one scoring rubric.
 func MemoryReviewProcedure() string {
 	dream := MemoryDreamProcedure()
 	start := strings.Index(dream, "## Phase 6: Reflection")

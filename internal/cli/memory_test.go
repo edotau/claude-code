@@ -271,22 +271,6 @@ func overCapDecisions(t *testing.T, repo string) {
 	hosttest.WriteRel(t, paths.MemorySubDir(""), "decisionLog.md", b.String())
 }
 
-// checkReviewCandidates requires the review procedure to print after the stats block.
-func checkReviewCandidates(t *testing.T, out string) {
-	statsIdx := strings.Index(out, memStatsHeader)
-	if statsIdx < 0 {
-		t.Fatalf("output missing the stats block: %q", out)
-	}
-	ref := assets.MemoryReviewProcedure()
-	refIdx := strings.Index(out, ref)
-	if refIdx < 0 {
-		t.Errorf("output missing the embedded review procedure: %q", out)
-	}
-	if refIdx < statsIdx {
-		t.Errorf("review procedure (at %d) printed before the stats block (at %d)", refIdx, statsIdx)
-	}
-}
-
 func TestMemoryReview(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -310,7 +294,6 @@ func TestMemoryReview(t *testing.T) {
 				t.Errorf("--brief printed a per-line problem, want only the count: %q", out)
 			}
 		}},
-		{"candidates procedure after stats", "--candidates", nil, checkReviewCandidates},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -384,7 +367,7 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 }
 
 func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
-	for _, v := range []string{"search", "remember", "init", "review", "promote", "update", "dream"} {
+	for _, v := range []string{"search", "remember", "init", "review", "feedback", "promote", "update", "dream"} {
 		if !helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage missing public verb %q", v)
 		}
@@ -456,11 +439,13 @@ func TestMemoryCompletion(t *testing.T) {
 		words []string
 		want  []string
 	}{
-		{"review flags", []string{"memory", "review", "--"}, []string{"--candidates"}},
+		{"review flags", []string{"memory", "review", "--"}, []string{"--stale-days", "--brief", "--notice"}},
+		{"feedback verbs", []string{"memory", "feedback", ""}, []string{"list", "show", "add", "approve", "close"}},
+		{"feedback list flags", []string{"memory", "feedback", "list", "--"}, []string{"--rank"}},
 		{"update flags", []string{"memory", "update", "--"}, []string{"--dry-run", "--historical"}},
 		{"dream flags", []string{"memory", "dream", "--"}, []string{"--dry-run"}},
 		{"update catchup flags", []string{"memory", "update", "--"}, []string{"--catchup", "--skip"}},
-		{"review timeline flags", []string{"memory", "review", "--"}, []string{"--timeline", "--n"}},
+		{"review timeline flags", []string{"memory", "review", "--"}, []string{"--timeline"}},
 		{"index flags", []string{"memory", "index", "--"}, []string{"--reembed", "--mint-only"}},
 		{"search open flag", []string{"memory", "search", "--"}, []string{"--open", "--explain"}},
 	}
@@ -872,5 +857,199 @@ func seedMemoryOpenFixtures(t *testing.T, dir string) {
 			t.Fatal(err)
 		}
 		hosttest.WriteRel(t, paths.MemoryStoreDir(), f, string(fixture))
+	}
+}
+
+// feedbackSeed copies the golden set's seed tree into the store (store/) and the config dir (config/).
+func feedbackSeed(t *testing.T, dir string) {
+	t.Helper()
+	for sub, root := range map[string]string{"store": paths.MemoryStoreDir(), "config": paths.ConfigDir()} {
+		base := filepath.Join(dir, "testdata/memory_feedback/seed", sub)
+		memMust(t, filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			body, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(base, p)
+			hosttest.WriteRel(t, root, rel, string(body))
+			return nil
+		}))
+	}
+}
+
+var (
+	feedbackCwdRE = regexp.MustCompile(`"cwd":"[^"]*"`)
+	// feedbackOldToNew rewrites the retired flag wording in a main golden to the verbs that replaced it.
+	feedbackOldToNew = strings.NewReplacer("`memory review --candidate <id>`", "`memory feedback show <id>`",
+		"--enforced wants", "close wants", "--enforced: ", "close: ", "(--approve first)", "(approve it first)",
+		"the owner's --approve sets", "the owner's approval sets")
+	feedbackApproveRE = regexp.MustCompile(`claude-code memory review --candidate (\S+) --approve`)
+	feedbackCloseRE   = regexp.MustCompile(`claude-code memory review --candidate (\S+) --enforced <sha\|file:line>`)
+)
+
+// feedbackGolden reads one golden of main's `memory review` and rewrites its wording for verb ("" keeps the prefix).
+func feedbackGolden(t *testing.T, dir, name, ext, verb string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "testdata/memory_feedback", name+ext))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := feedbackOldToNew.Replace(string(b))
+	s = feedbackApproveRE.ReplaceAllString(s, "claude-code memory feedback approve $1")
+	s = feedbackCloseRE.ReplaceAllString(s, "claude-code memory feedback close $1 <sha|file:line>")
+	if verb != "" {
+		s = strings.Replace(s, "claude-code: memory review: ", "claude-code: memory feedback "+verb+": ", 1)
+	}
+	return s
+}
+
+// feedbackCase is one golden: pre are space-separated `memory feedback` calls run before the captured args.
+type feedbackCase struct {
+	name, verb string
+	pre        []string
+	args       []string
+}
+
+func feedbackParityCases() []feedbackCase {
+	const pass = "approve fc-b"
+	candidateC := `{"id":"fc-c","evidence":["feedback/feedback-a.md","notes/note-c.md"],"repeats":2,"change":"Add a rule.",` +
+		`"target":"rules/x.md","kind":"prose","size":"small"}`
+	candidateA := `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"repeats":1,"change":"Add a hook.",` +
+		`"target":"unknown","kind":"hook","size":"small"}`
+	return []feedbackCase{
+		{"review_plain", "", nil, []string{"review"}},
+		{"review_brief", "", nil, []string{"review", "--brief"}},
+		{"review_notice", "", nil, []string{"review", "--notice"}},
+		{"review_stale", "", nil, []string{"review", "--stale-days", "30"}},
+		{"review_timeline", "", nil, []string{"review", "--timeline", "5"}},
+		{"review_open_approved", "", []string{pass}, []string{"review"}},
+		{"show_proposed", "show", nil, []string{"feedback", "show", "fc-a"}},
+		{"show_approved", "show", []string{pass}, []string{"feedback", "show", "fc-b"}},
+		{"show_enforced", "show", []string{pass, "close fc-b rules/x.md:2"}, []string{"feedback", "show", "fc-b"}},
+		{"show_missing", "show", nil, []string{"feedback", "show", "fc-zz"}},
+		{"approve_ok", "approve", nil, []string{"feedback", "approve", "fc-b"}},
+		{"approve_twice", "approve", []string{pass}, []string{"feedback", "approve", "fc-b"}},
+		{"approve_missing", "approve", nil, []string{"feedback", "approve", "fc-zz"}},
+		{"close_ok", "close", []string{pass}, []string{"feedback", "close", "fc-b", "rules/x.md:2"}},
+		{"close_unapproved", "close", nil, []string{"feedback", "close", "fc-b", "rules/x.md:2"}},
+		{"close_badline", "close", []string{pass}, []string{"feedback", "close", "fc-b", "rules/x.md:9"}},
+		{"close_badref", "close", []string{pass}, []string{"feedback", "close", "fc-b", "nonsense"}},
+		{"close_nofile", "close", []string{pass}, []string{"feedback", "close", "fc-b", "nope.md:1"}},
+		{"close_nocommit", "close", []string{pass}, []string{"feedback", "close", "fc-b", "deadbeef0"}},
+		{"add_ok", "add", nil, []string{"feedback", "add", candidateC}},
+		{"add_dup", "add", nil, []string{"feedback", "add", candidateA}},
+		{"add_empty", "add", nil, []string{"feedback", "add", "{}"}},
+		{"add_status", "add", nil, []string{"feedback", "add",
+			strings.Replace(candidateC, `"id"`, `"status":"approved","id"`, 1)}},
+	}
+}
+
+// The feedback verbs print what main's `memory review --candidate|--approve|--enforced|--propose` printed.
+func TestMemoryFeedbackParity(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Setenv("CLAUDE_MEMORY_DREAM_CHILD", "")
+	dir, _ := os.Getwd()
+	cases := feedbackParityCases()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			memCfg(t)
+			memInit(t)
+			t.Chdir(t.TempDir())
+			feedbackSeed(t, dir)
+			for _, pre := range tc.pre {
+				memCLIOK(t, append([]string{"feedback"}, strings.Fields(pre)...)...)
+			}
+			code, out, stderr := memCLI(t, tc.args...)
+			out = feedbackCwdRE.ReplaceAllString(out, `"cwd":"@CWD@"`)
+			want, wantErr := feedbackGolden(t, dir, tc.name, ".golden", ""), feedbackGolden(t, dir, tc.name, ".stderr", tc.verb)
+			if wantCode := strings.TrimSpace(feedbackGolden(t, dir, tc.name, ".code", "")); strconv.Itoa(code) != wantCode {
+				t.Errorf("%v exit = %d, want %s", tc.args, code, wantCode)
+			}
+			if out != want {
+				t.Errorf("%v stdout:\n%s\nwant:\n%s", tc.args, out, want)
+			}
+			if stderr != wantErr {
+				t.Errorf("%v stderr = %q, want %q", tc.args, stderr, wantErr)
+			}
+		})
+	}
+}
+
+// `feedback list` prints the open-candidates block of plain review, --rank appends the procedure, none says so.
+func TestMemoryFeedbackList(t *testing.T) {
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	dir, _ := os.Getwd()
+	memCfg(t)
+	memInit(t)
+	t.Chdir(t.TempDir())
+	if out := memCLIOK(t, "feedback", "list"); out != "no open feedback candidates\n" {
+		t.Errorf("empty list = %q", out)
+	}
+	feedbackSeed(t, dir)
+	review := feedbackGolden(t, dir, "review_plain", ".golden", "")
+	block := review[strings.Index(review, "open feedback candidates"):]
+	out := memCLIOK(t, "feedback", "list")
+	if out != block {
+		t.Errorf("list = %q, want review's block %q", out, block)
+	}
+	ref := assets.MemoryReviewProcedure()
+	if ranked := memCLIOK(t, "feedback", "list", "--rank"); ranked != block+"\n"+ref+"\n" {
+		t.Errorf("list --rank = %q, want the block, a blank line and the procedure", ranked)
+	}
+}
+
+// Each retired review flag exits 2 naming its replacement, and a malformed feedback call exits 2 with usage.
+func TestMemoryFeedbackRetiredAndUsage(t *testing.T) {
+	memCfg(t)
+	cases := []struct {
+		name string
+		args []string
+		want string
+		not  string // must be absent from stderr
+	}{
+		{"candidate", []string{"review", "--candidate", "fc-a"}, "claude-code memory feedback show <id>", ""},
+		{"approve", []string{"review", "--candidate", "fc-a", "--approve"}, "claude-code memory feedback approve <id>", ""},
+		{"enforced", []string{"review", "--enforced=abc1234"}, "claude-code memory feedback close <id> <sha|file:line>", ""},
+		{"propose", []string{"review", "--propose", "{}"}, "claude-code memory feedback add '<json>'", ""},
+		{"candidates", []string{"review", "--candidates"}, "claude-code memory feedback list --rank", ""},
+		{"n", []string{"review", "-n", "5"}, "claude-code memory review --timeline N", ""},
+		{"candidate+enforced closes", []string{"review", "--candidate", "fc-a", "--enforced", "rules/x.md:2"}, "memory feedback close <id>", "feedback show"},
+		{"approve=false is not approve", []string{"review", "--candidate", "fc-a", "--approve=false"}, "memory feedback show <id>", "feedback approve"},
+		{"timeline beats candidate", []string{"review", "--timeline", "--n", "5", "--candidate", "fc-a"}, "memory review --timeline N", "feedback show"},
+		{"n loses to candidate", []string{"review", "--n", "5", "--candidate", "fc-a"}, "memory feedback show <id>", "--timeline N"},
+		{"unknown verb", []string{"feedback", "open"}, `unknown verb "open"`, ""},
+		{"show no id", []string{"feedback", "show"}, "usage: claude-code memory feedback show", ""},
+		{"show blank id", []string{"feedback", "show", " "}, "usage: claude-code memory feedback show", ""},
+		{"close one arg", []string{"feedback", "close", "fc-a"}, "usage: claude-code memory feedback close", ""},
+		{"list stray", []string{"feedback", "list", "fc-a"}, "usage: claude-code memory feedback list", ""},
+		{"add two", []string{"feedback", "add", "{}", "{}"}, "usage: claude-code memory feedback add", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out, stderr := memCLI(t, tc.args...)
+			if code != 2 || out != "" || !strings.Contains(stderr, tc.want) || (tc.not != "" && strings.Contains(stderr, tc.not)) {
+				t.Errorf("memory %v: code=%d stdout=%q stderr=%q, want exit 2 naming %q", tc.args, code, out, stderr, tc.want)
+			}
+		})
+	}
+}
+
+// A false or empty retired flag counts as not given (the health report runs); a bare --timeline keeps its default.
+func TestMemoryReviewFalseRetiredFlagsRun(t *testing.T) {
+	memCfg(t)
+	for _, args := range [][]string{
+		{"review", "--approve=false"},
+		{"review", "--candidates=false"},
+		{"review", "--enforced="},
+		{"review", "--timeline"},
+		{"review", "--timeline", "--brief"},
+	} {
+		code, _, stderr := memCLI(t, args...)
+		if code == 2 || strings.Contains(stderr, "is gone") {
+			t.Errorf("memory %v: code=%d stderr=%q, want it to run", args, code, stderr)
+		}
 	}
 }

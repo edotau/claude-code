@@ -6,9 +6,12 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"testing"
 )
 
 // Shared launch environment names keep overlay wiring and inherited-env scrubbing aligned.
@@ -123,10 +126,43 @@ var (
 	scrubCredentialGlobs = sync.OnceValue(func() []glob { return compileDeny(ScrubDenyCredentials) })
 )
 
+// foldCase is true where env names are case-insensitive (native Windows); atomic so tests flipping it never race.
+var foldCase atomic.Bool
+
+func init() { foldCase.Store(runtime.GOOS == "windows") }
+
+// FoldCaseForTest sets the Windows case rule for one test, restored at cleanup.
+func FoldCaseForTest(t testing.TB, on bool) {
+	old := foldCase.Swap(on)
+	t.Cleanup(func() { foldCase.Store(old) })
+}
+
+// EnvFold is the one env-name case rule: upper-cased where names are case-insensitive, else unchanged.
+func EnvFold(s string) string {
+	if foldCase.Load() {
+		return strings.ToUpper(s)
+	}
+	return s
+}
+
+// EnvNameEqual reports whether two env names are the same variable.
+func EnvNameEqual(a, b string) bool { return EnvFold(a) == EnvFold(b) }
+
+// EnvHasPrefix reports whether an env name starts with prefix.
+func EnvHasPrefix(name, prefix string) bool { return strings.HasPrefix(EnvFold(name), EnvFold(prefix)) }
+
 func scrub(environ []string, keep map[string]bool, globs []glob) (kept, dropped []string) {
+	if foldCase.Load() {
+		folded := make(map[string]bool, len(keep))
+		for n, v := range keep {
+			folded[EnvFold(n)] = v
+		}
+		keep = folded
+	}
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if keep[name] || !slices.ContainsFunc(globs, func(g glob) bool { return g.match(name) }) {
+		folded := EnvFold(name)
+		if keep[folded] || !slices.ContainsFunc(globs, func(g glob) bool { return g.match(folded) }) {
 			kept = append(kept, kv)
 			continue
 		}
@@ -137,7 +173,8 @@ func scrub(environ []string, keep map[string]bool, globs []glob) (kept, dropped 
 
 // EnvBlocked reports whether a launch never passes name through (ScrubDeny, scrubAgentOnlyDeny, HARNESS_*).
 func EnvBlocked(name string) bool {
-	return strings.HasPrefix(name, "HARNESS_") || slices.ContainsFunc(scrubAgentGlobs(), func(g glob) bool { return g.match(name) })
+	name = EnvFold(name)
+	return EnvHasPrefix(name, "HARNESS_") || slices.ContainsFunc(scrubAgentGlobs(), func(g glob) bool { return g.match(name) })
 }
 
 // EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
@@ -160,9 +197,11 @@ type glob struct {
 	kind     byte // 'l' literal, 'p' prefix, 's' suffix, 'm' filepath.Match
 }
 
+// Every ScrubDeny pattern is upper-case, so the cached globs compile the same whatever foldCase is.
 func compileDeny(deny []string) []glob {
 	out := make([]glob, len(deny))
 	for i, pat := range deny {
+		pat = EnvFold(pat)
 		j := strings.IndexAny(pat, `*?[\`)
 		switch {
 		case j < 0:
@@ -178,7 +217,7 @@ func compileDeny(deny []string) []glob {
 	return out
 }
 
-// match is filepath.Match(g.pat, name) with the common shapes decided without the matcher.
+// match is filepath.Match(g.pat, name) with the common shapes decided without the matcher; name is pre-folded.
 func (g glob) match(name string) bool {
 	switch g.kind {
 	case 'l':

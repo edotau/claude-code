@@ -57,6 +57,14 @@ func (r Record) NoteHealth(err error) {
 	}
 }
 
+// NoteStartFailure counts a run that failed before it started (prepare) against its task, like NoteHealth does.
+func NoteStartFailure(t TaskKey, err error) {
+	degradeOn(err)
+	if !retry.IsCancelled(err) {
+		health.Fail(attemptKey(t), t.PlanTask, string(retry.BudgetOf(err)))
+	}
+}
+
 // degradedHint is the R34 notice that replaces the resend line of a failed run; "" while a resend is still allowed.
 func (r Record) degradedHint() string {
 	st := DispatchHealth(r.taskKey())

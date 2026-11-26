@@ -55,9 +55,16 @@ func keepsHead(head, label string) bool {
 	return labelShaped(strings.TrimSpace(head), label) && sameLabel(head, label)
 }
 
-// sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
+// sameLabel: head is label, a tier word or a full id of its model, claiming `databricks-` only as label does.
 func sameLabel(head, label string) bool {
 	head = strings.TrimSpace(head)
+	if head != "" && head == label {
+		return true
+	}
+	tier := slices.Contains([]string{"haiku", "sonnet", "opus"}, strings.ToLower(head))        // a Claude tier word names its model
+	if !tier && (!modelIDRe().MatchString(head) || !strings.ContainsAny(head, "0123456789")) { // a family or agent word
+		return false
+	}
 	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
 	if strings.Contains(head, "/") { // a provider-qualified head matches only the identical label
 		return head == label
@@ -102,7 +109,9 @@ func labelShaped(head, label string) bool {
 	if in, ok := strings.CutPrefix(head, "("); ok {
 		head = strings.TrimSuffix(in, ")")
 	}
-	return slices.Contains(models.AliasNames, head) || agentid.Known(head) ||
+	family := slices.Contains(strings.FieldsFunc(strings.ToLower(label), func(r rune) bool { return r == '-' || r == '/' }),
+		strings.ToLower(head)) // a bare word of the label's own id ("gpt" of "gpt-6.1-sol") is a short label, never task text
+	return family || slices.Contains(models.AliasNames, head) || agentid.Known(head) ||
 		(modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789"))
 }
 

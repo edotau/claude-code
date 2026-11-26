@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/audit"
@@ -25,32 +26,27 @@ import (
 // EnvSessionProfile is the env var a launcher stamps into a session's child env so its statusline and hooks see it.
 const EnvSessionProfile = "CLAUDE_PROFILE"
 
-// agentRecords reads every stored agent record in one vault transaction.
-func agentRecords() (recs map[string]vault.AgentRecord, err error) {
-	err = vault.View(func(tx *vault.Tx) (e error) { recs, e = tx.AgentRecords(); return e })
-	return recs, err
-}
-
-// AgentRecords is every stored agent record from one vault read (for packages that cannot import internal/agent).
-func AgentRecords() map[string]vault.AgentRecord {
-	recs, err := agentRecords()
-	warnVault("agent records", err)
-	return recs
-}
-
-// warnVault tells the user a vault read failed, so an empty result is not mistaken for "unset".
-func warnVault(what string, err error) {
+// storedRecord is agent's vault record; a read error is noted once on stderr and reads as unset.
+func storedRecord(agent string) vault.AgentRecord {
+	recs, err := vault.ReadAgentRecords([]string{agent})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: vault %s unreadable, using defaults: %v\n", what, err)
+		warnVaultOnce(err)
 	}
+	return recs[agent]
 }
 
-// AgentRecord is agent's vault record (zero value when unset or unreadable).
-func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] }
+var vaultWarn sync.Once
+
+// warnVaultOnce prints the unreadable-vault warning a single time per process.
+func warnVaultOnce(err error) {
+	vaultWarn.Do(func() {
+		fmt.Fprintf(os.Stderr, "warning: vault agent records unreadable, using defaults: %v\n", err)
+	})
+}
 
 // CopilotModel is the copilot launch, configure page and doctor resolver: the record's model, else github's opus alias.
 func CopilotModel(reg *Registry) (model, source string) {
-	if m := AgentRecord("copilot").Model; m != "" {
+	if m := storedRecord("copilot").Model; m != "" {
 		return m, "pin"
 	}
 	if reg == nil {
@@ -73,7 +69,7 @@ func recordProfile(r vault.AgentRecord) string {
 
 // CopilotLogin is the copilot record's github profile Login and name; ("", "") = gh's account.
 func CopilotLogin(reg *Registry) (login, profile string) {
-	pin := recordProfile(AgentRecord("copilot"))
+	pin := recordProfile(storedRecord("copilot"))
 	if pin == "" {
 		return "", ""
 	}
@@ -129,7 +125,7 @@ func effectiveModel(agent string) (model, source string) {
 	if m, v := EnvModel(context.Background(), agent); m != "" {
 		return m, "env " + v
 	}
-	return pinned(AgentRecord(agent).Model)
+	return pinned(storedRecord(agent).Model)
 }
 
 // CodexModel resolves the model a codex launch uses (shell env, then the record); "" leaves codex's own default.
@@ -137,7 +133,7 @@ func CodexModel() (model, source string) { return effectiveModel("codex") }
 
 // CodexEffort resolves the codex record's effort: it if set, else "" — codex's own default effort.
 func CodexEffort() (effort, source string) {
-	return pinned(AgentRecord("codex").Effort)
+	return pinned(storedRecord("codex").Effort)
 }
 
 // GeminiModel resolves the model a gemini launch uses (shell env, then the record); "" leaves agy's own default.
@@ -432,7 +428,7 @@ func ApplyClaudeModels(set map[string]string) error {
 
 // StoredSessionProfile is claude's record profile, else the registry default (nil reg loads the shared one).
 func StoredSessionProfile(reg *Registry) string {
-	if p := recordProfile(AgentRecord("claude")); p != "" {
+	if p := recordProfile(storedRecord("claude")); p != "" {
 		return p
 	}
 	if reg == nil {
@@ -462,7 +458,7 @@ func SessionProfileContext(ctx context.Context) string {
 func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) string {
 	name := SessionProfileContext(ctx)
 	if name == "" && withRecord {
-		name = recordProfile(AgentRecord("claude"))
+		name = recordProfile(storedRecord("claude"))
 	}
 	if reg != nil && reg.Providers[name] == nil {
 		return ""
@@ -492,3 +488,6 @@ func SessionProvider() *Provider {
 	}
 	return nil
 }
+
+// RecordProfile is the stored profile of agent's record, "" when none is set.
+func RecordProfile(agent string) string { return storedRecord(agent).EffectiveRoute().Profile }

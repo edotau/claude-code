@@ -87,7 +87,7 @@ func Value(ctx context.Context, name string) string {
 func LastEnv(env []string, name string) string {
 	v := ""
 	for _, kv := range env {
-		if s, ok := strings.CutPrefix(kv, name+"="); ok {
+		if k, s, ok := strings.Cut(kv, "="); ok && EnvNameEqual(k, name) {
 			v = s
 		}
 	}
@@ -96,7 +96,7 @@ func LastEnv(env []string, name string) string {
 
 // GoFlagsEntry is the GOFLAGS=... entry of env with each missing flag appended to the original value (kept verbatim).
 func GoFlagsEntry(env []string, flags ...string) string {
-	cur := ValuesFromEnv(env)["GOFLAGS"]
+	cur := LastEnv(env, "GOFLAGS")
 	have := strings.Fields(cur)
 	for _, f := range flags {
 		if !slices.Contains(have, f) {
@@ -110,6 +110,6 @@ func GoFlagsEntry(env []string, flags ...string) string {
 // GoFlagsEnv returns a copy of env whose single GOFLAGS entry carries the flags (see GoFlagsEntry).
 func GoFlagsEnv(env []string, flags ...string) []string {
 	entry := GoFlagsEntry(env, flags...)
-	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "GOFLAGS=") })
+	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return EnvHasPrefix(kv, "GOFLAGS=") })
 	return append(out, entry)
 }

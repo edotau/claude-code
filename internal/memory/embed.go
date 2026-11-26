@@ -710,7 +710,7 @@ func rankWorkspaces(reg *providers.Registry, live func([]*providers.Provider) ma
 var workspaceLive func([]*providers.Provider) map[string]int
 
 // claudeRecord looks up the claude record's profile; a var so tests can block it.
-var claudeRecord = func() string { return providers.AgentRecord("claude").EffectiveRoute().Profile }
+var claudeRecord = func() string { return providers.RecordProfile("claude") }
 
 // claudeRecordProfile reads the vault record within ctx; the abandoned read ends on the vault's own timeout.
 func claudeRecordProfile(ctx context.Context) string {

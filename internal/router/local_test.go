@@ -75,6 +75,59 @@ func TestLocalUp(t *testing.T) {
 	}
 }
 
+func pathServer(t *testing.T, path *atomic.Value) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path.Store(r.URL.Path)
+		_, _ = w.Write([]byte(`{"data":[{"id":"` + testModel + `"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestLocalUpProbesTheRoute(t *testing.T) {
+	resetProbe(t)
+	var viaRoute, viaBase atomic.Value
+	route, base := pathServer(t, &viaRoute), pathServer(t, &viaBase)
+	reg := localReg(base.URL)
+	reg.Providers["local"].Routes = map[string]string{"anthropic": route.URL + "/inference/anthropic"}
+	if up, why := LocalUp(context.Background(), reg); !up {
+		t.Fatalf("down: %s", why)
+	}
+	if viaRoute.Load() != "/inference/v1/models" || viaBase.Load() != nil {
+		t.Fatalf("route probed %v, base_url server probed %v", viaRoute.Load(), viaBase.Load())
+	}
+}
+
+func TestLocalUpDefaultsRowUnchanged(t *testing.T) {
+	const host = "http://127.0.0.1:10100"
+	row := localReg(host).Providers["local"]
+	row.Routes = map[string]string{"anthropic": host + "/inference/anthropic"}
+	if got, want := probeURL(row), host+"/inference/v1/models"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	row.Routes = nil
+	if got := probeURL(row); got != host+"/inference/v1/models" {
+		t.Fatalf("no route: got %q", got)
+	}
+}
+
+func TestLocalUpEmptyBaseProbesRoute(t *testing.T) {
+	resetProbe(t)
+	var got atomic.Value
+	srv := pathServer(t, &got)
+	reg := localReg(srv.URL)
+	row := reg.Providers["local"]
+	row.BaseURL = ""
+	row.Routes = map[string]string{"anthropic": srv.URL}
+	if up, why := LocalUp(context.Background(), reg); !up {
+		t.Fatalf("down: %s", why)
+	}
+	if got.Load() != "/v1/models" {
+		t.Fatalf("probed %v", got.Load())
+	}
+}
+
 func TestLocalUpRefused(t *testing.T) {
 	resetProbe(t)
 	srv := httptest.NewServer(http.NotFoundHandler())

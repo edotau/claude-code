@@ -670,3 +670,31 @@ func TestCliTargetGeminiDefaultIsSilent(t *testing.T) {
 		}
 	}
 }
+
+// With the Windows case rule on, route-name guards, RouteEnvLast and the unset line match any spelling.
+func TestRouteNameChecksFoldOnWindows(t *testing.T) {
+	proc.FoldCaseForTest(t, true)
+	route := []string{"ANTHROPIC_BASE_URL=http://x"}
+	if err := CheckRouteNames(route, []string{"anthropic_base_url"}, nil); err == nil {
+		t.Error("CheckRouteNames let a case-variant set through")
+	}
+	if err := CheckRouteNames(route, nil, []string{"Anthropic_Base_Url"}); err == nil {
+		t.Error("CheckRouteNames let a case-variant unset through")
+	}
+	if got := RouteEnvLast([]string{"anthropic_base_url=old", "KEEP=1"}, route); !slices.Equal(got, []string{"KEEP=1", route[0]}) {
+		t.Errorf("RouteEnvLast = %q, want the case variant dropped", got)
+	}
+	p := Plan{Set: map[string]string{"ANTHROPIC_BASE_URL": "http://x"}}
+	if err := p.checkOverlay(agentconfig.Resolved{Set: map[string]string{"anthropic_base_url": "y"}}); err == nil {
+		t.Error("checkOverlay let a case-variant set through")
+	}
+	if got := p.withOverlay(agentconfig.Resolved{Set: map[string]string{"anthropic_base_url": "y"}}); len(got.Set) != 1 {
+		t.Errorf("withOverlay Set = %v, want one spelling", got.Set)
+	}
+	t.Setenv("Databricks_Token", "v")
+	var buf bytes.Buffer
+	Plan{Unset: []string{"DATABRICKS_TOKEN"}}.Print(&buf)
+	if !strings.Contains(buf.String(), "unset    DATABRICKS_TOKEN\n") {
+		t.Errorf("Print = %q, want an unset line for the case-variant inherited name", buf.String())
+	}
+}

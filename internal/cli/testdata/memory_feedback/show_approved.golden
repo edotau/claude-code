@@ -1,0 +1,6 @@
+fc-b  verb  medium  repeats 3  approved
+change:   Add a flag.
+target:   internal/foo/a.go
+evidence: feedback/feedback-b.md
+launch:   Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: {"cwd":"@CWD@","gate":"go build ./... && go vet ./internal/foo/... && go test ./internal/foo/...","kind":"feature","task":"Add a flag. Target: internal/foo/a.go."}})
+when it lands: claude-code memory review --candidate fc-b --enforced <sha|file:line>

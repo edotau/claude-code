@@ -468,3 +468,165 @@ func TestShadowConflictKindStep(t *testing.T) {
 		t.Fatalf("migrated conflict = %q %v (%v), want envelope, NULL", kind, doc, err)
 	}
 }
+
+// flat3Fixture is an un-upgraded store: repeated headings, an undated entry, an id-less file.
+var flat3Fixture = []struct{ rel, body string }{
+	{"decisionLog.md", "# Decision Log\n\n## 2026-01-15 — Same title <!-- id:aaaa0001 -->\n\nfirst body\n\n## 2026-01-15 — Same title\n\nsecond body\n\n## Undated entry\n\nno date here\n"},
+	{"conventions.md", "# Conventions\n\n## Rules\n\n- one\n\n## Rules\n\n- two\n"},
+	{"notes/idless.md", "# No id\n\nplain note without markers\n"},
+}
+
+func TestShadowImportFlat3StoreLossless(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, f := range flat3Fixture {
+		p := filepath.Join(root, filepath.FromSlash(f.rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(f.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db := openShadowDB(t, nil)
+	rep, err := shadowRebuild(ctx, db, root)
+	if err != nil || rep.Docs != len(flat3Fixture) || len(rep.Mismatched) != 0 {
+		t.Fatalf("rebuild = %+v, %v; want %d docs, no mismatch", rep, err, len(flat3Fixture))
+	}
+	for _, f := range flat3Fixture {
+		got, err := renderShadowDoc(ctx, db, f.rel)
+		if err != nil || string(got) != f.body {
+			t.Errorf("%s: export\n%q (%v)\nwant\n%q", f.rel, got, err, f.body)
+		}
+	}
+	want := map[string][]wantEntry{
+		"decisionLog.md": {
+			{id: "aaaa0001", date: "2026-01-15", title: "Same title", body: "first body"},
+			{date: "2026-01-15", title: "Same title", body: "second body"},
+			{title: "Undated entry", body: "no date here"},
+		},
+	}
+	seen := map[string]string{}
+	for rel, w := range want {
+		checkStoredEntries(t, db, rel, w, seen)
+	}
+}
+
+// wantEntry is one fixture entry; an empty id means the file carries none.
+type wantEntry struct{ id, date, title, body string }
+
+// storedEntries loads rel's entries (id, date) and their raw lines from the db in order.
+func storedEntries(t *testing.T, db *sql.DB, rel string) (got []wantEntry, lines []string) {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), `SELECT id, date, lines FROM entries WHERE doc = ? ORDER BY seq`, rel)
+	if err != nil {
+		t.Fatalf("%s: load entries: %v", rel, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e wantEntry
+		var l string
+		if err := rows.Scan(&e.id, &e.date, &l); err != nil {
+			t.Fatal(err)
+		}
+		got, lines = append(got, e), append(lines, l)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return got, lines
+}
+
+// checkStoredEntries compares rel's stored entries to want in order; a minted id must be unique across seen.
+func checkStoredEntries(t *testing.T, db *sql.DB, rel string, want []wantEntry, seen map[string]string) {
+	t.Helper()
+	got, lines := storedEntries(t, db, rel)
+	if len(got) != len(want) {
+		t.Fatalf("%s: %d stored entries, want %d", rel, len(got), len(want))
+	}
+	for i, w := range want {
+		g, l := got[i], lines[i]
+		first, _, _ := strings.Cut(l, "\n")
+		if w.id != "" && g.id != w.id {
+			t.Errorf("%s[%d]: id %q, want %q", rel, i, g.id, w.id)
+		}
+		if w.id == "" && g.id != "" {
+			key := fmt.Sprintf("%s[%d]", rel, i)
+			if prev, dup := seen[g.id]; dup {
+				t.Errorf("%s: minted id %q already used by %s", key, g.id, prev)
+			}
+			seen[g.id] = key
+		}
+		if g.date != w.date {
+			t.Errorf("%s[%d]: date %q, want %q", rel, i, g.date, w.date)
+		}
+		if !strings.Contains(first, w.title) {
+			t.Errorf("%s[%d]: first line %q lacks title %q", rel, i, first, w.title)
+		}
+		if !strings.Contains(l, w.body) {
+			t.Errorf("%s[%d]: lines %q lack body %q", rel, i, l, w.body)
+		}
+		for j, o := range want {
+			if j != i && o.body != w.body && strings.Contains(l, o.body) && !strings.Contains(w.body, o.body) {
+				t.Errorf("%s[%d]: lines %q hold entry %d's body %q", rel, i, l, j, o.body)
+			}
+		}
+	}
+}
+
+func TestOpenBankStoreRefusesNewerSchema(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(ShadowDBPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrateMemoryDB(context.Background(), db, sqlite.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	execShadow(t, db, fmt.Sprintf("PRAGMA user_version = %d", SchemaVersion()+1))
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, _, err := memory.OpenBankStore(false)
+	var ne *sqlite.NewerError
+	if s != nil || !errors.As(err, &ne) {
+		t.Fatalf("store=%v err=%v; want nil store and a NewerError", s, err)
+	}
+}
+
+func TestShadowImportDuplicateIDsStayDistinct(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	files := []struct{ rel, body string }{
+		{"decisionLog.md", "# Decision Log\n\n## 2026-01-15 — One <!-- id:dddd0001 -->\n\nalpha body\n\n## 2026-01-16 — Two <!-- id:dddd0001 -->\n\nbeta body\n"},
+		{"conventions.md", "# Conventions\n\n- gamma rule <!-- id:dddd0001 -->\n"},
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(root, f.rel), []byte(f.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db := openShadowDB(t, nil)
+	if rep, err := shadowRebuild(ctx, db, root); err != nil || len(rep.Mismatched) != 0 {
+		t.Fatalf("rebuild = %+v, %v", rep, err)
+	}
+	var rows, bodies int
+	q := `SELECT count(*), count(DISTINCT lines) FROM entries WHERE id = 'dddd0001'`
+	if err := db.QueryRowContext(ctx, q).Scan(&rows, &bodies); err != nil || rows != 3 || bodies != 3 {
+		t.Fatalf("rows=%d distinct bodies=%d (%v), want 3 and 3", rows, bodies, err)
+	}
+	seen := map[string]string{}
+	checkStoredEntries(t, db, "decisionLog.md", []wantEntry{
+		{id: "dddd0001", date: "2026-01-15", title: "One", body: "alpha body"},
+		{id: "dddd0001", date: "2026-01-16", title: "Two", body: "beta body"},
+	}, seen)
+	checkStoredEntries(t, db, "conventions.md", []wantEntry{{id: "dddd0001", title: "gamma rule", body: "gamma rule"}}, seen)
+	for _, f := range files {
+		if got, err := renderShadowDoc(ctx, db, f.rel); err != nil || string(got) != f.body {
+			t.Errorf("%s: export %q (%v), want %q", f.rel, got, err, f.body)
+		}
+	}
+}

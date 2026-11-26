@@ -225,13 +225,34 @@ func TestSameLabel(t *testing.T) {
 		head, label string
 		want        bool
 	}{
-		{"sonnet", "claude-sonnet-5-5", true}, {"claude-sonnet-5.5", "claude-sonnet-5-5", true},
+		{"sonnet", "claude-sonnet-5-5", true}, {"sonnet", "sonnet", true}, {"gemini", "databricks-gemini-4-argon", false},
+		{"codex", "gpt-6.1-sol", false}, {"gpt", "gpt-6.1-sol", false}, {"databricks-gemini-4-argon", "databricks-gemini-4-argon", true},
+		{"claude-sonnet-5.5", "claude-sonnet-5-5", true},
 		{"sonnet", "databricks-claude-sonnet-5-5", true}, {"databricks-claude-sonnet-5-5", "databricks-claude-sonnet-5-5", true},
 		{"databricks-claude-sonnet-5-5", "sonnet", false}, {"opus", "claude-sonnet-5-5", false}, {"", "sonnet", false},
 		{"opencode-go/kimi-k3", "databricks-kimi-k3", false}, {"github/gpt-5.5", "gpt-5.5", false}, {"opencode-go/kimi-k3", "opencode-go/kimi-k3", true},
 	} {
 		if got := sameLabel(c.head, c.label); got != c.want {
 			t.Errorf("sameLabel(%q,%q) = %v, want %v", c.head, c.label, got, c.want)
+		}
+	}
+}
+
+// A bare family or agent head is rewritten to the full label; the label itself is kept byte-identical.
+func TestApplyLabelRewritesBareHead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, c := range []struct{ label, desc, want string }{
+		{"databricks-gemini-4-argon", "gemini: x", "databricks-gemini-4-argon: x"},
+		{"databricks-gemini-4-argon", "codex: x", "databricks-gemini-4-argon: x"},
+		{"gpt-6.1-sol", "gpt: x", "gpt-6.1-sol: x"},
+		{"databricks-gemini-4-argon", "databricks-gemini-4-argon: x", "databricks-gemini-4-argon: x"},
+		{"sonnet", "sonnet: x", "sonnet: x"},
+	} {
+		stubLabelModels(t, c.label)
+		u := map[string]any{"subagent_type": "opencode", "model": "fixed-1", "description": c.desc}
+		applyLabel(context.Background(), newDispatchRun(nil), u, "x")
+		if got := u["description"]; got != c.want {
+			t.Errorf("label %q, %q -> %q, want %q", c.label, c.desc, got, c.want)
 		}
 	}
 }

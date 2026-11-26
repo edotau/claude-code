@@ -360,3 +360,20 @@ func assertCandidateCaseAlias(t *testing.T) {
 		}
 	}
 }
+
+// WriteCandidates treats a missing file as no open candidates and an unreadable one as an error.
+func TestWriteCandidatesUnreadableFile(t *testing.T) {
+	isolatedConfig(t)
+	var out strings.Builder
+	if err := WriteCandidates(&out, false); err != nil || !strings.Contains(out.String(), "no open feedback candidates") {
+		t.Errorf("missing file: err=%v out=%q", err, out.String())
+	}
+	path := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel))
+	if err := os.MkdirAll(path, 0o755); err != nil { // a directory where the file belongs cannot be read
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := WriteCandidates(&out, false); err == nil || out.Len() != 0 {
+		t.Errorf("unreadable file: err=%v out=%q, want an error and no output", err, out.String())
+	}
+}

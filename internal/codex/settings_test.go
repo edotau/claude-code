@@ -324,7 +324,7 @@ func TestEffortOneVocabulary(t *testing.T) {
 	}
 }
 
-// effortWant is the refusal text a surface gives: record and overlay share route.AgentSettings' wording.
+// effortWant is the refusal text a surface gives: record and overlay share route.OneOf's wording.
 func effortWant(surface, perAgent string) string {
 	if surface == "record" || surface == "overlay" {
 		return "is not one of " + strings.Join(agentid.EffortNames(), "|")

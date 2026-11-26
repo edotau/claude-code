@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
@@ -528,5 +529,5 @@ func overlayFlag(t route.Target) []string {
 	if t.IsZero() && t.Model == "" {
 		return nil
 	}
-	return []string{"--overlay", t.JSON()}
+	return []string{"--overlay", agentconfig.OverlayOf(t.Route, t.Model).Doc()}
 }

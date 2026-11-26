@@ -290,9 +290,10 @@ func reportVerifyFailures(plan, top, sha string, tasks []plans.Task, checks map[
 	return ids
 }
 
-// tickReady is the ready-task line a written tick frees; a seam so a test needs no live slots or claims.
-var tickReady = func(top string) string {
-	return plans.ReadyNotice(plans.ReadyInput{Root: top, Slots: freeSlots(), Claims: readyClaims})
+// tickReady is the automatic fill and ready-task lines a written tick frees; a seam so a test needs no live slots.
+var tickReady = func(session, top string) []string {
+	ready := plans.ReadyInput{Root: top, Slots: freeSlots(), Claims: readyClaims}
+	return plans.FillNotice(plans.AutofillInput{ReadyInput: ready, Session: session}) // claims before it sends
 }
 
 // tickGreen ticks the green tasks on sha and posts their notices; 1 means the plan write failed.
@@ -306,8 +307,10 @@ func tickGreen(session, top, sha string, tasks []plans.Task, green map[string]bo
 		}
 	}
 	if ticked {
-		if n := tickReady(top); n != "" { // advisory only: the ready line rides the same notice as the tick
-			tickNotice(session, n)
+		for _, n := range tickReady(session, top) { // advisory only: the lines ride the same notice as the tick
+			if n != "" {
+				tickNotice(session, n)
+			}
 		}
 	}
 	if err != nil {
