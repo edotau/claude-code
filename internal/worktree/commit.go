@@ -48,18 +48,22 @@ func (e *CommitError) Error() string { return e.Msg }
 func refuse(format string, a ...any) error { return &CommitError{1, fmt.Sprintf(format, a...)} }
 func usage(format string, a ...any) error  { return &CommitError{2, fmt.Sprintf(format, a...)} }
 
+// isLinked reports a checkout that is not its repository's primary one.
+func isLinked(top, main string) bool { return main != "" && paths.Real(main) != paths.Real(top) }
+
 // commitTree is one read of the checkout: root, status entries and dirty paths (absolute, a rename source included).
 type commitTree struct {
 	top     string
 	entries []proc.StatusEntry
 	dirty   map[string]bool
+	linked  bool // a linked worktree: the primary checkout never takes the own-latest-edit allowance
 }
 
 func (t commitTree) abs(rel string) string { return filepath.Join(t.top, rel) }
 
 // Commit commits the named files (else the caller's claimed dirty ones) in one pathspec commit and reports it.
 func Commit(ctx context.Context, req CommitRequest) error {
-	top, _ := paths.CheckoutOf(req.Dir)
+	top, main := paths.CheckoutOf(req.Dir)
 	if top == "" {
 		return usage("not inside a git work tree: %s", req.Dir)
 	}
@@ -67,7 +71,8 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
-	tree := commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries)}
+	tree := commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries),
+		linked: isLinked(top, main)}
 	message, err := commitSubject(req)
 	if err != nil {
 		return err
@@ -382,6 +387,7 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 		}
 	}
 	res, errs := freshHitsAll(ctx, t, claimed, claims)
+	res = dropOwnLatest(req.Source, t, claimed, res, dispatched)
 	var held []string
 	for i, rel := range claimed {
 		if errs[i] != nil {
@@ -396,6 +402,25 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 			"hand them to their owner", strings.Join(held, "; "))
 	}
 	return nil
+}
+
+// dropOwnLatest drops a peer's hit on a path this session edited last, in a linked worktree only.
+func dropOwnLatest(src ClaimSource, t commitTree, rels []string, res [][]ClaimHit, dispatched bool) [][]ClaimHit {
+	if !t.linked || dispatched {
+		return res
+	}
+	own := sync.OnceValue(src.Owner)
+	mine := map[string]int64{}
+	_ = ScanClaims(src.Alive, func(pid int, slug string, c Claim) {
+		if c.Agent == "" && (slug == src.Self || pid == own()) {
+			mine[c.Path] = max(mine[c.Path], c.TS)
+		}
+	})
+	out := make([][]ClaimHit, len(res))
+	for i, hits := range res {
+		out[i] = slices.DeleteFunc(slices.Clone(hits), func(h ClaimHit) bool { return mine[t.abs(rels[i])] >= h.TS })
+	}
+	return out
 }
 
 // freshHitsAll runs FreshHits per path on up to 4 workers, fully joined; results are indexed like paths.

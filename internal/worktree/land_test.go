@@ -56,7 +56,7 @@ func TestPromoteLandsUncommittedSkipsSimulation(t *testing.T) {
 	}
 	trace := filepath.Join(t.TempDir(), "git.trace")
 	t.Setenv("GIT_TRACE", trace)
-	result, err := promote(ctx, repo, plan)
+	result, err := promoteOnly(ctx, repo, plan)
 	if err != nil {
 		t.Fatalf("promote: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestPromoteTargetMovedBetweenIntegrateAndPromote(t *testing.T) {
 	landFixtureWrite(t, main, "h.txt", "moved on\n", "main moves on")
 	movedTo := headOf(main)
 
-	result, err := promote(context.Background(), repo, plan)
+	result, err := promoteOnly(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("promote: want error when the target moved since integration")
 	}
@@ -124,7 +124,7 @@ func TestPromoteNotAncestorAfterTargetDiverges(t *testing.T) {
 	// main advances past plan.TargetOID with a commit the integrated worktree HEAD never saw.
 	landFixtureWrite(t, main, "f.txt", "main diverges\n", "main diverges")
 
-	result, err := promote(context.Background(), repo, plan)
+	result, err := promoteOnly(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("promote: want error — target moved, so promotion must stop regardless of ancestry")
 	}
@@ -155,7 +155,7 @@ func TestPromoteRefusesCommitLandedAfterIntegrate(t *testing.T) {
 	landFixtureWrite(t, wt, "unreviewed.txt", "slipped in after review\n", "unreviewed commit after integrate")
 	unreviewed := headOf(wt)
 
-	result, promoteErr := promote(context.Background(), repo, plan)
+	result, promoteErr := promoteOnly(context.Background(), repo, plan)
 	if promoteErr == nil {
 		t.Fatal("promote: want an error — the worktree moved past the verified integration since integrateTarget ran")
 	}
@@ -186,7 +186,7 @@ func TestPromoteLockHeldRefusesConcurrentLand(t *testing.T) {
 	release := make(chan struct{})
 	held := make(chan struct{})
 	go func() {
-		_ = acquire(2*time.Second, func() error {
+		_ = acquire(2*time.Second, nil, func() error {
 			close(held)
 			<-release
 			return nil
@@ -195,7 +195,7 @@ func TestPromoteLockHeldRefusesConcurrentLand(t *testing.T) {
 	<-held
 	defer close(release)
 
-	_, err = promote(context.Background(), repo, plan)
+	_, err = promoteOnly(context.Background(), repo, plan)
 	if err == nil {
 		t.Fatal("promote: want error while another holder has the land lock")
 	}
@@ -227,7 +227,7 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	if _, err := integrateTarget(ctx, plan); err != nil {
 		t.Fatalf("integrateTarget refused residue: %v", err)
 	}
-	if _, err := promote(ctx, repo, plan); err != nil {
+	if _, err := promoteOnly(ctx, repo, plan); err != nil {
 		t.Fatalf("promote refused residue: %v", err)
 	}
 	requireFileContent(t, filepath.Join(main, "g.txt"), "feature only\n")
@@ -297,7 +297,7 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := promote(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
+	if _, err := promoteOnly(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
 		t.Fatalf("promote = %v, want dirty-target naming a.txt", err)
 	}
 	assertTargetEditIntact(t, main, before)
@@ -320,13 +320,13 @@ func landFixtureLockEnv(t *testing.T) {
 func TestAcquireRunsFnAndReleases(t *testing.T) {
 	landFixtureLockEnv(t)
 	ran := false
-	if err := acquire(time.Second, func() error { ran = true; return nil }); err != nil {
+	if err := acquire(time.Second, nil, func() error { ran = true; return nil }); err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
 	if !ran {
 		t.Fatal("fn did not run")
 	}
-	if err := acquire(time.Nanosecond, func() error { return nil }); err != nil {
+	if err := acquire(time.Nanosecond, nil, func() error { return nil }); err != nil {
 		t.Fatalf("second immediate acquire: %v; lock was not released", err)
 	}
 }
@@ -334,7 +334,7 @@ func TestAcquireRunsFnAndReleases(t *testing.T) {
 func TestAcquirePropagatesFnError(t *testing.T) {
 	landFixtureLockEnv(t)
 	sentinel := errFixtureSentinel{}
-	err := acquire(time.Second, func() error { return sentinel })
+	err := acquire(time.Second, nil, func() error { return sentinel })
 	if err != sentinel {
 		t.Fatalf("err = %v, want the sentinel fn error", err)
 	}
@@ -349,7 +349,7 @@ func TestAcquireBusyReturnsErrLandBusyWithinWait(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
-		_ = acquire(2*time.Second, func() error {
+		_ = acquire(2*time.Second, nil, func() error {
 			close(held)
 			<-release
 			return nil
@@ -360,7 +360,7 @@ func TestAcquireBusyReturnsErrLandBusyWithinWait(t *testing.T) {
 
 	start := time.Now()
 	wait := 100 * time.Millisecond
-	err := acquire(wait, func() error {
+	err := acquire(wait, nil, func() error {
 		t.Fatal("fn must not run while another holder has the lock")
 		return nil
 	})
@@ -404,7 +404,7 @@ func TestAcquireZeroWaitDefaultsToLandLockWait(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	go func() {
-		_ = acquire(time.Second, func() error {
+		_ = acquire(time.Second, nil, func() error {
 			close(held)
 			<-release
 			return nil
@@ -414,7 +414,7 @@ func TestAcquireZeroWaitDefaultsToLandLockWait(t *testing.T) {
 	defer close(release)
 
 	start := time.Now()
-	err := acquire(0, func() error { return nil })
+	err := acquire(0, nil, func() error { return nil })
 	elapsed := time.Since(start)
 	if err != errLandBusy {
 		t.Fatalf("err = %v, want errLandBusy", err)
@@ -594,5 +594,40 @@ func TestLaneLiveCheckRefusesLiveProcess(t *testing.T) {
 	processesIn = func(string) ([]Proc, error) { return nil, nil }
 	if err := laneLiveCheck(t.TempDir()); err != nil {
 		t.Fatalf("want nil, got %v", err)
+	}
+}
+
+func promoteOnly(ctx context.Context, repo *Repo, plan *LandPlan) (*LandResult, error) {
+	res, _, err := promoteOrRebase(ctx, repo, plan, nil, false)
+	return res, err
+}
+
+func TestTestTallySplitWrites(t *testing.T) {
+	c := &testTally{w: io.Discard}
+	for _, chunk := range []string{"ok  \tex/a\t0.1s\nFA", "IL\tex/b [build failed]\n--- FAIL: TestX\nFAIL\nok  \tex/c\t1s\n", "FAIL\tex/d\t1s"} {
+		_, _ = c.Write([]byte(chunk))
+	}
+	c.flush()
+	if want := []string{"ex/b", "ex/d"}; c.passed != 2 || !slices.Equal(c.failed, want) {
+		t.Fatalf("passed %d failed %v, want 2 and %v", c.passed, c.failed, want)
+	}
+}
+
+func TestAcquireNamesHolderWhileWaiting(t *testing.T) {
+	landFixtureLockEnv(t)
+	t.Setenv(LandWaitEnv, "holder-x")
+	orig := landLockSlice
+	t.Cleanup(func() { landLockSlice = orig })
+	landLockSlice = 30 * time.Millisecond
+	held, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = acquire(2*time.Second, nil, func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	var by string
+	err := acquire(150*time.Millisecond, func(_ time.Duration, _, who string) { by = who }, func() error { return nil })
+	close(release)
+	if err != errLandBusy || by != "holder-x" {
+		t.Fatalf("err %v, holder %q, want errLandBusy and holder-x", err, by)
 	}
 }

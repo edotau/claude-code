@@ -21,6 +21,7 @@ func TestCreateBranchNaming(t *testing.T) {
 		{"default", "", "", "worktree-feature"},
 		{"custom", "wt/custom-name", "", "wt/custom-name"},
 		{"reuses existing", "wt/preexisting", "wt/preexisting", "wt/preexisting"},
+		{"reuses default-named", "", "worktree-feature", "worktree-feature"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,6 +41,29 @@ func TestCreateBranchNaming(t *testing.T) {
 				t.Fatalf("branch = %q, err %v, want %s", out, err, tc.want)
 			}
 		})
+	}
+}
+
+// A post-checkout hook that deletes the new checkout makes git exit 0 with no directory; Create must fail.
+func TestCreateFailsWhenAddLeavesNoDirectory(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	commitIn(t, repo.Main, "branch", "worktree-gone")
+	hook := filepath.Join(repo.Main, ".git", "hooks", "post-checkout")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nrm -rf \"$PWD\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Create(repo, "gone", CreateOptions{}); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("Create = %v, want an error naming the missing checkout", err)
+	}
+	if err := os.Remove(hook); err != nil {
+		t.Fatal(err)
+	}
+	if dest, err := Create(repo, "gone", CreateOptions{}); err != nil || !paths.IsDir(dest) {
+		t.Fatalf("retry after the failed add: %v, %s", err, dest)
 	}
 }
 
@@ -544,7 +568,7 @@ func TestPromoteCancelledContextNeverMovesMain(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := promote(ctx, repo, plan); err == nil {
+	if _, err := promoteOnly(ctx, repo, plan); err == nil {
 		t.Fatal("promote: want an error for an already-cancelled context")
 	}
 	if headOf(main) != mainBefore {
@@ -581,7 +605,7 @@ func TestPromoteCancelledAfterChecksStillRefusesLand(t *testing.T) {
 	}
 	defer func() { runGit = orig }()
 
-	if _, err := promote(ctx, repo, plan); !errors.Is(err, context.Canceled) || diffAfterCancel {
+	if _, err := promoteOnly(ctx, repo, plan); !errors.Is(err, context.Canceled) || diffAfterCancel {
 		t.Fatalf("promote: err = %v, diff after cancel = %v; want context.Canceled and no apply attempt", err, diffAfterCancel)
 	}
 	if _, err := os.Stat(filepath.Join(main, "g.txt")); err == nil || headOf(main) != mainBefore {

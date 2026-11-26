@@ -192,7 +192,7 @@ func TestCleanRefusesWhileUntrackedResidueExists(t *testing.T) {
 	if _, err := integrateTarget(context.Background(), plan); err != nil {
 		t.Fatalf("integrateTarget: %v", err)
 	}
-	if _, err := promote(context.Background(), repo, plan); err != nil {
+	if _, err := promoteOnly(context.Background(), repo, plan); err != nil {
 		t.Fatalf("promote: %v", err)
 	}
 
@@ -504,7 +504,7 @@ func TestResolveWithAgentThenPromoteStopsWhenTargetAdvanced(t *testing.T) {
 	landFixtureWrite(t, main, "unrelated.txt", "main moved on\n", "main advances independently")
 	advancedMain := headOf(main)
 
-	promoted, promoteErr := promote(context.Background(), repo, plan)
+	promoted, promoteErr := promoteOnly(context.Background(), repo, plan)
 	if promoteErr == nil {
 		t.Fatal("promote: want an error — target advanced since the plan was pinned")
 	}

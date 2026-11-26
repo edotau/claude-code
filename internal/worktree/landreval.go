@@ -124,28 +124,35 @@ func scopeAt(ctx context.Context, plan *LandPlan, dir string) (list []goPkg, abs
 	return list, abs, files, sc, nil
 }
 
-// rebaseIfMoved re-integrates the lane onto a moved target under the land lock; from is the old target.
-func rebaseIfMoved(ctx context.Context, repo *Repo, plan *LandPlan) (res *LandResult, from string, err error) {
-	err = acquire(0, func() error {
+// promoteOrRebase, in one land-lock hold, re-integrates onto a moved target (from = old target) or promotes.
+func promoteOrRebase(ctx context.Context, repo *Repo, plan *LandPlan, note func(time.Duration, string, string),
+	rebase bool) (landed *LandResult, from string, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	err = acquire(0, note, func() error {
 		// a switched branch is left to promote's own refusal
-		branch, err := requireBranch(ctx, repo.Main)
-		if err != nil || branch != plan.TargetRef {
-			return nil
+		if branch, err := requireBranch(ctx, repo.Main); rebase && err == nil && branch == plan.TargetRef {
+			head, err := headOfContext(ctx, repo.Main)
+			if err != nil {
+				return err
+			}
+			if head != plan.TargetOID {
+				old := plan.TargetOID
+				plan.TargetOID = head
+				if landed, err = integrateTarget(ctx, plan); err != nil {
+					plan.TargetOID = old
+					return fmt.Errorf("integrate: %w", err)
+				}
+				from = old
+				return nil
+			}
 		}
-		head, err := headOfContext(ctx, repo.Main)
-		if err != nil || head == plan.TargetOID {
-			return err
-		}
-		old := plan.TargetOID
-		plan.TargetOID = head
-		if res, err = integrateTarget(ctx, plan); err != nil {
-			plan.TargetOID = old
-			return err
-		}
-		from = old
-		return nil
+		var err error
+		landed, err = promoteLocked(ctx, repo, plan)
+		return err
 	})
-	return res, from, err
+	return landed, from, err
 }
 
 // relander is one land's state across its re-check rounds.
@@ -190,45 +197,49 @@ func (l *relander) recheck(ctx context.Context, from string) error {
 	}
 	fmt.Fprintf(l.req.Out, "re-check:   target moved to %s; reval %s\n", ShortOID(l.plan.TargetOID), l.rec.a.Reval)
 	l.first = next
-	secs, err := runGate(ctx, l.req, l.h.At(l.plan), gate, source)
-	l.rec.gated(secs)
-	return err
+	return runGate(ctx, l.req, l.h.At(l.plan), gate, source, l.rec)
 }
 
-// round re-integrates onto a moved target and re-checks it, then promotes; again reports a target that moved meanwhile.
-func (l *relander) round(ctx context.Context) (landed *LandResult, again bool, err error) {
+// round promotes the lane, or re-integrates and re-checks it when the target moved (again), all under one lock hold.
+func (l *relander) round(ctx context.Context, rebase bool) (landed *LandResult, again bool, err error) {
 	started := time.Now()
-	res, from, err := rebaseIfMoved(ctx, l.repo, l.plan)
-	if err != nil {
-		if errors.Is(err, ErrRebaseConflict) && l.req.ResolveAgent == "" {
-			notifyConflict(l.plan, l.req.Err)
-		}
-		return nil, false, fmt.Errorf("integrate: %w", err)
+	note := func(waited time.Duration, pid, by string) {
+		fmt.Fprintf(l.req.Out, "land %s: waiting for the land lock (%s; held by pid %s, %s)\n", l.req.Name,
+			waited.Round(time.Second), pid, by)
 	}
-	if from != "" {
+	landed, from, err := promoteOrRebase(ctx, l.repo, l.plan, note, rebase)
+	switch {
+	case from != "":
 		l.rec.next(OutcomeTargetMoved)
 		l.rec.t = started
 		l.rec.pin(l.plan, &l.rec.a.Seconds.Rebase)
-		printRebase(l.req.Out, l.plan, res)
+		printRebase(l.req.Out, l.plan, landed)
 		if err := l.recheck(ctx, from); err != nil {
 			return nil, false, err
 		}
+		return nil, true, nil
+	case errors.Is(err, errTargetMoved) && rebase:
+		l.rec.next(OutcomeTargetMoved)
+		return nil, true, nil
+	case errors.Is(err, ErrRebaseConflict):
+		if l.req.ResolveAgent == "" {
+			notifyConflict(l.plan, l.req.Err)
+		}
+		return nil, false, err
 	}
-	landed, err = promote(ctx, l.repo, l.plan)
 	l.rec.stage(&l.rec.a.Seconds.Promote)
-	return landed, errors.Is(err, errTargetMoved), err
+	return landed, false, err
 }
 
 // promoteLoop promotes the verified lane; a moved target re-integrates and re-checks, up to maxRevalRounds times.
 func (l *relander) promoteLoop(ctx context.Context) (*LandResult, error) {
 	var landed *LandResult
 	var err error
-	for range maxRevalRounds + 1 {
+	for i := 0; i <= maxRevalRounds; i++ {
 		var again bool
-		if landed, again, err = l.round(ctx); !again {
+		if landed, again, err = l.round(ctx, i < maxRevalRounds); !again {
 			break
 		}
-		l.rec.next(OutcomeTargetMoved)
 	}
 	if err == nil {
 		return landed, nil

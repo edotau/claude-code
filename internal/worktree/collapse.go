@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// ErrCollapseStopped marks a collapse that stopped on a refusal, conflict or failed build/vet; the collector is clean.
+// ErrCollapseStopped marks a collapse that refused up front or dropped a lane; the collector keeps its last good head.
 var ErrCollapseStopped = errors.New("collapse stopped")
 
 // CollapseRequest names the collector lane and the finished lanes to cherry-pick into it, in order.
@@ -25,7 +25,7 @@ type CollapseRequest struct {
 
 type collapseLane struct{ name, dir, branch string }
 
-// Collapse picks each lane's own commits into the collector, building and vetting after every lane; it never tests.
+// Collapse picks each lane into the collector, building and vetting per lane; a lane that fails is dropped, not fatal.
 func Collapse(ctx context.Context, repo *Repo, req CollapseRequest) error {
 	lanes, err := collapseLanes(ctx, repo, req)
 	if err != nil {
@@ -35,37 +35,77 @@ func Collapse(ctx context.Context, repo *Repo, req CollapseRequest) error {
 	if err != nil {
 		return err
 	}
-	for i, l := range lanes {
-		shas, files, err := collapsePlan(ctx, dir, l.branch)
-		if err != nil {
-			return err
-		}
-		if !req.DryRun {
-			if err := collapsePick(ctx, dir, shas, files); err != nil {
-				return collapseStop(req, l.name, lanes[i:], err)
-			}
-		}
-		verb := "picked"
-		if req.DryRun {
-			verb = "would pick"
-		}
-		fmt.Fprintf(req.Out, "%s %s: %d commits, %d files\n", verb, l.name, len(shas), len(files))
-		if req.DryRun {
-			fmt.Fprintf(req.Out, "  files: %s\n", strings.Join(files, " "))
-		}
+	var picked, dropped []string
+	pick := func() (err error) {
+		picked, dropped, err = collapsePicks(ctx, dir, lanes, req)
+		return err
 	}
-	fmt.Fprintf(req.Out, "collector %s: %d lanes; next: claude-code worktree land --verify %s %s\n", req.Collector,
-		len(lanes), "'go build ./... && go vet ./... && go test ./...'", req.Collector)
+	if req.DryRun {
+		err = pick()
+	} else {
+		// the lease keeps a land, resolve or clean of the collector out while picks and rollbacks run
+		err = withWorktreeLease(repo, req.Collector, func() error {
+			if err := collapseReady(ctx, dir); err != nil {
+				return fmt.Errorf("%w: collector %s: %v", ErrCollapseStopped, req.Collector, err)
+			}
+			return pick()
+		})
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(req.Out, "collector %s: %d lanes picked (%s), %d dropped; next: claude-code worktree land --verify %s %s\n",
+		req.Collector, len(picked), strings.Join(picked, " "), len(dropped), "'go build ./... && go vet ./... && go test ./...'", req.Collector)
+	if len(dropped) > 0 {
+		return fmt.Errorf("%w: dropped %d of %d lanes: %s", ErrCollapseStopped, len(dropped), len(lanes), strings.Join(dropped, "; "))
+	}
 	return nil
 }
 
-func collapseStop(req CollapseRequest, failed string, rest []collapseLane, cause error) error {
-	names := make([]string, len(rest))
-	for i, l := range rest {
-		names[i] = l.name
+// collapsePicks picks (or previews) each lane in order, dropping one whose pick fails; a failed rollback stops all.
+func collapsePicks(ctx context.Context, dir string, lanes []collapseLane, req CollapseRequest) (picked, dropped []string, err error) {
+	for _, l := range lanes {
+		shas, files, err := collapsePlan(ctx, dir, l.branch)
+		if err == nil && !req.DryRun {
+			err = collapsePick(ctx, dir, shas, files)
+		}
+		if errors.Is(err, errCollapseRestore) {
+			return picked, dropped, fmt.Errorf("%w at lane %s: %v", ErrCollapseStopped, l.name, err)
+		}
+		if err != nil {
+			dropped = append(dropped, fmt.Sprintf("%s (%v)", l.name, err))
+			fmt.Fprintf(req.Out, "dropped %s: %v\n", l.name, err)
+			continue
+		}
+		picked = append(picked, l.name)
+		if req.DryRun {
+			fmt.Fprintf(req.Out, "would pick %s: %d commits, %d files\n  files: %s\n", l.name, len(shas), len(files), strings.Join(files, " "))
+		} else {
+			fmt.Fprintf(req.Out, "picked %s: %d commits, %d files\n", l.name, len(shas), len(files))
+		}
 	}
-	fmt.Fprintf(req.Out, "resume: claude-code worktree collapse %s %s\n", req.Collector, strings.Join(names, " "))
-	return fmt.Errorf("%w at lane %s: %v", ErrCollapseStopped, failed, cause)
+	return picked, dropped, nil
+}
+
+// collapseReady refuses a collector with tracked edits or a cherry-pick, merge, revert or rebase in progress.
+func collapseReady(ctx context.Context, dir string) error {
+	out, err := gitCmd(ctx, "-C", dir, "status", "--porcelain", "--untracked-files=no").Output()
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	if len(out) > 0 {
+		return fmt.Errorf("has uncommitted changes: %s", strings.Join(strings.Fields(string(out)), " "))
+	}
+	for _, p := range []string{"CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"} {
+		gp, err := gitCmd(ctx, "-C", dir, "rev-parse", "--path-format=absolute", "--git-path", p).Output()
+		if err != nil {
+			return fmt.Errorf("git rev-parse --git-path %s: %w", p, err)
+		}
+		if _, err := os.Stat(strings.TrimSpace(string(gp))); err == nil {
+			return fmt.Errorf("has an operation in progress (%s)", p)
+		}
+	}
+	return nil
 }
 
 // collapseLanes resolves every lane and refuses, by name and before any pick, one that is missing or has changes.
@@ -144,17 +184,34 @@ func collapsePick(ctx context.Context, dir string, shas, files []string) error {
 	before := headOf(dir)
 	if out, err := gitCmd(ctx, append([]string{"-C", dir, "cherry-pick"}, shas...)...).CombinedOutput(); err != nil {
 		conflicts, _ := gitNames(ctx, dir, "diff", "-z", "--name-only", "--diff-filter=U")
-		_ = gitCmd(ctx, "-C", dir, "cherry-pick", "--abort").Run()
-		if len(conflicts) == 0 {
-			return fmt.Errorf("cherry-pick: %s", strings.TrimSpace(string(out)))
+		err = fmt.Errorf("cherry-pick: %s", strings.TrimSpace(string(out)))
+		if len(conflicts) > 0 {
+			err = fmt.Errorf("conflict in %s", strings.Join(conflicts, ", "))
 		}
-		return fmt.Errorf("conflict in %s", strings.Join(conflicts, ", "))
+		return collapseRestore(dir, before, err)
 	}
 	if err := collapseVerify(ctx, dir, files); err != nil {
-		_ = gitCmd(ctx, "-C", dir, "reset", "--hard", before).Run()
-		return err
+		return collapseRestore(dir, before, err)
 	}
 	return nil
+}
+
+// errCollapseRestore marks a dropped pick whose rollback failed: the collector is not at its last good head.
+var errCollapseRestore = errors.New("collector not restored")
+
+// collapseRestore ends any pick in progress and resets dir to before (even on a canceled ctx), then returns cause.
+func collapseRestore(dir, before string, cause error) error {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	_ = gitCmd(ctx, "-C", dir, "cherry-pick", "--abort").Run() // fails when no pick is in progress
+	out, err := gitCmd(ctx, "-C", dir, "reset", "-q", "--hard", before).CombinedOutput()
+	if err == nil {
+		out, err = gitCmd(ctx, "-C", dir, "status", "--porcelain", "--untracked-files=no").Output()
+	}
+	if err != nil || len(out) > 0 || headOf(dir) != before {
+		return fmt.Errorf("%w to %s after %v: %v %s", errCollapseRestore, ShortOID(before), cause, err, strings.TrimSpace(string(out)))
+	}
+	return cause
 }
 
 // collapseVerify runs go build on the module and go vet on the packages files touch; no go.mod skips both.

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,19 +90,6 @@ func abortRebase(ctx context.Context, plan *LandPlan, before string, out []byte,
 	return fmt.Errorf("%w in %s: %s; rebase aborted, lane left at %s; resolve it in the lane "+
 		"(--resolve-agent <agent> or a fix leaf), then re-run worktree land", ErrRebaseConflict, plan.WorktreePath,
 		strings.Join(files, ", "), ShortOID(before))
-}
-
-// promote checks OIDs and states under the land lock, then applies the lane's diff uncommitted to repo.Main.
-func promote(ctx context.Context, repo *Repo, plan *LandPlan) (*LandResult, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	var result *LandResult
-	err := acquire(0, func() (err error) {
-		result, err = promoteLocked(ctx, repo, plan)
-		return err
-	})
-	return result, err
 }
 
 func promoteLocked(ctx context.Context, repo *Repo, plan *LandPlan) (*LandResult, error) {
@@ -294,9 +282,7 @@ func applyLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest,
 		h = nil
 	}
 	rec.a.Scope = scopeOf(gate, gateSource, req)
-	secs, err := runGate(ctx, req, h.At(plan), gate, gateSource)
-	rec.gated(secs)
-	if err != nil {
+	if err := runGate(ctx, req, h.At(plan), gate, gateSource, rec); err != nil {
 		return nil, err
 	}
 
@@ -340,24 +326,70 @@ func scopeGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource
 		scopedGateSource, nChanged, len(pkgs)-nChanged), sc, nil
 }
 
-// runGate runs the verify gate at at (or announces its absence), returning seconds per step; a failure blocks it.
-func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource string) (map[string]float64, error) {
+// testTally passes writes through and tallies bare go test ok and FAIL lines, even split across writes.
+type testTally struct {
+	w      io.Writer
+	passed int
+	failed []string
+	line   []byte // the current line, capped at tallyLineCap
+}
+
+// tallyResult matches bare "ok  \t<import path>" and "FAIL\t<import path>" lines (also "[build failed]").
+var tallyResult = regexp.MustCompile(`^(ok|FAIL) *\t(\S+)`)
+
+// tallyLineCap bounds the bytes kept of one line; a package line fits well within it.
+const tallyLineCap = 512
+
+func (c *testTally) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	for _, b := range p[:n] {
+		if b == '\n' {
+			c.flush()
+		} else if len(c.line) < tallyLineCap {
+			c.line = append(c.line, b)
+		}
+	}
+	return n, err
+}
+
+// flush classifies the buffered line and starts the next one.
+func (c *testTally) flush() {
+	line := c.line
+	c.line = c.line[:0]
+	m := tallyResult.FindSubmatch(line)
+	switch {
+	case m == nil:
+	case string(m[1]) == "ok":
+		c.passed++
+	case !slices.Contains(c.failed, string(m[2])):
+		c.failed = append(c.failed, string(m[2]))
+	}
+}
+
+// runGate runs the verify gate at at (or announces its absence), recording seconds and package results in rec.
+func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource string, rec *attempt) error {
 	if gate == "" {
 		fmt.Fprintln(req.Out, "verify: skipped (--no-verify) — promoting unverified")
-		return nil, nil
+		return nil
 	}
+	tally := &testTally{w: req.Out}
+	req.Out = tally
 	stages := gateStages(gate, gateSource)
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
 	if len(stages) > 1 {
 		fmt.Fprintln(req.Out, "verify: build, then vet and tests")
 	}
 	secs, err := runStages(ctx, at, stages, req.Out, req.Err)
+	rec.gated(secs)
+	tally.flush()
+	rec.a.Tests += tally.passed
+	rec.a.FailedPkgs = append(rec.a.FailedPkgs, tally.failed...)
 	if err != nil {
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", at.Lane)
-		return secs, fmt.Errorf("verify failed, not promoting: %w", err)
+		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}
 	fmt.Fprintf(req.Out, "verify: passed (%s)\n", gateSource)
-	return secs, nil
+	return nil
 }
 
 // PlanOrResolve runs Preflight; a predicted conflict proceeds to the lane rebase; nil plan = blocked.
@@ -492,13 +524,16 @@ func issueCodes(issues []Issue) string {
 const landLockFile = "worktree-land.lock"
 
 // landLockWait is how long acquire waits (when wait<=0) before errLandBusy; a var so tests need not sit it out.
-var landLockWait = 5 * time.Second
+var landLockWait = 2 * time.Minute
+
+// landLockSlice is how long acquire waits between progress lines.
+var landLockSlice = 15 * time.Second
 
 // errLandBusy is returned when the land lock is not granted within the wait.
 var errLandBusy = errors.New("worktree land: another promote holds the land lock")
 
-// acquire runs fn holding the land lock (wait<=0 means landLockWait); not reentrant, fn must never call acquire.
-func acquire(wait time.Duration, fn func() error) error {
+// acquire runs fn holding the land lock (wait<=0: landLockWait), calling note per slice waited; not reentrant.
+func acquire(wait time.Duration, note func(waited time.Duration, pid, by string), fn func() error) error {
 	dir := paths.StateDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -506,11 +541,26 @@ func acquire(wait time.Duration, fn func() error) error {
 	if wait <= 0 {
 		wait = landLockWait
 	}
-	ran, err := paths.TryFileLock(filepath.Join(dir, landLockFile), wait, fn)
-	if err == nil && !ran {
-		return errLandBusy
+	lock := filepath.Join(dir, landLockFile)
+	start := time.Now()
+	who := []byte(strconv.Itoa(os.Getpid()) + "\n" + cmp.Or(os.Getenv(LandWaitEnv), "manual land") + "\n")
+	for {
+		slice := min(landLockSlice, max(wait-time.Since(start), 0))
+		ran, err := paths.TryFileLock(lock, slice, func() error {
+			_ = paths.AtomicWrite(lock+".who", who, 0o600)
+			return fn()
+		})
+		if err != nil || ran {
+			return err
+		}
+		if time.Since(start) >= wait {
+			return errLandBusy
+		}
+		if note != nil {
+			pid, by := leaseHolder(lock + ".who")
+			note(time.Since(start), pid, by)
+		}
 	}
-	return err
 }
 
 // previewLand prints what the apply would do, in order, and the lane's divergence; it changes nothing.

@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 )
 
 const slotCount = 4
+
+// ErrSlotBusy is a slot or fallback tree a live process is in: retry later, never a failure.
+var ErrSlotBusy = errors.New("slot busy")
 
 // Slot is a private checkout of one commit, held by a lock file until Release.
 type Slot struct {
@@ -30,6 +34,13 @@ func AcquireSlot(ctx context.Context, top, sha, own string) (*Slot, error) {
 		return s, err
 	}
 	dir := filepath.Join(SlotRoot(), "tree-"+own)
+	busy, err := InUseBy(dir) // an unswept run of the same owner may still be in it
+	if err != nil {
+		return nil, err
+	}
+	if busy != "" {
+		return nil, fmt.Errorf("refusing to reuse %s: %s: %w", dir, busy, ErrSlotBusy)
+	}
 	RemoveTree(ctx, top, dir) // a reused pid's leftover is ours
 	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
 		return nil, err
@@ -58,11 +69,14 @@ func TryAcquireSlot(ctx context.Context, top, sha string) (*Slot, error) {
 			continue
 		}
 		s := &Slot{Dir: base, top: top, release: func() { _ = f.Close() }}
-		if err := s.Reset(ctx, sha); err != nil {
-			s.Release()
+		err = s.Reset(ctx, sha)
+		if err == nil {
+			return s, nil
+		}
+		s.Release()
+		if !errors.Is(err, ErrSlotBusy) { // a busy slot (an orphaned run in it) passes to the next one
 			return nil, err
 		}
-		return s, nil
 	}
 	return nil, nil
 }
@@ -81,7 +95,7 @@ func (s *Slot) Reset(ctx context.Context, sha string) error {
 			return err
 		}
 		if busy != "" {
-			return fmt.Errorf("refusing to reset %s: %s", s.Dir, busy)
+			return fmt.Errorf("refusing to reset %s: %s: %w", s.Dir, busy, ErrSlotBusy)
 		}
 		if _, err = proc.RunGit(ctx, s.Dir, "checkout", "--force", "--detach", sha); err == nil {
 			if _, err = proc.RunGit(ctx, s.Dir, "clean", "-ffdxq"); err == nil {
@@ -149,6 +163,22 @@ func checkUnderRoot(dir string) error {
 		return fmt.Errorf("refusing to reset %s: not under the slot root %s", dir, root)
 	}
 	return nil
+}
+
+// RemoveIdleTree removes a fallback tree no live process is in, through the repo that owns it; false when kept.
+func RemoveIdleTree(ctx context.Context, dir string) bool {
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return false
+	}
+	if busy, err := InUseBy(dir); err != nil || busy != "" {
+		return false
+	}
+	common, err := proc.RunGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil { // not a worktree any more: only the directory is left
+		return os.RemoveAll(dir) == nil
+	}
+	RemoveTree(ctx, filepath.Dir(strings.TrimSpace(common)), dir)
+	return true
 }
 
 // RemoveTree deletes a linked worktree directory and prunes its record.

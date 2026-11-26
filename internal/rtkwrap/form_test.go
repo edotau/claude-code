@@ -86,7 +86,6 @@ var forModelSites = []string{
 	"internal/agent/waves/verify.go",
 	"internal/copilot/sdk/rtk.go",
 	"internal/review/bench/driver.go",
-	"internal/worktree/gate.go",
 }
 
 // TestForModelCallSitesAllowlisted keeps the helper off program-parsed output: a new caller joins the list on review.

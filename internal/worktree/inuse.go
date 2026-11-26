@@ -43,7 +43,8 @@ var ProcessScan = struct {
 	Up     *func(int) (int, error)
 	Procs  *func() ([]procCwd, error)
 	Agents *func() ([]procCwd, error)
-}{&processesIn, &parentOf, &scanProcs, &scanAgentProcs}
+	Settle *time.Duration
+}{&processesIn, &parentOf, &scanProcs, &scanAgentProcs, &inUseSettle}
 
 // InUseBy returns a refusal reason when the caller's cwd or another live non-ancestor process is in dest; "" = clear.
 func InUseBy(dest string) (string, error) { return inUseBy(dest, nil) }

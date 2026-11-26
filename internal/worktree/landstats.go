@@ -77,7 +77,8 @@ type LandAttempt struct {
 	IntegratedOID string       `json:"integrated_oid"`
 	Scope         Scope        `json:"scope"`
 	Packages      int          `json:"packages"`
-	Tests         int          `json:"tests"`
+	Tests         int          `json:"tests"`                 // passed packages from bare go test ok lines
+	FailedPkgs    []string     `json:"failed_pkgs,omitempty"` // full import paths
 	Seconds       StageSeconds `json:"seconds"`
 	Reval         Reval        `json:"reval"`
 	Retested      int          `json:"retested"`

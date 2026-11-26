@@ -59,10 +59,16 @@ func claim(t *testing.T, slug, path string) { claimAs(t, slug, "", path) }
 // claimAs appends a claim of path by agent (empty: the main session) to the claims file of session slug.
 func claimAs(t *testing.T, slug, agent, path string) {
 	t.Helper()
+	claimAt(t, slug, agent, path, time.Now().Unix())
+}
+
+// claimAt is claimAs with an explicit claim time.
+func claimAt(t *testing.T, slug, agent, path string, ts int64) {
+	t.Helper()
 	if err := os.MkdirAll(ClaimsDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	line := fmt.Sprintf(`{"schema":1,"path":%q,"agent_id":%q,"ts":%d}`+"\n", path, agent, time.Now().Unix())
+	line := fmt.Sprintf(`{"schema":1,"path":%q,"agent_id":%q,"ts":%d}`+"\n", path, agent, ts)
 	f, err := os.OpenFile(filepath.Join(ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", peerPid, slug)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +136,30 @@ func TestCommitRefusesPeerClaimedPath(t *testing.T) {
 	if hosttest.In(t, dir, "rev-parse", "HEAD") != head {
 		t.Fatal("a refused commit moved HEAD")
 	}
+}
+
+func TestCommitLinkedLaneAllowsOwnLatestEdit(t *testing.T) {
+	dir := commitRepo(t)
+	hosttest.In(t, dir, "branch", "-m", "main")
+	lane := paths.Real(filepath.Join(t.TempDir(), "lane"))
+	hosttest.In(t, dir, "worktree", "add", "-q", "-b", "lane", lane)
+	hosttest.WriteRel(t, lane, "a.txt", "both\n")
+	now := time.Now().Unix() + 20
+	claimAt(t, "peer", "", filepath.Join(lane, "a.txt"), now-10)
+	claimAt(t, "me", "", filepath.Join(lane, "a.txt"), now)
+	if _, err := commitRun(commitReq(lane, "fix: a", "a.txt")); err != nil {
+		t.Fatalf("own latest edit in a linked lane: %v", err)
+	}
+	hosttest.WriteRel(t, lane, "b.txt", "peer\n")
+	claimAt(t, "me", "", filepath.Join(lane, "b.txt"), now-10)
+	claimAt(t, "peer", "", filepath.Join(lane, "b.txt"), now)
+	_, err := commitRun(commitReq(lane, "fix: b", "b.txt"))
+	wantCode(t, err, 1)
+	hosttest.WriteRel(t, dir, "c.txt", "x\n")
+	claimAt(t, "peer", "", filepath.Join(dir, "c.txt"), now-10)
+	claimAt(t, "me", "", filepath.Join(dir, "c.txt"), now)
+	_, err = commitRun(commitReq(dir, "fix: c", "c.txt"))
+	wantCode(t, err, 1)
 }
 
 func TestCommitRename(t *testing.T) {

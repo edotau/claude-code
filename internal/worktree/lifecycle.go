@@ -91,6 +91,10 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 	if err := addWorktree(repo.Main, dest, branch, args, newBranch, opt.Deadline); err != nil {
 		return "", err
 	}
+	if _, err := os.Stat(dest); err != nil {
+		rollbackAdd(repo.Main, dest, branch, newBranch)
+		return "", fmt.Errorf("git worktree add reported success but %s is missing: %w", dest, err)
+	}
 	seedWorktree(repo.Main, dest, log)
 	if newBranch {
 		recordForkPoint(repo.Main, branch, base, baseErr, log)

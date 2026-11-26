@@ -1,5 +1,6 @@
+internal/worktree/audit.go:WriteAuditSnapshot	unversioned: json: post-land audit rows the auditq worker publishes from its table for hooks to read
 internal/worktree/audit.go:claimAuditReport	unversioned: empty marker: exclusive create says the audit result was reported
-internal/worktree/audit.go:startAudit	unversioned: json: post-land audit start record, ended by a shell-written exit file
+internal/worktree/audit.go:ensureWorker	unversioned: empty flock file probed for a draining worker, and an empty restart stamp whose mtime spaces respawns
 internal/worktree/commit.go:undoAdd	unversioned: git index: saved bytes renamed over it from a held index.lock, git's own protocol
 internal/worktree/failures.go:DoneFailure	unversioned: empty marker: a failure's fix is finished
 internal/worktree/failures.go:appendFailure	unversioned: json: one broadcast failure record the next-Seq counter beside failures.jsonl
@@ -7,6 +8,7 @@ internal/worktree/failures.go:appendRaw	unversioned: json: one broadcast failure
 internal/worktree/failures.go:claimFailure	unversioned: text: the session slug that holds a failure, published by hard link
 internal/worktree/failures.go:failuresSince	unversioned: text: a session failure-log cursor: the last Seq it saw
 internal/worktree/failures.go:trimFailures	unversioned: json: failures.jsonl cut to its newest records
+internal/worktree/land.go:acquire	unversioned: text: the land-lock holder pid and who, beside the land lock
 internal/worktree/land.go:editQueueWithin	land-queue
 internal/worktree/landstats.go:recordAttempt	land-attempts
 internal/worktree/landstats.go:trimAttempts	land-attempts
