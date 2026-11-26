@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -134,6 +135,9 @@ func Text(s string) string {
 	}
 	return Shared().String(s)
 }
+
+// TextSecrets masks credential-shaped runs in s, then vault values.
+func TextSecrets(s string) string { return Text(textutil.RedactSecrets(s)) }
 
 // ValueBytes masks vault values in one encoded JSON document or line in place, keeping it valid JSON.
 func ValueBytes(b []byte) int {

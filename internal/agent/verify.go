@@ -12,7 +12,6 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -36,7 +35,7 @@ func (p *Prepared) verified(ctx context.Context, res wire.Result, err error, not
 // VerifyRun is the one place a spec's verify runs: opts.Verify in opts.WorkDir, or not run when the work is remote.
 func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyResult {
 	if remote { // the work is on another host's tree: running here would check the wrong files
-		return &wire.VerifyResult{Command: maskShapes(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
+		return &wire.VerifyResult{Command: redact.TextSecrets(opts.Verify), Exit: -1, Reason: wire.VerifyNotRunRemote}
 	}
 	ctx = valuesContext(ctx, opts.Values)
 	env := slices.DeleteFunc(runEnviron(ctx), func(kv string) bool {
@@ -52,7 +51,7 @@ func VerifyRun(ctx context.Context, opts RunOptions, remote bool) *wire.VerifyRe
 // runVerify runs each && step of verify as argv in workdir with env, stopping at the first failure.
 func runVerify(ctx context.Context, workdir, verify string, env []string) *wire.VerifyResult {
 	start := time.Now()
-	vr := &wire.VerifyResult{Command: maskShapes(verify)}
+	vr := &wire.VerifyResult{Command: redact.TextSecrets(verify)}
 	steps, err := plans.VerifyArgv(verify)
 	if err == nil {
 		err = plans.VerifyShape(verify)
@@ -87,7 +86,7 @@ func verifyTail(t *tailBuf) string {
 	if t.cut { // the window starts mid-output
 		s = dropFirstLine(redact.AfterOrphanPEM(s, t.openPEM))
 	}
-	masked := maskShapes(s)
+	masked := redact.TextSecrets(s)
 	return strings.ToValidUTF8(masked[max(0, len(masked)-verifyTailMax):], "")
 }
 
@@ -114,9 +113,6 @@ func base64Line(s string) bool { return s != "" && strings.Trim(s, b64Chars) == 
 
 // keyBodyLine is dropFirstLine's key-body check; a seam so tests never build a key-body-shaped line.
 var keyBodyLine = base64Line
-
-// maskShapes masks credential-shaped runs, then vault values, in s.
-func maskShapes(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
 
 // verifyKeep is the raw window kept: more than the tail plus a 4096-bit PEM key (about 3.3 KiB).
 const verifyKeep = 4 * verifyTailMax

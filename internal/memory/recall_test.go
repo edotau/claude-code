@@ -804,3 +804,89 @@ func BenchmarkAgentRecall(b *testing.B) {
 		}
 	})
 }
+
+// redirectStd runs f with os.Stdout and os.Stderr redirected and returns what each wrote.
+func redirectStd(t *testing.T, f func()) (stdout, stderr string) {
+	t.Helper()
+	or, ow, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer or.Close()
+	defer ow.Close()
+	er, ew, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer er.Close()
+	defer ew.Close()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = ow, ew
+	func() {
+		defer func() { os.Stdout, os.Stderr = oldOut, oldErr }()
+		f()
+	}()
+	ow.Close()
+	ew.Close()
+	ob, _ := io.ReadAll(or)
+	eb, _ := io.ReadAll(er)
+	return string(ob), string(eb)
+}
+
+func TestRecallTimingStages(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Zebrafish pipeline timing choice <!-- id:bbbb0001 -->\n\nzebrafish pipeline timing notes rationale\n")
+	prompt := "zebrafish pipeline timing notes"
+	paths := map[string]func() string{
+		"prompt": func() string { return PromptRecall(context.Background(), "", prompt, io.Discard) },
+		"agent": func() string {
+			b, _ := AgentRecall(context.Background(), "", prompt)
+			return b
+		},
+	}
+	for name, run := range paths {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_RECALL_TIMING", "")
+			want := run()
+			t.Setenv("CLAUDE_RECALL_TIMING", "1")
+			var got string
+			stdout, stderr := redirectStd(t, func() { got = run() }) // no manual flush: the path must flush itself
+			if got == "" || got != want {
+				t.Fatalf("timed result %q != untimed %q", got, want)
+			}
+			if strings.Contains(stdout, "recall-timing") {
+				t.Fatalf("timing leaked to stdout: %q", stdout)
+			}
+			if n := strings.Count(stderr, "recall-timing"); n != 1 {
+				t.Fatalf("recall-timing lines = %d: %q", n, stderr)
+			}
+			if !strings.Contains(stderr, " rank=") {
+				t.Errorf("no rank stage: %q", stderr)
+			}
+		})
+	}
+}
+
+func TestRecallTimingOffIsSilent(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n## 2026-10-20 — Zebrafish pipeline timing choice <!-- id:bbbb0001 -->\n\nzebrafish pipeline timing notes rationale\n")
+	t.Setenv("CLAUDE_RECALL_TIMING", "")
+	stdout, stderr := redirectStd(t, func() {
+		PromptRecall(context.Background(), "", "zebrafish pipeline timing notes", io.Discard)
+		AgentRecall(context.Background(), "", "zebrafish pipeline timing notes")
+		Search(SearchOptions{Query: "zebrafish pipeline", K: 5})
+		FlushRecallTiming()
+	})
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout=%q stderr=%q, want both empty", stdout, stderr)
+	}
+	if len(timingOrder) != 0 || len(timingSpans) != 0 {
+		t.Fatalf("a timer ran (clock read): %v %v", timingOrder, timingSpans)
+	}
+	if n := testing.AllocsPerRun(100, func() { RecallStage("search")() }); n != 0 {
+		t.Fatalf("disabled RecallStage allocs = %v, want 0", n)
+	}
+	if n := testing.AllocsPerRun(100, FlushRecallTiming); n != 0 {
+		t.Fatalf("disabled FlushRecallTiming allocs = %v, want 0", n)
+	}
+}

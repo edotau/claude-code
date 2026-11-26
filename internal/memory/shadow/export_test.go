@@ -433,12 +433,22 @@ func TestOutsideEditAfterExportIsStillSeen(t *testing.T) {
 	if err := os.WriteFile(memory.Path("activeContext.md"), []byte(body+"- sneaked in outside\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	edb, closeDB, err := memory.OpenExportDB() // an open no longer imports under db truth: the guard does
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.ExportGuard(edb, paths.MemoryStoreDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeDB(); err != nil {
+		t.Fatal(err)
+	}
 	docs, _, err := memory.NewBankStore(false).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(docs["activeContext.md"].Render()), "sneaked in outside") {
-		t.Fatal("an outside edit after the export was not imported on the next open")
+		t.Fatal("an outside edit after the export was not imported by the guard")
 	}
 }
 
@@ -552,5 +562,13 @@ func TestRebuildUnderDBTruthRefusesOnExportConflict(t *testing.T) {
 	}
 	if n := shadowCount(t, `SELECT count(*) FROM entries WHERE lines LIKE '%db only change%'`); n != 1 {
 		t.Fatalf("db rows with the db-only change = %d after the refused rebuild, want 1", n)
+	}
+}
+
+func TestMatchRowsKeepsEditedEntryWithoutID(t *testing.T) {
+	old := []liveEntry{{rowid: 7, seq: 0, lines: "- a"}, {rowid: 8, seq: 1, lines: "- b"}}
+	got := matchRows(old, []shadowEntry{{seq: 0, lines: "- a edited"}, {seq: 1, lines: "- b"}})
+	if got[0] != 7 || got[1] != 8 {
+		t.Fatalf("matchRows = %v, want [7 8]", got)
 	}
 }

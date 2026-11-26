@@ -115,7 +115,7 @@ func TestAuditAllResolvesSiblingCheckouts(t *testing.T) {
 }
 
 // A judged run's strike with no found cite or of a claimed task is reopened; a prose edit reverts every change.
-func TestRecheckJobRevertsUnprovenStrikes(t *testing.T) {
+func TestRecheckOwnedRevertsUnprovenStrikes(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "main")
 	plan := filepath.Join(Home(repo), "2026-10-05-j.md")
@@ -130,20 +130,20 @@ func TestRecheckJobRevertsUnprovenStrikes(t *testing.T) {
 	strike("1.1", "x — evidence: decision:deadbeef")
 	strike("1.2", "x — evidence: decision:ab12cd34")
 	strike("1.3", "x — evidence: decision:ab12cd34")
-	rep, err := RecheckJob(context.Background(), repo, "dream", before, cite)
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, cite, nil)
 	if got := readFile(t, plan); err != nil || len(rep.Reverted) != 2 || len(rep.Kept) != 1 || strings.Count(got, "~~") != 2 {
 		t.Fatalf("kept %d reverted %d err %v:\n%s", len(rep.Kept), len(rep.Reverted), err, got)
 	}
 	before = TakeSnapshot(repo)
 	writeFile(t, plan, strings.Replace(readFile(t, plan), "# J", "# J edited", 1))
 	strike("1.1", "x — evidence: decision:ab12cd34")
-	if rep, _ = RecheckJob(context.Background(), repo, "dream", before, cite); !rep.TextChanged || len(rep.Reverted) != 1 {
+	if rep, _ = RecheckOwned(context.Background(), repo, "dream", before, cite, nil); !rep.TextChanged || len(rep.Reverted) != 1 {
 		t.Fatalf("a prose edit must revert the run's changes: %+v", rep)
 	}
 }
 
 // A judged run keeps at most JobChangeCap changes, in plan order; the rest are reopened.
-func TestRecheckJobCapsChanges(t *testing.T) {
+func TestRecheckOwnedCapsChanges(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "main")
 	plan := filepath.Join(Home(repo), "2026-10-05-k.md")
@@ -158,14 +158,14 @@ func TestRecheckJobCapsChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rep, err := RecheckJob(context.Background(), repo, "dream", before, func(string, string) bool { return true })
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, func(string, string) bool { return true }, nil)
 	if err != nil || len(rep.Kept) != JobChangeCap || len(rep.Reverted) != 1 || rep.Reverted[0].ID != fmt.Sprintf("1.%d", JobChangeCap+1) {
 		t.Fatalf("kept %d reverted %+v err %v", len(rep.Kept), rep.Reverted, err)
 	}
 }
 
 // A failing log append never stops the reverts: every unproven strike is reopened and the error is returned.
-func TestRecheckJobRevertsDespiteLogErrors(t *testing.T) {
+func TestRecheckOwnedRevertsDespiteLogErrors(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "main")
 	plan := filepath.Join(Home(repo), "2026-10-06-l.md")
@@ -179,7 +179,7 @@ func TestRecheckJobRevertsDespiteLogErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rep, err := RecheckJob(context.Background(), repo, "dream", before, func(string, string) bool { return false })
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, func(string, string) bool { return false }, nil)
 	if got := readFile(t, plan); err == nil || len(rep.Reverted) != 2 || strings.Contains(got, "~~") {
 		t.Fatalf("reverted %d err %v:\n%s", len(rep.Reverted), err, got)
 	}

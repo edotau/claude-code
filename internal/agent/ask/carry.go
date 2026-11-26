@@ -584,14 +584,6 @@ func carryEnvelope(ctx context.Context, rec, final agent.Record, found bool, cod
 	return env
 }
 
-// carryVerify runs the verify here once when the child's clean result held none, else marks it unread: never twice.
-func carryVerify(ctx context.Context, rec agent.Record, read bool) *wire.VerifyResult {
-	if !read {
-		return &wire.VerifyResult{Command: maskText(rec.Request.Verify), Exit: -1, Reason: wire.VerifyNotRunUnread}
-	}
-	return agent.VerifyRun(ctx, rec.Request, rec.Host != "")
-}
-
 // parentVerifies is true for an answered run whose spec verify its child's clean result did not carry.
 func parentVerifies(rec agent.Record, env wire.Envelope) bool {
 	return rec.Request.Verify != "" && env.Verify == nil && env.Status == wire.StatusOK && env.Error == nil

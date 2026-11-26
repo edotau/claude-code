@@ -1,9 +1,11 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,5 +145,63 @@ func TestSyncRefusesInSandboxButNotInNormalDir(t *testing.T) {
 	}
 	if SyncOn() || SyncIfDue(now.Add(syncEvery*2), now.Add(syncEvery*2), t.TempDir()) || spawns.Sync.Load() != 1 {
 		t.Fatalf("a sandbox config dir synced: spawns=%d", spawns.Sync.Load())
+	}
+}
+
+// fakeEnvelopes is an in-memory EnvelopeStore: per-origin rows and watermarks, apply records the seq.
+type fakeEnvelopes struct {
+	rows    map[string][]Envelope
+	acked   map[string]int64
+	applied []int64
+}
+
+func (f *fakeEnvelopes) ChangesAfter(origin string, after int64, limit int) ([]Envelope, error) {
+	var out []Envelope
+	for _, e := range f.rows[origin] {
+		if e.Seq > after && len(out) < limit {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+func (f *fakeEnvelopes) Watermark(origin string) (int64, int, error) { return f.acked[origin], 0, nil }
+func (f *fakeEnvelopes) ApplyEnvelope(e Envelope) (bool, error) {
+	f.applied, f.acked[e.Origin] = append(f.applied, e.Seq), max(f.acked[e.Origin], e.Seq)
+	return false, nil
+}
+func (f *fakeEnvelopes) Conflicts(bool) ([]ConflictRow, error) { return nil, nil }
+func (f *fakeEnvelopes) ResolveConflict(int64, string) error   { return nil }
+func (f *fakeEnvelopes) Close() error                          { return nil }
+
+func envLine(seq int64, schema int) string {
+	return fmt.Sprintf(`{"origin":"peer","origin_seq":%d,"schema":%d,"entry_ref":"u","op":"upsert"}`+"\n", seq, schema)
+}
+
+// TestEnvelopeImportHolds: lines apply in seq order; a gap or a schema mismatch holds the origin unacknowledged.
+func TestEnvelopeImportHolds(t *testing.T) {
+	st := &fakeEnvelopes{acked: map[string]int64{}}
+	rep, err := ImportEnvelopes(st, strings.NewReader(envLine(2, 2)+envLine(1, 2)+envLine(4, 2)), 2)
+	if err != nil || !slices.Equal(st.applied, []int64{1, 2}) || len(rep.Held) != 1 || !strings.Contains(rep.Held[0], "gap") {
+		t.Fatalf("ordered import = %+v, applied %v (%v)", rep, st.applied, err)
+	}
+	rep, err = ImportEnvelopes(st, strings.NewReader(envLine(3, 3)), 2)
+	if err != nil || st.acked["peer"] != 2 || len(rep.Held) != 1 || !strings.Contains(rep.Held[0], "claude-code upgrade") {
+		t.Fatalf("newer schema import = %+v, acked %d (%v)", rep, st.acked["peer"], err)
+	}
+	if _, err := ImportEnvelopes(st, strings.NewReader(`{"origin":"a/b","origin_seq":1,"schema":2}`), 2); err == nil {
+		t.Fatal("an origin with a slash was accepted")
+	}
+}
+
+// TestEnvelopeExportOrder: export pages in seq order and refuses a store that skips a seq.
+func TestEnvelopeExportOrder(t *testing.T) {
+	st := &fakeEnvelopes{rows: map[string][]Envelope{"peer": {{Origin: "peer", Seq: 1}, {Origin: "peer", Seq: 2}}}}
+	var b strings.Builder
+	if n, err := ExportEnvelopes(st, "peer", 0, &b); err != nil || n != 2 || strings.Count(b.String(), "\n") != 2 {
+		t.Fatalf("export = %d (%v): %q", n, err, b.String())
+	}
+	st.rows["peer"] = []Envelope{{Origin: "peer", Seq: 3}}
+	if _, err := ExportEnvelopes(st, "peer", 1, &b); err == nil {
+		t.Fatal("export accepted a skipped seq")
 	}
 }

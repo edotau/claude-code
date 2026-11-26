@@ -371,6 +371,9 @@ func dreamLocked(o dreamOptions) dreamRan {
 	return r
 }
 
+// DreamListing is dreamListing for package shadow's db-truth regression test.
+var DreamListing = dreamListing
+
 // dreamListing snapshots addressable bank entries and the refs needed to report applied changes.
 func dreamListing() (string, Versions, map[string]string, map[string]Doc, error) {
 	docs, base, err := newBankStore(false).Load()
@@ -397,7 +400,7 @@ func dreamListing() (string, Versions, map[string]string, map[string]Doc, error)
 			} else {
 				files[id] = name
 			}
-			entries = append(entries, entry{name, id, string(base[id]), e.block(), false})
+			entries = append(entries, entry{name, id, contentRef(e.block()), e.block(), false})
 		}
 	}
 	for i := range entries {
@@ -499,7 +502,7 @@ func (r *dreamRan) applyChecked(batch Batch, out io.Writer) error {
 	if err := refuseDerivedSupersede(batch); err != nil {
 		return fmt.Errorf("dream batch: %w", err)
 	}
-	based, err := withBase(batch, r.base)
+	based, err := withBase(batch, contentRefs(r.docs))
 	if err != nil {
 		return fmt.Errorf("dream batch: %w", err)
 	}

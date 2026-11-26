@@ -2,6 +2,7 @@ package shadow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -777,5 +778,48 @@ func TestBankStoreLoadAmbiguousRefHasNoVersion(t *testing.T) {
 	// an empty base version means no read guard, so the refusal must come from ApplyDocs
 	if _, err := s.Apply(memory.Batch{Ops: []memory.Op{{Op: "update", ID: dup, Text: "x"}}}, v, storeNow); err == nil {
 		t.Error("an update on an ambiguous ref was applied")
+	}
+}
+
+// listedRead returns id's listed read token from a dream listing.
+func listedRead(t *testing.T, listing, id string) string {
+	t.Helper()
+	var entries []struct{ ID, Read string }
+	if err := json.Unmarshal([]byte(listing[strings.Index(listing, "["):]), &entries); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.ID == id {
+			return e.Read
+		}
+	}
+	t.Fatalf("listing has no entry %s: %s", id, listing)
+	return ""
+}
+
+func TestDreamReadTokenAppliesUnderDBTruth(t *testing.T) {
+	e := newParityEnv(t, "db")
+	st := memory.NewBankStore(false)
+	add := memory.Op{Op: "add", Target: "conventions", Text: "listed rule"}
+	rs, err := st.Apply(memory.Batch{Ops: []memory.Op{add}}, nil, e.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := rs[0].ID
+	listing, base, _, _, err := memory.DreamListing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := listedRead(t, listing, id)
+	if strings.HasPrefix(id, "z") || read == string(base[id]) {
+		t.Fatalf("want a stored id and a content-ref read apart from the version: %s %q %q", id, read, base[id])
+	}
+	bad := memory.Op{Op: "update", ID: id, Read: "z00000000", Text: "stale"}
+	if _, err := st.Apply(memory.Batch{Ops: []memory.Op{bad}}, base, e.now()); err == nil {
+		t.Fatal("a wrong read was accepted")
+	}
+	upd := memory.Op{Op: "update", ID: id, Read: read, Text: "listed rule, edited"}
+	if _, err := st.Apply(memory.Batch{Ops: []memory.Op{upd}}, base, e.now()); err != nil {
+		t.Fatalf("apply with the listed read %q: %v", read, err)
 	}
 }

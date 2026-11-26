@@ -1053,3 +1053,31 @@ func TestMemoryReviewFalseRetiredFlagsRun(t *testing.T) {
 		}
 	}
 }
+
+// The search verb flushes recall timing itself, to stderr only, in text and JSON.
+func TestMemorySearchRecallTiming(t *testing.T) {
+	memCfg(t)
+	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	t.Chdir(t.TempDir())
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", "# D\n\n## 2026-10-20 — Zebrafish pipeline timing choice <!-- id:bbbb0001 -->\n\nzebrafish pipeline timing notes rationale\n")
+	for _, args := range [][]string{{"search", "zebrafish pipeline"}, {"search", "--format", "json", "zebrafish pipeline"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Setenv("CLAUDE_RECALL_TIMING", "1")
+			code, out, stderr := memCLI(t, args...)
+			if code != 0 || !strings.Contains(out, "decisionLog") {
+				t.Fatalf("code=%d out=%q stderr=%q", code, out, stderr)
+			}
+			if strings.Contains(out, "recall-timing") {
+				t.Fatalf("timing leaked to stdout: %q", out)
+			}
+			if n := strings.Count(stderr, "recall-timing"); n != 1 {
+				t.Fatalf("recall-timing lines = %d: %q", n, stderr)
+			}
+			t.Setenv("CLAUDE_RECALL_TIMING", "")
+			_, out2, stderr2 := memCLI(t, args...)
+			if strings.Contains(out2+stderr2, "recall-timing") {
+				t.Fatalf("disabled run printed timing: %q %q", out2, stderr2)
+			}
+		})
+	}
+}

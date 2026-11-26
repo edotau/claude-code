@@ -29,9 +29,6 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 
 func maskedOut(out io.Writer) io.WriteCloser { return redact.Writer(out) }
 
-// maskText masks credential-shaped runs, then vault values, in s.
-func maskText(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
-
 func warmMask() { redact.Shared() }
 
 func closeAskOutput(out io.Closer, exit int) int {
@@ -95,7 +92,7 @@ func maskEnvelope(env wire.Envelope) wire.Envelope {
 	}
 	if env.Verify != nil {
 		v := *env.Verify
-		v.Command, v.Tail = maskText(v.Command), maskText(v.Tail)
+		v.Command, v.Tail = redact.TextSecrets(v.Command), redact.TextSecrets(v.Tail)
 		env.Verify = &v
 	}
 	env.Structured = maskStructured(env.Structured)
@@ -288,4 +285,12 @@ func printDenials(out io.Writer, res wire.Result) error {
 	list := textutil.TruncateCells(strings.Join(d.Commands, ", "), max(0, denialSummaryCells-textutil.DisplayWidth(head+tail)), "…")
 	_, err := fmt.Fprintln(out, head+list+tail)
 	return err
+}
+
+// carryVerify runs the verify here once when the child's clean result held none, else marks it unread: never twice.
+func carryVerify(ctx context.Context, rec agent.Record, read bool) *wire.VerifyResult {
+	if !read {
+		return &wire.VerifyResult{Command: redact.TextSecrets(rec.Request.Verify), Exit: -1, Reason: wire.VerifyNotRunUnread}
+	}
+	return agent.VerifyRun(ctx, rec.Request, rec.Host != "")
 }

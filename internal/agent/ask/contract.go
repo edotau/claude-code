@@ -918,7 +918,7 @@ func returnOf(ctx context.Context, rec agent.Record, cid string, res wire.Result
 	}
 	r.Report = reportOf(rec, c)
 	waitLeaves(ctx, c, r.End)
-	r.Spent = contract.SpentOf(c, append(subtreeUses(rec.ID, spentTokens(&res.Usage)), deadUses(c)...))
+	r.Spent = contract.SpentOf(c, append(subtreeUses(rec.ID, res.Usage.Total()), deadUses(c)...))
 	if dir := cmp.Or(rec.Tree, rec.Cwd); r.End == endFinished && dir != "" { // "" would gate this process's cwd
 		r.Gate = gateOf(ctx, dir, c.Scope.Own)
 	}
@@ -957,15 +957,7 @@ func deadUses(c contract.Contract) []contract.Use {
 	if len(c.Holders) < 2 {
 		return nil
 	}
-	first := 0
-	if dead, err := agent.LoadRecord(c.Holders[0]); err == nil {
-		u := dead.Usage
-		if u == nil && dead.Activity != nil {
-			u = &dead.Activity.Usage
-		}
-		first = spentTokens(u)
-	}
-	return subtreeUses(c.Holders[0], first)
+	return wire.DispatchUses(c.Holders[0])
 }
 
 // The settle gate gets 60 s (a cold lane gate takes ~25 s); wholeDeadline reserves it inside the ask's own timeout.
@@ -1003,36 +995,10 @@ func gateScope(dir string, own []string) []string {
 	return out
 }
 
-// subtreeUses is every dispatch record started at or after root (none earlier descends from it); root's own is held.
+// subtreeUses is root's dispatch subtree with root's own record replaced by the live tokens held for it.
 func subtreeUses(root string, rootTokens int) []contract.Use {
-	stamp, _, _ := strings.Cut(root, "-") // a dispatch id starts with its start stamp, so names sort by start
-	ents, _ := os.ReadDir(paths.DispatchDir())
-	out := []contract.Use{{ID: root, Tokens: rootTokens}}
-	for _, e := range slices.Backward(ents) {
-		if e.Name() < stamp {
-			break
-		}
-		id, ok := strings.CutSuffix(e.Name(), ".json")
-		if !ok || id == root {
-			continue
-		}
-		if r, err := agent.LoadRecord(id); err == nil {
-			u := r.Usage
-			if u == nil && r.Activity != nil {
-				u = &r.Activity.Usage
-			}
-			out = append(out, contract.Use{ID: r.ID, Parent: r.Parent, Tokens: spentTokens(u)})
-		}
-	}
-	return out
-}
-
-// spentTokens counts every input and output token a budget charges, cache reads included (the budget's own sum).
-func spentTokens(u *wire.Usage) int {
-	if u == nil {
-		return 0
-	}
-	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
+	uses := slices.DeleteFunc(wire.DispatchUses(root), func(u contract.Use) bool { return u.ID == root })
+	return append(uses, contract.Use{ID: root, Tokens: rootTokens})
 }
 
 // runEndOf is how the held run ended: a cancel, a finished ok run, else a died owner.

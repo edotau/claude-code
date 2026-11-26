@@ -237,7 +237,7 @@ const summaryCap = 120
 
 // Summary is s on one redacted line of at most summaryCap runes, for a tool argument or thinking text.
 func Summary(s string) string {
-	return textutil.Truncate(textutil.OneLine(maskText(s)), summaryCap)
+	return textutil.Truncate(textutil.OneLine(redact.TextSecrets(s)), summaryCap)
 }
 
 // FirstLine is the first non-blank line of s as a Summary, for a tool result.
@@ -387,7 +387,7 @@ func redactVerify(ev Event) Event {
 		return ev
 	}
 	env, v := *ev.Envelope, *ev.Envelope.Verify
-	v.Command, v.Tail = maskText(v.Command), maskText(v.Tail)
+	v.Command, v.Tail = redact.TextSecrets(v.Command), redact.TextSecrets(v.Tail)
 	env.Verify = &v
 	ev.Envelope = &env
 	return ev
@@ -412,7 +412,7 @@ func redactJSON(raw json.RawMessage) json.RawMessage {
 func redactValue(v any) any {
 	switch x := v.(type) {
 	case string:
-		return maskText(x)
+		return redact.TextSecrets(x)
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
@@ -422,14 +422,12 @@ func redactValue(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			out[maskText(k)] = redactValue(e)
+			out[redact.TextSecrets(k)] = redactValue(e)
 		}
 		return out
 	}
 	return v
 }
-
-func maskText(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
 
 // Close flushes held text and the buffer, then closes the file; it is safe to call twice.
 func (l *EventLog) Close() {

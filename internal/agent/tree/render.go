@@ -415,7 +415,7 @@ func (d Dispatch) tokens() int64 {
 	if d.Usage == nil {
 		return 0
 	}
-	return int64(d.Usage.InputTokens + d.Usage.CacheCreationTokens + d.Usage.CacheReadTokens + d.Usage.OutputTokens)
+	return int64(d.Usage.Total())
 }
 
 // nestDispatches orders ds so each child follows its parent; a parent outside ds, or a cycle, leaves a root.

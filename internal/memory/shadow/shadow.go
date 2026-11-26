@@ -23,7 +23,7 @@ import (
 
 // memorySteps is the memory store's migration list; step n sets user_version n.
 var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}, {Name: "area", Up: areaV2},
-	{Name: "conflict-kind", Up: conflictKindV3}, {Name: "vectors", Up: vectorsV4}}
+	{Name: "conflict-kind", Up: conflictKindV3}, {Name: "vectors", Up: vectorsV4}, {Name: "entry-uid", Up: entryUIDV5}}
 
 // schemaV1Stmts is schema v1, one statement per Exec so a failure names its statement.
 var schemaV1Stmts = []string{
@@ -201,9 +201,9 @@ var (
 	shadowRecordDirs = []string{"reports", "handoffs", "worktrees"}
 )
 
-// shadowClear empties tables keyed by entry rowid too, as a rebuild reassigns rowids; export conflicts (rowid 0) stay.
-var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts WHERE entry_rowid <> 0", "DELETE FROM changes",
-	"DELETE FROM entries", "DELETE FROM docs"}
+// shadowClear empties rowid-keyed rows; uid-keyed changes, conflicts and peers stay (pruning changes is forbidden).
+var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts WHERE entry_rowid <> 0 AND entry_uid IS NULL",
+	keepTombstones + ` WHERE deleted = 1`, "DELETE FROM entries", "DELETE FROM docs"}
 
 // shadowRebuild replaces every docs and entries row with root's files, then checks each render is byte-equal.
 func shadowRebuild(ctx context.Context, db *sql.DB, root string) (ShadowReport, error) {
@@ -233,28 +233,9 @@ func shadowSync(ctx context.Context, db *sql.DB, root string, full bool) (Shadow
 	}
 	var n ShadowReport
 	var changed []shadowDoc
-	err = sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
-		n, changed = ShadowReport{}, nil
-		if known == nil {
-			for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
-				if _, err := tx.ExecContext(ctx, q); err != nil {
-					return err
-				}
-			}
-		} else if err := dropStale(ctx, tx, docs); err != nil {
-			return err
-		}
-		for _, d := range docs {
-			if d.same {
-				continue
-			}
-			if err := insertShadowDoc(ctx, tx, d); err != nil {
-				return err
-			}
-			changed = append(changed, d)
-			n.Docs, n.Entries = n.Docs+1, n.Entries+len(d.entries)
-		}
-		return nil
+	err = sqlite.Tx(ctx, db, func(tx *sql.Tx) (err error) {
+		n, changed, err = syncDocs(ctx, tx, docs, known == nil)
+		return err
 	})
 	if err != nil {
 		return ShadowReport{}, fmt.Errorf("memory: shadow rebuild: %w", err)
@@ -264,6 +245,36 @@ func shadowSync(ctx context.Context, db *sql.DB, root string, full bool) (Shadow
 		return n, err
 	}
 	return n, writeFingerprints(ctx, db, changed, n.Mismatched)
+}
+
+// syncDocs clears what the import replaces (everything when full) and inserts every changed doc.
+func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (ShadowReport, []shadowDoc, error) {
+	var n ShadowReport
+	var changed []shadowDoc
+	ids, err := shadowUIDs(ctx, tx) // read before the clear, so re-inserted entries keep their uid and base
+	if err != nil {
+		return n, nil, err
+	}
+	if full {
+		for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return n, nil, err
+			}
+		}
+	} else if err := dropStale(ctx, tx, docs); err != nil {
+		return n, nil, err
+	}
+	for _, d := range docs {
+		if d.same {
+			continue
+		}
+		if err := insertShadowDoc(ctx, tx, d, ids); err != nil {
+			return n, nil, err
+		}
+		changed = append(changed, d)
+		n.Docs, n.Entries = n.Docs+1, n.Entries+len(d.entries)
+	}
+	return n, changed, nil
 }
 
 // readFingerprints maps imported paths to their "size:mtime_ns" (meta stat:<path>); nil means import everything.
@@ -332,11 +343,11 @@ func dropStale(ctx context.Context, tx *sql.Tx, docs []shadowDoc) error {
 	return nil
 }
 
-// dropDocStmts remove one doc and every row keyed by its entries' rowids (rowids are reused).
+// dropDocStmts remove one doc and its rowid-keyed rows (rowids are reused); uid-keyed changes and conflicts stay.
 var dropDocStmts = []string{
 	`DELETE FROM vectors WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
-	`DELETE FROM changes WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
-	`DELETE FROM conflicts WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
+	`DELETE FROM conflicts WHERE entry_uid IS NULL AND entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
+	keepTombstones + ` WHERE doc = ?1 AND deleted = 1`,
 	`DELETE FROM entries WHERE doc = ?1`, `DELETE FROM docs WHERE path = ?1`, `DELETE FROM meta WHERE key IN ('stat:' || ?1, 'render:' || ?1)`,
 }
 
@@ -380,16 +391,23 @@ func shadowMismatches(ctx context.Context, db *sql.DB, docs []shadowDoc) ([]stri
 	return out, nil
 }
 
-func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
+// insertShadowDoc writes d's rows; rendered_rev 1 marks a plain import, which the capture triggers never record.
+func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc, ids shadowIdentity) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO docs(path, kind, header, hidden, grammar, frontmatter)
 		VALUES(?, ?, ?, ?, ?, ?)`, d.path, d.kind, d.header, d.hidden, d.grammar, d.front); err != nil {
 		return err
 	}
-	for _, e := range d.entries {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version,
-			deleted, origin, origin_seq, rendered_rev) VALUES(?, ?, ?, ?, ?, ?, ?, 1, 0, '', 0, 1)`,
-			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines)); err != nil {
+	for i, p := range ids.assign(d.path, d.entries) {
+		e := d.entries[i]
+		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, uid, version,
+			deleted, origin, origin_seq, rendered_rev) VALUES(?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, 0, ?, ?, 1)`,
+			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines), p.uid, p.version, p.origin, p.originSeq); err != nil {
 			return err
+		}
+		if p.capture { // the version bump fires entries_capture_au with the old origin/seq as base
+			if _, err := tx.ExecContext(ctx, `UPDATE entries SET version = version + 1 WHERE uid = ?`, p.uid); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

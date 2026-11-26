@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,10 +33,15 @@ func openBankStore(bool) (memory.BankStore, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// accepted (7.1 G): an outside edit wins over an unexported db change, which needs a failed export or a crash
-	if _, _, err := importShadow(); err != nil {
-		_ = db.Close()
-		return nil, nil, err
+	if !storedTruthIsDB() || !imported(db) { // a missing or files truth, or a never-imported db, imports first
+		docs, _, err := importShadow()
+		if err == nil && len(docs) > 0 {
+			err = fmt.Errorf("memory: docs do not round-trip through the db: %s", strings.Join(docs, ", "))
+		}
+		if err != nil {
+			_ = db.Close()
+			return nil, nil, err
+		}
 	}
 	var once sync.Once
 	var cerr error
@@ -43,6 +49,18 @@ func openBankStore(bool) (memory.BankStore, func() error, error) {
 		once.Do(func() { cerr = db.Close() })
 		return cerr
 	}, nil
+}
+
+// storedTruthIsDB reads the truth file itself: a missing file or any other value is not "db".
+func storedTruthIsDB() bool {
+	b, err := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "truth"))
+	return err == nil && strings.TrimSpace(string(b)) == "db"
+}
+
+func imported(db *sql.DB) bool {
+	var n int
+	err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM meta WHERE key = ?`, metaImported).Scan(&n)
+	return err == nil && n > 0
 }
 
 // importShadow imports changed docs and lists the divergent ones; changed means that set moved since meta diverged.
@@ -124,7 +142,10 @@ func (s sqlBankStore) Apply(b memory.Batch, base memory.Versions, now time.Time)
 		if err != nil {
 			return err
 		}
-		return writeBank(ctx, tx, st, next)
+		if err := writeBank(ctx, tx, st, next); err != nil {
+			return err
+		}
+		return execEntryCount(ctx, tx)
 	})
 	return results, err
 }
@@ -274,12 +295,13 @@ type slot struct {
 func writeEntry(ctx context.Context, tx *sql.Tx, at slot, e memory.DocEntry) error {
 	lines := strings.Join(e.Lines, "\n")
 	if at.rowid == 0 {
-		_, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, version, rendered_rev)
-			VALUES(?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), 0)`, at.doc, e.ID, at.seq, kindNames[e.Kind], lines, e.Date)
+		_, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version, rendered_rev)
+			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), 0)`,
+			at.doc, e.ID, at.seq, kindNames[e.Kind], lines, e.Date, deriveArea(lines))
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE entries SET id = ?, seq = ?, kind = ?, date = ?,
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET id = ?, seq = ?, kind = ?, date = ?, area = ?,
 		version = version + (lines <> ?), lines = ? WHERE rowid = ?`,
-		e.ID, at.seq, kindNames[e.Kind], e.Date, lines, lines, at.rowid)
+		e.ID, at.seq, kindNames[e.Kind], e.Date, deriveArea(lines), lines, lines, at.rowid)
 	return err
 }

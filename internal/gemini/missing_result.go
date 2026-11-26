@@ -7,7 +7,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 var errAgyMissingResult = errors.New("agy: stream ended without a result event")
@@ -25,7 +24,7 @@ func agyMissingResultErr(err error, logPath, stderr string) error {
 	if readErr == nil && len(log) == agyLogTailBytes {
 		_, log, _ = strings.Cut(log, "\n") // a clipped first line may hold only a secret's suffix
 	}
-	detail := redact.Text(textutil.RedactSecrets(strings.TrimSpace(stderr + "\n" + log)))
+	detail := redact.TextSecrets(strings.TrimSpace(stderr + "\n" + log))
 	if detail == "" {
 		return err
 	}

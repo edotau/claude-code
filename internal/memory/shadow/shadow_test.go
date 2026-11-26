@@ -188,7 +188,8 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	t.Helper()
 	ctx := context.Background()
 	execShadow(t, db, "INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
-		"INSERT INTO changes SELECT 'o', 1, 1, rowid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'")
+		`INSERT INTO changes(origin, origin_seq, schema, entry_rowid, entry_uid, base_version, op, payload, at)
+		SELECT 'o', 1, 1, rowid, uid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'`)
 	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -203,8 +204,8 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	var left int
 	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM docs WHERE path = 'conventions.md') +
 		(SELECT count(*) FROM entries WHERE doc = 'conventions.md') + (SELECT count(*) FROM conflicts) +
-		(SELECT count(*) FROM changes)`).Scan(&left); err != nil || left != 0 {
-		t.Fatalf("rows left for a vanished doc: %d (%v)", left, err)
+		abs((SELECT count(*) FROM changes) - 1)`).Scan(&left); err != nil || left != 0 { // the one changes row is kept
+		t.Fatalf("rows left for a vanished doc (or changes pruned): %d (%v)", left, err)
 	}
 }
 
@@ -276,7 +277,8 @@ func wantShadowMatch(t *testing.T, db *sql.DB, word, doc, id string) {
 func dumpShadow(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var b strings.Builder
-	for _, q := range []string{"SELECT * FROM docs ORDER BY path", "SELECT * FROM entries ORDER BY rowid",
+	for _, q := range []string{"SELECT * FROM docs ORDER BY path", `SELECT rowid, doc, id, seq, kind, lines, date, area, version,
+		deleted, origin, origin_seq, rendered_rev FROM entries ORDER BY rowid`, // uid is random per db
 		"SELECT * FROM vectors", "SELECT * FROM conflicts", "SELECT * FROM changes"} {
 		rows, err := db.QueryContext(context.Background(), q)
 		if err != nil {
@@ -341,7 +343,7 @@ func TestShadowRebuildAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	execShadow(t, db, "INSERT INTO vectors VALUES(1, 'm', 1, x'00', 't')",
-		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't')")
+		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't', 'u')")
 	before := dumpShadow(t, db)
 	if _, err := shadowRebuild(ctx, db, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("rebuild from a missing root succeeded")
@@ -361,9 +363,9 @@ func TestShadowRebuildAtomic(t *testing.T) {
 	}
 	var c int
 	err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM vectors) + (SELECT count(*) FROM conflicts) +
-		(SELECT count(*) FROM changes)`).Scan(&c)
+		abs((SELECT count(*) FROM changes) - 1)`).Scan(&c) // the uid-keyed changes row survives
 	if err != nil || c != 0 {
-		t.Fatalf("rowid-keyed rows left after rebuild: %d (%v)", c, err)
+		t.Fatalf("rowid-keyed rows left after rebuild, or changes pruned: %d (%v)", c, err)
 	}
 }
 

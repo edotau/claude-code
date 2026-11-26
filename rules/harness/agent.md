@@ -179,39 +179,60 @@ paths:
   not with `--live`, `--batch`, `--job`.
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
   (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
-  normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
-  never the dispatch's env. A route is ONE unit (provider, profile, identity, account, host, remote) taken whole from
-  the highest source that sets any of it: command line (flags + `--overlay`) > `COWORKER_OVERLAY` > `--retry`/`--job`
-  record > agent definition > vault record > session > registry default; settings (model, effort, fallback…) merge per
-  key (order, fallback: `providers.md` → Routing precedence). An inherited `COWORKER_OVERLAY` from a parent dispatch
-  is a fence, not a source; `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and credential
-  env names are refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.
-
-  An object that sets any route key names provider AND profile (a github account route: provider `github` + `account`);
-  a partial object exits 2 naming the missing key. Flags take the same pair: `--provider P --profile N`, or
-  `--overlay '{"provider":"P","profile":"N"}'`; a provider with profiles typed alone, or a registry profile typed
-  without its provider, exits 2; a provider with no profiles takes `--provider P` alone. The pool pick (least busy
-  workspace serving the model) is the overlay profile `auto`: `ask --profile auto` and `label` refuse it. A flag and
-  `--overlay` setting one key differently on one command line exit 2 naming both; `--spec` stays a template typed
-  flags beat. Interactive launchers accept route, `model` and `effort` in `--overlay`; `fallback`, budgets, caps,
-  `codexNetwork` and `cloud` are refused naming the key. Held-job hints print `--overlay '<object>'`; batch lines take
-  an `overlay` key.
-
-  | Key                      | Values                                                                                                                | Overrides                            |
-  | ------------------------ | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-  | `provider` / `profile`   | provider key / profile name (both, or neither)                                                                        | `--provider`, `--profile`            |
-  | `model` / `effort`       | model id or alias / effort name                                                                                       | `--model`, `--effort`                |
-  | `fallback`               | `none\|pin\|agents\|all`                                                                                              | `--fallback`, `AGENT_ERROR_FALLBACK` |
-  | `host` / `remote`        | ssh host, in the route (not both, unless `host` names this machine)                                                   | `--host`, remote run                 |
-  | `account`                | GitHub account login (github only)                                                                                    | the credit gate's account pick       |
-  | `identity`               | `auto\|user\|sp` (Databricks only)                                                                                    | `--as`, the profile's identity       |
-  | `codexNetwork`           | `true`: codex `--tools` `workspace-write` sandbox gets network (inert under `danger-full-access`; top-level ask only) | sealed network                       |
-  | `cloud`                  | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login                      | local                                |
-  | `maxChildren`            | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default                                | 8                                    |
-  | `maxTreeTokens`          | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default                                          | 20000000                             |
-  | `budgetUSD`              | Claude only: number > 0, passed as `--max-budget-usd`                                                                 | uncapped                             |
-  | `budgetCredits`          | Copilot only: integer >= 30, SDK session credit limit                                                                 | uncapped                             |
-  | `set` / `unset` / `keep` | env name -> value / names / names                                                                                     | env layer                            |
+  normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context, never the
+  dispatch's env. A route is ONE unit (provider, profile, identity, account, host, remote) taken whole from the highest
+  source that sets any of it: command line (flags + `--overlay`) > `COWORKER_OVERLAY` > `--retry`/`--job` record > agent
+  definition > vault record > session > registry default; settings (model, effort, fallback…) merge per key (order,
+  fallback: `providers.md` → Routing precedence). An inherited `COWORKER_OVERLAY` from a parent dispatch is a fence, not
+  a source; `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and credential env names are
+  refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.  An object that
+  sets any route key names provider AND profile (a github account route: provider `github` + `account`); a partial
+  object exits 2 naming the missing key. Flags take the same pair: `--provider P --profile N`, or `--overlay
+  '{"provider":"P","profile":"N"}'`; a provider with profiles typed alone, or a registry profile typed without its
+  provider, exits 2; a provider with no profiles takes `--provider P` alone. The pool pick (least busy workspace serving
+  the model) is the overlay profile `auto`: `ask --profile auto` and `label` refuse it. A flag and `--overlay` setting
+  one key differently on one command line exit 2 naming both; `--spec` stays a template typed flags beat. Interactive
+  launchers accept route, `model` and `effort` in `--overlay`; a key marked `dispatch` in the table below is refused
+  naming the key. Held-job hints print `--overlay '<object>'`; batch lines take an `overlay` key.  **Two steps.** The
+  *launch overlay* is built first, from `settings.json` and the vault (the keys, records and configs each agent's launch
+  needs); the *dispatch overlay* (`--overlay {}`, `COWORKER_OVERLAY`, flags folded into it) is laid over it per call. A
+  child's overlay is a copy of its parent's, changed by one function (`Overlay.Derive`, one hop per step: append,
+  session child, dispatch child, resume, fallback); never a reference, never an ambient variable. A child copy keeps
+  only the "child: yes" keys below; every other key is dropped, so what a child receives is that column and nothing
+  else.  Every overlay key (the embedded `overlay.schema.json`, one `Overlay` type). Schema: `both` = the launch and the
+  dispatch overlay; `dispatch` = the launch refuses it naming the key; `launch` = the launch overlay only. Child: `yes`
+  = copied into a child's overlay. Tighten: a child may only narrow or lower it, never loosen.  | Key
+  | Type                 | Schema   | Child | Tighten | | ------------------------------------ | -------------------- |
+  -------- | ----- | ------- | | `schema`                             | integer, 0-2         | both     | no    | no
+  | | `provider`, `profile`                | string, string       | both     | yes   | no      | | `identity`,
+  `account`, `endpoint`    | string               | both     | yes   | no      | | `model`, `effort`
+  | string, enum         | both     | no    | no      | | `fallback`                           | enum                 |
+  dispatch | yes   | no      | | `runner`                             | enum `pi\|own`       | both     | yes   | no
+  | | `host`, `remote`                     | string (ssh host)    | both     | no    | no      | | `providerMode`
+  | map name to mode     | both     | no    | no      | | `set`, `unset`, `keep`               | map / list / list    |
+  both     | no    | no      | | `tokenCommand`                       | list of string       | dispatch | no    | no
+  | | `maxChildren`, `maxTreeTokens`       | integer              | both     | yes   | yes     | | `maxDepth`
+  | integer              | both     | yes   | yes     | | `codemode`                           | enum `off\|on\|only` |
+  both     | yes   | no      | | `fence`                              | object               | both     | yes   | yes
+  | | `budgetUSD`, `budgetCredits`         | number, integer      | both     | no    | yes     | | `codexNetwork`,
+  `cloud`              | boolean              | dispatch | no    | no      | | `noTools`, `noPersist`               |
+  boolean              | both     | yes   | yes     | | `tools`                              | boolean              |
+  both     | false | yes     | | `timeout`                            | Go duration, <= 24h  | both     | yes   | yes
+  | | `agent`, `agents`, `tier`            | string, object, enum | both     | no    | no      | | `systemPrompt`,
+  `appendSystemPrompt` | string               | both     | no    | no      | | `outputSchema`, `debugFile`          |
+  string               | both     | no    | no      | | `googleTools`                        | comma list           |
+  both     | no    | no      | | `native`, `autonomous`, `fleet`      | boolean              | both     | no    | no
+  | | `enableMemory`                       | boolean              | both     | no    | no      | | `file`
+  | path (codex toml)    | launch   | no    | no      | | `files`                              | reserved, refused    |
+  none     | no    | no      |  Notes. `provider` and `profile` travel as one unit with `identity`, `account` and
+  `endpoint` (identity is Databricks only, account GitHub only); a child's `profile` also becomes its fence.
+  `maxChildren` and `maxTreeTokens` resolve env > overlay > default (8, 20000000); 0 = no cap, invalid = default; a
+  child takes the smaller. `budgetUSD` is Claude only (`--max-budget-usd`, > 0), `budgetCredits` Copilot only (integer
+  >= 30); a child's own budget is capped at its parent's. `codexNetwork` gives codex `--tools` `workspace-write` a
+  network (inert under `danger-full-access`; top-level ask only); `cloud` sends the diff or repo to the vendor's cloud
+  (`claude review`, `codex cloud exec`; own login). `model`, `effort`, `fallback`, `host` fold onto a flag no one typed
+  (flag > overlay > default). The run keys (`agent` to `file`) are accepted and carried across hops, but the ask path
+  does not read them yet.
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 - **Model precedence** (`agent.ResolveRun`; model merges per key across layers, preflight refuses an unserved one):

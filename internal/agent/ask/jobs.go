@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -383,7 +382,7 @@ func resultExit(rec agent.Record) int {
 	if !rec.Failed() {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", redact.Text(textutil.RedactSecrets(rec.Error))) // the stderr tail in it may carry a key
+	fmt.Fprintf(os.Stderr, "error: %s\n", redact.TextSecrets(rec.Error)) // the stderr tail in it may carry a key
 	return 1
 }
 

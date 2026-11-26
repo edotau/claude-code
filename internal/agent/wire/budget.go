@@ -56,5 +56,5 @@ func (r budgetRecord) tokens() int {
 	if u == nil {
 		return 0
 	}
-	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
+	return u.Total()
 }

@@ -565,7 +565,7 @@ func ObservedLine(rec Record) string {
 		parts = append(parts, fmt.Sprintf("%d files changed in a shared tree", len(*rec.TreeChanged)))
 	}
 	if u := rec.Usage; u != nil {
-		if t := int64(u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens); t > 0 {
+		if t := int64(u.Total()); t > 0 {
 			parts = append(parts, textutil.CompactCount(t)+" tok")
 		}
 	}

@@ -173,7 +173,7 @@ func dispatchTreeUsage(parent string) (string, int, int) {
 			continue
 		}
 		u := rec.Usage
-		spent += u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
+		spent += u.Total()
 	}
 	return root, spent, unknown
 }

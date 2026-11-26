@@ -108,7 +108,7 @@ func LogEvent(ctx context.Context, kind, text string) {
 func (s *LogSink) writeEvent(kind, text string) {
 	// Redact before collapsing (multi-line secrets) and before capping (a cut secret would no longer match);
 	// writeLocked's later mask is a no-op then, kept for the Stream path it also serves.
-	text = strings.Join(strings.Fields(redact.Text(textutil.RedactSecrets(text))), " ")
+	text = strings.Join(strings.Fields(redact.TextSecrets(text)), " ")
 	if text == "" {
 		return
 	}
@@ -160,7 +160,7 @@ func (s *LogSink) writeLocked(b []byte) {
 	if len(b) == 0 || s.f == nil {
 		return
 	}
-	line := redact.Text(textutil.RedactSecrets(string(b))) // vault values and their encodings, after the shape pass
+	line := redact.TextSecrets(string(b)) // vault values and their encodings, after the shape pass
 	s.out = append(s.out, line...)
 	if !strings.HasSuffix(line, "\n") {
 		s.out = append(s.out, '\n')

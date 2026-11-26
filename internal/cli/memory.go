@@ -72,6 +72,8 @@ var memoryPlumbing = map[string][2]string{
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
 	"store":   {"[--truth files|db]", "show which store is the source of truth, or switch it"},
+
+	"conflicts": {"[--resolve ID --keep local|peer]", "list open sync conflicts, or resolve one; the resolution syncs"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -189,6 +191,41 @@ func cmdMemoryUpgrade(args []string) int {
 	return 0
 }
 
+// cmdMemoryConflicts prints one tab-separated line per open sync conflict: id kind op doc entry peer/seq time.
+func cmdMemoryConflicts(args []string) int {
+	fs := memoryFlagSet("conflicts")
+	id := fs.Int64("resolve", 0, "conflict id to resolve")
+	keep := fs.String("keep", "", "with --resolve: local or peer")
+	if code, done := memoryParseNoArgs(fs, "conflicts", args); done {
+		return code
+	}
+	if r := flagSet(fs, "resolve"); r != flagSet(fs, "keep") || r && (*id <= 0 || *keep != "local" && *keep != "peer") {
+		return helptext.FailUsage("memory conflicts: --resolve needs a positive id and --keep local|peer")
+	}
+	if err := conflictsRun(*id, *keep); err != nil {
+		return helptext.Fail("memory conflicts: %v", err)
+	}
+	return 0
+}
+
+// conflictsRun resolves id when positive, else prints the open conflicts; peer text loses tabs and breaks.
+func conflictsRun(id int64, keep string) error {
+	st, err := memory.OpenEnvelopeStore() // set by internal/memory/shadow, which this package links
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if id > 0 {
+		return st.ResolveConflict(id, keep)
+	}
+	rows, err := st.Conflicts(true)
+	for _, r := range rows {
+		f := []string{r.Kind, r.Op, r.Doc, r.EntryRef, r.PeerOrigin + "/" + strconv.FormatInt(r.PeerSeq, 10), r.At}
+		fmt.Printf("%d\t%s\n", r.ID, strings.NewReplacer("\t", " ", "\n", " ", "\r", " ", "\x00", "\t").Replace(strings.Join(f, "\x00")))
+	}
+	return err
+}
+
 // cmdMemoryShadow exits 1 when a file's render from rows is not byte-equal to it.
 func cmdMemoryShadow(args []string) int {
 	fs := memoryFlagSet("shadow")
@@ -290,6 +327,8 @@ func memorySubcommands() map[string]func([]string) int {
 		"extract": cmdMemoryExtract,
 		"shadow":  cmdMemoryShadow,
 		"store":   cmdMemoryStore,
+
+		"conflicts": cmdMemoryConflicts,
 	}
 }
 
@@ -304,6 +343,7 @@ func cmdMemory(args []string) int {
 	if !ok {
 		return helptext.FailUsage("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
+	defer memory.FlushRecallTiming() // once per call, whichever path the verb took
 	return h(args[1:])
 }
 
@@ -335,6 +375,8 @@ func memorySpec() *helptext.Node {
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild"), helptext.BoolFlag("conflicts"), helptext.ValuedFlag("clear", nil)}},
 		"store":   {Flags: []helptext.Flag{helptext.ValuedFlag("truth", func() []string { return []string{"files", "db"} })}},
+		"conflicts": {Flags: []helptext.Flag{helptext.Plain("resolve"),
+			helptext.ValuedFlag("keep", func() []string { return []string{"local", "peer"} })}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
@@ -447,7 +489,9 @@ func cmdMemorySearch(args []string) int {
 	if q.json() {
 		return helptext.WriteJSONOrFail("memory search", res.Hits)
 	}
+	stop := memory.RecallStage("render")
 	printMemorySearchHits(res.Hits)
+	stop()
 	return 0
 }
 

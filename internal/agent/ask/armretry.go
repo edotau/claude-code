@@ -184,7 +184,7 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 }
 
 func (a *armRetry) collect(res wire.Result, err error) wire.Result {
-	a.spent += spentTokens(&res.Usage)
+	a.spent += res.Usage.Total()
 	if err != nil && len(res.Hops) == 0 {
 		res.Hops = []wire.Hop{{Agent: a.agentName, Account: "databricks·" + a.current(),
 			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true}}

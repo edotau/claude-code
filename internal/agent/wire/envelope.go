@@ -398,7 +398,7 @@ func finalHop(res Result) (who, acct, model string) {
 func ranOnCost(res Result) string {
 	var b strings.Builder
 	u := res.Usage
-	if n := u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens; n > 0 {
+	if n := u.Total(); n > 0 {
 		b.WriteString(" · ")
 		b.WriteString(textutil.CompactCount(int64(n)))
 		b.WriteString(" tok")
@@ -454,6 +454,11 @@ type Usage struct {
 	OutputTokens        int `json:"output_tokens"`
 	// CostUSD is the agent-reported cost where it reports one (claude, agy); absent for the rest.
 	CostUSD float64 `json:"cost_usd,omitempty"`
+}
+
+// Total is every input, cache and output token the run is charged for.
+func (u Usage) Total() int {
+	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
 }
 
 // Result is one run's outcome; NewEnvelope turns it into the Envelope that `ask --format json` prints.

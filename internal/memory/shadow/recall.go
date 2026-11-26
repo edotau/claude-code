@@ -25,24 +25,34 @@ const recallReadTimeout = 250 * time.Millisecond
 func recallRows(terms []string) (map[string][]byte, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), recallReadTimeout)
 	defer cancel()
+	stop := memory.RecallStage("current")
 	files, ok := recallFiles(paths.MemoryStoreDir()) // the cheap stat check runs before the db opens
+	stop()
 	if !ok {
 		return nil, false
 	}
+	stop = memory.RecallStage("open")
 	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{ReadOnly: true, Busy: recallReadTimeout})
+	stop()
 	if err != nil {
 		return nil, false
 	}
 	defer db.Close()
-	if !recallCurrent(ctx, db, files) { // before the tx: the pool may hold one connection
+	stop = memory.RecallStage("current")
+	current := recallCurrent(ctx, db, files) // before the tx: the pool may hold one connection
+	stop()
+	if !current {
 		return nil, false
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, false
 	}
+	stop = memory.RecallStage("query")
 	rendered, err := recallDocuments(ctx, tx, terms)
 	_ = tx.Rollback() // Read-only rollback only releases the snapshot and its connection.
+	stop()
+	defer memory.RecallStage("current")()
 	// A rebuild that committed during the read moved the metadata: the rows may not be the ones checked.
 	return rendered, err == nil && recallCurrent(ctx, db, files)
 }

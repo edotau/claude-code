@@ -234,11 +234,11 @@ func (s *docDBStore) Load() (map[string]Doc, Versions, error) {
 }
 
 func (s *docDBStore) Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) {
-	b, err := withBase(b, base)
+	docs, _, _ := s.Load()
+	b, err := withBase(b, contentRefs(docs))
 	if err != nil {
 		return nil, err
 	}
-	docs, _, _ := s.Load()
 	out, rs, err := ApplyDocs(docs, b, now)
 	if err != nil {
 		return rs, err
@@ -352,26 +352,26 @@ func TestDBStoreApplyRefusesAmbiguousRef(t *testing.T) {
 }
 
 func TestWithBaseFillsAndRefusesRead(t *testing.T) {
-	base := Versions{"0a1b2c3d": "z11111111", "skip": ""}
-	b := Batch{Ops: []Op{{Op: "update", ID: "0a1b2c3d", Text: "x"}, {Op: "update", ID: "skip", Text: "y"}}}
-	got, err := withBase(b, base)
-	if err != nil || got.Ops[0].Read != "z11111111" || got.Ops[1].Read != "" {
+	docs := map[string]Doc{"progress.md": ParseDoc("progress.md", []byte("# Progress\n\n- Rule <!-- id:0a1b2c3d -->\n"))}
+	ref := contentRef(docs["progress.md"].Entries[0].block())
+	b := Batch{Ops: []Op{{Op: "update", ID: "0a1b2c3d", Text: "x"}}}
+	got, err := withBase(b, contentRefs(docs))
+	if err != nil || got.Ops[0].Read != ref {
 		t.Fatalf("fill: %+v err=%v", got.Ops, err)
 	}
 	if b.Ops[0].Read != "" {
 		t.Error("withBase modified its input")
 	}
-	b.Ops[0].Read = "z11111111"
-	if _, err := withBase(b, base); err != nil {
-		t.Errorf("a read equal to base was refused: %v", err)
+	b.Ops[0].Read = ref
+	if _, err := withBase(b, contentRefs(docs)); err != nil {
+		t.Errorf("a read equal to the content ref was refused: %v", err)
 	}
 	b.Ops[0].Read = "z00000000"
-	if _, err := withBase(b, base); err == nil || !strings.Contains(err.Error(), "disagrees") {
-		t.Errorf("a read that conflicts with base: err=%v", err)
+	if _, err := withBase(b, contentRefs(docs)); err == nil || !strings.Contains(err.Error(), "disagrees") {
+		t.Errorf("a read that conflicts with content: err=%v", err)
 	}
-	// no base entry means no guard: the caller's Read stays and the store decides
 	nb := Batch{Ops: []Op{{Op: "update", ID: "absent", Read: "z9", Text: "x"}}}
-	if got, err := withBase(nb, base); err != nil || got.Ops[0].Read != "z9" {
-		t.Errorf("a read with no base entry: %+v err=%v", got.Ops, err)
+	if got, err := withBase(nb, contentRefs(docs)); err != nil || got.Ops[0].Read != "z9" {
+		t.Errorf("a read with no entry: %+v err=%v", got.Ops, err)
 	}
 }

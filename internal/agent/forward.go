@@ -105,6 +105,6 @@ func (w forwardWriter) emit(ev wire.Event) {
 		tool = ev.Tool.Name
 	}
 	text := strings.Join([]string{"via " + w.child + ":", tool, ev.Status, ev.Text}, " ")
-	text = strings.Join(strings.Fields(redact.Text(textutil.RedactSecrets(text))), " ")
+	text = strings.Join(strings.Fields(redact.TextSecrets(text)), " ")
 	w.log.Emit(ev.Type, textutil.Truncate(text, forwardTextCap))
 }

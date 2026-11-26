@@ -45,7 +45,9 @@ func Search(o SearchOptions) searchResult {
 			return searchResult{Path: path, Block: block}
 		}
 	}
+	stop := RecallStage("search")
 	hits := SearchBank(o.Query, o.K)
+	stop()
 	logHits(hits, AccessSearch, now, "")
 	return searchResult{Hits: hits}
 }

@@ -488,7 +488,7 @@ func dreamTestPostCommit(t *testing.T) {
 	}
 	now := time.Now()
 	planned := maps.Clone(docs)
-	based, err := withBase(batch, base)
+	based, err := withBase(batch, contentRefs(docs))
 	if err != nil {
 		t.Fatal(err)
 	}

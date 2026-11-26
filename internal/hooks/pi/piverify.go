@@ -141,7 +141,7 @@ func piMask(s string) string {
 	if key := os.Getenv(piProxyKeyEnv); key != "" {
 		s = strings.ReplaceAll(s, key, "[redacted]")
 	}
-	return redact.Text(textutil.RedactSecrets(s))
+	return redact.TextSecrets(s)
 }
 
 // dropFirstLine is s past its first newline: the cut window's first line may be a secret's tail without its marker.

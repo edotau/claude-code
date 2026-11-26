@@ -171,6 +171,7 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
 func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer) string {
+	defer FlushRecallTiming()
 	picks, trace := recallPicks(ctx, sessionID, prompt, true, false)
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
@@ -185,6 +186,56 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	return context
 }
 
+func recallTiming() bool { return os.Getenv("CLAUDE_RECALL_TIMING") == "1" }
+
+var (
+	timingMu    sync.Mutex
+	timingOrder []string
+	timingSpans = map[string]time.Duration{}
+)
+
+func noStage() {}
+
+// RecallStage starts timing a named recall stage and returns its stop; free unless CLAUDE_RECALL_TIMING=1.
+func RecallStage(name string) func() {
+	if !recallTiming() {
+		return noStage
+	}
+	start := time.Now()
+	return func() {
+		timingMu.Lock()
+		defer timingMu.Unlock()
+		if _, seen := timingSpans[name]; !seen {
+			timingOrder = append(timingOrder, name)
+		}
+		timingSpans[name] += time.Since(start)
+	}
+}
+
+// FlushRecallTiming prints the accumulated stage times to stderr as one line of name=ms pairs.
+func FlushRecallTiming() {
+	if !recallTiming() {
+		return
+	}
+	timingMu.Lock()
+	defer timingMu.Unlock()
+	if len(timingOrder) == 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("recall-timing")
+	for _, name := range timingOrder {
+		fmt.Fprintf(&b, " %s=%.3f", name, float64(timingSpans[name].Microseconds())/1000)
+	}
+	fmt.Fprintln(os.Stderr, b.String())
+	timingOrder, timingSpans = nil, map[string]time.Duration{}
+}
+
+func rankTimed(terms []string, k int, files []corpusFile, segs []segView) []SearchHit {
+	defer RecallStage("rank")()
+	return rankFiles(terms, k, files, segs)
+}
+
 // RowRecall returns store-relative row-rendered bytes of the FTS candidate docs; false declines.
 var RowRecall func(terms []string) (docs map[string][]byte, ok bool)
 
@@ -196,17 +247,17 @@ func searchRecallTerms(terms []string, k int, persist bool) ([]SearchHit, []corp
 	files := corpusOf()
 	if RowRecall == nil || len(terms) == 0 {
 		segs := loadSegments(files, persist)
-		return rankFiles(terms, k, files, segs), files, segs
+		return rankTimed(terms, k, files, segs), files, segs
 	}
 	if segs, ok := cachedRecallSegments(files); ok {
-		return rankFiles(terms, k, files, segs), files, segs
+		return rankTimed(terms, k, files, segs), files, segs
 	}
 	segs, ok := recallRowSegments(files, terms, persist)
 	if !ok {
 		segs = loadSegments(files, persist)
-		return rankFiles(terms, k, files, segs), files, segs
+		return rankTimed(terms, k, files, segs), files, segs
 	}
-	return rankFiles(terms, k, files, segs), files, segs
+	return rankTimed(terms, k, files, segs), files, segs
 }
 
 func recallRowSegments(files []corpusFile, terms []string, persist bool) ([]segView, bool) {
@@ -296,6 +347,7 @@ const (
 
 // AgentRecall is a subagent spawn's <memory-recall> block plus its up to 3 cited ids; ("", nil) on no match.
 func AgentRecall(ctx context.Context, sessionID, task string) (block string, ids []string) {
+	defer FlushRecallTiming()
 	q := strings.TrimSpace(task)
 	if q == "" || strings.Contains(q, assets.MemoryRecallMarker()) {
 		return "", nil

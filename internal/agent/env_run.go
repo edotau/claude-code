@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -68,7 +67,7 @@ const stderrTailBytes = 600
 // stderrTail is a child's stderr fit for an error: trimmed, its last stderrTailBytes, secrets redacted.
 func stderrTail(s string) string {
 	// mask before the cut: a secret straddling it would leave a suffix no needle matches
-	t := redact.Text(textutil.RedactSecrets(strings.TrimSpace(s))) // shapes first, then vault values incl. the env master key
+	t := redact.TextSecrets(strings.TrimSpace(s)) // shapes first, then vault values incl. the env master key
 	if len(t) > stderrTailBytes {
 		t = "…" + strings.ToValidUTF8(t[len(t)-stderrTailBytes:], "") // the cut may split a rune
 	}

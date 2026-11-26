@@ -841,8 +841,8 @@ func refused(err error) bool {
 	return !after
 }
 
-// withBase fills each op's empty Read from base and refuses a Read that disagrees with it; b is not modified.
-func withBase(b Batch, base Versions) (Batch, error) {
+// withBase fills an empty Read from base (content refs) and refuses a Read that differs; b is unmodified.
+func withBase[V ~string](b Batch, base map[string]V) (Batch, error) {
 	ops := slices.Clone(b.Ops)
 	for i, o := range ops {
 		want := string(base[o.ID])
@@ -855,6 +855,21 @@ func withBase(b Batch, base Versions) (Batch, error) {
 		}
 	}
 	return Batch{Ops: ops}, nil // Clone keeps a nil Ops nil, so Validate still reports it missing
+}
+
+// contentRefs maps each unique entry ref in docs to its content ref; an ambiguous ref maps to "".
+func contentRefs(docs map[string]Doc) map[string]string {
+	refs := map[string]string{}
+	for _, name := range bankFiles {
+		for _, e := range docs[name].Entries {
+			if _, seen := refs[e.Ref()]; seen {
+				refs[e.Ref()] = ""
+			} else {
+				refs[e.Ref()] = contentRef(e.block())
+			}
+		}
+	}
+	return refs
 }
 
 // loadBatchDocs reads every bank file; a missing one is an empty doc, any other read error stops the batch.

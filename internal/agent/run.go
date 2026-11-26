@@ -990,13 +990,9 @@ func (a *activityLog) note(ev wire.Event, tools int64) {
 	if ev.Type == wire.EventToolResult {
 		a.current.ToolMs = ev.DurationMs
 	}
-	if ev.Usage != nil && usageTotal(*ev.Usage) >= usageTotal(a.current.Usage) { // a retried attempt restarts at 0
+	if ev.Usage != nil && ev.Usage.Total() >= a.current.Usage.Total() { // a retried attempt restarts at 0
 		a.current.Usage = *ev.Usage
 	}
-}
-
-func usageTotal(u wire.Usage) int {
-	return u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens
 }
 
 func (a *activityLog) save(id string, saved *Activity) {

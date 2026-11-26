@@ -122,7 +122,19 @@ func (e *exportDB) MarkRendered(rel, sum string) error {
 	if err != nil {
 		return fmt.Errorf("memory: export mark %s: %w", rel, err)
 	}
-	return e.stampExported(rel, sum)
+	if err := e.stampExported(rel, sum); err != nil {
+		return err
+	}
+	return execEntryCount(context.Background(), e.db)
+}
+
+// execEntryCount keeps meta 'entries' at the live row count, which row recall checks against its imported count.
+func execEntryCount(ctx context.Context, x interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}) error {
+	_, err := x.ExecContext(ctx, `INSERT OR REPLACE INTO meta(key, value) VALUES('entries',
+		(SELECT count(*) FROM entries WHERE deleted = 0))`)
+	return err
 }
 
 // stampExported records the fingerprint of the file the guard just wrote, so the next open does not re-import it.
@@ -182,7 +194,7 @@ func (e *exportDB) Import(rel, wantSum string) error {
 				return err
 			}
 		}
-		return nil
+		return execEntryCount(ctx, tx)
 	})
 }
 
@@ -227,7 +239,18 @@ func scopeForRel(rel string) (string, bool, error) {
 	return "", false, fmt.Errorf("memory: export import %s: outside scope", rel)
 }
 
+// adoptedRev is 1 for a doc new to the db (a plain import: no change rows), else 0 so edits are captured.
+func adoptedRev(ctx context.Context, tx *sql.Tx, doc string) (int, error) {
+	var had int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM docs WHERE path = ?`, doc).Scan(&had)
+	return 1 - min(had, 1), err
+}
+
 func upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
+	adopted, err := adoptedRev(ctx, tx, d.path)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO docs(path, kind, header, hidden, grammar, frontmatter)
 		VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, header = excluded.header,
 		hidden = excluded.hidden, grammar = excluded.grammar, frontmatter = excluded.frontmatter`,
@@ -246,16 +269,16 @@ func upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 	for i, e := range d.entries {
 		if rowid := rowids[i]; rowid != 0 {
 			used[rowid] = true
-			if _, err := tx.ExecContext(ctx, `UPDATE entries SET id = ?, seq = ?, kind = ?, date = ?,
-				version = version + (lines <> ?), lines = ? WHERE rowid = ?`,
-				e.id, e.seq, e.kind, e.date, e.lines, e.lines, rowid); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE entries SET id = ?1, seq = ?2, kind = ?3, date = ?4, area = ?5,
+				version = version + (lines <> ?6 OR id <> ?1 OR kind <> ?3 OR date <> ?4), lines = ?6 WHERE rowid = ?7`,
+				e.id, e.seq, e.kind, e.date, deriveArea(e.lines), e.lines, rowid); err != nil {
 				return err
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, version, rendered_rev)
-			VALUES(?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), 0)`,
-			d.path, e.id, e.seq, e.kind, e.lines, e.date); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version, rendered_rev)
+			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), ?)`,
+			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines), adopted); err != nil {
 			return err
 		}
 	}
@@ -269,47 +292,64 @@ func upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 	return nil
 }
 
-// matchRows gives each entry its kept row (0 = new): same text first, then a lone edited id; ambiguous ones are new.
+// matchRows gives each entry its kept row (0 = new): same text, a lone edited id, then the same id by position.
 func matchRows(old []liveEntry, entries []shadowEntry) []int64 {
-	out := make([]int64, len(entries))
-	taken := make([]bool, len(old))
+	m := rowMatch{old: old, entries: entries, out: make([]int64, len(entries)), taken: make([]bool, len(old))}
 	for i, e := range entries {
-		for j, r := range old {
-			if !taken[j] && r.id == e.id && r.lines == e.lines {
-				out[i], taken[j] = r.rowid, true
-				break
-			}
-		}
+		m.take(i, func(r liveEntry) bool { return r.id == e.id && r.lines == e.lines })
 	}
 	for i, e := range entries {
-		if out[i] != 0 || e.id == "" {
-			continue
-		}
-		oldAt, oldN, newN := -1, 0, 0
-		for j, r := range old {
-			if !taken[j] && r.id == e.id {
-				oldAt, oldN = j, oldN+1
-			}
-		}
-		for k, f := range entries {
-			if out[k] == 0 && f.id == e.id {
-				newN++
-			}
-		}
-		if oldN == 1 && newN == 1 {
-			out[i], taken[oldAt] = old[oldAt].rowid, true
+		if m.out[i] == 0 && e.id != "" && m.countOld(e.id) == 1 && m.countNew(e.id) == 1 {
+			m.take(i, func(r liveEntry) bool { return r.id == e.id })
 		}
 	}
-	return out
+	for i, e := range entries { // an edited entry without an id (or a repeated id) keeps its row by position
+		m.take(i, func(r liveEntry) bool { return r.id == e.id && r.seq == int64(e.seq) })
+	}
+	return m.out
+}
+
+type rowMatch struct {
+	old     []liveEntry
+	entries []shadowEntry
+	out     []int64
+	taken   []bool
+}
+
+// take gives entry i the first free old row that ok accepts.
+func (m rowMatch) take(i int, ok func(liveEntry) bool) {
+	for j, r := range m.old {
+		if m.out[i] == 0 && !m.taken[j] && ok(r) {
+			m.out[i], m.taken[j] = r.rowid, true
+		}
+	}
+}
+
+func (m rowMatch) countOld(id string) (n int) {
+	for j, r := range m.old {
+		if !m.taken[j] && r.id == id {
+			n++
+		}
+	}
+	return n
+}
+
+func (m rowMatch) countNew(id string) (n int) {
+	for k, f := range m.entries {
+		if m.out[k] == 0 && f.id == id {
+			n++
+		}
+	}
+	return n
 }
 
 type liveEntry struct {
-	rowid     int64
-	id, lines string
+	rowid, seq int64
+	id, lines  string
 }
 
 func loadLiveEntries(ctx context.Context, tx *sql.Tx, doc string) ([]liveEntry, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT rowid, id, lines FROM entries WHERE doc = ? AND deleted = 0 ORDER BY seq`, doc)
+	rows, err := tx.QueryContext(ctx, `SELECT rowid, seq, id, lines FROM entries WHERE doc = ? AND deleted = 0 ORDER BY seq`, doc)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +357,7 @@ func loadLiveEntries(ctx context.Context, tx *sql.Tx, doc string) ([]liveEntry, 
 	var out []liveEntry
 	for rows.Next() {
 		var r liveEntry
-		if err := rows.Scan(&r.rowid, &r.id, &r.lines); err != nil {
+		if err := rows.Scan(&r.rowid, &r.seq, &r.id, &r.lines); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

@@ -816,7 +816,7 @@ func TakeSnapshot(root string) Snapshot {
 // Cite reports whether a strike's cited evidence exists: kind is "decision" (an id8) or "note" (a store path).
 type Cite func(kind, ref string) bool
 
-// JobReport is what RecheckJob kept, reverted, flagged and failed to revert; TextChanged: prose outside tasks moved.
+// JobReport is what RecheckOwned kept, reverted, flagged and failed to revert; TextChanged: prose outside tasks moved.
 type JobReport struct {
 	Kept, Reverted, Flagged, Failed []Change
 	TextChanged                     bool
@@ -839,15 +839,10 @@ func (e taskEdit) action() string {
 	return "edit"
 }
 
-// RecheckJob reopens each failed task and logs each verdict, trying all despite errors; prose is flagged, not restored.
-func RecheckJob(ctx context.Context, root, job string, before Snapshot, cite Cite) (JobReport, error) {
-	return RecheckOwned(ctx, root, job, before, cite, nil)
-}
-
 // leaveWhy is the verdict of an edit the job did not make: logged and left as it is.
 const leaveWhy = "not an edit this run made"
 
-// RecheckOwned is RecheckJob limited to tasks own accepts (nil: all); other changed tasks are left and logged.
+// RecheckOwned reopens each failed task, logging each verdict; own accepts tasks (nil: all), others are left.
 func RecheckOwned(ctx context.Context, root, job string, before Snapshot, cite Cite, own func(plan, id string) bool) (JobReport, error) {
 	var rep JobReport
 	edits, dirty := planEdits(before, TakeSnapshot(root))
