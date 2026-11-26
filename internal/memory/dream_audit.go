@@ -261,6 +261,9 @@ func dreamStepError(out io.Writer, step string, err error) {
 	}
 }
 
+// ReportFailure is set by internal/worktree (memory cannot import it); nil is a no-op.
+var ReportFailure func(kind, subject, detail string) error
+
 func dreamPerformance(out io.Writer) []string {
 	flags, err := readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
 	writeDreamP95(out, flags, err)
@@ -268,6 +271,9 @@ func dreamPerformance(out io.Writer) []string {
 	for _, flag := range flags {
 		notice = append(notice, dreamP95Line(flag))
 		dreamStepError(out, "hook p95 queue", queueDreamBench(flag))
+		if ReportFailure != nil {
+			dreamStepError(out, "hook p95 failure", ReportFailure("hook_p95", flag.Module, dreamP95Line(flag)))
+		}
 	}
 	dreamStepError(out, "rotation", dreamBenchRotation(out))
 	return notice

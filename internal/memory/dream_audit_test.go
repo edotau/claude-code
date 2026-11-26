@@ -3,6 +3,7 @@ package memory
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -209,5 +210,30 @@ func TestDreamBenchRotationOrder(t *testing.T) {
 	}
 	if !slices.Equal(state.Ranking, ranking) {
 		t.Fatalf("ranking mutated: %v", state.Ranking)
+	}
+}
+
+func TestP95ReportsFailure(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	hooks := filepath.Join(cfg, "state", "harness", "hooks")
+	for _, w := range []struct {
+		age time.Duration
+		ms  float64
+	}{{10 * 24 * time.Hour, 10}, {3 * 24 * time.Hour, 20}} {
+		at := time.Now().Add(-w.age)
+		var rows strings.Builder
+		for range dreamP95MinRuns {
+			fmt.Fprintf(&rows, "{\"t\":%q,\"module\":\"memory-start\",\"ms\":%g}\n", at.Format(time.RFC3339), w.ms)
+		}
+		write(t, filepath.Join(hooks, "telemetry-"+at.Format("20060102")+".jsonl"), rows.String())
+	}
+	var kind, subject string
+	prev := ReportFailure
+	t.Cleanup(func() { ReportFailure = prev })
+	ReportFailure = func(k, s, _ string) error { kind, subject = k, s; return nil }
+	dreamPerformance(io.Discard)
+	if kind != "hook_p95" || subject != "memory-start" {
+		t.Fatalf("reported %q %q, want hook_p95 memory-start", kind, subject)
 	}
 }

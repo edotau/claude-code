@@ -16,8 +16,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 )
+
+// init wires dream's hook_p95 report here, since memory cannot import worktree; every binary linking both gets it.
+func init() {
+	memory.ReportFailure = func(kind, subject, detail string) error {
+		_, err := ReportFailure(FailuresDir(), Failure{Kind: FailureKind(kind), Subject: subject, Summary: detail,
+			Log: filepath.Join(paths.StateDir(), "hooks"), Time: time.Now().Unix()})
+		return err
+	}
+}
 
 // FailureKind is the typed set of failures that broadcast to live sessions.
 type FailureKind string
