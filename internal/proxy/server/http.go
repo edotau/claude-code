@@ -247,6 +247,9 @@ func (s *statusWriter) WriteHeader(code int) {
 }
 
 func (s *statusWriter) Write(b []byte) (int, error) {
+	if s.meta != nil && s.meta.first.IsZero() && !s.meta.sent.IsZero() {
+		s.meta.first = time.Now()
+	}
 	if s.status == 0 {
 		s.status = http.StatusOK
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -469,7 +470,7 @@ func authHint(p *providers.Provider) string {
 	case (a.Type == providers.AuthKey || a.Type == providers.AuthPAT) && a.Env != "":
 		return "run `claude-code vault set " + a.Env + "`"
 	}
-	return "run `claude-code configure provider --list " + p.Name + "`"
+	return "run `claude-code vault ls providers " + p.Name + "`"
 }
 
 func (r *Router) health(w http.ResponseWriter) {
@@ -526,4 +527,29 @@ func unservedMessage(p *providers.Provider, requested, wire string, now time.Tim
 		return msg
 	}
 	return msg + "; served Claude endpoints: " + strings.Join(claude, ", ")
+}
+
+// spendCapRefused answers a metered call with 402 once the session or day USD cap is spent; true when it answered.
+func (r *Router) spendCapRefused(w http.ResponseWriter, in *http.Request, c providers.SpendCap, p *providers.Provider) bool {
+	session := in.Header.Get("X-Claude-Code-Session-Id")
+	if !c.On() || !metered(p) || (c.DayUSD == nil && session == "") {
+		return false
+	}
+	sess, day, err := tokenledger.SpendTotals(session, r.now())
+	if err != nil {
+		return false // an unreadable ledger never blocks a call; doctor reports it
+	}
+	var hit, field string
+	switch {
+	case c.SessionUSD != nil && sess >= *c.SessionUSD:
+		hit, field = fmt.Sprintf("session spend $%.2f reached the sessionUSD cap $%.2f", sess, *c.SessionUSD), "sessionUSD"
+	case c.DayUSD != nil && day >= *c.DayUSD:
+		hit, field = fmt.Sprintf("today's spend $%.2f reached the dayUSD cap $%.2f", day, *c.DayUSD), "dayUSD"
+	default:
+		return false
+	}
+	w.Header().Set(proxy.RefusalHeader, proxy.RefusalSpendCap)
+	writeError(w, http.StatusPaymentRequired, "proxy: "+hit+" ("+proxy.RefusalSpendCap+
+		"; raise it with claude-code configure routing spendCap."+field+"=<usd>)")
+	return true
 }

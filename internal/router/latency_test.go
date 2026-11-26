@@ -1,0 +1,88 @@
+package router
+
+import (
+	"math"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/tokenledger"
+)
+
+func setLatency(t *testing.T, tab latencyTable) {
+	old := loadLatency
+	loadLatency = func(time.Time) latencyTable { return tab }
+	resetLatencyMemo()
+	t.Cleanup(func() { loadLatency = old; resetLatencyMemo() })
+}
+
+func latCands() []Candidate {
+	var a, b Candidate
+	a.Agent, a.Account, a.Model = "a", "acc·a", "m"
+	b.Agent, b.Account, b.Model = "b", "acc·b", "m"
+	return []Candidate{a, b}
+}
+
+func TestLatencyNoDataKeepsTotals(t *testing.T) {
+	setLatency(t, nil)
+	now := time.Now()
+	three := &RouteTable{Weights: map[string]float64{"price": 0.4, "headroom": 0.4, "latency": 0.2}}
+	two := &RouteTable{Weights: map[string]float64{"price": 0.5, "headroom": 0.5}}
+	got := three.scoreVia(noAcct, latCands(), State{}, now)
+	want := two.scoreVia(noAcct, latCands(), State{}, now)
+	for i := range got {
+		if got[i].Total != want[i].Total {
+			t.Errorf("total %d = %v, want %v", i, got[i].Total, want[i].Total)
+		}
+	}
+}
+
+func TestLatencyFasterRowWins(t *testing.T) {
+	setLatency(t, latencyTable{{"acc·a", "m"}: 400, {"acc·b", "m"}: 1200})
+	tb := &RouteTable{Weights: map[string]float64{"price": 0.4, "headroom": 0.4, "latency": 0.2}}
+	got := tb.scoreVia(noAcct, latCands(), State{}, time.Now())
+	if s := got[0].Scores["latency"]; s != 1 {
+		t.Errorf("fast score = %v, want 1", s)
+	}
+	if s := got[1].Scores["latency"]; math.Abs(s-1.0/3) > 1e-9 {
+		t.Errorf("slow score = %v, want 1/3", s)
+	}
+	if got[0].Total <= got[1].Total {
+		t.Errorf("totals %v <= %v, fast should lead", got[0].Total, got[1].Total)
+	}
+}
+
+func noAcct(p string) string { return p }
+
+func TestLatencyFromStats(t *testing.T) {
+	k := tokenledger.LatencyKey{Provider: "", Profile: "dev", Model: "m"}
+	got := latencyFromStats(map[tokenledger.LatencyKey]tokenledger.Latency{
+		k: {N: 5, FirstP50: 100, FirstP95: 300},
+		{Provider: "x", Profile: "p", Model: "m"}: {N: 4, FirstP50: 1, FirstP95: 1},
+	})
+	if len(got) != 1 || got[latKey{"databricks·dev", "m"}] != 200 {
+		t.Errorf("table = %v, want one databricks·dev row at 200", got)
+	}
+}
+
+func TestLatencyFallbacks(t *testing.T) {
+	w := withoutLatency(map[string]float64{"price": 0, "headroom": 0, "latency": 1})
+	if w["price"] != 0.5 || w["headroom"] != 0.5 || len(w) != 2 {
+		t.Errorf("zero-rest weights = %v, want 0.5/0.5", w)
+	}
+	a := tokenledger.LatencyKey{Provider: "p", Profile: "x", Model: "m"}
+	b := a
+	b.Model = "M"
+	got := latencyFromStats(map[tokenledger.LatencyKey]tokenledger.Latency{
+		a: {N: 5, FirstP50: 300, FirstP95: 300}, b: {N: 5, FirstP50: 100, FirstP95: 100},
+	})
+	if got[latKey{"p·x", "m"}] != 100 {
+		t.Errorf("collision = %v, want the lower ms", got)
+	}
+	setLatency(t, nil)
+	now := time.Now()
+	latencyFor(now)
+	loadLatency = func(time.Time) latencyTable { return latencyTable{{"a", "m"}: 1} }
+	if len(latencyFor(now.Add(-time.Minute))) != 1 {
+		t.Error("a now before the memo must reload")
+	}
+}

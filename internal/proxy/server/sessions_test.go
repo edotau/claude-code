@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +18,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 type sessionRig struct {
@@ -404,5 +408,54 @@ func writeLegacy(t *testing.T, v2 string) {
 	}
 	if err := os.WriteFile(proxy.SessionsFile(), []byte(v2), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A session-token failure with failover set and no sibling is announced for the local row; nothing else is.
+func TestPassthroughLocalHeader(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		status   int
+		noRetry  bool
+		failover bool
+		want     string
+	}{
+		{"429", 429, false, true, "session"}, {"503", 503, false, true, "session"},
+		{"401", 401, false, true, "session"}, {"403", 403, false, true, "session"},
+		{"400", 400, false, true, ""}, {"499", 499, false, true, ""},
+		{"no-retry", 503, true, true, ""}, {"no-failover", 503, false, false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				if c.noRetry {
+					w.Header().Set("X-Should-Retry", "false")
+				}
+				w.WriteHeader(c.status)
+			})
+			t.Setenv("PT_KEY", "prov-cred")
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the local note lands in scratch state
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", ptOverlay(up.URL))
+			r := newRouter(secret)
+			r.log = io.Discard
+			srv := httptest.NewServer(r)
+			t.Cleanup(func() { srv.Close(); r.bg.Wait() })
+			failover := ""
+			if c.failover {
+				failover = "openai"
+			}
+			tok, err := r.sessions.mintWithFailover([]string{"pt"}, os.Getpid(), failover)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", `{"model":"m"}`, map[string]string{"X-Api-Key": tok})
+			_, kind, surface, noted := router.LastLocalFallback("")
+			if got := resp.Header.Get("X-Harness-Local-Fallback"); resp.StatusCode != c.status || got != c.want || noted != (c.want != "") {
+				t.Fatalf("status %d header %q noted %v, want %d %q", resp.StatusCode, got, noted, c.status, c.want)
+			}
+			if noted && (kind != strconv.Itoa(c.status) || surface != "session") {
+				t.Fatalf("note kind %q surface %q", kind, surface)
+			}
+		})
 	}
 }

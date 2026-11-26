@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // cmdGateway dispatches the gateway verb tree.
@@ -227,6 +228,13 @@ func proxyRevokeClientToken(name string) int {
 	}
 	fmt.Printf("claude-code: revoked client token %s\n", name)
 	return 0
+}
+
+func init() {
+	proxy.RegisterFailureReporter(func(e proxy.FailureEvent) bool {
+		ok, _ := worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailureKind(e.Kind), Subject: e.Subject, Summary: e.Summary, Log: e.Log, Time: e.Time})
+		return ok
+	})
 }
 
 // proxyServe runs the proxy in the foreground until SIGINT/SIGTERM.

@@ -142,7 +142,7 @@ func KeyTargets(reg *providers.Registry, agentFilter string) ([]KeyTarget, error
 			return nil, err
 		}
 		p := sel.Provider
-		fix := "resolve the credential for " + p.Name + " (see `claude-code configure provider --list`)"
+		fix := "resolve the credential for " + p.Name + " (see `claude-code vault ls providers`)"
 		if p.Auth.Env != "" {
 			fix = "claude-code vault set " + p.Auth.Env
 		}

@@ -126,7 +126,7 @@ func discoverAndSave(t *testing.T, p *providers.Provider, f *discoveryFake) Snap
 	if s.CacheHit || s.Schema != 1 || s.DiscoveredAt.IsZero() || len(s.Models) != 1 || f.me.Load() != 1 || f.list.Load() != 1 {
 		t.Fatalf("first discovery: %+v, Me=%d listing=%d", s, f.me.Load(), f.list.Load())
 	}
-	if _, found, err := vault.ReadSecret(servingDiscoveryKey(s.Scope)); err != nil || found {
+	if _, found, err := vault.ReadCache(servingDiscoveryKey(s.Scope)); err != nil || found {
 		t.Fatalf("discovery alone persisted cache: found=%v err=%v", found, err)
 	}
 	if err := Save(p, s); err != nil {
@@ -149,7 +149,7 @@ func checkRotatedTokenHit(t *testing.T, p *providers.Provider, f *discoveryFake,
 // checkFailedRefreshKeepsCache fails the listing and checks a refresh errors without leaking or changing the cache.
 func checkFailedRefreshKeepsCache(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
 	t.Helper()
-	before, _, err := vault.ReadSecret(servingDiscoveryKey(s.Scope))
+	before, _, err := vault.ReadCache(servingDiscoveryKey(s.Scope))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func checkFailedRefreshKeepsCache(t *testing.T, p *providers.Provider, f *discov
 	if _, err := Discover(context.Background(), p, true); err == nil || strings.Contains(err.Error(), "encrypted-sentinel") {
 		t.Fatalf("failed refresh must fail without leaking body: %v", err)
 	}
-	after, _, err := vault.ReadSecret(servingDiscoveryKey(s.Scope))
+	after, _, err := vault.ReadCache(servingDiscoveryKey(s.Scope))
 	if err != nil || before != after || f.me.Load() != 4 || f.list.Load() != 3 {
 		t.Fatalf("failed refresh changed cache or skipped HTTP: err=%v Me=%d listing=%d", err, f.me.Load(), f.list.Load())
 	}
@@ -287,7 +287,7 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 func checkSealedRecord(t *testing.T, name string) {
 	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
-		r, found, err := tx.Record(name)
+		r, found, err := tx.RecordIn(vault.Cache, name)
 		if err != nil {
 			return err
 		}
@@ -303,7 +303,7 @@ func checkSealedRecord(t *testing.T, name string) {
 // checkSavedSnapshot decrypts the saved snapshot: models and measurements kept, diagnostics dropped.
 func checkSavedSnapshot(t *testing.T, name string, s Snapshot, want []CheckResult) {
 	t.Helper()
-	raw, found, err := vault.ReadSecret(name)
+	raw, found, err := vault.ReadCache(name)
 	if err != nil || !found {
 		t.Fatalf("ReadSecret: found=%v err=%v", found, err)
 	}
@@ -376,7 +376,7 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 			}
 			key := servingDiscoveryKey(s.Scope)
 			makeUnreadable(t, name, key, ring)
-			if _, _, err := vault.ReadSecret(key); err == nil {
+			if _, _, err := vault.ReadCache(key); err == nil {
 				t.Fatal("negative control: cache should be unreadable")
 			}
 			before, err := os.ReadFile(vault.Path())
@@ -408,7 +408,7 @@ func makeUnreadable(t *testing.T, name, key string, ring *vaulttest.FakeKeyring)
 func corruptSealed(t *testing.T, key string) {
 	t.Helper()
 	if err := vault.Update(func(tx *vault.Tx) error {
-		r, found, err := tx.Record(key)
+		r, found, err := tx.RecordIn(vault.Cache, key)
 		if err != nil {
 			return err
 		}
@@ -416,7 +416,7 @@ func corruptSealed(t *testing.T, key string) {
 			return errors.New("fixture lacks sealed discovery")
 		}
 		r.Sealed[len(r.Sealed)-1] ^= 0xff
-		return tx.PutRecord(key, r)
+		return tx.PutRecordIn(vault.Cache, key, r)
 	}); err != nil {
 		t.Fatal(err)
 	}

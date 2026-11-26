@@ -290,6 +290,7 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return target.Provider.Name, target.Model, 0
 	}
 	ladder := r.attempts(in, reg, target, clientAuth)
+	ladder.spendCap = reg.Routing.SpendCap
 	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
 
@@ -298,6 +299,7 @@ type attemptLadder struct {
 	primary     providers.Target
 	coolingFrom int
 	ranked      bool
+	spendCap    providers.SpendCap
 }
 
 func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder attemptLadder,
@@ -306,6 +308,9 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody,
 	tpmHopped := r.tpmFront(&ladder)
 	for i := 0; i < len(ladder.rows); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
 		t := ladder.rows[i]
+		if !count && r.spendCapRefused(w, in, ladder.spendCap, t.Provider) { // every hop, so a failover cannot dodge it
+			return t.Provider.Name, t.Model, i + 1
+		}
 		last := i == len(ladder.rows)-1
 		tin, spare := in, (*tpmSpareSlot)(nil)
 		if last && !tpmHopped {
@@ -706,6 +711,13 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	do func(string) (*http.Response, error)) (*http.Response, error) {
 	ctx := in.Context()
+	send := do
+	do = func(credential string) (*http.Response, error) {
+		if m, _ := ctx.Value(metaKey{}).(*reqMeta); m != nil {
+			m.sent, m.first = time.Now(), time.Time{} // per outbound send: a failed or replayed attempt wrote nothing
+		}
+		return send(credential)
+	}
 	r.touch(ctx, p.Name)
 	sent, cerr := providers.Credential(ctx, p) // the exact credential this identity sends, so a replay never crosses it
 	if cerr != nil {

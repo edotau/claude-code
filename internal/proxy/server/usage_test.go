@@ -291,3 +291,34 @@ func TestScrapeGeminiUsageSparseChunks(t *testing.T) {
 		t.Errorf("usage = %+v, want 70/47/20", u)
 	}
 }
+
+// A streamed row carries the first-byte and total milliseconds of its serving attempt and its cost at the owner price.
+func TestLedgerRowCarriesDurationAndCost(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		time.Sleep(20 * time.Millisecond)
+		io.WriteString(w, `data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"hi"}}]}`+"\n\n")
+		w.(http.Flusher).Flush()
+		io.WriteString(w, `data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],`+
+			`"usage":{"prompt_tokens":9,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}`+"\n\ndata: [DONE]\n\n")
+	})
+	t.Setenv("DBX_KEY", "tok")
+	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
+		`/serving-endpoints/anthropic","routes":{"openai":"` + up.URL + `/serving-endpoints"},"auth":{"type":"key","env":"DBX_KEY"},` +
+		`"models":{"haiku":"m-haiku"},"options":{"prices":{"m-haiku":{"input":3,"output":15,"cache_read":0.3,"cache_write":3.75}}}}`
+	srv := setup(t, `{"default":"dbx","providers":{"databricks":{"dbx":`+row+`}}}`)
+	resp := post(t, srv.URL+"/p/dbx/v1/messages", `{"model":"m-haiku","stream":true}`, nil)
+	if b := body(t, resp); resp.StatusCode != 200 {
+		t.Fatalf("status %d: %s", resp.StatusCode, b)
+	}
+	got := ledgerSettled(t, 1)
+	if len(got) != 1 {
+		t.Fatalf("ledger = %+v, want 1 entry", got)
+	}
+	e := got[0]
+	want := providers.Price{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}.USD(7, 3, 2, 0, 0)
+	if e.Input != 7 || e.Output != 3 || e.FirstMs < 20 || e.TotalMs < e.FirstMs || e.CostUSD != want {
+		t.Errorf("entry = %+v, want first>=20, total>=first, cost %v", e, want)
+	}
+}

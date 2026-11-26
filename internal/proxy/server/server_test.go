@@ -903,3 +903,53 @@ func TestHealthzReportsCacheCounters(t *testing.T) {
 		t.Fatalf("cache header = %q", got)
 	}
 }
+
+func TestSpendCapRefuses402(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	srv := setup(t, `{"default":"up1","routing":{"spendCap":{"dayUSD":0.5}},"providers":{"anthropic":{"up1":`+
+		anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	url := srv.URL + "/p/up1/v1/messages"
+	if resp := post(t, url, `{"model":"m1"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("under cap: got %d", resp.StatusCode)
+	}
+	tokenledger.Append(tokenledger.Entry{Ts: time.Now(), Provider: "up1", Model: "m1", CostUSD: 0.75})
+	resp := post(t, url, `{"model":"m1"}`, nil)
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 402 || resp.Header.Get(proxy.RefusalHeader) != proxy.RefusalSpendCap ||
+		!strings.Contains(string(b), `spendCap.dayUSD=\u003cusd`) || up.hits.Load() != 1 {
+		t.Fatalf("over cap: %d %v %s hits=%d", resp.StatusCode, resp.Header, b, up.hits.Load())
+	}
+}
+
+func TestSpendCapSessionAndCountExempt(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	srv := setup(t, `{"default":"up1","routing":{"spendCap":{"sessionUSD":0.5}},"providers":{"anthropic":{"up1":`+
+		anthropicProvider(up.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	tokenledger.Append(tokenledger.Entry{Ts: time.Now(), Provider: "up1", Model: "m1", Session: "s1", CostUSD: 0.75})
+	url := srv.URL + "/p/up1/v1/messages"
+	for hdr, want := range map[string]int{"s1": 402, "s2": 200, "": 200} {
+		if got := post(t, url, `{"model":"m1"}`, map[string]string{"X-Claude-Code-Session-Id": hdr}).StatusCode; got != want {
+			t.Errorf("session %q: got %d, want %d", hdr, got, want)
+		}
+	}
+	if got := post(t, url+"/count_tokens", `{"model":"m1"}`, map[string]string{"X-Claude-Code-Session-Id": "s1"}).StatusCode; got != 200 {
+		t.Errorf("count_tokens over the cap: got %d, want 200", got)
+	}
+}
+
+func TestSpendCapRefusesFailoverToMeteredHop(t *testing.T) {
+	cli := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(503) })
+	met := newUpstream(t, ok)
+	t.Setenv("UP1_KEY", "k1")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+	cliRow := strings.Replace(anthropicProvider(cli.URL, "UP1_KEY", `{"opus":"m1"}`), `"auth":{"type":"key","header":"x-api-key","env":"UP1_KEY"}`, `"auth":{"type":"cli"}`, 1)
+	srv := setup(t, `{"default":"cli","fallback":["met"],"routing":{"spendCap":{"dayUSD":0.5}},"providers":{"anthropic":{"cli":`+
+		cliRow+`,"met":`+anthropicProvider(met.URL, "UP1_KEY", `{"opus":"m1"}`)+`}}}`)
+	tokenledger.Append(tokenledger.Entry{Ts: time.Now(), Provider: "met", Model: "m1", CostUSD: 0.75})
+	resp := post(t, srv.URL+"/p/cli/v1/messages", `{"model":"m1"}`, map[string]string{"Authorization": "Bearer c"})
+	if resp.StatusCode != 402 || resp.Header.Get(proxy.RefusalHeader) != proxy.RefusalSpendCap || met.hits.Load() != 0 || cli.hits.Load() == 0 {
+		t.Fatalf("got %d %v cli=%d met=%d", resp.StatusCode, resp.Header, cli.hits.Load(), met.hits.Load())
+	}
+}

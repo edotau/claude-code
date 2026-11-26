@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/autofix"
 	"github.com/edotau/claude-code/internal/review/bench"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // autofixTimeout bounds one commit's repair, lane setup and leaf launch inside the detached verifier.
@@ -42,7 +43,7 @@ var (
 )
 
 // GateAutofix repairs a red post-commit gate on the primary trunk and returns its notice lines; a green gate is nil.
-func GateAutofix(top, sha, gateOutput string) []string {
+func GateAutofix(top, sha, gateOutput string, failureIDs ...string) []string {
 	if strings.TrimSpace(gateOutput) == "" {
 		return nil
 	}
@@ -58,7 +59,7 @@ func GateAutofix(top, sha, gateOutput string) []string {
 	var lines []string
 	// one run at a time machine-wide, so a second verifier for the same sha sees the first one's branch or ledger row
 	err := paths.WithFileLockWithin(filepath.Join(paths.StateDir(), "autofix", "run"), autofixLockWait, func() error {
-		lines = autofixLocked(ctx, top, sha, gateOutput)
+		lines = autofixLocked(ctx, top, sha, gateOutput, failureIDs)
 		return nil
 	})
 	switch {
@@ -75,7 +76,7 @@ func autofixNote(short, text string) []string {
 	return []string{autofixNotice("autofix " + short + ": " + text)}
 }
 
-func autofixLocked(ctx context.Context, top, sha, gateOutput string) []string {
+func autofixLocked(ctx context.Context, top, sha, gateOutput string, failureIDs []string) []string {
 	short := sha[:7]
 	var lines []string
 	if why := autofixTried(ctx, top, sha); why != "" {
@@ -87,6 +88,11 @@ func autofixLocked(ctx context.Context, top, sha, gateOutput string) []string {
 	}
 	if len(findings) == 0 {
 		return append(lines, autofixNote(short, "nothing done: no findings recognised in the gate output")...)
+	}
+	for _, id := range failureIDs {
+		if got, err := worktree.ClaimFailure(worktree.FailuresDir(), id, "autofix-"+short); err != nil || got != "autofix-"+short {
+			return append(lines, autofixNote(short, "nothing done: failure held by another session")...)
+		}
 	}
 	var green autofix.Result
 	if slices.ContainsFunc(findings, func(f autofix.Finding) bool { return f.Class.Deterministic() }) {

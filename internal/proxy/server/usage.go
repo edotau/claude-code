@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -179,13 +182,70 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 	if !swapped(requested, model) {
 		requested = ""
 	}
+	now := time.Now()
+	total, first := ledgerDurations(m, now)
 	tokenledger.Append(tokenledger.Entry{
-		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
+		Ts: now, Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,
 		AskedModel: m.askedModel(), Call: string(m.callKind()), Route: m.routeIfDiffers(p.Name),
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
 		CacheWrite: u.cacheWrite, CacheWrite1h: u.cacheWrite1h,
+		FirstMs: first, TotalMs: total, CostUSD: ledgerCost(p, model, u, now),
 	})
+}
+
+// ledgerDurations is the attempt's total and first-byte milliseconds; 0 when unknown.
+func ledgerDurations(m *reqMeta, now time.Time) (total, first int64) {
+	if m != nil && !m.sent.IsZero() {
+		total = now.Sub(m.sent).Milliseconds()
+		if m.first.After(m.sent) {
+			first = m.first.Sub(m.sent).Milliseconds()
+		}
+	}
+	return total, first
+}
+
+// listTable is prices.json, re-read when its mtime moves, stat'ed at most once a minute.
+var listTable struct {
+	sync.Mutex
+	t            catalog.Prices
+	path         string
+	mod, checked time.Time
+}
+
+// listPrices is the cached list table; a failed stat or read keeps the last one.
+func listPrices(now time.Time) catalog.Prices {
+	listTable.Lock()
+	defer listTable.Unlock()
+	path := catalog.PricesPath()
+	if path == listTable.path && !listTable.checked.IsZero() && now.Sub(listTable.checked) < time.Minute {
+		return listTable.t
+	}
+	if path != listTable.path {
+		listTable.t, listTable.mod, listTable.path = catalog.Prices{}, time.Time{}, path
+	}
+	listTable.checked = now
+	if fi, err := os.Stat(path); err == nil && !fi.ModTime().Equal(listTable.mod) {
+		if t, err := catalog.ReadPrices(); err == nil {
+			listTable.t, listTable.mod = t, fi.ModTime()
+		}
+	}
+	return listTable.t
+}
+
+// ledgerCost is u at p's owner price for model, else the list price; 0 when neither names one.
+func ledgerCost(p *providers.Provider, model string, u ledgerUsage, now time.Time) float64 {
+	price, ok := p.OwnerPrice(model)
+	if !ok {
+		list := listPrices(now)
+		if price, ok = list.ListPrice(p.Provider, model); !ok { // the served spelling first: rows may differ from the key's
+			price, ok = list.ListPrice(p.Provider, models.ModelKey(model))
+		}
+	}
+	if !ok {
+		return 0
+	}
+	return price.USD(u.input, u.output, u.cacheRead, u.cacheWrite, u.cacheWrite1h)
 }
 
 // callKind is the typed shape of a request, decided from its path and, for messages, the body fields already parsed.
@@ -213,6 +273,8 @@ type reqMeta struct {
 	asked string   // the body's model string, sanitized and capped
 	plain string   // the asked model without a [1m] marker, for the swap check
 	call  callKind // the request kind
+
+	sent, first time.Time // the serving attempt's send and its first client byte
 }
 
 type metaKey struct{}

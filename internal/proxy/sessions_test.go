@@ -9,6 +9,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestReadLiveStatePropagatesStateReadFailure(t *testing.T) {
@@ -120,5 +123,23 @@ func TestRefreshProxyTokenReplacesCache(t *testing.T) {
 	}
 	if again, _ := ResolveProxyToken(ctx, scope, 4242); again != fresh || mints != 2 {
 		t.Errorf("cache not replaced by the refresh: %q, %d mints", again, mints)
+	}
+}
+
+func TestOverlayShapeErrRefusesColonForm(t *testing.T) {
+	for _, bad := range []string{"databricks:dev", "openai:foo", "bogus"} {
+		ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: bad})
+		err := overlayShapeErr(ctx)
+		if err == nil || !strings.Contains(err.Error(), "fence mint needs the JSON overlay form") {
+			t.Errorf("%q: err = %v, want fence mint JSON error", bad, err)
+		} else if strings.Contains(err.Error(), bad) {
+			t.Errorf("%q: err %q echoes the input", bad, err)
+		}
+	}
+	for _, okVal := range []string{"", "anthropic", "databricks", `{"provider":"databricks","profile":"dev"}`} {
+		ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: okVal})
+		if err := overlayShapeErr(ctx); err != nil {
+			t.Errorf("%q: unexpected err = %v", okVal, err)
+		}
 	}
 }

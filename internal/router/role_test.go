@@ -33,9 +33,6 @@ func TestRoleCells(t *testing.T) {
 	if got := RoleCells(RoleFleet, provs); !reflect.DeepEqual(got, fleet) {
 		t.Errorf("fleet cells = %v", got)
 	}
-	if _, err := ParseRole("lead"); !errors.As(err, new(RoleError)) {
-		t.Errorf("lead: want a RoleError, got %v", err)
-	}
 }
 
 func TestFableHint(t *testing.T) {

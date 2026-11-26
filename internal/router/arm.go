@@ -369,7 +369,7 @@ func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model st
 
 // liveByWorkspace is each workspace's live load: in-flight markers on its account plus alive records routed to it.
 func liveByWorkspace(ps []*providers.Provider) map[string]int {
-	var routed map[string]int
+	var routed map[route.Route]int
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -379,7 +379,7 @@ func liveByWorkspace(ps []*providers.Provider) map[string]int {
 	<-done
 	out := map[string]int{}
 	for _, p := range ps {
-		out[p.Name] = snap.Per[AccountOf(p)] + routed[route.Join(cmp.Or(p.Provider, RouteDatabricks), p.Name)]
+		out[p.Name] = snap.Per[AccountOf(p)] + routed[route.Route{Provider: cmp.Or(p.Provider, RouteDatabricks), Profile: p.Name}]
 	}
 	return out
 }

@@ -415,11 +415,16 @@ func parseOverlayRoute(ctx context.Context) (provider, profile string, err error
 	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == route.AutoArm):
 		// the ask applying this document resolves the workspace
 		return "", "", nil
+	case doc.Provider == "":
+		return "", "", nil
+	case !slices.Contains(route.Providers, doc.Provider):
+		return "", "", fmt.Errorf("%s: unknown provider (%s)", route.OverlayVar, strings.Join(route.Providers, "|"))
 	}
-	if provider, profile, err = route.Parse(route.Join(doc.Provider, doc.Profile)); err != nil {
+	r := route.Route{Provider: doc.Provider, Profile: doc.Profile}
+	if err := r.Validate(); err != nil {
 		return "", "", fmt.Errorf("%s: %w", route.OverlayVar, err)
 	}
-	return provider, profile, nil
+	return r.Provider, r.Profile, nil
 }
 
 // ConfinedContext is the non-Databricks provider and profile OverlayRoute names; a bad overlay fails closed.
@@ -468,65 +473,7 @@ func ArmProfileContext(ctx context.Context) string {
 	return ""
 }
 
-// ChainReq is one pi runner chain: the head hop's agent, workspace and model, the ask's alias and typed fallback mode.
-type ChainReq struct {
-	Agent, Profile, Model, Alias string
-	Policy                       Policy
-	// Asked is the agent whose own CLI hop 3 runs; empty is claude for a pi head, else the head's own agent
-	Asked string
-	// TypedModel: the model was named on the command line, so no hop leaves the arm
-	TypedModel bool
-}
-
-// ChainHop is one hop of a chain; OffArm marks the hop that leaves the Databricks arm, taken only under a typed all.
+// ChainHop is one pi runner sibling hop: the agent, workspace row, account and model it runs.
 type ChainHop struct {
 	Agent, Profile, Account, Model string
-	OffArm                         bool
-}
-
-// Chain orders q's hops; the caller validates each one (served, READY, agent fit) before it runs.
-func (t *RouteTable) Chain(reg *providers.Registry, q ChainReq) []ChainHop {
-	q.Policy = q.Policy.Resolved()
-	hop := func(agent, profile, model string, off bool) ChainHop {
-		return ChainHop{agent, profile, accountIn(reg)(profile), model, off}
-	}
-	out := []ChainHop{hop(q.Agent, q.Profile, q.Model, false)}
-	if q.Policy.Kind == PolicyNone || !slices.Contains(providers.DatabricksProfiles(reg), q.Profile) {
-		return out
-	}
-	if !agentid.Routing(q.Agent).NoWorkspaceFallback {
-		for _, ws := range WorkspaceRows(reg, q.Profile) {
-			out = append(out, hop(q.Agent, ws, q.Model, false))
-		}
-	}
-	if !q.Policy.Agents {
-		return out
-	}
-	own := chainOwn(q)
-	if own != q.Agent {
-		out = append(out, hop(own, q.Profile, cmp.Or(q.Model, q.Alias), false))
-	}
-	return append(out, offArm(reg, q, own)...)
-}
-
-// offArm is the own-login hops that leave the arm: only for a typed all with no typed model.
-func offArm(reg *providers.Registry, q ChainReq, own string) (out []ChainHop) {
-	if !q.Policy.OffArm || !q.Policy.Typed() || q.TypedModel {
-		return nil
-	}
-	for _, row := range ownRows(reg, own) {
-		out = append(out, ChainHop{own, row, accountIn(reg)(row), q.Alias, true})
-	}
-	return out
-}
-
-// chainOwn is the agent whose own CLI hop 3 runs: Asked, else claude for a pi head, else the head's agent.
-func chainOwn(q ChainReq) string {
-	if q.Asked != "" {
-		return q.Asked
-	}
-	if q.Agent == agentid.Pi {
-		return "claude"
-	}
-	return q.Agent
 }

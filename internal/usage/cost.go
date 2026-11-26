@@ -5,13 +5,11 @@ import (
 	"io"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -20,20 +18,18 @@ import (
 
 const (
 	costEst       = "est."
-	costBilled    = "billed"
 	costWidth     = 80
 	budgetPercent = 100
 	budgetWarning = 80
 )
 
-// costRow is one profile+model line of the cost report; USD and DBUs are NaN when unknown (no price, SQL NULL).
+// costRow is one profile+model line of the cost report; USD is NaN when unknown (no price).
 type costRow struct {
 	Profile, Provider, Model                       string
 	Input, Output, CacheRead, CacheWrite, CacheW1h int
-	DBUs, USD                                      float64
+	USD                                            float64
 	Unpriced                                       int // models in a total line whose USD is unknown
 	Source                                         string
-	Through                                        time.Time
 	List                                           bool // priced from the models.dev list price, not an owner's options.prices
 }
 
@@ -142,96 +138,17 @@ func compareCostRows(a, b costRow) int {
 	return strings.Compare(a.Model, b.Model)
 }
 
-// billedRows maps a query result to rows by column name, so a reordered SELECT still reads right.
-func billedRows(columns []string, rows [][]string) ([]costRow, error) {
-	pos := map[string]int{}
-	for i, c := range columns {
-		pos[strings.ToLower(strings.TrimSpace(c))] = i
-	}
-	for _, name := range []string{"profile", "model", "dbus", "usd", "through"} {
-		if _, ok := pos[name]; !ok {
-			return nil, fmt.Errorf("billing result is missing column %q", name)
-		}
-	}
-	out := make([]costRow, 0, len(rows))
-	for n, r := range rows {
-		if len(r) < len(columns) {
-			return nil, fmt.Errorf("billing row %d has %d cells, want %d", n+1, len(r), len(columns))
-		}
-		row, err := billedRow(r, pos)
-		if err != nil {
-			return nil, fmt.Errorf("billing row %d: %w", n+1, err)
-		}
-		out = append(out, row)
-	}
-	return out, nil
-}
-
-func billedRow(r []string, pos map[string]int) (costRow, error) {
-	row := costRow{Profile: cellText(r[pos["profile"]]), Model: cellText(r[pos["model"]]), Source: costBilled}
-	var err error
-	if row.DBUs, err = parseCostFloat(r[pos["dbus"]], "dbus"); err != nil {
-		return row, err
-	}
-	if row.USD, err = parseCostFloat(r[pos["usd"]], "usd"); err != nil {
-		return row, err
-	}
-	row.Through, err = parseThrough(r[pos["through"]])
-	return row, err
-}
-
-func cellText(s string) string {
-	if s == sqlexec.NullCell {
-		return ""
-	}
-	return s
-}
-
-// parseThrough reads a date, an RFC 3339 timestamp or "YYYY-MM-DD HH:MM:SS"; an empty or NULL cell is the zero time.
-func parseThrough(s string) (time.Time, error) {
-	s = strings.TrimSpace(cellText(s))
-	if s == "" {
-		return time.Time{}, nil
-	}
-	for _, layout := range []string{"2006-01-02", time.RFC3339, "2006-01-02 15:04:05"} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC().Truncate(24 * time.Hour), nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("column through: %q is not a date (want 2006-01-02, RFC 3339 or 2006-01-02 15:04:05)", s)
-}
-
-// parseCostFloat reads a number; an empty or NULL cell is unknown (NaN), never zero.
-func parseCostFloat(s, col string) (float64, error) {
-	s = strings.TrimSpace(cellText(s))
-	if s == "" {
-		return math.NaN(), nil
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-		return 0, fmt.Errorf("column %s: %q is not a number", col, s)
-	}
-	return f, nil
-}
-
-// printCostSection prints one table per source, each profile's models then its total line, and a caption.
+// printCostSection prints the estimate table, each profile's models then its total line, and a caption.
 func printCostSection(out io.Writer, rows []costRow, scope string) {
-	for _, src := range []string{costEst, costBilled} {
-		var sub []costRow
-		for _, r := range rows {
-			if r.Source == src {
-				sub = append(sub, r)
-			}
-		}
-		if len(sub) == 0 {
-			continue
-		}
-		slices.SortStableFunc(sub, compareCostRows)
-		fmt.Fprintf(out, "\nCOST, %s (%s)\n", scope, src)
-		head, body := costTable(src, sub)
-		fmt.Fprint(out, table.Render(head, []int{14, 28}, body, costWidth))
-		fmt.Fprintln(out, costCaption(src, sub))
+	if len(rows) == 0 {
+		return
 	}
+	sub := slices.Clone(rows)
+	slices.SortStableFunc(sub, compareCostRows)
+	fmt.Fprintf(out, "\nCOST, %s (%s)\n", scope, costEst)
+	head, body := costTable(sub)
+	fmt.Fprint(out, table.Render(head, []int{14, 28}, body, costWidth))
+	fmt.Fprintln(out, costCaption(sub))
 }
 
 // Budget is one workspace budget's current spend, read by the caller so usage never imports databricks.
@@ -263,52 +180,34 @@ func costBudgetLine(b Budget) string {
 		b.Profile, b.Number, scope, period, b.Spend, b.Limit, percent, warning)
 }
 
-func costCaption(src string, rows []costRow) string {
+func costCaption(rows []costRow) string {
 	partial := ""
 	if slices.ContainsFunc(rows, func(r costRow) bool { return math.IsNaN(r.USD) }) {
 		partial = "; totals leave out unpriced models"
 	}
-	if src == costEst {
-		if slices.ContainsFunc(rows, func(r costRow) bool { return r.List }) {
-			partial += "; some prices are models.dev list prices (est. list)"
-		}
-		return "est.: local ledger tokens x your price table, not an invoice" + partial
+	if slices.ContainsFunc(rows, func(r costRow) bool { return r.List }) {
+		partial += "; some prices are models.dev list prices (est. list)"
 	}
-	var through time.Time
-	for _, r := range rows {
-		if r.Through.After(through) {
-			through = r.Through
-		}
-	}
-	d := "unknown"
-	if !through.IsZero() {
-		d = through.Format("2006-01-02")
-	}
-	return "billed: system.billing, through " + d + partial
+	return "est.: local ledger tokens x your price table, not an invoice" + partial
 }
 
-func costTable(src string, rows []costRow) ([]string, [][]string) {
-	head := []string{"PROFILE", "MODEL", "DBUS", "USD"}
-	last := 3
-	if src == costEst {
-		head = []string{"PROFILE", "MODEL", "INPUT", "OUTPUT", "CACHE-R", "CACHE-W", "HIT", "USD"}
-		last = 7
-	}
+func costTable(rows []costRow) ([]string, [][]string) {
+	head := []string{"PROFILE", "MODEL", "INPUT", "OUTPUT", "CACHE-R", "CACHE-W", "HIT", "USD"}
 	var body [][]string
 	for i := 0; i < len(rows); {
 		j := i
-		tot := costRow{Profile: rows[i].Profile, Model: "total", USD: math.NaN(), DBUs: math.NaN()}
+		tot := costRow{Profile: rows[i].Profile, Model: "total", USD: math.NaN()}
 		for ; j < len(rows) && rows[j].Profile == rows[i].Profile; j++ {
-			body = append(body, costCells(src, rows[j]))
+			body = append(body, costCells(rows[j]))
 			addCost(&tot, rows[j])
 		}
 		if tot.Unpriced > 0 {
 			tot.Model = fmt.Sprintf("total (%d unpriced)", tot.Unpriced)
 		}
-		body = append(body, costCells(src, tot))
+		body = append(body, costCells(tot))
 		i = j
 	}
-	return head, rightAlign(head, body, 2, last)
+	return head, rightAlign(head, body, 2, 7)
 }
 
 // addCost sums t with r; USD stays NaN (shown "-") until some row is priced, and Unpriced counts the rest.
@@ -317,7 +216,7 @@ func addCost(t *costRow, r costRow) {
 	t.Output += r.Output
 	t.CacheRead += r.CacheRead
 	t.CacheWrite += r.CacheWrite
-	t.USD, t.DBUs = addKnown(t.USD, r.USD), addKnown(t.DBUs, r.DBUs)
+	t.USD = addKnown(t.USD, r.USD)
 	if math.IsNaN(r.USD) {
 		t.Unpriced++
 	}
@@ -334,17 +233,10 @@ func addKnown(a, b float64) float64 {
 	return a + b
 }
 
-func costCells(src string, r costRow) []string {
+func costCells(r costRow) []string {
 	usd := "-"
 	if !math.IsNaN(r.USD) {
 		usd = fmt.Sprintf("$%.2f", r.USD)
-	}
-	if src == costBilled {
-		dbus := "-"
-		if !math.IsNaN(r.DBUs) {
-			dbus = fmt.Sprintf("%.1f", r.DBUs)
-		}
-		return []string{dash(r.Profile), dash(r.Model), dbus, usd}
 	}
 	return []string{dash(r.Profile), dash(r.Model), humanTokens(r.Input), humanTokens(r.Output),
 		humanTokens(r.CacheRead), humanTokens(r.CacheWrite), cacheHitCell(r), usd}

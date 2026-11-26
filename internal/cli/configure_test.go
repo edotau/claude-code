@@ -14,9 +14,12 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/proxyteam" // registers its formats until the binary links it
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/ui/menu"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func run(args []string) int { return cmdConfigure(args) }
@@ -482,5 +485,127 @@ func TestConfigureFmtLeavesUnparsableFileUntouched(t *testing.T) {
 	got, _ := os.ReadFile(live)
 	if code == 0 || string(got) != `{"model":` {
 		t.Errorf("unparsable file: exit %d, content %q", code, got)
+	}
+}
+
+// spendCapText is the routing spend caps as "session day", nil shown as "nil".
+func spendCapText(t *testing.T) string {
+	t.Helper()
+	r, err := providers.RoutingOverlay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	show := func(p *float64) string {
+		if p == nil {
+			return "nil"
+		}
+		return fmt.Sprint(*p)
+	}
+	return show(r.SpendCap.SessionUSD) + " " + show(r.SpendCap.DayUSD)
+}
+
+// routingOverlayRaw is the stored providers overlay, the bytes a routing write would change.
+func routingOverlayRaw(t *testing.T) string {
+	t.Helper()
+	var raw string
+	if err := vault.View(func(tx *vault.Tx) error { raw, _ = tx.Get(vault.Overlay, "providers"); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestConfigureRoutingAssign(t *testing.T) {
+	vaulttest.Use(t)
+	for _, tc := range []struct {
+		args  []string
+		code  int
+		want  string
+		write bool // a successful apply, which may change the vault
+	}{
+		{[]string{"routing", "spendCap.dayUSD=50", "--dry-run"}, 0, "routing spendCap.dayUSD=50.00", false},
+		{[]string{"routing", "session_usd=5", "--check"}, 0, "routing spendCap.sessionUSD=5.00", false},
+		{[]string{"routing", "nope=1"}, 2, "unknown routing key", false},
+		{[]string{"routing", "session_usd=5", "bad=1"}, 2, "unknown routing key", false},
+		{[]string{"routing", "session_usd=NaN"}, 2, "finite USD", false},
+		{[]string{"routing", "session_usd"}, 2, "must be key=value", false},
+		{[]string{"routing", "session_usd=5", "day_usd=20", "servedAware=true"}, 0, "", true},
+		{[]string{"routing", "session_usd=", "spendCap.sessionUSD=7"}, 0, "", true},
+	} {
+		before := routingOverlayRaw(t)
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return run(tc.args) })
+		if code != tc.code || !strings.Contains(out+stderr, tc.want) || !tc.write && routingOverlayRaw(t) != before {
+			t.Fatalf("%v: code %d out %s err %s", tc.args, code, out, stderr)
+		}
+	}
+}
+
+func TestConfigureRoutingReset(t *testing.T) {
+	settings := filepath.Join(vaulttest.Use(t), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"untouched":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"routing", "session_usd=5", "day_usd=20", "servedAware=true"},
+		{"routing", "session_usd=", "spendCap.sessionUSD=7"},
+	} {
+		code, _, errout := hosttest.CaptureOutput(t, func() int { return run(args) })
+		if code != 0 {
+			t.Fatalf("%v: %s", args, errout)
+		}
+	}
+	if got := spendCapText(t); got != "7 20" {
+		t.Fatalf("routing spend caps = %q", got)
+	}
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"routing", "session_usd="}) })
+	if code != 0 || !strings.Contains(out, "=off") {
+		t.Fatalf("reset: %d %s %s", code, out, stderr)
+	}
+	if got := spendCapText(t); got != "nil 20" {
+		t.Fatalf("reset spend caps = %q", got)
+	}
+	if got, err := os.ReadFile(settings); err != nil || string(got) != `{"untouched":true}` {
+		t.Fatalf("settings changed: %s %v", got, err)
+	}
+}
+
+func TestConfigureRoutingWeights(t *testing.T) {
+	vaulttest.Use(t)
+	for _, pairs := range [][]string{
+		{"weights.price=0.1", "weights.latency=0.8"},
+		{"weights.price=0.5", "weights.latency=0.2"},
+		{"weights.latency=", "weights.price=0.3"},
+	} {
+		args := append([]string{"routing"}, pairs...)
+		code, preview, stderr := hosttest.CaptureOutput(t, func() int { return run(append(slices.Clone(args), "--dry-run")) })
+		if code != 0 {
+			t.Fatalf("preview %v: %s", args, stderr)
+		}
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return run(args) })
+		if code != 0 || out != preview {
+			t.Fatalf("write %v: code %d out %s preview %s err %s", args, code, out, preview, stderr)
+		}
+		r, err := providers.RoutingOverlay()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.TrimPrefix(pairs[len(pairs)-1], "weights.price=")
+		if v, ok := strings.CutPrefix(pairs[0], "weights.price="); ok {
+			want = v
+		}
+		if got := fmt.Sprint(r.Weights["price"]); got != want {
+			t.Fatalf("price=%s want=%s", got, want)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"routing", "weights.price=0.99", "weights.latency=0.2", "--dry-run"},
+		{"routing", "weights.price=0.99", "weights.latency=0.2"},
+		{"routing", "day_usd=5", "--list"},
+		{"routing", "day_usd=5", "--out", "unused.json"},
+	} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return run(args) })
+		if code != 2 {
+			t.Fatalf("%v: exit %d %s", args, code, stderr)
+		}
 	}
 }

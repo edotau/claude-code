@@ -81,7 +81,7 @@ func checkTranslatedLedger(t *testing.T) {
 		t.Fatalf("ledger = %+v, want one translated response", got)
 	}
 	entry := got[0]
-	entry.Ts, entry.Schema = time.Time{}, 0
+	entry.Ts, entry.Schema, entry.FirstMs, entry.TotalMs = time.Time{}, 0, 0, 0 // the clock and stopwatch vary
 	want := tokenledger.Entry{Profile: "oa", Provider: "openai", Model: "gpt-x", Session: "sess-1",
 		Agent: "copilot", AskedModel: "gpt-x", Call: "messages_tiny", Input: 11, Output: 4}
 	if entry != want {

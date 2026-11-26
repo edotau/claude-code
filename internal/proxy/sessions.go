@@ -58,9 +58,8 @@ func overlayShapeErr(ctx context.Context) error {
 	if v == "" {
 		return nil
 	}
-	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider[:profile]
-		p, prof, err := route.Parse(v)
-		if err != nil || (p == router.RouteDatabricks && prof != "") { // a bare databricks:<p> would read as unconfined
+	if !strings.HasPrefix(v, "{") { // an inline document, or a bare provider
+		if !slices.Contains(route.Providers, v) {
 			return fmt.Errorf("%s: the fence mint needs the JSON overlay form, e.g. {\"provider\":\"databricks\",\"profile\":\"<profile>\"}", route.OverlayVar)
 		}
 		return nil

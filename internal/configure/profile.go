@@ -267,7 +267,7 @@ func setAgentProfile(ctx context.Context, w io.Writer, name, profile string) err
 		return err
 	}
 	if _, err := ApplyProfile([]string{name}, profile); err != nil {
-		return fmt.Errorf("%w (see claude-code configure provider --list)", err)
+		return fmt.Errorf("%w (see claude-code vault ls providers)", err)
 	}
 	if p := reg.Providers[profile]; name == "copilot" && p != nil && p.Provider == "github" && p.Login == "" {
 		fmt.Fprintf(w, "copilot: %s has no login; billing follows gh's active account (add a login in `claude-code configure github`)\n", profile)

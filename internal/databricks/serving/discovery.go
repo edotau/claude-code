@@ -142,7 +142,7 @@ func parseIdentity(body []byte) (string, error) {
 	return identity.ID, nil
 }
 
-// DiscoveryKeyPrefix starts every sealed model-discovery secret name.
+// DiscoveryKeyPrefix starts every sealed model-discovery cache record name (vault.CachePrefixes lists it).
 const DiscoveryKeyPrefix = "model-discovery/v1/"
 
 func servingDiscoveryKey(scope Scope) string {
@@ -150,7 +150,7 @@ func servingDiscoveryKey(scope Scope) string {
 	return DiscoveryKeyPrefix + textutil.SHA256Hex(data)
 }
 
-// SubjectKeyPrefix starts every sealed remembered-subject secret name.
+// SubjectKeyPrefix starts every sealed remembered-subject cache record name.
 const SubjectKeyPrefix = "model-discovery-subject/v1/"
 
 // identityTag is the credential identity a ctx selects for p (user, sp, auto, or auto's headless SP-first order).
@@ -188,7 +188,7 @@ func RecallSubjectCtx(ctx context.Context, p *providers.Provider) (subject strin
 	if err != nil {
 		return "", false, err
 	}
-	raw, found, err := vault.ReadSecret(name)
+	raw, found, err := vault.ReadCache(name)
 	if err != nil {
 		return "", false, errors.New("cannot read or decrypt remembered subject")
 	}
@@ -200,7 +200,7 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	if _, _, err := vault.MasterKey(); err != nil && (!errors.Is(err, vault.ErrLocked) || vaultKeyed()) {
 		return Snapshot{}, false, errors.New("discovery vault is unavailable or locked")
 	}
-	raw, found, err := vault.ReadSecret(servingDiscoveryKey(scope))
+	raw, found, err := vault.ReadCache(servingDiscoveryKey(scope))
 	if err != nil {
 		return Snapshot{}, false, errors.New("cannot read or decrypt discovery cache; refresh cannot bypass vault access")
 	}
@@ -286,7 +286,7 @@ func currentSubject(ctx context.Context, p *providers.Provider, refresh bool) (s
 func rememberValidated(p *providers.Provider, name string, v validated) {
 	b, _ := json.Marshal(v) // only strings and a time
 	_ = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutSealed(key, name, string(b), "databricks/"+p.Name, v.At)
+		return tx.PutCache(key, name, string(b), "databricks/"+p.Name, v.At)
 	})
 }
 
@@ -314,7 +314,7 @@ func validatedKey(p *providers.Provider, identity string) (string, error) {
 // readValidated returns the sidecar under name when it is complete and younger than identityTTL.
 func readValidated(name string) (validated, bool) {
 	var v validated
-	raw, found, err := vault.ReadSecret(name)
+	raw, found, err := vault.ReadCache(name)
 	if err != nil || !found || json.Unmarshal([]byte(raw), &v) != nil || v.Subject == "" || v.TokenSub == "" {
 		return validated{}, false
 	}
@@ -371,10 +371,10 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 	}
 	label := "databricks/" + scope.Profile
 	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutSealed(key, subjectName, scope.SubjectID, label, time.Now().UTC()); err != nil {
+		if err := tx.PutCache(key, subjectName, scope.SubjectID, label, time.Now().UTC()); err != nil {
 			return err
 		}
-		return tx.PutSealed(key, name, string(data), label, snapshot.DiscoveredAt)
+		return tx.PutCache(key, name, string(data), label, snapshot.DiscoveredAt)
 	}); err != nil {
 		return errors.New("cannot seal discovery cache; check vault access")
 	}

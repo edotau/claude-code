@@ -106,16 +106,17 @@ type PinSpec struct {
 type pickScope struct {
 	State      State
 	Candidates []Candidate
+	Latency    latencyTable
 }
 
-// Dimension is one scored axis, 0–1 with 1 better; success rate, latency or alias fit can be added beside these.
+// Dimension is one scored axis, 0–1 with 1 better; success rate or alias fit can be added beside these.
 type Dimension interface {
 	Name() string
 	Score(c Candidate, s pickScope) float64
 }
 
 // Dimensions are the scored axes; table.json's weights must name exactly these.
-var Dimensions = []Dimension{priceDim{}, headroomDim{}}
+var Dimensions = []Dimension{priceDim{}, headroomDim{}, latencyDim{}}
 
 // Pick gates/scores want first, then ladder/score (low after non-low); FallbackAll Claude is last unless placed.
 func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o PickOpts) PickResult {
@@ -551,14 +552,18 @@ func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
 
 // scoreVia fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
 func (t *RouteTable) scoreVia(acct accountFn, cs []Candidate, st State, now time.Time) []Candidate {
-	sc := pickScope{State: st, Candidates: cs}
+	sc := pickScope{State: st, Candidates: cs, Latency: latencyFor(now)}
+	weights := t.Weights
+	if !sc.Latency.anyMeasured(cs) {
+		weights = withoutLatency(weights)
+	}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
 		c.Scores = map[string]float64{}
 		for _, d := range Dimensions {
 			v := d.Score(c, sc)
 			c.Scores[d.Name()] = v
-			c.Total += t.Weights[d.Name()] * v
+			c.Total += weights[d.Name()] * v
 		}
 		if st.accountCooling(acct, c.Account, now) {
 			c.Total -= coolingPenalty

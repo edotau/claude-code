@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/review/autofix"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 const (
@@ -163,5 +164,23 @@ func TestGateAutofixNoticeSanitised(t *testing.T) {
 	if strings.Contains(got, "/Users") || strings.Contains(got, "worktree create") ||
 		!strings.Contains(got, lane+"/internal/x.go") || !strings.Contains(got, "exit status 1") {
 		t.Fatalf("notice = %q", got)
+	}
+}
+
+// autofix works a failure it claims, skips one another session holds, and a reopened failure is claimable again.
+func TestGateAutofixClaimsFailure(t *testing.T) {
+	calls := stubAutofix(t, true)
+	dir, sha := benchRepo(t)
+	root := worktree.FailuresDir()
+	mine, theirs := worktree.FailureID(worktree.FailPlanCheck, "p 1.1@abcdef0"), worktree.FailureID(worktree.FailPlanCheck, "p 1.2@abcdef0")
+	if _, err := worktree.ClaimFailure(root, theirs, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if lines := GateAutofix(dir, sha, autofixComplexOut, theirs); len(*calls) != 0 || !strings.Contains(strings.Join(lines, "\n"), "held by another") {
+		t.Fatalf("held failure ran: lines %q calls %q", lines, *calls)
+	}
+	GateAutofix(dir, sha, autofixComplexOut, mine)
+	if h, _ := worktree.FailureHolder(root, mine); h != "autofix-"+sha[:7] || len(*calls) == 0 {
+		t.Fatalf("holder %q calls %q", h, *calls)
 	}
 }

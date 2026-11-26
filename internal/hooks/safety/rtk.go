@@ -444,14 +444,6 @@ func rtkWord(bin, home string, onPath bool) string {
 	return `"$HOME/` + rtkDoubleQuoteEscaper.Replace(rest) + `"`
 }
 
-// RTKWords is every spelling RTKRewrite can give the rtk command word for bin: bare, `"$HOME/…"`, quoted absolute.
-func RTKWords(bin, home string) []string {
-	if bin == "" {
-		return []string{"rtk"}
-	}
-	return []string{rtkWord(bin, home, true), rtkWord(bin, home, false), textutil.QuoteSH(bin)}
-}
-
 // rtkDoubleQuoteEscaper backslashes the four characters still special inside POSIX double quotes.
 var rtkDoubleQuoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -54,6 +55,7 @@ var configurePage = helptext.Page{
 		"claude-code configure revert [--agent <name|all>] [--dry-run]\n" +
 		"claude-code configure fmt [--check] [--out FILE]\n" +
 		"claude-code configure agents <agent> key=value... [--dry-run]\n" +
+		"claude-code configure routing <key>=<value>... [--dry-run]\n" +
 		"claude-code configure provider --all [<profile>] [--check]\n" +
 		"claude-code configure provider <profile> options.<key>=<value>...",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
@@ -63,17 +65,17 @@ var configurePage = helptext.Page{
 		"revert puts agent configs back from their backups. fmt reorders settings.json (or --out) to schemastore " +
 		"order and sorts env and string lists; fmt --check writes nothing and exits 1 at the first misplaced path. " +
 		"With restore or revert, --agent is a comma list without claude. " +
-		"provider --list shows credential state and --format json applies to it and --all; " +
+		"provider --format json applies to --all; claude-code vault ls providers shows credential state; " +
 		"switch <profile> picks the session profile.",
 	Commands: [][2]string{
-		{"provider", "pick the session profile; --list shows credential state"},
+		{"provider", "pick the session profile"},
 		{"models", "pin models (live catalog: claude-code models --live)"},
 		{"agents", "set up each agent CLI's routing (--agent for one)"},
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
 		{"desktop", "Claude Desktop loopback profile; --revert restores selection"},
 		{"codex", "Codex preferences with encrypted config history"},
-		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
+		{"routing", "weights, spend caps, served-aware and opencode knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
 		{"theme", "status line palette, tool themes (see theme -h)"},
 		{"vscode", "merge VS Code settings, keybindings, chat models"},
@@ -89,7 +91,7 @@ type configureOpts struct {
 	agent, out, auth               string
 	authSet                        bool
 	dryRun, check, restore, revert bool
-	allAgents, list, all           bool
+	allAgents, all                 bool
 	format                         *string
 }
 
@@ -101,7 +103,6 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.BoolVar(&o.dryRun, "dry-run", false, "print what would change; write nothing (not with restore)")
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (not with restore|revert)")
 	fs.StringVar(&o.out, "out", "", "with restore|fmt: act on this file, not settings.json")
-	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
 	o.format = helptext.FormatFlag(fs)
 	return fs, o
@@ -111,7 +112,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 var removedForms = map[string]string{
 	"--history": "configure history", "--theme": "configure theme", "--vscode": "configure vscode",
 	"--restore": "configure restore", "--revert": "configure revert", "--fmt": "configure fmt",
-	"--agents": "configure restore --agent all", "--profile": "switch <profile>",
+	"--agents": "configure restore --agent all", "--profile": "switch <profile>", "--list": "vault ls providers",
 }
 
 // removedForm returns the first retired flag in args and its replacement, or "".
@@ -141,6 +142,17 @@ func cmdConfigure(args []string) int {
 	}
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
+	}
+	if section == "routing" && len(pos) > 0 {
+		invalid := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "dry-run" && f.Name != "check" {
+				invalid = true
+			}
+		})
+		if invalid {
+			return helptext.FailUsage("configure routing: assignments take only --dry-run or --check")
+		}
 	}
 	o.setMode(section)
 	if section == "fmt" {
@@ -198,8 +210,6 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 	switch {
 	case section != "provider":
 		return "", errors.New("--all needs the provider page")
-	case o.list:
-		return "", errors.New("--all cannot be combined with --list")
 	case len(pos) > 1:
 		return "", fmt.Errorf("--all takes at most one <profile> (got %d)", len(pos))
 	case len(pos) == 0:
@@ -214,7 +224,7 @@ func configureAllProfile(o *configureOpts, section string, pos []string) (string
 
 func configureList(section string, pos []string, format string) int {
 	if section != "provider" {
-		return helptext.Fail("configure: --list needs the provider page")
+		return helptext.Fail("configure: --format needs the provider page (listing: claude-code vault ls providers)")
 	}
 	name := ""
 	if len(pos) > 0 {
@@ -223,14 +233,9 @@ func configureList(section string, pos []string, format string) int {
 	return providerList(name, format)
 }
 
-// wantsList is true for --list, or a non-text --format outside the --all check.
-func (o *configureOpts) wantsList() bool {
-	return o.list || *o.format != helptext.Text && !o.all
-}
-
-// listsInstead: with a restore/revert page word only --list lists (and fails there), never --format.
-func (o *configureOpts) listsInstead(section string) bool {
-	return o.wantsList() && (!o.restore && !o.revert || section == "provider" || o.list)
+// listsInstead is true for a non-text --format outside --all, restore and revert.
+func (o *configureOpts) listsInstead() bool {
+	return *o.format != helptext.Text && !o.all && !o.restore && !o.revert
 }
 
 // isAgentRecord is true for `configure agents <name> key=value ...`.
@@ -241,12 +246,95 @@ func isAgentRecord(section string, pos []string) bool {
 // configureAssignment runs `configure agents|provider <name> key=value ...`; ok is false for any other shape.
 func configureAssignment(o *configureOpts, section string, pos []string) (rc int, ok bool) {
 	switch {
+	case section == "routing" && len(pos) > 0:
+		return configureRoutingSet(pos, o.dryRun || o.check), true
 	case isAgentRecord(section, pos):
 		return configureRecord(pos[0], pos[1:], o.dryRun || o.check), true // --check never writes
 	case section == "provider" && len(pos) >= 2 && strings.Contains(pos[1], "="):
 		return configureProviderOptions(o, pos), true
 	}
 	return 0, false
+}
+
+// configureRoutingSet stages a typed fixed-key patch, applied in module order as SaveRouting does, so preview matches.
+func configureRoutingSet(pairs []string, dryRun bool) int {
+	fields := []configure.RoutingField{}
+	for _, m := range configure.Modules() {
+		fields = append(fields, m.Fields()...)
+	}
+	staged, resets, order, err := stageRoutingPairs(fields, pairs)
+	if err != nil {
+		return helptext.FailUsage("%v", err)
+	}
+	r, err := providers.RoutingOverlay()
+	if err != nil {
+		return helptext.Fail("configure routing: %v", err)
+	}
+	if err := applyRouting(&r, fields, staged); err != nil {
+		return helptext.FailUsage("configure routing: %v", err)
+	}
+	doc, err := json.Marshal(map[string]providers.Routing{"routing": r})
+	if err != nil {
+		return helptext.FailUsage("configure routing: %v", err)
+	}
+	if err := providers.Validate(doc); err != nil {
+		return helptext.FailUsage("configure routing: %v", err)
+	}
+	if !dryRun {
+		if err := configure.SaveRouting(staged, resets); err != nil {
+			return helptext.Fail("configure routing: %v", err)
+		}
+	}
+	for _, f := range order {
+		fmt.Fprintf(os.Stdout, "routing %s=%s\n", f.Key, f.Get(r))
+	}
+	return 0
+}
+
+// applyRouting sets each staged field on r, in module order.
+func applyRouting(r *providers.Routing, fields []configure.RoutingField, staged map[string]string) error {
+	for _, f := range fields {
+		if value, ok := staged[f.Key]; ok {
+			if err := f.Set(r, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// stageRoutingPairs parses key=value words; the reset flags mark empty values, order is first-seen.
+func stageRoutingPairs(fields []configure.RoutingField, pairs []string) (map[string]string, map[string]bool, []configure.RoutingField, error) {
+	staged, resets := map[string]string{}, map[string]bool{}
+	var order []configure.RoutingField
+	known := []string{"session_usd", "day_usd"}
+	for _, f := range fields {
+		known = append(known, f.Key)
+	}
+	for _, pair := range pairs {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("configure routing: %q must be key=value", pair)
+		}
+		switch key {
+		case "session_usd":
+			key = "spendCap.sessionUSD"
+		case "day_usd":
+			key = "spendCap.dayUSD"
+		}
+		i := slices.IndexFunc(fields, func(f configure.RoutingField) bool { return f.Key == key })
+		if i < 0 {
+			return nil, nil, nil, fmt.Errorf("configure: unknown routing key %q (known: %s)", key, strings.Join(known, ", "))
+		}
+		if err := configure.ValidateRoutingInput(fields[i], value); err != nil {
+			return nil, nil, nil, fmt.Errorf("configure routing: %v", err)
+		}
+		if _, seen := staged[key]; !seen {
+			order = append(order, fields[i])
+		}
+		staged[key], resets[key] = value, value == ""
+	}
+	return staged, resets, order, nil
 }
 
 // liftAgentName makes `configure agents <agent>` mean --agent <agent>, so one agent is set up, not all.
@@ -272,7 +360,7 @@ func configureRun(o *configureOpts, section string, pos []string) int {
 	if err != nil {
 		return helptext.Fail("configure: %v", err)
 	}
-	if o.listsInstead(section) {
+	if o.listsInstead() {
 		return configureList(section, pos, *o.format)
 	}
 	if o.restore || o.revert {

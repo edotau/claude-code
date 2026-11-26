@@ -13,12 +13,12 @@ import (
 )
 
 func (o *configureOpts) conflictsWithAssignment() bool {
-	return o.all || o.list || o.out != "" || o.agent != "" || o.allAgents
+	return o.all || o.out != "" || o.agent != "" || o.allAgents
 }
 
 func configureProviderOptions(o *configureOpts, pos []string) int {
 	if o.conflictsWithAssignment() {
-		return helptext.FailUsage("configure provider: option assignments cannot be combined with selection, listing or rendering flags")
+		return helptext.FailUsage("configure provider: option assignments cannot be combined with selection or rendering flags")
 	}
 	reg, err := loadProfile(pos[0])
 	if err != nil {

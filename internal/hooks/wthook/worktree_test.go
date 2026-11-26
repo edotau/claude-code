@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -701,5 +702,49 @@ func BenchmarkDivergedAtUnchangedUpstream(b *testing.B) {
 		if d, err := divergedAt(ctx, repo); err != nil || d != nil {
 			b.Fatalf("divergedAt = %+v, %v; want no divergence", d, err)
 		}
+	}
+}
+
+// TestNoticeContextDrainsFailures: each session sees a failure once, capped at failureLines plus a "more" line.
+func TestNoticeContextDrainsFailures(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := hosttest.Repo(t)
+	for i := range failureLines + 2 {
+		if _, err := worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailAudit,
+			Subject: fmt.Sprintf("s%d", i), Summary: "boom"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := Busy(&core.Input{SessionID: "sF", CWD: cwd})
+	if n := strings.Count(got.Context, "notice (failure, audit): s"); n != failureLines ||
+		!strings.Contains(got.Context, "2 more failures: claude-code failures ls") || got.Decision != core.Allow {
+		t.Fatalf("first prompt = %+v, want %d failures and a more line", got, failureLines)
+	}
+	if again := Busy(&core.Input{SessionID: "sF", CWD: cwd}); strings.Contains(again.Context, "failure") {
+		t.Fatalf("second prompt = %q, want no repeat", again.Context)
+	}
+}
+
+// TestNoticeContextFailuresBusyLog: a held log lock shows nothing and keeps the cursor, so the next prompt shows them.
+func TestNoticeContextFailuresBusyLog(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := hosttest.Repo(t)
+	if _, err := worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailAudit,
+		Subject: "busy", Summary: "boom"}); err != nil {
+		t.Fatal(err)
+	}
+	var held core.Result
+	err := paths.WithFileLock(filepath.Join(worktree.FailuresDir(), "failures.jsonl"), func() error {
+		held = Busy(&core.Input{SessionID: "sB", CWD: cwd})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(held.Context, "failure") || strings.Contains(held.Stderr, "failures") {
+		t.Fatalf("locked prompt = %+v, want no failure lines or warning", held)
+	}
+	if next := Busy(&core.Input{SessionID: "sB", CWD: cwd}); !strings.Contains(next.Context, "notice (failure, audit): busy") {
+		t.Fatalf("next prompt = %q, want the failure", next.Context)
 	}
 }

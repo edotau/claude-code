@@ -51,7 +51,10 @@ type routingModule struct{}
 func (routingModule) Name() string { return "routing" }
 
 func (routingModule) Fields() []RoutingField {
-	return []RoutingField{weightsPriceField(), servedAwareField()}
+	// Latency rescales first; an explicit price then wins in a multi-key patch.
+	return []RoutingField{weightsLatencyField(), weightsPriceField(), servedAwareField(),
+		spendCapField("sessionUSD", func(r *providers.Routing) **float64 { return &r.SpendCap.SessionUSD }),
+		spendCapField("dayUSD", func(r *providers.Routing) **float64 { return &r.SpendCap.DayUSD })}
 }
 
 func weightsPriceField() RoutingField {
@@ -59,6 +62,9 @@ func weightsPriceField() RoutingField {
 		Key:  "weights.price",
 		Kind: RoutingNumber,
 		Get: func(r providers.Routing) string {
+			if r.Weights == nil {
+				r.Weights = providers.DefaultRouting().Weights
+			}
 			return strconv.FormatFloat(r.Weights["price"], 'g', -1, 64)
 		},
 		IsSet: func(r providers.Routing) bool { return r.Weights != nil },
@@ -74,7 +80,76 @@ func weightsPriceField() RoutingField {
 			if math.IsNaN(v) || v < 0 || v > 1 {
 				return fmt.Errorf("weights.price: %v out of [0,1]", v)
 			}
-			r.Weights = map[string]float64{"price": v, "headroom": 1 - v}
+			l := latencyWeight(*r)
+			if v > 1-l {
+				return fmt.Errorf("weights.price: %v leaves no room for latency %v", v, l)
+			}
+			r.Weights = map[string]float64{"price": v, "headroom": 1 - l - v, "latency": l}
+			return nil
+		},
+	}
+}
+
+// latencyWeight respects an explicitly stored weights map, including a missing (zero) latency.
+func latencyWeight(r providers.Routing) float64 {
+	if r.Weights == nil {
+		return providers.DefaultRouting().Weights["latency"]
+	}
+	return r.Weights["latency"]
+}
+
+func weightsLatencyField() RoutingField {
+	return RoutingField{
+		Key: "weights.latency", Kind: RoutingNumber,
+		Get:   func(r providers.Routing) string { return strconv.FormatFloat(latencyWeight(r), 'g', -1, 64) },
+		IsSet: func(r providers.Routing) bool { return r.Weights != nil },
+		Set: func(r *providers.Routing, input string) error {
+			if input == "" {
+				r.Weights = nil
+				return nil
+			}
+			l, err := strconv.ParseFloat(input, 64)
+			if err != nil || math.IsNaN(l) || l < 0 || l > 1 {
+				return fmt.Errorf("weights.latency: %q must be in [0,1]", input)
+			}
+			w := r.Weights
+			if w == nil {
+				w = providers.DefaultRouting().Weights
+			}
+			p, h := w["price"], w["headroom"]
+			if p+h == 0 {
+				// At latency=1 there is no ratio left; recover the default ratio.
+				w = providers.DefaultRouting().Weights
+				p, h = w["price"], w["headroom"]
+			}
+			price := (1 - l) * p / (p + h)
+			r.Weights = map[string]float64{"price": price, "headroom": 1 - l - price, "latency": l}
+			return nil
+		},
+	}
+}
+
+func spendCapField(key string, slot func(*providers.Routing) **float64) RoutingField {
+	key = "spendCap." + key
+	return RoutingField{
+		Key: key, Kind: RoutingNumber,
+		Get: func(r providers.Routing) string {
+			if v := *slot(&r); v != nil {
+				return fmt.Sprintf("%.2f", *v)
+			}
+			return "off"
+		},
+		IsSet: func(r providers.Routing) bool { return *slot(&r) != nil },
+		Set: func(r *providers.Routing, input string) error {
+			if input == "" {
+				*slot(r) = nil
+				return nil
+			}
+			v, err := strconv.ParseFloat(input, 64)
+			if err != nil || !(v > 0 && v <= 1000000) {
+				return fmt.Errorf("%s: %q must be a finite USD amount in (0, 1000000]", key, input)
+			}
+			*slot(r) = &v
 			return nil
 		},
 	}

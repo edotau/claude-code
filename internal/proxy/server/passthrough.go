@@ -113,7 +113,16 @@ func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request,
 			return
 		}
 	}
+	if in.Method == http.MethodPost && r.passthroughCapRefused(sw, in, p) {
+		return
+	}
 	return r.passthroughRequest(sw, in, p, route, &url.URL{Path: rest, RawQuery: query}, model, dialect, dbxGemini)
+}
+
+// passthroughCapRefused is spendCapRefused for a passthrough POST; the registry read is cached.
+func (r *Router) passthroughCapRefused(w http.ResponseWriter, in *http.Request, p *providers.Provider) bool {
+	reg, err := r.registry()
+	return err == nil && r.spendCapRefused(w, in, reg.Routing.SpendCap, p)
 }
 
 func (r *Router) passthroughRoute(w http.ResponseWriter,
@@ -214,6 +223,18 @@ func upstreamNoRetry(resp *http.Response) bool {
 	return retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry")) == retry.ShouldRetryNo
 }
 
+// announceLocal flags a session failure that would fall to the local row; it only announces, never relays.
+func announceLocal(in *http.Request, h http.Header, profile string, status int, hint retry.ShouldRetry) {
+	if hint == retry.ShouldRetryNo || sessionFailoverProvider(in) == "" {
+		return
+	}
+	if status != http.StatusUnauthorized && status != http.StatusForbidden && status != http.StatusTooManyRequests && status < 500 {
+		return
+	}
+	router.NoteLocalFallback(profile, strconv.Itoa(status), "session")
+	h.Set("X-Harness-Local-Fallback", "session")
+}
+
 // passthroughRetryable: an upstream x-should-retry: false ends the failover; true and absent keep the status rule.
 func passthroughRetryable(in *http.Request, status int, hint retry.ShouldRetry) bool {
 	if hint == retry.ShouldRetryNo {
@@ -276,6 +297,10 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 				cur = next
 				continue
 			}
+			var fe *fallbackError
+			if errors.As(err, &fe) && fe.auth {
+				announceLocal(in, sw.Header(), cur.p.Name, fe.status, retry.ShouldRetryUnset)
+			}
 			writePassthroughSendError(sw, in, cur.p, err)
 			return cur.model, "", cur.p.Name
 		}
@@ -293,6 +318,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 				continue
 			}
 		}
+		announceLocal(in, resp.Header, cur.p.Name, resp.StatusCode, hint)
 		defer resp.Body.Close()
 		extra := passthroughDiag(resp, len(cur.body), hint) + retried
 		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, extra)

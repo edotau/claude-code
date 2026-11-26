@@ -51,7 +51,7 @@ func TestAuthHintByAuthType(t *testing.T) {
 		},
 		"other": {
 			providers.Provider{Name: "o", Auth: providers.Auth{Type: providers.AuthCLI}},
-			"claude-code configure provider --list o",
+			"claude-code vault ls providers o",
 		},
 	}
 	for name, c := range cases {

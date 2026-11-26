@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ func fieldByKey(t *testing.T, key string) RoutingField {
 }
 
 // TestWeightsPriceRoundTripsAndResets checks Set/Get agree, headroom always picks up the remainder (the
-// two weights still sum to 1), and "" resets the field (removing the overlay's own weights).
+// three weights still sum to 1), and "" resets the field (removing the overlay's own weights).
 func TestWeightsPriceRoundTripsAndResets(t *testing.T) {
 	f := fieldByKey(t, "weights.price")
 	var r providers.Routing
@@ -33,7 +34,7 @@ func TestWeightsPriceRoundTripsAndResets(t *testing.T) {
 	if got := f.Get(r); got != "0.3" {
 		t.Errorf("Get() = %q, want 0.3", got)
 	}
-	if sum := r.Weights["price"] + r.Weights["headroom"]; sum != 1 {
+	if sum := r.Weights["price"] + r.Weights["headroom"] + r.Weights["latency"]; sum != 1 {
 		t.Errorf("weights sum = %v, want 1 (price=%v headroom=%v)", sum, r.Weights["price"], r.Weights["headroom"])
 	}
 	if err := f.Set(&r, ""); err != nil {
@@ -155,6 +156,76 @@ func TestFreeFirstOutputRoundTripsAndRejectsBadDuration(t *testing.T) {
 		var scratch providers.Routing
 		if err := f.Set(&scratch, bad); err == nil {
 			t.Errorf("Set(%q): want an error", bad)
+		}
+	}
+}
+
+func TestWeightsPriceKeepsLatency(t *testing.T) {
+	f := fieldByKey(t, "weights.price")
+	r := providers.Routing{Weights: map[string]float64{"price": .3, "headroom": .5, "latency": .2}}
+	if err := f.Set(&r, "0.4"); err != nil {
+		t.Fatal(err)
+	}
+	if r.Weights["latency"] != .2 || math.Abs(r.Weights["headroom"]-.4) > 1e-12 {
+		t.Fatal(r.Weights)
+	}
+	if err := f.Set(&r, "0.9"); err == nil {
+		t.Fatal("accepted price above remaining budget")
+	}
+}
+
+func TestWeightsLatencyRescales(t *testing.T) {
+	f := fieldByKey(t, "weights.latency")
+	r := providers.Routing{Weights: map[string]float64{"price": .25, "headroom": .75}}
+	for _, l := range []string{"0.6", "1", "0", ""} {
+		if err := f.Set(&r, l); err != nil {
+			t.Fatal(err)
+		}
+		if l == "" {
+			if r.Weights != nil {
+				t.Fatal(r.Weights)
+			}
+			continue
+		}
+		if sum := r.Weights["price"] + r.Weights["headroom"] + r.Weights["latency"]; math.Abs(sum-1) > 1e-12 {
+			t.Fatal(r.Weights)
+		}
+		if l == "0.6" && math.Abs(r.Weights["price"]-.1) > 1e-12 {
+			t.Fatal(r.Weights)
+		}
+	}
+	for _, bad := range []string{"NaN", "+Inf", "-Inf", "-0.1", "1.1", "bad"} {
+		if err := f.Set(&r, bad); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}
+
+func TestSpendCapField(t *testing.T) {
+	for _, key := range []string{"spendCap.sessionUSD", "spendCap.dayUSD"} {
+		f := fieldByKey(t, key)
+		var r providers.Routing
+		if f.Get(r) != "off" || f.IsSet(r) {
+			t.Fatal("unset cap")
+		}
+		for _, value := range []string{"5", "1000000", "0.001"} {
+			if err := f.Set(&r, value); err != nil {
+				t.Fatal(err)
+			}
+			if !f.IsSet(r) {
+				t.Fatal("not set")
+			}
+		}
+		for _, bad := range []string{"0", "-1", "1000001", "NaN", "+Inf", "-Inf", "bad"} {
+			if err := f.Set(&r, bad); err == nil {
+				t.Errorf("accepted %q", bad)
+			}
+		}
+		if err := f.Set(&r, "5"); err != nil || f.Get(r) != "5.00" {
+			t.Fatalf("Get=%s err=%v", f.Get(r), err)
+		}
+		if err := f.Set(&r, ""); err != nil || f.IsSet(r) || f.Get(r) != "off" {
+			t.Fatal("reset failed")
 		}
 	}
 }

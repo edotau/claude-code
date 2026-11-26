@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -265,9 +267,31 @@ func notePeers(session, ids string) (bool, error) {
 // gitAnyCmd pre-screens a Bash command for any git invocation: the moment a drained notice matters most.
 var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bgit\b`) })
 
+// failureLines caps the failure lines per prompt (about 1.2 KB), apart from the 4000-byte inbox drains.
+const (
+	failureLines        = 3
+	failureSubjectRunes = 120
+	failureSummaryRunes = 240
+	failureWait         = 200 * time.Millisecond
+)
+
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
 	var lines []string
+	fails, more, failErr := worktree.FailuresSinceWithin(worktree.FailuresDir(), in.SessionID, failureLines, failureWait)
+	if errors.Is(failErr, paths.ErrLockTimeout) { // busy log: stay silent, the cursor did not move
+		failErr = nil
+	}
+	for _, f := range fails {
+		lines = append(lines, assets.HookNoticeLine("failure, "+string(f.Kind),
+			textutil.CapRunes(f.Subject, failureSubjectRunes, "…")+": "+textutil.CapRunes(f.Summary, failureSummaryRunes, "…")))
+	}
+	if more > 0 {
+		lines = append(lines, assets.HookFailuresMore(more))
+	}
+	if failErr != nil {
+		warn += assets.HookFailuresWarn(failErr.Error())
+	}
 	notices, drainErr := worktree.DrainFor(in.SessionID, func() string { return run.checkout().top })
 	for _, n := range notices {
 		who := n.Kind + ", from " + n.From
@@ -277,7 +301,7 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 		lines = append(lines, assets.HookNoticeLine(who, n.Text))
 	}
 	if drainErr != nil {
-		warn = assets.HookNoticeDrainWarn(drainErr.Error())
+		warn += assets.HookNoticeDrainWarn(drainErr.Error())
 	}
 	line, err := divergedLine(ctx, in, run)
 	if err != nil {

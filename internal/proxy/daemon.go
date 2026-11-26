@@ -169,6 +169,7 @@ func ensure(ctx context.Context, port int) (string, error) {
 			base = Base(st.Port)
 			return nil
 		}
+		reportDeadDaemon()
 		if err := spawnDaemon(port); err != nil {
 			return err
 		}
