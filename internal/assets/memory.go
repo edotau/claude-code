@@ -17,7 +17,6 @@ func MemoryDecisionLogSeed() string { return string(read("memory/templates/decis
 
 func MemoryProgressSeed() string { return string(read("memory/templates/progress.md")) }
 
-
 func MemorySessionHistorySeed() string {
 	return string(read("memory/templates/sessionHistory.md"))
 }
