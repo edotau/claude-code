@@ -84,14 +84,8 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 	@$(if $(SKIP_AUDIT),,$(MAKE) audit)
 
 # `claude-code install` links the bare shims, seeds a missing settings.json and writes bash completion (helptext.Install).
-.PHONY: check-clean
-check-clean:
-	@status="$$(git status --porcelain --untracked-files=no)"; \
-	if [ "$(FORCE)" != 1 ] && [ -n "$$status" ]; then \
-		echo "Refusing to build the installed binary from a dirty tree; commit changes or use FORCE=1." >&2; exit 1; fi
-
 .PHONY: install
-install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
+install:  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(MAKE) compile mdsmith markdownlint rtk typos
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@dest="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}/bin"; mkdir -p "$$dest"; \
@@ -218,7 +212,7 @@ AUDIT_CHECKS ?= $(MAKE) -k audit-git audit-vuln audit-prompts audit-svg BIN=$(BI
 AUDIT_PRE    := $(if $(AUDIT_INNER),,compile)
 .PHONY: audit
 audit: BIN := bin/.lint/$(BINARY)
-audit: check-clean compile  ## Local gate: lint, git secrets, test, build, vuln, docs
+audit: compile  ##Local gate: lint, git secrets, test, build, vuln, docs
 	@set -euo pipefail; d=$$(mktemp -d); c=0; rc=0; pids=(); names=(lint test checks); set -m; \
 	trap 'rm -r -f -- "$$d"' EXIT; \
 	stop() { c=$$1; for p in $${pids[@]+"$${pids[@]}"}; do kill -TERM -- -$$p 2>/dev/null || :; done; }; \

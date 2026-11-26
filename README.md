@@ -31,9 +31,8 @@ claude-code doctor  # checks binaries, providers, credentials and the proxy
 
 `make install` never overwrites an existing `settings.json`; it only checks it is valid. It installs agent CLIs and
 host tools that are missing (never updating one already present) and three pinned linters (`DEV_TOOLS=0` skips them),
-plus the pinned `typos` spell checker for changed Markdown; it runs no root command. It refuses a dirty tracked tree
-(`FORCE=1` overrides). `claude-code install --dry-run`
-previews all of it. `claude-code configure restore` resets `settings.json` to the template (a backup is written
+plus the pinned `typos` spell checker for changed Markdown; it runs no root command, and it builds from the tree as it
+is, uncommitted edits included. `claude-code install --dry-run` previews all of it. `claude-code configure restore` resets `settings.json` to the template (a backup is written
 first). Deleting the clone leaves behind the agent CLIs and host tools it installed, the files `agents sync` wrote into
 each agent CLI's home, the vault key in the OS keyring and, on a Mac, the clipboard launch agent. Fresh machine,
 existing `~/.claude` and every install option: [`rules/harness/commands.md`](rules/harness/commands.md).
@@ -142,7 +141,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
   rewrite stalls auto mode, so there the rtk hook blocks with the form to run instead.
 - **Tests check behavior through seams and do no DNS lookups** (`internal/nonet`): live calls make tests slow,
   flaky and dependent on credentials.
-- **CI is off; `make audit` on a clean tree is the gate before a push**: it runs the same checks locally at no cost.
+- **CI is off; `make audit` is the gate before a push**: it runs the same checks locally at no cost.
 
 ## Development
 
@@ -151,7 +150,7 @@ go test ./internal/<pkg>   # while developing: only the package you touched
 make lint                  # checks only, edits no tracked file; any agent may run it
 make fmt                   # fixes go, yaml, markdown and memory banks; main session only
 make test                  # fast tier (go test -short)
-make audit                 # everything, including the pre-ship tests, on a clean tree; run before every push (main session)
+make audit                 # everything, including the pre-ship tests; run before every push (main session)
 ```
 
 `git push` runs no gate and CI is off. `settings.json` is yours; see

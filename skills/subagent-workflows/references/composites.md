@@ -94,7 +94,7 @@ machine total, not the real agent count.
 - Verify the diff (`rtk git diff --stat`, only the run's packages, out-of-scope hunks reverted; `../SKILL.md` →
   Fan-in); re-dispatch by hand a red package or a `fixed` entry whose status is not done.
 - Commit named files with `claude-code worktree commit --task <id> -m <msg> <files>` (no AI footer) and land a lane per
-  `../SKILL.md` → Landing. The full suite, `make install` from a clean tree and push follow `CLAUDE.md` hard rule 5 at
+  `../SKILL.md` → Landing. The full suite, `make install` and push follow `CLAUDE.md` hard rule 5 at
   the authorized release boundary.
 - Log decisions and reverts in `reports/DATE-decisions.md` (`claude-code memory report`).
 

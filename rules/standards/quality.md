@@ -61,9 +61,9 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 `rtk make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and
 fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
 call (`--path a,b`, `--path a b` or repeated; a lane commit checks against main), never one call per file (each
-re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` ship from a clean
-tree. A leaf may run them too; the audit after a worktree land runs on the lane's rebased head (HEAD plus the
-landed diff) and at session end on clean main, automatically.
+re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and `rtk make install` build the tree as
+it is. A leaf may run them too; the audit after a worktree land runs on the lane's rebased head (HEAD plus the
+landed diff) and at session end on main, automatically.
 
 Never silence a checker (`noqa`, `type: ignore`, `pylint: disable`, wrapper tricks): refactor so the rule passes
 (rare exception: the main session may ask the owner when the fix is disproportionate, one line vs a mountain of code;
