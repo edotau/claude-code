@@ -64,7 +64,7 @@ func proxyGroupID(ctx context.Context, team string) string {
 	if g, _ := ctx.Value(proxyGroupKey{}).(string); g != "" {
 		return g
 	}
-	if t, id, ok := strings.Cut(os.Getenv("HARNESS_DISPATCH_PROXY"), ":"); ok && t == team {
+	if t, id, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":"); ok && t == team {
 		return id
 	}
 	return ""

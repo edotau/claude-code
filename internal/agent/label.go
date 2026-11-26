@@ -746,7 +746,7 @@ func agentRunsIn(menu []providers.OpencodeModel, agentName string, p *providers.
 
 // foldAuto turns a typed auto model into AutoModel, so the route runs untyped.
 func foldAuto(o RunOptions) RunOptions {
-	if !strings.EqualFold(strings.TrimSpace(o.Model), AutoModel) {
+	if !IsAuto(o.Model) {
 		return o
 	}
 	o.Model, o.AutoModel = "", true

@@ -88,29 +88,44 @@ func routeKeys(doc map[string]json.RawMessage, v json.RawMessage) error {
 		specIgnored("route")
 	}
 	for _, k := range slices.Sorted(maps.Keys(r)) {
-		flagKey, ok := routeFlags[k]
-		var val string
-		switch {
-		case string(r[k]) == "null" || slices.Contains(routeIgnored, k):
-			specIgnored("route." + k)
-			continue
-		case !ok:
-			return fmt.Errorf("%s: unknown key (%s)", k, strings.Join(slices.Sorted(maps.Keys(routeFlags)), ", "))
-		case json.Unmarshal(r[k], &val) != nil:
-			return fmt.Errorf("%s: want a string", k)
+		if err := routeKey(doc, k, r[k]); err != nil {
+			return err
 		}
-		if k == "profile" && val == route.AutoArm { // the pool picks: a provider alone
-			continue
-		}
-		if newKey := flagKey == "agent" || flagKey == "runner" || flagKey == "fallback"; newKey && doc[flagKey] != nil {
-			fmt.Fprintf(os.Stderr, "spec: route.%s is ignored (the top-level %s wins)\n", k, flagKey)
-			continue
-		} else if !newKey && val == "" {
-			continue
-		}
-		doc[flagKey], _ = json.Marshal(val)
 	}
 	return nil
+}
+
+// routeKey adds one spec route key to doc as its flag key.
+func routeKey(doc map[string]json.RawMessage, k string, raw json.RawMessage) error {
+	flagKey, ok := routeFlags[k]
+	var val string
+	switch {
+	case string(raw) == "null" || slices.Contains(routeIgnored, k):
+		specIgnored("route." + k)
+		return nil
+	case !ok:
+		return fmt.Errorf("%s: unknown key (%s)", k, strings.Join(slices.Sorted(maps.Keys(routeFlags)), ", "))
+	case json.Unmarshal(raw, &val) != nil:
+		return fmt.Errorf("%s: want a string", k)
+	}
+	if k == "profile" && val == route.AutoArm { // the pool picks: a provider alone
+		return nil
+	}
+	setRouteFlag(doc, k, flagKey, val)
+	return nil
+}
+
+// setRouteFlag stores val under flagKey; top-level agent, runner and fallback win, and an empty flag value is skipped.
+func setRouteFlag(doc map[string]json.RawMessage, k, flagKey, val string) {
+	if flagKey == "agent" || flagKey == "runner" || flagKey == "fallback" {
+		if doc[flagKey] != nil {
+			fmt.Fprintf(os.Stderr, "spec: route.%s is ignored (the top-level %s wins)\n", k, flagKey)
+			return
+		}
+	} else if val == "" {
+		return
+	}
+	doc[flagKey], _ = json.Marshal(val)
 }
 
 func specIgnored(key string) {

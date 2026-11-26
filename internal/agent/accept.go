@@ -87,7 +87,7 @@ func AcceptModel(agentName string, p *providers.Provider, model string, now time
 	if e := prefixedRefusal(reg, agentName, p.Name, model); e != nil {
 		return "", e
 	}
-	if model == "" || strings.EqualFold(model, AutoModel) {
+	if model == "" || IsAuto(model) {
 		return "", nil
 	}
 	word, werr := resolveModelWord(ModelQuery{Agent: agentName, Model: model})

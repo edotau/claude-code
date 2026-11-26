@@ -667,15 +667,15 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 	return reg, slots
 }
 
-// quotaFailure reports err as a quota-class failure (retry.KindQuota).
-func quotaFailure(err error) bool {
+// isRetryKind reports err as a *retry.Error of the given kind.
+func isRetryKind(err error, kind retry.Kind) bool {
 	e, ok := errors.AsType[*retry.Error](err)
-	return ok && e.Kind == retry.KindQuota
+	return ok && e.Kind == kind
 }
 
 // overflow runs the quota-overflow hop when the last dispatch failed on quota, whatever stopped the chain before it.
 func (s *fallbackState) overflow(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) error {
-	if !quotaFailure(s.err) || c.yieldsFallback(s.req, s.res, s.err) || explicitBackend(s.req) {
+	if !isRetryKind(s.err, retry.KindQuota) || c.yieldsFallback(s.req, s.res, s.err) || explicitBackend(s.req) {
 		return nil
 	}
 	if cerr := ctx.Err(); cerr != nil {
@@ -713,14 +713,9 @@ func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
 	return nil
 }
 
-func rateLimitOnly(err error) bool {
-	e, ok := errors.AsType[*retry.Error](err)
-	return ok && e.Kind == retry.KindRateLimit
-}
-
 func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) bool {
 	s.req.Repicks = repickSpent(ctx, s.req.Repicks)
-	replacement := i > 0 && s.req.Repicks > 0 && !rateLimitOnly(s.err)
+	replacement := i > 0 && s.req.Repicks > 0 && !isRetryKind(s.err, retry.KindRateLimit)
 	if replacement && s.req.Repicks >= MaxAutoRepicks && !isLocalHop(ctx, disp) { // the local hop's model is fixed, not a re-pick
 		return true
 	}
@@ -747,7 +742,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 // overflowFollows reports err at hop i as the quota failure the chain's overflow hop picks up.
 func overflowFollows(c Chain, i int, req RunOptions, err error) bool {
 	last := len(c.Dispatches) - 1
-	return i < last && c.Dispatches[last].quotaOverflow && retry.MayRedispatch(err) && quotaFailure(err) && !explicitBackend(req)
+	return i < last && c.Dispatches[last].quotaOverflow && retry.MayRedispatch(err) && isRetryKind(err, retry.KindQuota) && !explicitBackend(req)
 }
 
 // lastHop reports that no dispatch can follow hop i.

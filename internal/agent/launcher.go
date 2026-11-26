@@ -711,3 +711,18 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 
 // lookPath is the seam for resolving an agent binary.
 var lookPath = paths.AgentBin
+
+// cloudForm names the gated form of a vendor argv that submits to the vendor's cloud, else "".
+func cloudForm(name string, argv []string) string {
+	switch {
+	case name == "claude" && slices.Contains(argv, "ultrareview"):
+		return `claude-code claude review [--base B|--pr N] --overlay '{"cloud":true}'`
+	case name == "codex":
+		for i := 1; i < len(argv); i++ {
+			if argv[i-1] == "cloud" && argv[i] == "exec" {
+				return `claude-code codex cloud exec <query> --env ID --overlay '{"cloud":true}'`
+			}
+		}
+	}
+	return ""
+}

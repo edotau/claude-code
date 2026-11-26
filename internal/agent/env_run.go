@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // childWaitDelay is how long a killed child's open pipes may delay Wait; a var so tests can lengthen it.
@@ -138,4 +140,30 @@ func keepSet(ctx context.Context, names []string) map[string]bool {
 		}
 	}
 	return keep
+}
+
+// RunOwnLogin runs a vendor CLI in the cwd on login's own sign-in only (other credentials and unset names dropped).
+func RunOwnLogin(ctx context.Context, login, bin string, unset, argv []string) int {
+	dir, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("%s: %v", login, err)
+	}
+	ctx = ProbeContext(ctx, login)
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	own := map[string]bool{}
+	for _, n := range proc.OwnLoginEnv[login] {
+		own[n] = true
+	}
+	env := EnvSpec{Mode: EnvAgent, Unset: unset, PWD: dir}.Environ(ctx)
+	// no HARNESS_KEEP_ENV exception applies: every credential-shaped name goes except the login's own
+	cmd.Env = proc.Drop(env, own, proc.ScrubDenyCredentials)
+	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = dir, os.Stdin, os.Stdout, os.Stderr
+	err = cmd.Run()
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		return ee.ExitCode()
+	}
+	if err != nil {
+		return helptext.Fail("%s: %v", login, err)
+	}
+	return 0
 }
