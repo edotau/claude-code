@@ -90,13 +90,12 @@ func TestAutofillSendsOnceClaimedFirst(t *testing.T) {
 	}
 }
 
-// every hold sends nothing: degraded, two failed attempts, no brief, an over-tier ask, the spend cap and the off key.
+// every hold sends nothing: two failed attempts, no brief, an over-tier ask, the spend cap and the off key.
 func TestAutofillHolds(t *testing.T) {
 	for _, tc := range []struct {
 		name, leaf, brief, off, want string
 		health                       DispatchState
 	}{
-		{"degraded", "claude", "x\n", "", "stopped: dispatch degraded", DispatchState{Degraded: true}},
 		{"attempts", "claude", "x\n", "", "held " + fillKey + ": 2 failed attempts", DispatchState{Attempts: 2}},
 		{"needs brief", "claude", "", "", "", DispatchState{}},
 		{"over tier leaf", "claude opus", "x\n", "", "asks for opus", DispatchState{}},
@@ -365,5 +364,14 @@ func TestFillNoticeReadyErrorNoRescan(t *testing.T) {
 	got := FillNotice(in)
 	if len(got) != 1 || !strings.Contains(got[0], "autofill stopped") {
 		t.Fatalf("got %q, want only the stopped line", got)
+	}
+}
+
+// A degraded dispatch state no longer stops the fill (owner, 2026-11-26): the ready task is still sent.
+func TestAutofillSendsWhileDegraded(t *testing.T) {
+	in, spawned := autofillFixture(t, "claude", "x\n", DispatchState{Degraded: true})
+	t.Setenv(AutofillEnv, "")
+	if res := Autofill(in); len(res.Sent) != 1 || len(*spawned) != 1 {
+		t.Fatalf("degraded: sent %v, lines %q", res.Sent, res.Lines)
 	}
 }

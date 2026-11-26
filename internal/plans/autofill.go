@@ -388,11 +388,8 @@ func autofillJobFor(in AutofillInput, r ReadyTask) (autofillJob, string, bool) {
 	if j.agent, j.model, j.prompt, why = autofillPick(r, leaf); why != "" {
 		return j, why, false
 	}
-	h := DispatchHealth(TaskKey{Text: j.prompt, PlanTask: j.key})
-	switch {
-	case h.Degraded: // dispatches nothing while degraded, per the owner's 10.2 contract
-		return j, "dispatch degraded", true
-	case h.Attempts >= 2:
+	// a degraded dispatch state never stops the fill (owner, 2026-11-26); only a task that failed twice waits
+	if h := DispatchHealth(TaskKey{Text: j.prompt, PlanTask: j.key}); h.Attempts >= 2 {
 		return j, fmt.Sprintf("%d failed attempts, retries stopped (R34)", h.Attempts), false
 	}
 	return j, "", false
