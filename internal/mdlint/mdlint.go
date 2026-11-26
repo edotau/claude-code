@@ -62,11 +62,15 @@ func Root(path string) string {
 	}
 }
 
-// Mdsmith is ConfigDir/bin/mdsmith (make mdsmith pins it), else mdsmith on PATH, else "".
-func Mdsmith() string {
-	p := filepath.Join(paths.ConfigDir(), "bin", "mdsmith")
-	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-		return p
+// Mdsmith is the absolute root/bin, then ConfigDir/bin, then PATH mdsmith (docs lint order), else "".
+func Mdsmith(root string) string {
+	for _, dir := range []string{filepath.Join(root, "bin"), filepath.Join(paths.ConfigDir(), "bin")} {
+		p := filepath.Join(dir, "mdsmith")
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			if abs, err := filepath.Abs(p); err == nil {
+				return abs
+			}
+		}
 	}
 	if p, err := exec.LookPath("mdsmith"); err == nil {
 		return p
@@ -74,8 +78,20 @@ func Mdsmith() string {
 	return ""
 }
 
+type lookupRoot struct{}
+
+// withLookupRoot pins the binary lookup to root for runs whose cwd is a scratch dir (Parity).
+func withLookupRoot(ctx context.Context, root string) context.Context {
+	return context.WithValue(ctx, lookupRoot{}, root)
+}
+
+// run returns stdout, stderr and an error for any nonzero exit; stdout is kept so check can read its findings.
 func run(ctx context.Context, root, stdin string, args ...string) ([]byte, []byte, error) {
-	bin := Mdsmith()
+	lookup, _ := ctx.Value(lookupRoot{}).(string)
+	if lookup == "" {
+		lookup = root
+	}
+	bin := Mdsmith(lookup)
 	if bin == "" {
 		return nil, nil, ErrNoMdsmith
 	}
@@ -87,15 +103,20 @@ func run(ctx context.Context, root, stdin string, args ...string) ([]byte, []byt
 	proc.OwnGroup(cmd)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if err != nil && !errors.As(err, &ee) {
-		return nil, nil, fmt.Errorf("mdlint: %w", err)
-	}
-	if err != nil && out.Len() == 0 {
-		return nil, nil, fmt.Errorf("mdlint: mdsmith %v: %w: %s", args, err, strings.TrimSpace(errb.String()))
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(errb.String() + out.String())
+		return out.Bytes(), errb.Bytes(), fmt.Errorf("mdlint: mdsmith %v: %w: %s", args, err, detail)
 	}
 	return out.Bytes(), errb.Bytes(), nil
+}
+
+// findings is check's result: exit 1 with a report on stdout is "findings", any other failure an error.
+func findings(out []byte, err error) ([]Finding, error) {
+	var ee *exec.ExitError
+	if err == nil || (errors.As(err, &ee) && ee.ExitCode() == 1 && len(bytes.TrimSpace(out)) > 0) {
+		return decode(out)
+	}
+	return nil, err
 }
 
 func decode(out []byte) ([]Finding, error) {
@@ -112,15 +133,12 @@ func decode(out []byte) ([]Finding, error) {
 // CheckFile lints rel from cwd root, the only form in which .mdsmith.yml overrides apply.
 func CheckFile(ctx context.Context, root, rel string) ([]Finding, error) {
 	out, _, err := run(ctx, root, "", "check", "-f", "json", "-o", "-", "--no-color", "--", rel)
-	if err != nil {
-		return nil, err
-	}
-	return decode(out)
+	return findings(out, err)
 }
 
-// FixFile rewrites rel in place with mdsmith's autofixes.
+// FixFile rewrites rel in place with mdsmith's autofixes; a nonzero exit (unfixed findings included) is an error.
 func FixFile(ctx context.Context, root, rel string) error {
-	_, _, err := run(ctx, root, "", "fix", "--no-color", "--", rel)
+	_, _, err := run(ctx, root, "", "fix", "--no-build", "--no-color", "--", rel)
 	return err
 }
 
@@ -130,10 +148,7 @@ func CheckText(ctx context.Context, root, text string) ([]Finding, error) {
 		text = "\n"
 	}
 	out, _, err := run(ctx, root, text, "check", "-f", "json", "-o", "-", "--no-color", "-")
-	if err != nil {
-		return nil, err
-	}
-	return decode(out)
+	return findings(out, err)
 }
 
 var itemPrefix = regexp.MustCompile(`^(\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?)`)

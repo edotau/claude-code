@@ -47,9 +47,10 @@ func allowed(key string) bool {
 
 // Parity returns one drift line per mismatch between the editor rules, the ignore scope and mdsmith's rules.
 func Parity(ctx context.Context, root string) ([]string, error) {
-	if Mdsmith() == "" {
+	if Mdsmith(root) == "" {
 		return nil, ErrNoMdsmith
 	}
+	ctx = withLookupRoot(ctx, root)
 	rulesBytes, err := os.ReadFile(filepath.Join(root, RulesFile))
 	if err != nil {
 		return nil, err
