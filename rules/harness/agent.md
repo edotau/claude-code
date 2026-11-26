@@ -424,6 +424,7 @@ vendor CLI untouched.
   registered (each guard would run twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
+- **Complexity gate mode.** Vault env `HARNESS_COMPLEXITY_GATE=strict|recommended` (default `strict`) sets how `agents diff --check` treats cyclomatic complexity: `recommended` shows it once per function as advisory and never fails on it; length, nesting, imports and file size still fail.
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 5; 0 = no cap; invalid uses default); a
   live top-level `--carry` dispatch's level is not counted, so its child has a direct call's depth.
   `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).

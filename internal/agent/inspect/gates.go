@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
@@ -245,6 +246,9 @@ func runGate(ctx context.Context, d gateDef, in gateInput) GateResult {
 	switch {
 	case skip != "":
 		r.Status, r.Reason, r.Seconds = "skip", skip, 0
+	case errors.Is(err, errAdvisory):
+		r.Reason = "advisory"
+		r.Findings = capRows(d.name, d.parse(scrubPaths(out, in.root)), diffHeadLines)
 	case err != nil:
 		r.Status = "FAIL"
 		r.Findings = capRows(d.name, d.parse(scrubPaths(out+errText(out, err), in.root)), diffHeadLines)
@@ -481,6 +485,10 @@ func complexityGate(ctx context.Context, in gateInput) (string, string, error) {
 	if len(fresh) > 0 {
 		fresh, note = introduced(ctx, in, fresh)
 	}
+	var advisory []fileFinding
+	if complexityMode() == "recommended" {
+		fresh, advisory = splitAdvisory(fresh)
+	}
 	lines := make([]string, 0, len(fresh)+len(rep.Failed)+1)
 	if note != "" && len(fresh) > 0 {
 		lines = append(lines, note)
@@ -491,10 +499,54 @@ func complexityGate(ctx context.Context, in gateInput) (string, string, error) {
 	for _, f := range rep.Failed {
 		lines = append(lines, f+" analysis failed")
 	}
+	if len(lines) == 0 && len(advisory) > 0 {
+		for _, f := range advisory {
+			lines = append(lines, f.line)
+		}
+		return strings.Join(lines, "\n"), "", errAdvisory
+	}
 	if len(lines) == 0 {
 		return "", "", nil
 	}
 	return strings.Join(lines, "\n"), "", errors.New("findings")
+}
+
+// errAdvisory is a gate result that is shown but does not fail the gate.
+var errAdvisory = errors.New("advisory findings")
+
+const complexityEnv = "HARNESS_COMPLEXITY_GATE"
+
+// complexityMode reads vault env HARNESS_COMPLEXITY_GATE (process env first): "recommended" or (anything else, unset) "strict".
+func complexityMode() string {
+	v := cmp.Or(strings.TrimSpace(os.Getenv(complexityEnv)), strings.TrimSpace(providers.CustomEnv()[complexityEnv]))
+	if strings.EqualFold(v, "recommended") {
+		return "recommended"
+	}
+	return "strict"
+}
+
+// splitAdvisory moves the two cyclomatic rules out of fs, each function once (cyclomatic-complexity wins over high_complexity).
+func splitAdvisory(fs []fileFinding) (hard, advisory []fileFinding) {
+	seen := map[string]bool{}
+	for _, f := range fs {
+		if f.kind == "cyclomatic-complexity" {
+			seen[f.file+"|"+f.name] = true
+		}
+	}
+	for _, f := range fs {
+		switch f.kind {
+		case "cyclomatic-complexity":
+			advisory = append(advisory, f)
+		case "high_complexity":
+			if k := f.file + "|" + f.name; !seen[k] {
+				seen[k] = true
+				advisory = append(advisory, f)
+			}
+		default:
+			hard = append(hard, f)
+		}
+	}
+	return hard, advisory
 }
 
 // qualityGate is `review simplify --fail` in-process: new comment and size violations; --all runs it as make does.

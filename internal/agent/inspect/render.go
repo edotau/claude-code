@@ -97,6 +97,12 @@ func renderOutsidePath(w io.Writer, rep DiffReport, p string) {
 func renderGates(o DiffOptions, gates []GateResult) {
 	codes, color := map[string]string{"FAIL": ansi.Red, "skip": ansi.Dim}, ansi.Enabled(o.Out)
 	for _, g := range gates {
+		if g.Status == "ok" && g.Reason == "advisory" {
+			fmt.Fprintf(o.Out, "advisory %s (%.1fs, not failing)\n", g.Name, g.Seconds)
+			for _, f := range g.Findings {
+				fmt.Fprintln(o.Out, f)
+			}
+		}
 		if g.Status == "ok" {
 			continue
 		}
