@@ -741,7 +741,7 @@ var setupLogins = map[string]func(d *dialog) error{
 		}
 		return nil
 	},
-	"opencode": func(*dialog) error { return opencodeSignIn() },
+	"opencode": ocSignInPin,
 	"copilot":  func(*dialog) error { return configure.RunLogin([]string{"copilot", "login"}) },
 }
 
@@ -777,7 +777,9 @@ func agentSetUp(d *dialog, agent string) {
 			return
 		}
 		d.changed = true
-		agentActiveOn(d, agent)
+		if agent != "opencode" { // its login already verified and pinned (ocSignInPin)
+			agentActiveOn(d, agent)
+		}
 	}
 	if err := setupVerify(context.Background(), agent); err == nil {
 		d.printf("%s: verified with one live request\n", name)

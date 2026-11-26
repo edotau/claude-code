@@ -356,6 +356,16 @@ func TestAgentSetUpOrderAndStops(t *testing.T) {
 	}
 }
 
+// The opencode login pins itself (ocSignInPin), so Set up never seeds a profile after it.
+func TestAgentSetUpOpencodeDoesNotSeedProfile(t *testing.T) {
+	d, _ := setupDialog(t)
+	installSetupFake(t, &setupFake{})
+	agentSetUp(d, "opencode")
+	if got := configure.AgentField(vault.GetAgentRecord("opencode"), "PROFILE"); got != "" {
+		t.Errorf("opencode PROFILE = %q after Set up, want none seeded", got)
+	}
+}
+
 func TestAgentSetUpCopilotCreditsReadAsNotLoginFailure(t *testing.T) {
 	d, out := setupDialog(t)
 	f := &setupFake{verifyErr: errors.New("402 payment required")}

@@ -83,10 +83,18 @@ func opencodeAccountLine(reg *providers.Registry) string {
 	return strings.Join(parts, "  ")
 }
 
-// copilotAccountLine is copilot's account, read-only here (the gh CLI row shows gh's active one).
+// copilotAccountLine is the account copilot runs as: the pinned one, else what an unpinned dispatch would use.
 func copilotAccountLine(d *dialog) {
 	login, _ := providers.CopilotLogin(d.reg)
-	d.printf("%-16s %s\n", "copilot account", cmp.Or(login, "gh's active account"))
+	if login == "" {
+		a, ok := copilotauth.AuthSourceFor("")
+		if !ok {
+			login = "none signed in"
+		} else {
+			login = cmp.Or(a.Account, "token") + " (" + copilotauth.ShortSource(string(a.Source)) + ")"
+		}
+	}
+	d.printf("%-16s %s\n", "copilot account", login)
 }
 
 // githubAccounts are the known GitHub logins: the github profiles' first, then gh's signed-in ones.

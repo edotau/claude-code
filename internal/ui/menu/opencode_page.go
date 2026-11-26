@@ -294,21 +294,27 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 	}
 }
 
-// ocAddAccount delegates sign-in to bin/opencode, reports the account count and pins only a login it verified.
+// ocAddAccount runs ocSignInPin and prints its sign-in failure.
 func ocAddAccount(d *dialog) {
+	if err := ocSignInPin(d); err != nil {
+		d.printf("opencode: %v\n", err)
+	}
+}
+
+// ocSignInPin delegates sign-in to bin/opencode, reports the account count and pins only a login it verified.
+func ocSignInPin(d *dialog) error {
 	before, _ := opencodeAuth()
 	// 1.x keeps one entry per integration, so a re-login shows only as a new stored token (compared, never printed)
 	tokBefore := opencode.OpencodeCopilotToken()
 	if err := opencodeSignIn(); err != nil {
-		d.printf("opencode: %v\n", err)
-		return
+		return err
 	}
 	d.changed = true
 	configure.DiscoverAfterSignin()
 	ints, err := opencodeAuth()
 	if err != nil {
 		d.printf("opencode: %v; nothing pinned\n", err)
-		return
+		return nil
 	}
 	n := 0
 	for _, in := range ints {
@@ -327,6 +333,7 @@ func ocAddAccount(d *dialog) {
 	default:
 		d.println("opencode: no GitHub Copilot entry in opencode's auth store; nothing pinned")
 	}
+	return nil
 }
 
 // ocConns counts the usable stored credentials of integration id in ints; env-backed and expired ones do not count.

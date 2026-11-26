@@ -17,8 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/github"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -429,21 +427,8 @@ func TestCopilotSignInPinsItsOwnLogin(t *testing.T) {
 
 // gh's active account is not copilot's login: the page and Set up see copilot as not signed in.
 func TestCopilotGHActiveIsNotCopilotsLogin(t *testing.T) {
-	hosttest.SkipOnWindows(t, "fake gh is a sh script")
 	reg := menuTestEnv(t)
-	ghDir := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", ghDir)
-	hosts := "github.com:\n    users:\n        yuser:\n    user: yuser\n"
-	gh := "#!/bin/sh\n[ \"$1 $2\" = \"auth token\" ] && echo fixture-token && exit 0\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "gh"), []byte(gh), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if got := github.GHActiveAccount(); got != "yuser" {
-		t.Fatalf("fixture: gh active = %q, want yuser", got)
-	}
+	fakeGHActive(t)
 	copilotLoggedInAs(t, "")
 	if ok, _ := signedIn("copilot"); ok {
 		t.Error("signedIn(copilot) = true from gh's active account")

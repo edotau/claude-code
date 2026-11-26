@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -65,6 +66,17 @@ func TestCopilotAccountLineIsReadOnly(t *testing.T) {
 	copilotAccountLine(&dialog{reg: reg, out: &out})
 	if got := out.String(); !strings.HasPrefix(got, "copilot account ") || strings.Contains(got, "gh active") {
 		t.Errorf("output = %q, want one copilot account row", got)
+	}
+}
+
+// Unpinned, the row names copilot's own stored login, the first source an unpinned dispatch uses.
+func TestCopilotAccountLineNamesUnpinnedSource(t *testing.T) {
+	menuTestEnv(t)
+	copilotLoggedInAs(t, "xuser")
+	var out bytes.Buffer
+	copilotAccountLine(&dialog{out: &out})
+	if got := out.String(); !strings.Contains(got, "xuser (copilot login)") || strings.Contains(got, "gh's active") {
+		t.Errorf("output = %q, want xuser (copilot login)", got)
 	}
 }
 
@@ -140,20 +152,29 @@ func TestGithubProfileRefusesNameClash(t *testing.T) {
 	}
 }
 
-// gh's active account is not copilot's login: the copilot CLI row is present only on copilot's own stored login.
-func TestGithubStatusCopilotRowIsCopilotsOwnLogin(t *testing.T) {
+// fakeGHActive makes yuser gh's active account, with a fake gh that serves a token.
+func fakeGHActive(t *testing.T) {
+	t.Helper()
 	hosttest.SkipOnWindows(t, "fake gh is a sh script")
-	reg := menuTestEnv(t)
 	ghDir := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", ghDir)
 	hosts := "github.com:\n    users:\n        yuser:\n    user: yuser\n"
+	gh := "#!/bin/sh\n[ \"$1 $2\" = \"auth token\" ] && echo fixture-token && exit 0\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gh := "#!/bin/sh\n[ \"$1 $2\" = \"auth token\" ] && echo fixture-token\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "gh"), []byte(gh), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if got := github.GHActiveAccount(); got != "yuser" {
+		t.Fatalf("fixture: gh active = %q, want yuser", got)
+	}
+}
+
+// gh's active account is not copilot's login: the copilot CLI row is present only on copilot's own stored login.
+func TestGithubStatusCopilotRowIsCopilotsOwnLogin(t *testing.T) {
+	reg := menuTestEnv(t)
+	fakeGHActive(t)
 	for _, login := range []string{"", "xuser"} {
 		copilotLoggedInAs(t, login)
 		var out bytes.Buffer
