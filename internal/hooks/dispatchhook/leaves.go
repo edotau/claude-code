@@ -332,20 +332,6 @@ func leafStopVerdict(agentID string, rec agent.Record) core.Result {
 	return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running", agentID, rec.ID)}
 }
 
-// heldJobsPath is where held job ids were saved; no hook writes it now, `agents result --held` still reads it.
-func heldJobsPath(agentID string) string { return heldPath(agentID) + "jobs" }
-
-// ReadHeldJobs is the held ids saved for agentID; a file older than leafStopMaxWait is stale and ignored.
-func ReadHeldJobs(agentID string) []string {
-	p := heldJobsPath(agentID)
-	fi, err := os.Stat(p)
-	if err != nil || time.Since(fi.ModTime()) >= leafStopMaxWait {
-		return nil
-	}
-	b, _ := os.ReadFile(p)
-	return strings.Fields(string(b))
-}
-
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
 var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ask: ran on [\w.-]+(?: via [\w.-]+)? · |"ran_on":\s*"ran on [\w.-]+(?: via [\w.-]+)? · `)

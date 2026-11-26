@@ -181,7 +181,7 @@ allows (`CLAUDE.md` guideline 3): split until files would overlap or one leaf mu
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
 The hook reads `Agent:` only before the first blank line. Overlay `profile` leads then falls back unless
-`"fallback":"none"` pins it; carried asks and held-job hints carry the route as `--overlay '<object>'`
+`"fallback":"none"` pins it; carried asks carry the route as `--overlay '<object>'`
 (one unit: provider and profile together, an inherited `COWORKER_OVERLAY` carries a child's derived confinement).
 Overlay keys and inheritance: `rules/harness/agent.md` → Overlay; auto-mode rewrites: `rules/harness/hooks.md`;
 `--remote` vs `--host`: `rules/harness/network.md`.

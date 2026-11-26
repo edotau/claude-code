@@ -210,7 +210,7 @@ paths:
   An explicit route names provider and profile together; endpoint travels with that unit (omitted endpoint uses the
   provider row). A partial unit is refused. Flags must agree with a typed overlay; a provider with profiles needs its
   profile, while a provider without profiles may be selected alone by flag. The pool pick is overlay profile `auto`;
-  `ask --profile auto` and `label` refuse it. Held-job hints and batch lines carry an overlay document.
+  `ask --profile auto` and `label` refuse it. Batch lines carry an overlay document.
 
   Every field of `agentconfig.Overlay`, including its embedded route and run fields, appears once in this table.
   Type is the Go type (`*` means optional; `json.RawMessage` holds JSON). Schema describes acceptance: `both` passes

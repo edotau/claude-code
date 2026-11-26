@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -220,7 +219,6 @@ type resultFlags struct {
 	lines          int
 	format         string
 	after          int64
-	held           string // a leaf's agent id whose held job ids are followed
 }
 
 // check reports why the flag combination is refused, given whether an <id> was named.
@@ -240,16 +238,10 @@ func (o resultFlags) check(hasID bool) error {
 	return o.checkTarget(hasID)
 }
 
-func (o resultFlags) heldConflict(hasID bool) bool {
-	return hasID || o.agent != "" || o.save != "" || o.verdict || o.events || o.format == helptext.JSON
-}
-
-// checkTarget reports why the job selection is refused: --held excludes every other selector and sink.
+// checkTarget reports why the job selection is refused.
 func (o resultFlags) checkTarget(hasID bool) error {
 	switch {
-	case o.held != "" && o.heldConflict(hasID):
-		return errors.New("--held takes no <id>, --agent, --save, --verdict, --events or --format json")
-	case !hasID && o.agent == "" && o.held == "":
+	case !hasID && o.agent == "":
 		return errors.New("name a dispatch <id>, or --agent for that agent's newest job here")
 	}
 	return nil
@@ -290,7 +282,6 @@ func cmdAgentsResult(args []string) int {
 	fs.IntVar(&o.head, "head", 0, "with --save, also print the first N lines of the saved text")
 	fs.BoolVar(&o.verdict, "verdict", false, "print one status line and the last --lines non-empty answer lines")
 	fs.IntVar(&o.lines, "lines", 10, "with --verdict, how many answer lines to print")
-	fs.StringVar(&o.held, "held", "", "follow the held job ids saved for this leaf's agent id (no <id>)")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -316,26 +307,8 @@ func cmdAgentsResult(args []string) int {
 	return runAgentsResult(o, firstPositional(pos))
 }
 
-// resultHeld follows each job id the hook state holds for leaf agentID, stopping at the first failure.
-func resultHeld(o resultFlags) int {
-	ids := dispatchhook.ReadHeldJobs(o.held)
-	if len(ids) == 0 {
-		return helptext.Fail("agents result: no held jobs saved for leaf %q", o.held)
-	}
-	o.held = ""
-	for _, id := range ids {
-		if code := runAgentsResult(o, id); code != 0 {
-			return code
-		}
-	}
-	return 0
-}
-
 // runAgentsResult runs --save and --verdict on the dispatch record, and every other form through ask.Result.
 func runAgentsResult(o resultFlags, id string) int {
-	if o.held != "" {
-		return resultHeld(o)
-	}
 	if o.save == "" && !o.verdict {
 		return ask.Result(ask.ResultOptions{Prefix: "agents result", Agent: o.agent, Ref: id, Format: o.format,
 			Follow: o.follow, Events: o.events, After: o.after})

@@ -134,12 +134,6 @@ func TestTryClaimN(t *testing.T) {
 	}
 	assertLeaves(t, owner)
 
-	t.Run("Fits does not write", func(t *testing.T) {
-		if fits, _ := Fits(Claim{Owner: owner, ID: "fit", Account: "a", N: 3}, lim); !fits {
-			t.Fatal("Fits refused with room")
-		}
-		assertNoMarker(t, "fit", "Fits wrote marker %s")
-	})
 	t.Run("refused whole when N does not fit", func(t *testing.T) {
 		// 3 slots of 4 used on "a": an N=2 claim does not fit.
 		tight := Limits{Total: 100, Override: map[string]int{"a": 4}}

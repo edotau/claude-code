@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -29,11 +27,6 @@ import (
 
 // resultCap bounds each end (head and tail) of a job result attached to a hand-back.
 const resultCap = 16 << 10
-
-// heldPath is the dir entry stem of a leaf's saved held job ids (see ReadHeldJobs).
-func heldPath(agentID string) string {
-	return filepath.Join(paths.StateDir(), "dispatch-relay", paths.Slug(agentID, "", 80, "leaf")+".held")
-}
 
 // receiptFix: a job the leaf started is attached or noted; relay work without a job passes with a note.
 func receiptFix(in *core.Input, _ string, lr *leafRead) core.Result {

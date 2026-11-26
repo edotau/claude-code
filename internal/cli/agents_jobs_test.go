@@ -277,12 +277,3 @@ func TestContractTermLines(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
-
-func TestResultHeldTarget(t *testing.T) {
-	if err := (resultFlags{held: "a1"}).check(false); err != nil {
-		t.Fatalf("--held alone refused: %v", err)
-	}
-	if err := (resultFlags{held: "a1"}).check(true); err == nil {
-		t.Fatal("--held with an <id> accepted")
-	}
-}
