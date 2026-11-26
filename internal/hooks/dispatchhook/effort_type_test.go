@@ -1,8 +1,6 @@
 package dispatchhook
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,16 +13,14 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set.
+// The roster is the agents/ files plus the built-ins (the `agents label` verb refuses others; the hook never does).
 func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 	cfg := useAgentsDir(t, "claude", "worker", "Plan")
 	blocked := func(st, brief string) string {
-		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "tool_input": map[string]any{"subagent_type": st, "prompt": brief, "description": "x"}})
-		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
-		if r.Decision != core.Block || !strings.HasPrefix(r.Reason, "dispatch-effort: subagent_type") {
-			return ""
+		if r := typeBlock(st); r != nil && brief != "" {
+			return r.Reason
 		}
-		return r.Reason
+		return ""
 	}
 	for _, st := range []string{"claude", "worker", "Plan", "Explore", "general-purpose", "web-fetch", "claude-code-guide", "statusline-setup", ""} {
 		if r := blocked(st, "do it"); r != "" {
@@ -77,35 +73,19 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	}
 }
 
-// A refused type is blocked before the cap claim: no in-flight marker is written.
-func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
-	dispatchEnv(t)
-	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
-	before := markerNames(t)
-	r := pre(`{"tool_name":"Agent","tool_use_id":"gate1","tool_input":{"subagent_type":"not-a-type","prompt":"x","description":"x"}}`)
-	if r.Decision != core.Block || len(markerNames(t)) != len(before) || hasMarker(t, "gate1") {
-		t.Fatalf("not-a-type = %+v, markers %v -> %v; want a block and no new marker", r, before, markerNames(t))
-	}
-	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
-		t.Fatalf("claude = %+v, want a claimed slot (negative control)", r)
-	}
-}
-
-// coworker is a real type: it runs as sent; the retired coworker:<agent> is denied with the agent's type, any mode.
-func TestDispatchCoworkerTypeIsReal(t *testing.T) {
+// A type off the roster is left to the host: the hook neither blocks it nor claims a slot.
+func TestDispatchUnknownTypeIsNotBlocked(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "coworker")
-	payload := func(mode, st string) core.Result {
-		return pre(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"subagent_type":%q,"prompt":"do it","description":"do it"}}`, mode, st))
+	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate1","tool_input":{"subagent_type":"not-a-type","prompt":"x","description":"x"}}`); r.Decision == core.Block {
+		t.Fatalf("not-a-type = %+v, want it through", r)
 	}
-	if r := payload("default", "coworker"); r.Decision == core.Block || r.UpdatedInput["subagent_type"] != "coworker" {
-		t.Errorf("coworker = %+v, want it to run as coworker", r)
+	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate3","tool_input":{"subagent_type":"coworker:codex","prompt":"x","description":"x"}}`); r.Decision == core.Block {
+		t.Fatalf("coworker:codex = %+v, want it through", r)
 	}
-	for _, mode := range []string{"default", "auto"} {
-		if r := payload(mode, "coworker:codex"); r.Decision != core.Block || !strings.HasSuffix(r.Reason, `use "codex"`) {
-			t.Errorf("%s coworker:codex = %+v, want a block naming codex", mode, r)
-		}
+	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
+		t.Fatalf("claude = %+v, want a claimed slot", r)
 	}
 }
 

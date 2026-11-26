@@ -576,17 +576,7 @@ func landedRange(ctx context.Context, cwd, cmd string) (before, after, dir strin
 	return "", "", ""
 }
 
-// BriefTask is the first candidate plan's open task a hand-back worked: the dispatch's plan_task, else its Task: line.
-func BriefTask(cwd, brief, planTask string) (plans.Task, bool) {
-	for _, c := range planCands(cwd, briefPlan(brief)) {
-		if t, ok := PlanBriefTask(c.parsed, brief, planTask); ok {
-			return t, true
-		}
-	}
-	return plans.Task{}, false
-}
-
-// PlanBriefTask is BriefTask over an already parsed active plan.
+// PlanBriefTask is the open task a hand-back worked in a parsed active plan: its plan_task, else its Task: line.
 func PlanBriefTask(parsed plans.Plan, brief, planTask string) (plans.Task, bool) {
 	if planTask != "" {
 		return matchTaskByID(parsed, normTask(planTask))

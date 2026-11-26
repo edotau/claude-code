@@ -124,7 +124,7 @@ const sec = time.Second
 
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
-	// safety-scan denies only settings.json permissions.deny matches and AI-attribution footers.
+	// safety-scan denies only settings.json deny matches, AI footers, a subagent's CLAUDE.md write, a suite run.
 	{Name: "safety", Gate: true, Events: []EventSpec{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode", "pi"}},
 	}},
@@ -160,8 +160,8 @@ var Registry = []Group{
 		{Name: "dispatch-workflow", Event: EventPostToolUse, Matcher: "Workflow|Bash", Budget: 5 * sec},
 		// Retires the stopping subagent's slot by agent id.
 		{Name: "dispatch-stop", Event: EventSubagentStop, Budget: 15 * sec},
-		// Stop gates at SubagentHandback (ends a background leaf first); on Bash, a reported or second relay poll is refused.
-		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback|Bash", Budget: 15 * sec},
+		// On SubagentHandback (ends a background leaf first): attaches finished receipts, notes a running job; never blocks.
+		{Name: "dispatch-handback", Event: EventPreToolUse, Matcher: "SubagentHandback", Budget: 15 * sec},
 		// A foreground `agents ask|wait|result -f` gets the Bash timeout it needs (Claude only; never blocks).
 		{Name: "bash-timeout", Event: EventPreToolUse, Matcher: "Bash", Budget: 2 * sec},
 	}},
@@ -205,7 +205,7 @@ var Registry = []Group{
 		{Name: "worktree-fixnow", Event: EventStop, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
 		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
-		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
+		// Before an edit or a git add/commit, notes a dirty file another live session/leaf claims; never blocks or asks.
 		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 		// A session end removes this repo's merged, clean lanes that did work (not fresh ones), one line each; never blocks.
 		{Name: "worktree-clean-end", Event: EventSessionEnd, Budget: 10 * sec},

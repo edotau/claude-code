@@ -52,7 +52,7 @@ func lowerFirst(desc string) string {
 	return string(r)
 }
 
-// Effort: the cap check, then the pin step, then the claim (a Workflow claims one slot per agent() site).
+// Effort: the pin step, then the claim (never a refusal) (a Workflow claims one slot per agent() site).
 func Effort(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
@@ -66,9 +66,6 @@ func Effort(in *core.Input) core.Result {
 	plan := docs.PrefetchPlan(in) // read-only, so it overlaps the recall; the claim write stays after the cap check
 	account, lim := sessionCap(ctx)
 	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
-	if ok, snap := inflight.Fits(claim, lim); !ok {
-		return blockAtCap(snap, account, lim)
-	}
 	res := agentEffortResult(ctx, in)
 	if res.Decision == core.Block || claim.ID == "" { // no tool_use_id: no release could match the claim, so make none
 		return res
@@ -76,9 +73,7 @@ func Effort(in *core.Input) core.Result {
 	if in.ToolName == "Workflow" {
 		claim.N = min(max(workflowLeaves(in, res), 1), lim.For(account), lim.Total)
 	}
-	if ok, snap := inflight.TryClaim(claim, lim); !ok {
-		return blockAtCap(snap, account, lim)
-	}
+	inflight.TryClaim(claim, lim) // the slot is recorded for display; a spawn over the cap is never refused
 	return core.WithStderr(res, docs.ClaimPlanTask(in, claim.ID, plan))
 }
 
@@ -93,11 +88,6 @@ func sessionCap(ctx context.Context) (string, inflight.Limits) {
 	lim := router.CurrentLimits()
 	<-done
 	return account, lim
-}
-
-func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: %d agents already in flight (cap %d for %s, %d machine-wide) — "+
-		"wait for one to finish or run this task sequentially.", snap.Per[account], lim.For(account), account, lim.Total)}
 }
 
 // workflowLeaves counts agent() call sites in the script the Workflow runs: the pin step's rewrite, else the original.
@@ -140,10 +130,10 @@ func Stop(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
-	note, blocked := leafGate(in, id, lr)
+	note := leafGate(in, id, lr)
 	owner := inflight.SessionOwner()
-	if blocked || owner == 0 { // the gates need no owner; only the claim retire does
-		return note // a blocked stop retires nothing: the leaf is still running
+	if owner == 0 { // the receipt step needs no owner; only the claim retire does
+		return note
 	}
 	dirs := []string{inflight.SubagentDir(in.TranscriptPath)}
 	if in.AgentTranscriptPath != "" {
@@ -185,29 +175,10 @@ func leafWants(in *core.Input) leafWant {
 type leafRead struct {
 	ids, files []string
 	recs       []agent.Record // ids' readable records, loaded once by leafGate and shared by its gates
-	held       []receipt      // the finished jobs' receipts at a hold on a still-running one
 	scan       leafScan
 	openErr    error     // the transcript could not be opened
 	scanErr    error     // reading stopped early: scan is partial and files are dropped
 	until      time.Time // Handback's deadline for waiting on a running job; zero never waits
-	holdUntil  time.Time // the relay-wide cap; zero leaves only the record's cap
-}
-
-func (lr *leafRead) capHold(start time.Time) {
-	if start.IsZero() {
-		return
-	}
-	deadline := start.Add(leafStopMaxWait)
-	if lr.holdUntil.IsZero() || deadline.Before(lr.holdUntil) {
-		lr.holdUntil = deadline
-	}
-	if !lr.until.IsZero() && deadline.Before(lr.until) {
-		lr.until = deadline
-	}
-}
-
-func holdExpired(deadline time.Time) bool {
-	return !deadline.IsZero() && time.Until(deadline) <= 0
 }
 
 // readLeaf reads the transcript once; an empty path reads nothing and reports an open error.
@@ -246,32 +217,14 @@ func readLeaf(path string, w leafWant, cwd ...string) (r leafRead) {
 	return r
 }
 
-// leafStopBlock is leafGate over a fresh read of the leaf's transcript.
-func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
-	return leafGate(in, agentID, readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD))
-}
-
-// leafGate returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
-func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
+// leafGate notes a dispatch the stopping leaf started that is still alive and fixes a missing ran-on line; no block.
+func leafGate(in *core.Input, agentID string, lr leafRead) core.Result {
 	if in.Agent() != core.AgentClaude || in.AgentTranscriptPath == "" || lr.openErr != nil {
-		return core.Result{}, false
+		return core.Result{}
 	}
 	lr.recs = loadRecords(lr.ids)
-	lr.capHold(firstAskAt(lr.scan.askTimes))
-	lr.scan.addHeldIDs(ReadHeldJobs(agentID))
-	expired, block := liveDispatchVerdict(in, &lr, agentID)
-	if block {
-		saveHeldJob(agentID, expired.Reason)
-		return preserveReport(in, agentID, lr, expired), true
-	}
-	res, block := ranOnVerdict(in, agentID, &lr)
-	if block {
-		saveHeldJob(agentID, res.Reason)
-		return preserveReport(in, agentID, lr, res), true
-	}
-	_ = os.Remove(heldPath(agentID)) // the hand-back or stop passes: its hold is over
-	_ = os.Remove(heldJobsPath(agentID))
-	return mergeGate(expired, res), false
+	expired := liveDispatchVerdict(in, &lr, agentID)
+	return mergeGate(expired, ranOnVerdict(in, agentID, &lr))
 }
 
 // mergeGate joins the dispatch note and the receipt verdict; the receipt's attached message wins.
@@ -299,8 +252,8 @@ func loadRecords(ids []string) []agent.Record {
 	return recs
 }
 
-// liveDispatchVerdict waits on each live dispatch, updating lr.recs; it blocks on one still running, else notes.
-func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired core.Result, block bool) {
+// liveDispatchVerdict waits on each live dispatch, updating lr.recs; one still running becomes a note, never a hold.
+func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired core.Result) {
 	recs, waited := slices.Clone(lr.recs), map[int]bool{}
 	for i, rec := range recs {
 		if !jobRunning(rec) {
@@ -315,23 +268,17 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 			waited[i] = true
 			continue
 		}
-		info, idPrefix := heldInfo(in.CWD, *lr, rec)
-		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs, lr.holdUntil, info, idPrefix)
-		if block { // keep the finished answers: the hold saves them and the later pass attaches them
-			lr.recs, lr.held = recs, endedReceipts(recs, waited)
-			return res, true
-		}
 		if expired.SystemMessage == "" {
-			expired = res
+			expired = leafStopVerdict(agentID, rec)
 		}
 	}
 	lr.recs = recs
-	if len(waited) > 0 || wasHeld(agentID) { // only then are the receipts used: building them reads every job's log
+	if len(waited) > 0 { // only then are the receipts used: building them reads every job's log
 		if ended := endedReceipts(recs, waited); len(ended) > 0 {
-			expired = attachAll(in, ended) // a finished job's answer outranks a limit note
+			expired = attachAll(in, ended) // a finished job's answer outranks a still-running note
 		}
 	}
-	return expired, false
+	return expired
 }
 
 // endedReceipts is every finished record's receipt in dispatch order, so an earlier finished job is not dropped.
@@ -380,95 +327,12 @@ func pidReused(rec agent.Record) bool {
 	return err == nil && got != rec.PIDStart
 }
 
-// leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil time.Time, info, idPrefix string) (core.Result, bool) {
-	if time.Since(rec.Time) >= leafStopMaxWait || holdExpired(holdUntil) {
-		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
-	}
-	if slices.Contains(held, rec.ID) {
-		return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, idPrefix, rec.ID)}, true
-	}
-	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s %s(you started). %s", info, idPrefix, pollOnce(rec.ID))}, true
+// leafStopVerdict is the visible note a stop carries while the leaf's dispatch still runs.
+func leafStopVerdict(agentID string, rec agent.Record) core.Result {
+	return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running", agentID, rec.ID)}
 }
 
-// heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.
-const heldAgain = "(held again)"
-
-// heldCommand is ": <line>" cut at the prompt, without env or overlay values, to ~100 chars; "" for an empty line.
-func heldCommand(line string) string {
-	line, _, _ = strings.Cut(line, " -- ")
-	var out []string
-	skip := false
-	for w := range strings.FieldsSeq(line) {
-		if !skip && !heldSecretArg(w) {
-			out = append(out, w)
-		}
-		skip = !skip && (w == "--env" || w == "--set")
-	}
-	cmd := strings.Join(out, " ")
-	if r := []rune(cmd); len(r) > 100 {
-		cmd = string(r[:100]) + "…"
-	}
-	if cmd == "" {
-		return ""
-	}
-	return ": " + cmd
-}
-
-func heldSecretArg(w string) bool {
-	return w == "--env" || w == "--set" || strings.HasPrefix(w, "--env=") || strings.HasPrefix(w, "--set=") || heldEnvRe().MatchString(w)
-}
-
-var heldEnvRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`) })
-
-// heldInfo is a held reason's lead (plan task, else job id, agent, age) and its id prefix, "" if the lead names it.
-func heldInfo(cwd string, lr leafRead, rec agent.Record) (lead, idPrefix string) {
-	what, idPrefix := "Job "+rec.ID, ""
-	if t, ok := docs.BriefTask(cwd, lr.scan.brief, recordPlanTask(append([]agent.Record{rec}, lr.recs...))); ok {
-		what, idPrefix = "Task "+t.ID, "Dispatch "+rec.ID+" "
-	}
-	who := rec.Agent
-	if who != "" {
-		who += ", "
-	}
-	cmd := ""
-	if rec.Agent != "" {
-		parts := []string{"claude-code agents ask"}
-		for _, a := range OverlayArgs(rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Identity, rec.Request.Account) {
-			parts = append(parts, textutil.ShellQuote(a))
-		}
-		cmd = strings.Join(parts, " ")
-	}
-	return fmt.Sprintf("Info: %s running (%s%s)%s; hand-back waits.", what, who, time.Since(rec.Time).Round(time.Second), heldCommand(cmd)), idPrefix
-}
-
-// repeatHold is a later hold: id, state and the full command, enough for a relay whose context was compacted.
-func repeatHold(info, idPrefix, id string) string {
-	return fmt.Sprintf("%s %s%s. Run `claude-code agents result -f %s` once in the foreground "+
-		"(600000ms timeout), then hand back its result.", info, idPrefix, heldAgain, id)
-}
-
-// heldJobRe matches the poll command either hold form sends, naming the job it held.
-var heldJobRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile("Run `claude-code agents result -f ([^`\\s]+)` once")
-})
-
-// addHolds records the jobs an earlier hold of this hook named, so a repeat hold can be short.
-func (s *leafScan) addHolds(text string) {
-	for _, m := range heldJobRe().FindAllStringSubmatch(text, -1) {
-		s.addHeldIDs([]string{m[1]})
-	}
-}
-
-func (s *leafScan) addHeldIDs(ids []string) {
-	for _, id := range ids {
-		if !slices.Contains(s.heldJobs, id) {
-			s.heldJobs = append(s.heldJobs, id)
-		}
-	}
-}
-
-// heldJobsPath keeps the ids a leaf's holds named, so a repeat hold needs no transcript text to know them.
+// heldJobsPath is where held job ids were saved; no hook writes it now, `agents result --held` still reads it.
 func heldJobsPath(agentID string) string { return heldPath(agentID) + "jobs" }
 
 // ReadHeldJobs is the held ids saved for agentID; a file older than leafStopMaxWait is stale and ignored.
@@ -480,28 +344,6 @@ func ReadHeldJobs(agentID string) []string {
 	}
 	b, _ := os.ReadFile(p)
 	return strings.Fields(string(b))
-}
-
-// saveHeldJob adds the job a hold's reason names (its poll command) to agentID's saved held ids.
-func saveHeldJob(agentID, reason string) {
-	m := heldJobRe().FindStringSubmatch(reason)
-	if m == nil {
-		return
-	}
-	ids := ReadHeldJobs(agentID)
-	if slices.Contains(ids, m[1]) {
-		return
-	}
-	if os.MkdirAll(filepath.Dir(heldPath(agentID)), 0o700) == nil {
-		_ = os.WriteFile(heldJobsPath(agentID), []byte(strings.Join(append(ids, m[1]), "\n")), 0o600)
-	}
-}
-
-// pollOnce is the relay contract's wait rule, quoted in every hold on a running job.
-func pollOnce(id string) string {
-	return fmt.Sprintf("Run `claude-code agents result -f %s` once, in the foreground (600000ms Bash timeout); rerun it only "+
-		"if it times out with the job still running, at most 12 times. The moment it returns with the job ended, hand back "+
-		"its result.", id)
 }
 
 // ranOnPattern matches the `ask: ran on <agent> · ` stderr line or the json "ran_on" field; docs quoting it never.
@@ -615,7 +457,6 @@ type leafScan struct {
 	bgAsks            []string
 	polls             map[string]pollCall // tool_use id → each `agents result <id>` call
 	reported          []string            // ids already known at the last delivered hand-back
-	heldJobs          []string            // jobs an earlier hold of this hook named in the transcript
 }
 
 // leafToolResult is one tool_result item of a user message.
@@ -727,9 +568,7 @@ func (s *leafScan) addResults(content json.RawMessage) {
 	var items []leafToolResult
 	if json.Unmarshal(content, &items) != nil {
 		text := transcript.ContentText(content)
-		if strings.Contains(text, "hook feedback:") {
-			s.addHolds(text)
-		} else if s.handedBack {
+		if !strings.Contains(text, "hook feedback:") && s.handedBack {
 			s.resumed = true
 		}
 		return
@@ -746,9 +585,6 @@ func (s *leafScan) scanResult(it leafToolResult) {
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
 	denied := it.IsError && hookDenyRe().MatchString(text)
-	if denied { // a hold reaches the leaf as a denied hand-back call; a quoting tool result is no hold
-		s.addHolds(raw)
-	}
 	success := !it.IsError
 	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
 		if !denied {
@@ -873,32 +709,29 @@ func relayAgent(in *core.Input) string {
 func labelAgent(name string) bool { return name == agentid.Claude || externalAgent(name) }
 
 // ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, attaches or notes, and never drops the report.
-func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
+func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) core.Result {
 	if !isRelay(in) || lr.scanErr != nil || lr.scan.ranOn {
-		return core.Result{}, false
+		return core.Result{}
 	}
 	ran, failed := askOutputRan(lr.scan.bgAsks)
 	if ran {
-		return core.Result{}, false
+		return core.Result{}
 	}
 	lr.scan.askFailed = lr.scan.askFailed || failed
 	if lr.scan.askFailed { // the ask ran and refused or found no agent: the failure is the report, not a reason to re-ask
-		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: its ask did not run an agent", agentID)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: its ask did not run an agent", agentID)}
 	}
 	switch {
 	case lr.scan.resumed:
-		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: resumed after its hand-back; no new `ask: ran on` receipt this round", agentID)}, false
+		return core.Result{SystemMessage: fmt.Sprintf("leaf %s: resumed after its hand-back; no new `ask: ran on` receipt this round", agentID)}
 	case lr.scan.handedBack: // the delivered hand-back already carried the fix
-		return core.Result{}, false
+		return core.Result{}
 	}
 	return receiptFix(in, agentID, lr)
 }
 
-// Handback runs the stop gates on SubagentHandback (it ends a background leaf before SubagentStop), pollGate on Bash.
+// Handback runs the receipt and verify steps on SubagentHandback (it ends a background leaf before SubagentStop).
 func Handback(in *core.Input) core.Result {
-	if in.ToolName == "Bash" {
-		return pollGate(in)
-	}
 	id := in.SubagentID()
 	if id == "" || in.ToolName != "SubagentHandback" {
 		return core.Result{}
@@ -908,10 +741,7 @@ func Handback(in *core.Input) core.Result {
 	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf), leaf.CWD)
 	start := time.Now()
 	lr.until = start.Add(handbackWait)
-	res, held := leafGate(&leaf, id, lr)
-	if held || res.Decision == core.Block {
-		return res
-	}
+	res := leafGate(&leaf, id, lr)
 	return withVerify(in, res, handbackVerify(&leaf, lr, start.Add(handbackWait)))
 }
 

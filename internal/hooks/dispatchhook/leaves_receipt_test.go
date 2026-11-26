@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/redact"
 )
 
 // Exact printed IDs bind multiple jobs; timestamps alone bind none.
@@ -36,64 +35,13 @@ func TestLeafDispatchEveryAskCall(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-16): receiptFix's hold on a running job saves the finished one's answer; the pass attaches both.
-func TestReceiptFixHoldKeepsFinishedAnswer(t *testing.T) {
-	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
-	in.CWD = t.TempDir()
-	_, hold := stubTwoJobs(t, in)
-	*hold = true
-	at := time.Now().Add(-3 * time.Minute)
-	first, _ := loadDispatch("first")
-	second, _ := loadDispatch("second")
-	first.Time, second.Time = at.Add(time.Second), at.Add(90*time.Second)
-	poll := handbackPoll
-	t.Cleanup(func() { handbackPoll = poll })
-	handbackPoll = time.Millisecond
-	gate := func() (core.Result, bool) {
-		lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
-		lr.ids, lr.until = []string{first.ID, second.ID}, time.Now().Add(20*time.Millisecond)
-		return leafGate(in, "a1", lr)
-	}
-	r, blocked := gate()
-	_, path, _ := strings.Cut(r.Reason, "is saved at ")
-	saved, _ := os.ReadFile(strings.TrimSuffix(path, "."))
-	if !blocked || !strings.Contains(r.Reason, "Job second") || !strings.Contains(string(saved), "FINAL ANSWER first") || !wasHeld("a1") {
-		t.Fatalf("hold = %+v blocked=%v, saved %q: want the finished answer saved with the report and the marker", r, blocked, saved)
-	}
-	*hold = false
-	r, blocked = gate()
-	msg, _ := r.UpdatedInput["message"].(string)
-	if first := strings.Index(msg, "FINAL ANSWER first"); blocked || first < 0 || strings.Index(msg, "FINAL ANSWER second") < first || wasHeld("a1") {
-		t.Fatalf("pass = %+v blocked=%v held=%v, want both answers in dispatch order and the marker gone", r, blocked, wasHeld("a1"))
-	}
-}
-
-// Regression (2026-11-16): a held marker older than leafStopMaxWait is ignored and removed.
-func TestHeldMarkerStaleIgnored(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	markHeld("a1")
-	if !wasHeld("a1") {
-		t.Fatal("fresh marker not seen")
-	}
-	old := time.Now().Add(-leafStopMaxWait - time.Minute)
-	if err := os.Chtimes(heldPath("a1"), old, old); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(heldPath("a1")); wasHeld("a1") || err != nil {
-		t.Fatalf("stale marker counted, or missing before the check (%v)", err)
-	}
-	if _, err := os.Stat(heldPath("a1")); !os.IsNotExist(err) {
-		t.Fatalf("stale marker kept: %v", err)
-	}
-}
-
 func TestRelayMissingIDCap(t *testing.T) {
 	in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
 	old := time.Now().Add(-leafStopMaxWait - time.Minute)
 	lr := leafRead{scan: leafScan{askTimes: []time.Time{old}}}
-	r, held := receiptFix(in, "a1", &lr)
-	if held || !strings.Contains(r.SystemMessage, unattributedNote) {
-		t.Fatalf("HIGH3 cap: %+v held=%v", r, held)
+	r := receiptFix(in, "a1", &lr)
+	if !strings.Contains(r.SystemMessage, unattributedNote) {
+		t.Fatalf("HIGH3 cap: %+v", r)
 	}
 }
 
@@ -130,15 +78,16 @@ func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 	ran := bgOutputFile(t, "ask: ran on codex · gpt-5\nresult\nask: dispatch "+leafJob+"\n")
 	in := leafTx(t, "codex", brief, bgNotice(ran))
 	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
-	if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
-		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
+	if r := leafStopNote(in, "a1"); r.Decision == core.Block || r.SystemMessage != "" {
+		t.Fatalf("ran output: got %+v, want a silent release", r)
 	}
 	empty := bgOutputFile(t, "working\n")
-	if r, held := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); held || !strings.Contains(r.SystemMessage, unattributedNote) {
+	if r := leafStopNote(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); r.Decision == core.Block || !strings.Contains(r.SystemMessage, unattributedNote) {
 		t.Fatalf("an output with no receipt and no record: got %+v, want the unattributed note", r)
 	}
 	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
-	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
+	r := leafStopNote(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
+	blocked := r.Decision == core.Block
 	if blocked || !strings.Contains(r.SystemMessage, "did not run an agent") {
 		t.Fatalf("did-not-run output: got %+v blocked=%v, want the did-not-run note", r, blocked)
 	}
@@ -183,7 +132,8 @@ func TestRanOnReceiptFromReviewAndFailedAsk(t *testing.T) {
 			if tc.record != "" {
 				writeDispatch(t, tc.record, record(tc.record, "ok", 0))
 			}
-			r, blocked := leafStopBlock(leafInput(filepath.Join(dir, "agent-a1.jsonl")), "a1")
+			r := leafStopNote(leafInput(filepath.Join(dir, "agent-a1.jsonl")), "a1")
+			blocked := r.Decision == core.Block
 			note := relayNote
 			if tc.isErr {
 				note = unattributedNote
@@ -214,9 +164,10 @@ func missingIDTx(t *testing.T, at time.Time, rows map[string]string) *core.Input
 	return in
 }
 
-// missingIDResult is the gate's verdict on in: the hold reason when blocked, else the attached hand-back message.
+// missingIDResult is the gate's verdict on in: the hold reason when blocked (never now), else the hand-back message.
 func missingIDResult(in *core.Input) (string, bool) {
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	r := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	blocked := r.Decision == core.Block
 	if blocked {
 		return r.Reason, true
 	}
@@ -241,10 +192,10 @@ func TestReceiptFixMissingIDBindsOnlyOnProof(t *testing.T) {
 		not       string
 	}{
 		{"one tied in window", map[string]string{a: "ok"}, nil, false, []string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote},
-		{"tied running is held", map[string]string{a: "running"}, nil, true, []string{"Run `claude-code agents result -f " + a}, ""},
+		{"tied running is noted", map[string]string{a: "running"}, nil, false, []string{"NOTE: dispatch " + a, "still running"}, unattributedNote},
 		{"untied running siblings", nil, map[string]string{a: untied(a, at.Add(time.Second)), b: untied(b, at.Add(2*time.Second))}, false,
 			[]string{unattributedNote, "Candidates", a, b}, "supplied the receipt"},
-		{"two tied, one running, is held", map[string]string{a: "ok", b: "running"}, nil, true, []string{"Run `claude-code agents result -f " + b}, ""},
+		{"two tied, one running, is noted", map[string]string{a: "ok", b: "running"}, nil, false, []string{"NOTE: dispatch " + b, "still running"}, unattributedNote},
 		{"tied outside window", map[string]string{a: "ok"}, map[string]string{a: recAs("ok", a, "x", at.Add(askLaunchWindow+time.Minute))}, false,
 			[]string{unattributedNote, a}, "supplied the receipt"},
 		{"tied plus untied sibling", map[string]string{a: "ok", b: "ok"}, map[string]string{b: untied(b, at.Add(time.Second))}, false,
@@ -279,51 +230,6 @@ func TestReceiptFixMissingIDLabelsForgedBodyLine(t *testing.T) {
 	}
 }
 
-// A job's first hold carries the whole poll rule and the report path; a repeat hold only its id and the one command.
-func TestRepeatHoldIsShort(t *testing.T) {
-	const id = "20261116T120000.000-codex"
-	at := time.Now().Add(-time.Minute).Truncate(time.Second)
-	for _, asResult := range []bool{true, false} {
-		in := missingIDTx(t, at, map[string]string{id: "running"})
-		gate := func() core.Result {
-			r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-			if !blocked {
-				t.Fatalf("running job not held: %+v", r)
-			}
-			return r
-		}
-		first := gate()
-		if !strings.Contains(first.Reason, "at most 12 times") || !strings.Contains(first.Reason, "is saved at ") {
-			t.Fatalf("first hold = %q, want the full rule and the report path", first.Reason)
-		}
-		b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
-			{"type": "tool_result", "tool_use_id": "tH", "is_error": true, "content": "PreToolUse:SubagentHandback hook error: " + first.Reason}}}})
-		line := string(b)
-		if !asResult {
-			b, _ = json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": "Stop hook feedback: " + first.Reason}})
-			line = string(b)
-		}
-		appendLines(t, in.AgentTranscriptPath, line)
-		again := gate()
-		if strings.Contains(again.Reason, "at most 12 times") || strings.Contains(again.Reason, "is saved at ") ||
-			!strings.Contains(again.Reason, "Run `claude-code agents result -f "+id+"` once") || len(again.Reason) >= len(first.Reason)-150 {
-			t.Fatalf("repeat hold (%d bytes, first %d) = %q, want the short form with the command", len(again.Reason), len(first.Reason), again.Reason)
-		}
-		t.Logf("first %d bytes, repeat %d bytes\n%s\n%s", len(first.Reason), len(again.Reason), first.Reason, again.Reason)
-	}
-}
-
-// A tool result that only quotes a hold's poll instruction is no earlier hold: the first hold stays the full form.
-func TestQuotedPollInstructionIsNoHold(t *testing.T) {
-	const id = "20261116T120000.000-codex"
-	in := missingIDTx(t, time.Now().Add(-time.Minute).Truncate(time.Second), map[string]string{id: "running"})
-	appendLines(t, in.AgentTranscriptPath, txResult("tQ", "docs: "+pollOnce(id)))
-	got, blocked := missingIDResult(in)
-	if !blocked || !strings.Contains(got, "at most 12 times") || !strings.Contains(got, "is saved at ") {
-		t.Fatalf("blocked=%v reason=%q, want the full first hold", blocked, got)
-	}
-}
-
 // Today's case: an ask result with no id line and a finished record: the hand-back carries the looked-up receipt.
 func TestHandbackMissingIDLooksUpRecord(t *testing.T) {
 	const id = "20261116T120000.000-codex"
@@ -335,7 +241,8 @@ func TestHandbackMissingIDLooksUpRecord(t *testing.T) {
 	in.CWD = t.TempDir()
 	writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"owner":4242,"model":"m","provider":"prod","request":{"prompt":"x"}}`,
 		id, at.Add(time.Second).Format(time.RFC3339), os.Getpid()))
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	r := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	blocked := r.Decision == core.Block
 	msg, _ := r.UpdatedInput["message"].(string)
 	if blocked || !strings.HasPrefix(msg, "NOTE: dispatch "+id) || !strings.Contains(msg, "ask: ran on codex") || !strings.Contains(msg, "the relay report") {
 		t.Fatalf("got %+v blocked=%v, want the hand-back through with the looked-up receipt and the report", r, blocked)
@@ -381,27 +288,6 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 	}
 }
 
-func TestLeafDeniedAskHolds(t *testing.T) {
-	for _, prefix := range []string{"PreToolUse hook error: ", "PreToolUse:Bash hook error: "} {
-		var s leafScan
-		s.addLine([]byte(txCall("a", "Bash", "claude-code agents ask x")))
-		raw, err := json.Marshal(prefix + pollOnce("20261118T120000.000-codex"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.addLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":` + string(raw) + `}]}}`))
-		if len(s.askTimes) != 0 || len(s.heldJobs) != 1 {
-			t.Fatalf("denied ask: %+v", s)
-		}
-	}
-	var s leafScan
-	s.addLine([]byte(txCall("a", "Bash", "claude-code agents ask x")))
-	s.addLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":"exit status 1"}]}}`))
-	if len(s.askTimes) != 1 || len(s.heldJobs) != 0 {
-		t.Fatalf("ordinary error: %+v", s)
-	}
-}
-
 func TestLeafErroredAskNoRelaunch(t *testing.T) {
 	in := timedLeafTx(t, time.Now().Add(-time.Minute), "unused")
 	raw, err := os.ReadFile(in.AgentTranscriptPath)
@@ -413,46 +299,10 @@ func TestLeafErroredAskNoRelaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
-	r, blocked := leafGate(in, "a1", lr)
+	r := leafGate(in, "a1", lr)
+	blocked := r.Decision == core.Block
 	if blocked || !strings.Contains(r.SystemMessage, unattributedNote) {
 		t.Fatalf("error ask: %+v blocked=%v", r, blocked)
-	}
-}
-
-// A saved hand-back report never holds a vault value; the mask keeps the byte length.
-func TestPreserveReportMasksVaultValue(t *testing.T) {
-	value := "FAKE-SECRET-0123456789abcdef"
-	redact.StubValues(t, []string{value})
-	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "report with "+value)
-	res := preserveReport(in, "a-mask", leafRead{}, core.Result{})
-	_, path, _ := strings.Cut(res.Reason, "is saved at ")
-	saved, err := os.ReadFile(strings.TrimSuffix(path, "."))
-	if err != nil {
-		t.Fatalf("report not saved: %v (reason %q)", err, res.Reason)
-	}
-	if strings.Contains(string(saved), value) || !strings.Contains(string(saved), "[redacted]"+strings.Repeat("*", len(value)-10)) {
-		t.Fatalf("saved report = %q, want the value masked at its own length", saved)
-	}
-}
-
-func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo, _ := planRepo(t)
-	rec := agent.Record{ID: "j1", Agent: "codex", Time: time.Now(), PlanTask: "1.2"}
-	lead, _ := heldInfo(repo, leafRead{}, rec)
-	if !strings.HasPrefix(lead, "Info: Task 1.2 running (codex, ") || !strings.HasSuffix(lead, "): claude-code agents ask '--overlay' '{\"agent\":\"codex\"}'; hand-back waits.") {
-		t.Errorf("task form: %q", lead)
-	}
-	rec.PlanTask = ""
-	lead, prefix := heldInfo(t.TempDir(), leafRead{}, rec)
-	res, _ := leafStopVerdict("a1", rec, nil, time.Time{}, lead, prefix)
-	if !strings.HasPrefix(lead, "Info: Job j1 running (codex, ") || res.Decision != core.Block || res.Verdict != core.VerdictHeld {
-		t.Fatalf("job form: lead %q, result %+v, want a held Job lead", lead, res)
-	}
-	for _, bad := range []string{"Error", "refused", "the brief's Run:"} {
-		if strings.Contains(res.Reason, bad) {
-			t.Errorf("hold %q contains %q", res.Reason, bad)
-		}
 	}
 }
 
@@ -491,18 +341,6 @@ func TestAskWordsReadOverlay(t *testing.T) {
 			t.Errorf("%s: got %q %q %q ok=%v", c.name, a.Value("agent"), a.Value("provider"), a.Value("profile"), ok)
 		}
 	}
-}
-
-func TestHeldInfoOverlayCommandRoundTrip(t *testing.T) {
-	rec := agent.Record{ID: "j1", Agent: "codex", Time: time.Now()}
-	rec.Request.Model = `a'b"c\d`
-	lead, _ := heldInfo(t.TempDir(), leafRead{}, rec)
-	_, cmd, found := strings.Cut(lead, "): ")
-	cmd = strings.TrimSuffix(cmd, "; hand-back waits.")
-	if !found || !strings.HasPrefix(cmd, "claude-code agents ask '--overlay' ") {
-		t.Fatalf("held command missing: %s", lead)
-	}
-	assertAskReaders(t, strings.TrimPrefix(cmd, "claude-code agents ask "), askLine{Agent: "codex", Model: rec.Request.Model}, "")
 }
 
 // in auto mode the timeout raise is a note, and a background call is left alone.

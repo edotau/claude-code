@@ -1,7 +1,6 @@
 package dispatchhook
 
 import (
-	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -94,19 +93,6 @@ func TestSpawnQueryStampsNothing(t *testing.T) {
 		if !after[f].Equal(m) {
 			t.Errorf("query changed %s", f)
 		}
-	}
-}
-
-// Fails if a marker moved a denial: the call would be allowed with notes.
-func TestSpawnMarkerKeepsDenial(t *testing.T) {
-	smHome(t)
-	smRun(`{"harness_spawn":"ready","session_id":"s-deny"}`)
-	p := `{"session_id":"s-deny","tool_name":"Agent","tool_input":{"subagent_type":"bogus","prompt":"x","description":"x"}}`
-	if r := agentEffortResult(context.Background(), core.ParseInput(strings.NewReader(p))); r.Decision != core.Block {
-		t.Fatalf("marked unknown type = %+v, want Block", r)
-	}
-	if q := smRun(strings.Replace(p, `{"session_id"`, `{"harness_spawn":"query","session_id"`, 1)); q.Stdout != "{}" {
-		t.Fatalf("query on a denied call = %q, want {}", q.Stdout)
 	}
 }
 

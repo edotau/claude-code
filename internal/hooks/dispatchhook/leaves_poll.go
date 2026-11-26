@@ -1,4 +1,4 @@
-// The relay poll gates: a relay's `agents result` poll is nudged to hand back, refused once reported or doubled.
+// The relay poll helpers: a relay's `agents result` poll is parsed from its transcript and nudged to hand back; never refused.
 package dispatchhook
 
 import (
@@ -100,47 +100,6 @@ func relayPoll(in *core.Input) (lr leafRead, job, own string, follow, ok bool) {
 		return lr, "", "", false, false
 	}
 	return lr, job, ownJob(lr.ids, job), follow, true
-}
-
-// pollGate (PreToolUse Bash) refuses a poll of a finished job already handed back, and a second live poller.
-func pollGate(in *core.Input) core.Result {
-	if res, ok := relayBash(in); ok {
-		return res
-	}
-	lr, job, own, follow, ok := relayPoll(in)
-	if !ok {
-		return core.Result{}
-	}
-	if own != "" && slices.Contains(lr.scan.reported, own) {
-		if rec, err := loadDispatch(own); err == nil && !jobRunning(rec) {
-			return core.Result{Decision: core.Block, Rule: "already-reported", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("already reported: stop. You handed back job %s after "+
-				"it ended; do not poll it again, and answer any later notice about it with \"already reported\".", own)}
-		}
-	}
-	if !follow {
-		return core.Result{}
-	}
-	if where, live := livePoller(lr.scan.polls, in.Nested("tool_use_id"), cmp.Or(own, job), lr.ids); live {
-		return core.Result{Decision: core.Block, Rule: "one-poller", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("one poller only: an `agents result -f` call already "+
-			"follows job %s%s; wait for it to return, then hand back with its result.", cmp.Or(own, job), where)}
-	}
-	return core.Result{}
-}
-
-// livePoller finds another follow poll of job that is still waiting: in flight, or backgrounded with a live writer.
-func livePoller(polls map[string]pollCall, self, job string, ids []string) (where string, live bool) {
-	for id, p := range polls {
-		if id == self || !p.follow || cmp.Or(ownJob(ids, p.job), p.job) != job {
-			continue
-		}
-		if !p.done && p.bgFile == "" {
-			return "", true
-		}
-		if p.bgFile != "" && len(reapHolders([]string{p.bgFile})) > 0 {
-			return " (background output " + p.bgFile + ")", true
-		}
-	}
-	return "", false
 }
 
 // pollNudge (PostToolUse Bash) tells a relay whose own poll just returned on an ended job to hand back now.

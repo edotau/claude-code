@@ -46,21 +46,6 @@ func stopPayload(agent, tx, agentTx string) string {
 	return `{"hook_event_name":"SubagentStop","agent_id":"` + agent + `","transcript_path":"` + tx + `","agent_transcript_path":"` + agentTx + `"}`
 }
 
-// seedForeign fills n slots of the session account with markers owned by a live foreign pid (this test process).
-func seedForeign(t *testing.T, n int) {
-	t.Helper()
-	dir := inflight.Dir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for i := range n {
-		name := inflight.Prefix + strconv.Itoa(os.Getpid()) + "-seed" + strconv.Itoa(i)
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(router.SessionAccountContext(context.Background())), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
 func hasMarker(t *testing.T, id string) bool {
 	t.Helper()
 	want := inflight.Prefix + strconv.Itoa(inflight.SessionOwner()) + "-" + id
@@ -106,20 +91,6 @@ func TestDispatchRepeatStopRetiresNothingElse(t *testing.T) {
 	}
 }
 
-// Order cap → pin → claim: at the cap an Agent spawn blocks with no marker and no updatedInput.
-func TestDispatchAtCapSpawnBlocksBeforePinAndClaim(t *testing.T) {
-	capN := dispatchEnv(t)
-	seedForeign(t, capN)
-	// No model: the pin step would rewrite the input if it ran.
-	r := pre(`{"tool_name":"Agent","tool_use_id":"over","tool_input":{"prompt":"fix a typo"}}`)
-	if r.Decision != core.Block || r.UpdatedInput != nil {
-		t.Fatalf("spawn at the cap = %+v, want a Block with no updatedInput", r)
-	}
-	if hasMarker(t, "over") || len(markerNames(t)) != capN {
-		t.Fatalf("a blocked spawn wrote a marker: %v", markerNames(t))
-	}
-}
-
 // A Workflow the lint blocks (ambiguous agent() options) claims nothing even with every slot free.
 func TestDispatchLintBlockedWorkflowClaimsNothing(t *testing.T) {
 	dispatchEnv(t)
@@ -138,8 +109,8 @@ func workflowPayload(id string) string {
 	return `{"tool_name":"Workflow","tool_use_id":"` + id + `","tool_input":{"script":` + fmt.Sprintf("%q", threeLeaves) + `}}`
 }
 
-// A Workflow claims <id>.1..<id>.3 in one pass; with two slots free it blocks and claims nothing.
-func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
+// A Workflow claims <id>.1..<id>.3 in one pass and a release frees them all.
+func TestDispatchWorkflowBatchClaimsEveryLeaf(t *testing.T) {
 	capN := dispatchEnv(t)
 	if capN < 3 {
 		t.Skipf("cap %d too small for a 3-leaf batch", capN)
@@ -156,15 +127,6 @@ func TestDispatchWorkflowBatchIsAllOrNothing(t *testing.T) {
 	Release(core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"wf"}`)))
 	if n := len(markerNames(t)); n != 0 {
 		t.Fatalf("workflow-inflight left %d markers", n)
-	}
-
-	seedForeign(t, capN-2)
-	r := pre(workflowPayload("wf2"))
-	if r.Decision != core.Block {
-		t.Fatalf("3 leaves with 2 free = %+v, want Block", r)
-	}
-	if hasMarker(t, "wf2") || len(markerNames(t)) != capN-2 {
-		t.Fatalf("a blocked batch claimed leaves: %v", markerNames(t))
 	}
 }
 
@@ -222,21 +184,19 @@ func dispatchEnv(t *testing.T) int {
 
 func pre(payload string) core.Result { return Effort(core.ParseInput(strings.NewReader(payload))) }
 
-// Cap → claim → release: spawns fill the cap, the next blocks naming the numbers, each release frees one slot.
-func TestDispatchCapBlockReleaseAndStop(t *testing.T) {
+// Claim → release: spawns fill the old cap, the next is allowed unclaimed, each release frees one slot.
+func TestDispatchReleaseAndStopPastTheOldCap(t *testing.T) {
 	capN := dispatchEnv(t)
 	for i := range capN {
 		if r := pre(spawnPayload(fmt.Sprintf("u%d", i))); r.Decision == core.Block {
 			t.Fatalf("spawn %d under the cap blocked: %s", i, r.Reason)
 		}
 	}
-	r := pre(spawnPayload("over"))
-	if r.Decision != core.Block || !strings.Contains(r.Reason, fmt.Sprintf("%d agents already in flight", capN)) ||
-		!strings.Contains(r.Reason, "run this task sequentially") {
-		t.Fatalf("spawn at the cap = %+v, want a Block naming the cap and the fix", r)
+	if r := pre(spawnPayload("over")); r.Decision == core.Block {
+		t.Fatalf("spawn at the old cap blocked: %+v; the hook no longer caps", r)
 	}
 	if n := len(markerNames(t)); n != capN {
-		t.Fatalf("a blocked dispatch must claim nothing: %d markers, want %d", n, capN)
+		t.Fatalf("a spawn past the cap must claim nothing: %d markers, want %d", n, capN)
 	}
 	Release(core.ParseInput(strings.NewReader(postFailurePayload("u0"))))
 	if n := len(markerNames(t)); n != capN-1 {
@@ -345,22 +305,26 @@ func recordAt(id, status string, pid int, at time.Time) string {
 	return fmt.Sprintf(`{"id":%q,"time":%q,"status":%q,"pid":%d}`, id, at.Format(time.RFC3339), status, pid)
 }
 
+// leafStopNote is leafGate over a fresh read of the leaf's transcript.
+func leafStopNote(in *core.Input, agentID string) core.Result {
+	return leafGate(in, agentID, readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD))
+}
+
 func leafInput(tx string) *core.Input { return &core.Input{AgentTranscriptPath: tx} }
 
 func startedLine() string { return "job " + leafJob + " started" }
 
-// A running dispatch blocks the stop, naming the id and the result -f command, and exits 2.
-func TestLeafStopBlocksRunningDispatch(t *testing.T) {
+// A running dispatch never blocks the stop: it is a visible note naming the id.
+func TestLeafStopNotesRunningDispatch(t *testing.T) {
 	tx := leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	r, blocked := leafStopBlock(leafInput(tx), "a1")
-	if !blocked || r.Decision != core.Block || !strings.Contains(r.Reason, leafJob) ||
-		!strings.Contains(r.Reason, "claude-code agents result -f "+leafJob) || !strings.Contains(r.Reason, "600000ms") {
-		t.Fatalf("got %+v blocked=%v, want a Block naming %s, the result -f command and the 600000ms timeout", r, blocked, leafJob)
+	r := leafStopNote(leafInput(tx), "a1")
+	if r.Decision == core.Block || !strings.Contains(r.SystemMessage, leafJob) || !strings.Contains(r.SystemMessage, "still running") {
+		t.Fatalf("got %+v, want a note naming %s and no Block", r, leafJob)
 	}
 	var out, errb bytes.Buffer
-	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code != core.ExitBlock || !strings.Contains(errb.String(), leafJob) {
-		t.Fatalf("Emit = %d stderr=%q, want ExitBlock with the reason", code, errb.String())
+	if code := core.Emit(core.AgentClaude, "SubagentStop", r, &out, &errb); code == core.ExitBlock {
+		t.Fatalf("Emit = %d, want the stop to proceed", code)
 	}
 }
 
@@ -380,40 +344,24 @@ func TestLeafStopReleases(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tx := leafEnv(t, startedLine())
 			writeDispatch(t, leafJob, body)
-			if r, blocked := leafStopBlock(leafInput(tx), "a1"); blocked || r.Decision == core.Block {
-				t.Fatalf("got %+v blocked=%v, want the stop released", r, blocked)
+			if r := leafStopNote(leafInput(tx), "a1"); r.Decision == core.Block {
+				t.Fatalf("got %+v, want the stop released", r)
 			}
 		})
-	}
-}
-
-// A live dispatch blocks every stop until it is older than leafStopMaxWait, then allows with a message.
-func TestLeafStopWaitLimit(t *testing.T) {
-	tx := leafEnv(t, startedLine())
-	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-time.Minute)))
-	for i := range 10 {
-		if _, blocked := leafStopBlock(leafInput(tx), "a1"); !blocked {
-			t.Fatalf("stop %d of a 1-minute-old dispatch was allowed", i+1)
-		}
-	}
-	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
-	r, blocked := leafStopBlock(leafInput(tx), "a1")
-	if blocked || r.Decision == core.Block || !strings.Contains(r.SystemMessage, leafJob) || !strings.Contains(r.SystemMessage, leafStopMaxWait.String()) {
-		t.Fatalf("past the limit got %+v blocked=%v, want an allow with a message naming %s and %s", r, blocked, leafJob, leafStopMaxWait)
 	}
 }
 
 // Unreadable evidence never traps a leaf: missing transcript, malformed record, missing record all allow.
 func TestLeafStopFailsOpen(t *testing.T) {
 	tx := leafEnv(t, startedLine())
-	if _, blocked := leafStopBlock(leafInput(filepath.Join(t.TempDir(), "none.jsonl")), "a1"); blocked {
+	if r := leafStopNote(leafInput(filepath.Join(t.TempDir(), "none.jsonl")), "a1"); r.Decision == core.Block {
 		t.Fatal("missing transcript blocked")
 	}
-	if _, blocked := leafStopBlock(leafInput(tx), "a1"); blocked {
+	if r := leafStopNote(leafInput(tx), "a1"); r.Decision == core.Block {
 		t.Fatal("missing record blocked")
 	}
 	writeDispatch(t, leafJob, `{not json`)
-	if _, blocked := leafStopBlock(leafInput(tx), "a1"); blocked {
+	if r := leafStopNote(leafInput(tx), "a1"); r.Decision == core.Block {
 		t.Fatal("malformed record blocked")
 	}
 }
@@ -421,20 +369,20 @@ func TestLeafStopFailsOpen(t *testing.T) {
 // A transcript with no dispatch allows; a non-Claude vendor is never gated.
 func TestLeafStopNoDispatchAndVendor(t *testing.T) {
 	tx := leafEnv(t, "ls output", "nothing here")
-	if _, blocked := leafStopBlock(leafInput(tx), "a1"); blocked {
+	if r := leafStopNote(leafInput(tx), "a1"); r.Decision == core.Block {
 		t.Fatal("blocked with no dispatch in the transcript")
 	}
 	tx = leafEnv(t, startedLine())
 	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
 	t.Setenv(settings.AgentEnv, core.AgentCopilot)
 	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"agent_transcript_path":%q}`, tx)))
-	if _, blocked := leafStopBlock(in, "a1"); blocked {
+	if r := leafStopNote(in, "a1"); r.Decision == core.Block {
 		t.Fatal("non-Claude vendor was gated")
 	}
 }
 
-// A blocked stop keeps the leaf's inflight slot; the stop that proceeds retires it.
-func TestLeafStopBlockKeepsSlot(t *testing.T) {
+// A stop with a dispatch still running is not blocked and retires the leaf's inflight slot.
+func TestLeafStopRunningDispatchRetiresSlot(t *testing.T) {
 	dispatchEnv(t)
 	tx := filepath.Join(t.TempDir(), "session.jsonl")
 	sub := writeMeta(t, tx, "a1", "u1")
@@ -449,16 +397,11 @@ func TestLeafStopBlockKeepsSlot(t *testing.T) {
 		t.Fatalf("spawn blocked: %s", r.Reason)
 	}
 	stop := `{"hook_event_name":"SubagentStop","agent_id":"a1","transcript_path":"` + tx + `","agent_transcript_path":"` + agentTx + `"}`
-	if r := Stop(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
-		t.Fatalf("running dispatch: got %+v, want Block", r)
+	if r := Stop(core.ParseInput(strings.NewReader(stop))); r.Decision == core.Block {
+		t.Fatalf("running dispatch: got %+v, want no Block", r)
 	}
-	if n := len(markerNames(t)); n != 1 {
-		t.Fatalf("blocked stop left %d markers, want 1 (slot kept)", n)
-	}
-	writeDispatch(t, leafJob, record(leafJob, "done", os.Getpid()))
-	Stop(core.ParseInput(strings.NewReader(stop)))
 	if n := len(markerNames(t)); n != 0 {
-		t.Fatalf("proceeding stop left %d markers, want 0", n)
+		t.Fatalf("stop left %d markers, want 0", n)
 	}
 }
 
@@ -562,8 +505,8 @@ func TestRanOnReceiptFromResultFollow(t *testing.T) {
 	} {
 		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt+"\nask: dispatch "+leafJob)
 		writeDispatch(t, leafJob, record(leafJob, "ok", 0))
-		if r, blocked := leafStopBlock(in, "a1"); blocked || strings.Contains(r.SystemMessage, relayNote) != wantNote {
-			t.Errorf("%q: got %+v blocked=%v, want the relay note %v", command, r, blocked, wantNote)
+		if r := leafStopNote(in, "a1"); r.Decision == core.Block || strings.Contains(r.SystemMessage, relayNote) != wantNote {
+			t.Errorf("%q: got %+v, want the relay note %v", command, r, wantNote)
 		}
 	}
 }
@@ -575,7 +518,8 @@ const relayNote = "NOTE: ran on the relay model"
 func TestRanOnGateTypes(t *testing.T) {
 	for st, want := range map[string]bool{"coworker": true, "pi": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "claude": false} {
 		for _, brief := range []string{"Objective: x\nAgent: codex\n", "Objective: x\nOwns: /tmp/x\n"} {
-			r, blocked := leafStopBlock(leafTx(t, st, brief, "ls output"), "a1")
+			r := leafStopNote(leafTx(t, st, brief, "ls output"), "a1")
+			blocked := r.Decision == core.Block
 			if blocked || strings.Contains(r.SystemMessage, relayNote) != want {
 				t.Errorf("%s %q: got %+v blocked=%v, want the relay note %v and no block", st, brief, r, blocked, want)
 			}
@@ -588,20 +532,9 @@ func TestRanOnRanOnReleases(t *testing.T) {
 	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on": "ran on codex · acct · gpt · fallback none","fallback":""}`} {
 		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", evidence+"\nask: dispatch "+leafJob)
 		writeDispatch(t, leafJob, record(leafJob, "ok", 0))
-		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
-			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
+		if r := leafStopNote(in, "a1"); r.Decision == core.Block || r.SystemMessage != "" {
+			t.Fatalf("evidence %q: got %+v, want a silent release", evidence, r)
 		}
-	}
-}
-
-// An expired dispatch must not hide a younger live one started by the same leaf.
-func TestLeafStopExpiredDoesNotHideLiveDispatch(t *testing.T) {
-	const second = "20260101T000000.000-second"
-	tx := leafEnv(t, startedLine(), "job "+second+" started")
-	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
-	writeDispatch(t, second, record(second, "running", os.Getpid()))
-	if r, blocked := leafStopBlock(leafInput(tx), "a1"); !blocked || !strings.Contains(r.Reason, second) {
-		t.Fatalf("got %+v blocked=%v, want a Block naming the live dispatch %s", r, blocked, second)
 	}
 }
 
@@ -626,7 +559,7 @@ func TestHandbackGatesRanOn(t *testing.T) {
 		t.Fatalf("hand-back = %+v, want it through with the relay note on top of the report", r)
 	}
 	in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", `{"success":true,"message":"`+handedBackMark+`."}`)
-	if r, blocked := leafStopBlock(in, "a1"); blocked {
+	if r := leafStopNote(in, "a1"); r.Decision == core.Block {
 		t.Errorf("after a delivered hand-back the gate must pass, got %+v", r)
 	}
 }
@@ -653,25 +586,11 @@ func TestRanOnRelayDidTheWork(t *testing.T) {
 		{"type": "tool_use", "id": "e1", "name": "Edit", "input": map[string]any{}}}}})
 	appendLines(t, in.AgentTranscriptPath, string(edit), txResult("e1", "edited"))
 	in = handbackOf(in, "fixed it")
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	r := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	blocked := r.Decision == core.Block
 	msg, _ := r.UpdatedInput["message"].(string)
 	if blocked || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not codex") || !strings.HasSuffix(msg, "fixed it") {
 		t.Fatalf("got %+v blocked=%v, want the hand-back through with the relay note", r, blocked)
-	}
-}
-
-// Every held hand-back saves the report it carried to the reports home and names the file.
-func TestRanOnHeldReportPreserved(t *testing.T) {
-	in := leafTx(t, "codex", "Objective: x\n", startedLine())
-	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	in = handbackOf(in, "the full report")
-	in.CWD = t.TempDir()
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	_, path, ok := strings.Cut(r.Reason, "is saved at ")
-	path = strings.TrimSuffix(path, ".")
-	got, err := os.ReadFile(path)
-	if !blocked || !ok || err != nil || string(got) != "the full report" {
-		t.Fatalf("held = %+v blocked=%v; saved %q (%v), want the report preserved and named", r, blocked, got, err)
 	}
 }
 
@@ -727,7 +646,7 @@ func TestRanOnReadsPersistedToolResult(t *testing.T) {
 		"\n\nPreview (first 2KB):\n" + full[:2048] + "\n...\n</persisted-output>"
 	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", persisted)
 	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
-	if _, blocked := leafStopBlock(in, "a1"); blocked {
+	if r := leafStopNote(in, "a1"); r.Decision == core.Block {
 		t.Fatal("blocked a leaf whose saved ask output carries the ran-on line past the 2 KB preview")
 	}
 }
@@ -795,18 +714,6 @@ func TestSubagentStopReapsOwnBackgroundOnly(t *testing.T) {
 	}
 }
 
-// Given a running dispatch the leaf started, a blocked stop reaps nothing.
-func TestSubagentStopBlockedReapsNothing(t *testing.T) {
-	stop, a, _ := reapFixture(t, startedLine())
-	writeDispatch(t, leafJob, record(leafJob, "running", os.Getpid()))
-	if r := Stop(core.ParseInput(strings.NewReader(stop))); r.Decision != core.Block {
-		t.Fatalf("decision = %v, want Block", r.Decision)
-	}
-	if stopped(a, 300*time.Millisecond) {
-		t.Fatal("a blocked stop killed a background process")
-	}
-}
-
 // planRepo makes a git repo with one dated plan holding open owned tasks 1.2 and 1.3; returns repo and plan path.
 func planRepo(t *testing.T) (repo, plan string) {
 	t.Helper()
@@ -851,7 +758,7 @@ func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
 	src := "const relayNote = \"" + relayNote + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
 	in := leafTxCmd(t, "gemini", "cat docs.md source.go", "Objective: review internal/hooks/agents\n", doc, src)
-	if r, _ := leafStopBlock(in, "a1"); !strings.Contains(r.SystemMessage, relayNote) {
+	if r := leafStopNote(in, "a1"); !strings.Contains(r.SystemMessage, relayNote) {
 		t.Fatalf("got %+v, want the relay note: prose mentions are not a ran-on line", r)
 	}
 }
@@ -872,15 +779,15 @@ func TestStopReapsAfterRetiringSlot(t *testing.T) {
 	}
 }
 
-// An expired dispatch note and the receipt gate's cap note both reach the user.
+// The still-running dispatch note and the receipt gate's note both reach the user.
 func TestLeafGateKeepsBothNotes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	in := gatedLeafTx(t, "Objective: x\nAgent: codex\n", startedLine())
 	in.StopHookActive = true
 	writeDispatch(t, leafJob, recordAt(leafJob, "running", os.Getpid(), time.Now().Add(-leafStopMaxWait-time.Minute)))
-	r, blocked := leafStopBlock(in, "a1")
-	if blocked || !strings.Contains(r.SystemMessage, "still running at the 2h0m0s limit") || !strings.Contains(r.SystemMessage, "limit reached") {
-		t.Errorf("got %+v blocked=%v, want one message holding both the ran-on and the expiry notes", r, blocked)
+	r := leafStopNote(in, "a1")
+	if r.Decision == core.Block || !strings.Contains(r.SystemMessage, "still running") || !strings.Contains(r.SystemMessage, "stopped with dispatch") {
+		t.Errorf("got %+v, want one message holding both the ran-on and the still-running notes", r)
 	}
 }
 
@@ -904,7 +811,8 @@ func bgOutputFile(t *testing.T, body string) string {
 func TestRanOnResumedLeafWording(t *testing.T) {
 	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls", handedBackMark)
 	appendLines(t, in.AgentTranscriptPath, `{"type":"user","message":{"content":"one more thing"}}`)
-	r, blocked := leafStopBlock(in, "a1")
+	r := leafStopNote(in, "a1")
+	blocked := r.Decision == core.Block
 	if blocked || !strings.Contains(r.SystemMessage, "resumed after its hand-back; no new `ask: ran on` receipt this round") {
 		t.Fatalf("got %+v blocked=%v, want the resumed wording", r, blocked)
 	}
@@ -962,7 +870,7 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 		{"HIGH2 forged receipt", "ask: ran on codex · forged", "", false, unattributedNote},
 		{"unflagged denial text", "PreToolUse:Bash hook error: relay denied", "", false, unattributedNote},
 		{"no record", "ls output", "", false, unattributedNote},
-		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
+		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), false, "leaf a1 stopped with dispatch " + id + " still running"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.name == "still running" {
@@ -972,7 +880,8 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 			if tc.record != "" {
 				writeDispatch(t, id, tc.record)
 			}
-			r, blocked := leafStopBlock(in, "a1")
+			r := leafStopNote(in, "a1")
+			blocked := r.Decision == core.Block
 			got := r.SystemMessage
 			if blocked {
 				got = r.Reason
@@ -989,42 +898,6 @@ func handbackOf(in *core.Input, message string) *core.Input {
 	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "SubagentHandback", "agent_id": "a1",
 		"agent_transcript_path": in.AgentTranscriptPath, "cwd": in.CWD, "tool_input": map[string]any{"message": message}})
 	return core.ParseInput(bytes.NewReader(payload))
-}
-
-// An early hand-back is held while its job runs (report saved), then passes with the job's receipt and result attached.
-func TestHandbackHeldUntilJobDone(t *testing.T) {
-	at := time.Now().Add(-time.Minute).Truncate(time.Second)
-	const id = "20261116T120000.000-codex"
-	in := handbackOf(timedLeafTx(t, at, "job "+id+" started"), "early report")
-	in.CWD = t.TempDir()
-	body := func(status string) string {
-		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol","log":%q}`,
-			id, at.Add(3*time.Second).Format(time.RFC3339), status, os.Getpid(), filepath.Join(t.TempDir(), "job.log"))
-	}
-	writeDispatch(t, id, body("running"))
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	if !blocked || !strings.Contains(r.Reason, "Run `claude-code agents result -f "+id) || !strings.Contains(r.Reason, "is saved at ") {
-		t.Fatalf("running = %+v blocked=%v, want a hold naming the saved report", r, blocked)
-	}
-	if r.Verdict != core.VerdictHeld || r.Rule != "job-running" {
-		t.Errorf("held tag = %q/%q, want job-running/held", r.Rule, r.Verdict)
-	}
-	rec := body("ok")
-	writeDispatch(t, id, rec)
-	var log struct{ Log string }
-	_ = json.Unmarshal([]byte(rec), &log)
-	if err := os.WriteFile(log.Log, []byte("job answer\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || !strings.HasPrefix(msg, "NOTE: dispatch "+id) || !strings.Contains(msg, "ask: ran on codex") ||
-		!strings.Contains(msg, "early report") || !strings.Contains(msg, "job answer") {
-		t.Fatalf("finished = %+v blocked=%v, want the hand-back through with note, receipt, report and result", r, blocked)
-	}
-	if r.Verdict != core.VerdictPassed || r.Rule != "receipt" {
-		t.Errorf("passed tag = %q/%q, want receipt/passed", r.Rule, r.Verdict)
-	}
 }
 
 // writeJobFiles writes record id's log and, when events is set, its events file beside the record.
@@ -1076,11 +949,11 @@ func TestHandbackJobResultIsTheAnswer(t *testing.T) {
 			logPath := writeJobFiles(t, id, tc.log, tc.events)
 			writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"duration_ms":90000,"log":%q}`,
 				id, at.Add(3*time.Second).Format(time.RFC3339), os.Getpid(), logPath))
-			r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+			r := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 			msg, _ := r.UpdatedInput["message"].(string)
 			for _, w := range tc.want {
-				if blocked || !strings.Contains(msg, w) {
-					t.Errorf("message lacks %q (blocked=%v):\n%s", w, blocked, msg)
+				if r.Decision == core.Block || !strings.Contains(msg, w) {
+					t.Errorf("message lacks %q (decision %v):\n%s", w, r.Decision, msg)
 				}
 			}
 			for _, n := range tc.never {
@@ -1127,7 +1000,7 @@ func TestHandbackWaitsOnJob(t *testing.T) {
 		want         string
 	}{
 		{"ends inside the budget", startedLine(), 3, false, false, "NOTE: dispatch " + leafJob + " (ended while the hand-back waited)"},
-		{"still running at the budget", startedLine(), 0, false, true, "claude-code agents result -f " + leafJob},
+		{"still running at the budget", startedLine(), 0, false, false, "still running"},
 		{"no job", "ls output", 0, false, false, ""},
 		{"record unreadable", startedLine(), 0, true, false, ""},
 	} {
@@ -1138,8 +1011,8 @@ func TestHandbackWaitsOnJob(t *testing.T) {
 			shrinkHandbackWait(t, leafJob, tc.flip, strings.Replace(running, `"running"`, `"ok"`, 1), tc.readErr)
 			r := Handback(in)
 			msg, _ := r.UpdatedInput["message"].(string)
-			if hold := r.Decision == core.Block; hold != tc.wantHold || !strings.Contains(r.Reason+msg, tc.want) ||
-				(!hold && tc.want != "" && !strings.Contains(msg, "early report")) {
+			if hold := r.Decision == core.Block; hold != tc.wantHold || !strings.Contains(r.Reason+msg+r.SystemMessage, tc.want) ||
+				(!hold && msg != "" && !strings.Contains(msg, "early report")) {
 				t.Fatalf("got %+v, want hold=%v with %q and the report kept", r, tc.wantHold, tc.want)
 			}
 		})
@@ -1214,7 +1087,8 @@ func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
 		reads, _ := stubTwoJobs(t, in)
 		lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
 		lr.scan.ranOn, lr.ids, lr.until = ranOn, []string{"first", "second"}, time.Now().Add(time.Second)
-		r, blocked := leafGate(in, "a1", lr)
+		r := leafGate(in, "a1", lr)
+		blocked := r.Decision == core.Block
 		msg, _ := r.UpdatedInput["message"].(string)
 		first, second := strings.Index(msg, "FINAL ANSWER first"), strings.Index(msg, "FINAL ANSWER second")
 		if blocked || *reads < 2 || first < 0 || second < first || !strings.HasPrefix(msg, "NOTE: dispatch second ") {
@@ -1271,31 +1145,6 @@ func TestHandbackIgnoresForeignDispatches(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-16): a hold on a running job saves the finished one's answer; the later pass attaches both in order.
-func TestHandbackHoldKeepsFinishedAnswer(t *testing.T) {
-	in := handbackOf(leafTx(t, "claude", "Objective: x\n", "ls output"), "relay report")
-	in.CWD = t.TempDir()
-	_, hold := stubTwoJobs(t, in)
-	*hold = true
-	gate := func() (core.Result, bool) {
-		lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
-		lr.ids, lr.until = []string{"first", "second"}, time.Now().Add(time.Millisecond)
-		return leafGate(in, "a1", lr)
-	}
-	r, blocked := gate()
-	_, path, _ := strings.Cut(r.Reason, "is saved at ")
-	saved, _ := os.ReadFile(strings.TrimSuffix(path, "."))
-	if !blocked || !strings.Contains(string(saved), "FINAL ANSWER first") {
-		t.Fatalf("hold = %+v blocked=%v, saved %q: want the finished answer saved with the report", r, blocked, saved)
-	}
-	*hold = false
-	r, blocked = gate()
-	msg, _ := r.UpdatedInput["message"].(string)
-	if first := strings.Index(msg, "FINAL ANSWER first"); blocked || first < 0 || strings.Index(msg, "FINAL ANSWER second") < first || wasHeld("a1") {
-		t.Fatalf("pass = %+v blocked=%v held=%v, want both answers in dispatch order and the marker gone", r, blocked, wasHeld("a1"))
-	}
-}
-
 // Regression (2026-11-16): only an ask's own launch, envelope or exit line names its job; ids in its answer never do.
 func TestLeafJobIDsIgnoreAnswerBody(t *testing.T) {
 	const own, bg, f = "20261116T100000.000-codex", "20261116T100001.000-codex", "20261116T100002.000-codex"
@@ -1315,7 +1164,7 @@ func TestLeafJobIDsWrappedExitLine(t *testing.T) {
 	}
 }
 
-// A hand-back whose job is still running past leafStopMaxWait passes with the limit note instead of holding.
+// A hand-back whose job is still running passes with a still-running note instead of holding.
 func TestHandbackReleasesPastWaitLimit(t *testing.T) {
 	const id = "20261116T120000.000-codex"
 	at := time.Now().Add(-leafStopMaxWait - time.Hour).Truncate(time.Second)
@@ -1324,9 +1173,9 @@ func TestHandbackReleasesPastWaitLimit(t *testing.T) {
 		id, at.Add(3*time.Second).Format(time.RFC3339), os.Getpid()))
 	r := Handback(in)
 	msg, _ := r.UpdatedInput["message"].(string)
-	if r.Decision == core.Block || !strings.Contains(msg, "still running at the "+leafStopMaxWait.String()+" limit") ||
+	if r.Decision == core.Block || !strings.Contains(msg, "still running") ||
 		!strings.Contains(msg, "early report") {
-		t.Fatalf("got %+v, want the hand-back through with the limit note and the report", r)
+		t.Fatalf("got %+v, want the hand-back through with the still-running note and the report", r)
 	}
 }
 
@@ -1343,7 +1192,8 @@ func TestQuotedHookDenialIsNoDeniedAsk(t *testing.T) {
 	in.CWD = t.TempDir()
 	writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"owner":4242,"model":"m","request":{"prompt":"x"}}`,
 		id, at.Add(time.Second).Format(time.RFC3339), os.Getpid()))
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	r := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	blocked := r.Decision == core.Block
 	msg, _ := r.UpdatedInput["message"].(string)
 	if blocked || !strings.Contains(msg, "NOTE: dispatch "+id) {
 		t.Fatalf("got %+v blocked=%v, want the record's receipt", r, blocked)
@@ -1365,22 +1215,12 @@ func TestLeafDenialProvenance(t *testing.T) {
 			if len(lr.scan.askTimes) != 1 {
 				t.Fatalf("successful ask lost: %+v", lr.scan)
 			}
-			r, blocked := leafGate(in, "a1", lr)
+			r := leafGate(in, "a1", lr)
+			blocked := r.Decision == core.Block
 			if blocked || !strings.Contains(r.SystemMessage, unattributedNote) {
 				t.Fatalf("ambiguous result: %+v blocked=%v", r, blocked)
 			}
 		})
-	}
-}
-
-func TestHeldJobsKeptInState(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	saveHeldJob("a1", pollOnce("j1"))
-	saveHeldJob("a1", repeatHold("info", "", "j1"))
-	var s leafScan
-	s.addHeldIDs(ReadHeldJobs("a1"))
-	if len(s.heldJobs) != 1 || s.heldJobs[0] != "j1" {
-		t.Fatalf("held ids = %v", s.heldJobs)
 	}
 }
 

@@ -1,4 +1,4 @@
-// The receipt fix: an external-agent leaf with no `ask: ran on` line is held, attached or noted; never dropped.
+// The receipt fix: an external-agent leaf with no `ask: ran on` line is attached or noted; never dropped.
 package dispatchhook
 
 import (
@@ -16,14 +16,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -33,29 +30,13 @@ import (
 // resultCap bounds each end (head and tail) of a job result attached to a hand-back.
 const resultCap = 16 << 10
 
-// heldPath marks a leaf held on a running job while others had finished: its later pass attaches them all.
+// heldPath is the dir entry stem of a leaf's saved held job ids (see ReadHeldJobs).
 func heldPath(agentID string) string {
 	return filepath.Join(paths.StateDir(), "dispatch-relay", paths.Slug(agentID, "", 80, "leaf")+".held")
 }
 
-func markHeld(agentID string) {
-	if os.MkdirAll(filepath.Dir(heldPath(agentID)), 0o700) == nil {
-		_ = os.WriteFile(heldPath(agentID), nil, 0o600)
-	}
-}
-
-// wasHeld reports agentID's held marker; one older than leafStopMaxWait is stale, removed and ignored.
-func wasHeld(agentID string) bool {
-	fi, err := os.Stat(heldPath(agentID))
-	if err == nil && time.Since(fi.ModTime()) >= leafStopMaxWait {
-		_ = os.Remove(heldPath(agentID))
-		return false
-	}
-	return err == nil
-}
-
-// receiptFix: a job the leaf started is held or attached; relay work without a job passes with a note.
-func receiptFix(in *core.Input, _ string, lr *leafRead) (core.Result, bool) {
+// receiptFix: a job the leaf started is attached or noted; relay work without a job passes with a note.
+func receiptFix(in *core.Input, _ string, lr *leafRead) core.Result {
 	st := relayAgent(in)
 	if recs, how, ok := leafDispatch(*lr, st); ok {
 		return dispatchReceipts(in, lr, recs, how)
@@ -64,32 +45,22 @@ func receiptFix(in *core.Input, _ string, lr *leafRead) (core.Result, bool) {
 		return missingIDReceipt(in, lr, st)
 	}
 	model, _ := transcript.LastUsage(in.AgentTranscriptPath)
-	return attach(in, fmt.Sprintf("NOTE: ran on the relay model (%s), not %s.", cmp.Or(model.Model, "the leaf's own model"), st), jobOut{}), false
+	return attach(in, fmt.Sprintf("NOTE: ran on the relay model (%s), not %s.", cmp.Or(model.Model, "the leaf's own model"), st), jobOut{})
 }
 
-func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how string) (core.Result, bool) {
+func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how string) core.Result {
 	var got []receipt
-	var held *core.Result
 	for _, rec := range recs {
-		r, hold := dispatchReceipt(in.CWD, rec, how, "", *lr)
-		if hold != nil {
-			held = cmp.Or(held, hold)
-			continue
-		}
-		got = append(got, r)
+		got = append(got, dispatchReceipt(rec, how, "", *lr))
 	}
-	if held != nil {
-		lr.held = got
-		return *held, true
-	}
-	return attachAll(in, got), false
+	return attachAll(in, got)
 }
 
 // unattributedNote tops a report whose ask no dispatch record could be tied to.
 const unattributedNote = "NOTE: the relay's ask could not be attributed to a dispatch record, so the work may have been done by the relay model."
 
-// Only proven matches can hold the hand-back; other candidates may belong to siblings.
-func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, bool) {
+// Only proven matches are attached; other candidates may belong to siblings.
+func missingIDReceipt(in *core.Input, lr *leafRead, st string) core.Result {
 	recs := askRecords(lr.scan.askTimes, st)
 	tied := slices.DeleteFunc(slices.Clone(recs), func(r agent.Record) bool { return !askBound(lr.scan.asks, r) })
 	if len(tied) > 0 {
@@ -108,7 +79,7 @@ func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, boo
 	if msg, ok := res.UpdatedInput["message"].(string); ok {
 		res.UpdatedInput["message"] = labelUnverified(msg)
 	}
-	return res, false
+	return res
 }
 
 // labelUnverified prefixes each relay-written `ask: ran on` line, keeping the text.
@@ -156,24 +127,18 @@ type receipt struct {
 	body jobOut
 }
 
-// dispatchReceipt waits for rec; a job still running holds (up to the cap), a finished one gives its receipt.
-func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRead) (receipt, *core.Result) {
+// dispatchReceipt waits for rec; a job still running gets a note, a finished one its receipt.
+func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) receipt {
 	rec, err := awaitDispatch(rec, lr.until)
 	switch {
 	case err != nil:
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
-			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}, nil
+			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}
 	case !jobRunning(rec):
-		return endedNote(rec, how, output), nil
-	case time.Since(rec.Time) >= leafStopMaxWait || holdExpired(lr.holdUntil):
-		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
-			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
+		return endedNote(rec, how, output)
 	}
-	info, idPrefix := heldInfo(cwd, lr, rec)
-	if slices.Contains(lr.scan.heldJobs, rec.ID) {
-		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, idPrefix, rec.ID)}
-	}
-	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s %s(%s). %s", info, idPrefix, how, pollOnce(rec.ID))}
+	return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running; its result is not in this report "+
+		"(`claude-code agents result %s`).", rec.ID, how, rec.ID)}
 }
 
 // endedNote is a finished job's ran-on line and result.
@@ -328,32 +293,6 @@ func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 		m, _, _ := redact.SharedWithin(secrets.VaultWait()) // bounded as secrets-out: a stuck keyring must not stall the hand-back
 		updated["message"] = m.String(text.String())        // the attached message leaves the process, so mask it
 		res.UpdatedInput = updated
-	}
-	return res
-}
-
-// preserveReport saves a held hand-back's or stop's report and finished answers, naming the file in the reason.
-func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result) core.Result {
-	if len(lr.held) > 0 {
-		markHeld(agentID)
-	}
-	text := cmp.Or(in.Nested("tool_input", "message"), in.Nested("last_assistant_message"), lr.scan.lastText)
-	var sb strings.Builder
-	sb.WriteString(text)
-	for _, r := range lr.held { // the finished jobs' answers, so a leaf that stops on this hold loses none
-		fmt.Fprintf(&sb, "\n\n%s%s", r.note, r.body.render(text))
-	}
-	text = sb.String()
-	if strings.TrimSpace(text) == "" {
-		return res
-	}
-	text = redact.Text(text)
-	path := paths.MemorySub("reports", time.Now().Format("2006-01-02")+"-handback-"+paths.Slug(agentID, "", 40, "leaf")+".md")
-	if os.MkdirAll(filepath.Dir(path), 0o700) != nil || paths.AtomicWrite(path, []byte(text), 0o600) != nil {
-		return res
-	}
-	if !strings.Contains(res.Reason, heldAgain) {
-		res.Reason += " The report you tried to hand back is saved at " + path + "."
 	}
 	return res
 }
@@ -535,43 +474,4 @@ func timeoutFlag(words []string) time.Duration {
 		}
 	}
 	return d
-}
-
-// OverlayArgs is the ask argv for an agent, profile and plain model: one --overlay, plus --profile when unknown.
-func OverlayArgs(agent, profile, model, identity, account string) []string {
-	t := overlayTarget(profile, model)
-	switch t.Provider {
-	case "databricks":
-		t.Identity = identity
-	case "github":
-		t.Account = account
-	case "":
-		if t.Profile != "" { // no registry row: ask resolves the name and refuses it if unknown
-			return append([]string{"--profile", t.Profile}, overlayFlag(agent, route.Target{Model: t.Model})...)
-		}
-	}
-	return overlayFlag(agent, t)
-}
-
-// overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
-func overlayTarget(profile, model string) route.Target {
-	reg, _ := providers.Load()
-	t := route.Target{Route: route.ParseLegacy(profile), Model: model}
-	if t.Provider != "" {
-		t.Profile = cmp.Or(t.Profile, agent.AutoModel)
-	} else if reg != nil && t.Profile != "" {
-		if p, err := reg.Get(t.Profile); err == nil {
-			t.Provider = p.Provider
-		}
-	}
-	return t
-}
-
-func overlayFlag(agent string, t route.Target) []string {
-	o := agentconfig.OverlayOf(t.Route, t.Model)
-	o.Agent = agent
-	if doc := o.Doc(); doc != "" {
-		return []string{"--overlay", doc}
-	}
-	return nil
 }

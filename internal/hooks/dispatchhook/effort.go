@@ -1,4 +1,4 @@
-// `dispatch-effort`: PreToolUse on spawn/Workflow: type deny, model pin, recall, label; fails OPEN.
+// `dispatch-effort`: PreToolUse on spawn/Workflow: model pin, recall, label; fails OPEN.
 
 // Package dispatchhook is the dispatch group: effort, leaf lifecycle, hand-back checks and codex routing.
 package dispatchhook
@@ -111,10 +111,7 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
-	fixType, deny := effortDenial(in)
-	if deny != nil {
-		return *deny
-	}
+	fixType := effortFixType(in)
 	if fixType != "" && mode == modeDeferred {
 		mode = modeToday // the host validates the type before agent.spawn, so only this hook can retype
 	}
@@ -179,16 +176,13 @@ func (e *effortPlan) retyped(st string) bool {
 	return got != st
 }
 
-// effortDenial is the call's type denial, else the type to retype to: a stale name's, or code mode's ("" for none).
-func effortDenial(in *core.Input) (fixType string, deny *core.Result) {
+// effortFixType is the type to retype to: a stale name's, or code mode's ("" for none); an unknown type passes.
+func effortFixType(in *core.Input) string {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
 	if to := staleTypeTarget(st); to != "" { // a bare "pi" or the old "code-mode" is the coworker type now
-		return cmp.Or(codemodeTarget(to, prompt), to), nil
+		return cmp.Or(codemodeTarget(to, prompt), to)
 	}
-	if deny = typeBlock(st); deny != nil {
-		return "", deny
-	}
-	return codemodeTarget(st, prompt), nil
+	return codemodeTarget(st, prompt)
 }
 
 func spawnTask(in *core.Input) (field, task string) {
