@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -75,7 +74,7 @@ func planLaunch(native string, args []string) (agent.LaunchOptions, agent.Plan, 
 		return opts, agent.Plan{}, err
 	}
 	opts.Binary = native
-	plan, err := claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
+	plan, err := sessionPlan(as, &opts, rest)
 	return opts, plan, err
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/parallel"
@@ -23,6 +24,7 @@ func Start(in *core.Input) core.Result {
 	defer cancel()
 	cwd := cwdOf(in)
 	now := time.Now()
+	claude.NoteSession(in.SessionID) // a session the launcher never named (/clear, a fork) still resumes on its launch
 	var ctx, notice, plansLine string
 	parallel.Rethrow(parallel.All(3, func(i int) error {
 		switch i {

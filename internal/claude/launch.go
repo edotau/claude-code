@@ -758,7 +758,7 @@ func Launch(alias string, args []string) int {
 		return helptext.WrappedDocs(bin)
 	}
 	opts.Alias = alias
-	plan, err := claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
+	plan, err := sessionPlan(as, &opts, rest)
 	return agent.RunPlan("claude", plan, opts, err)
 }
 

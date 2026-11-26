@@ -1,0 +1,2 @@
+internal/claude/sessionfacts.go:pruneFacts	unversioned: marker: daily sweep stamp for the session launch records
+internal/claude/sessionfacts.go:writeFacts	unversioned: per-session launch facts (profile, model, fence) a resume replays
