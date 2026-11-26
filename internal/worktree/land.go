@@ -781,15 +781,21 @@ func LandQueueFile() string {
 	return paths.MoveLegacy(filepath.Join(dir, "merge-queue.json"), filepath.Join(dir, "land-queue.json"))
 }
 
-// Enqueue adds q or replaces the entry for its lane, keeping the first queued-at.
-func Enqueue(q QueuedLane) error {
+// Enqueue adds q or replaces the entry for its lane; a zero QueuedAt keeps the first queued-at, a set one wins.
+func Enqueue(q QueuedLane) error { return EnqueueWithin(queueEditWait, q) }
+
+// EnqueueWithin is Enqueue with the queue lock wait bounded by wait.
+func EnqueueWithin(wait time.Duration, q QueuedLane) error {
 	q.Lane = paths.Canon(q.Lane)
-	if q.QueuedAt == 0 {
+	keep := q.QueuedAt == 0
+	if keep {
 		q.QueuedAt = time.Now().Unix()
 	}
-	return editQueue(func(lanes []QueuedLane) []QueuedLane {
+	return editQueueWithin(wait, func(lanes []QueuedLane) []QueuedLane {
 		if i := slices.IndexFunc(lanes, func(e QueuedLane) bool { return e.Lane == q.Lane }); i >= 0 {
-			q.QueuedAt = lanes[i].QueuedAt
+			if keep {
+				q.QueuedAt = lanes[i].QueuedAt
+			}
 			return slices.Concat(lanes[:i], []QueuedLane{q}, lanes[i+1:])
 		}
 		return append(slices.Clone(lanes), q)

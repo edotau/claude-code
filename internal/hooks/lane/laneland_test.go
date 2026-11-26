@@ -86,7 +86,7 @@ func TestLaneLandQueueIdempotent(t *testing.T) {
 	mustQueue(t, worktree.QueuedLane{Lane: lane, Repo: main, Reason: "uncommitted work", QueuedAt: firstQueued})
 	mustQueue(t, worktree.QueuedLane{Lane: lane, Repo: main, Reason: "unfixed items", QueuedAt: laterQueued})
 	got := worktree.Queued(main)
-	if len(got) != 1 || got[0].QueuedAt != firstQueued || got[0].Reason != "unfixed items" {
+	if len(got) != 1 || got[0].QueuedAt != laterQueued || got[0].Reason != "unfixed items" {
 		t.Fatalf("queue after two enqueues = %+v", got)
 	}
 	for range 2 {
@@ -178,24 +178,43 @@ func TestLaneQueueOncePerSession(t *testing.T) {
 	}
 }
 
-func TestLandRunsWithoutSerialLock(t *testing.T) {
+func TestJudgeCleanLaneIsQueuedNotLanded(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(laneStateDir(), 0o700); err != nil {
+	lane := paths.Canon(t.TempDir())
+	if out, err := exec.Command("git", "-C", lane, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	inspect := inspectLane
+	t.Cleanup(func() { inspectLane = inspect })
+	inspectLane = func(j laneJob, repo *worktree.Repo, _ string) (worktree.QueuedLane, bool, bool) {
+		return worktree.QueuedLane{Lane: j.lane, Repo: repo.Main}, false, false
+	}
+	judgeLane(laneJob{lane: lane, verdict: "none"}, filepath.Join(t.TempDir(), "base"))
+	got := worktree.Queued("")
+	if len(got) != 1 || got[0].Lane != lane || !strings.Contains(got[0].Next, "worktree land") {
+		t.Fatalf("queue = %+v, want the clean lane queued with its land command", got)
+	}
+}
+
+func TestQueueLaneBusyLockIsReported(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	lane := paths.Canon(t.TempDir())
+	budget, attempt, pause := laneQueueBudget, laneQueueAttempt, laneQueuePause
+	t.Cleanup(func() { laneQueueBudget, laneQueueAttempt, laneQueuePause = budget, attempt, pause })
+	laneQueueBudget, laneQueueAttempt, laneQueuePause = 300*time.Millisecond, 20*time.Millisecond, 20*time.Millisecond
+	file := worktree.LandQueueFile()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	inspect, land := inspectLane, runWorktreeLand
-	t.Cleanup(func() { inspectLane, runWorktreeLand = inspect, land })
-	inspectLane = func(laneJob, *worktree.Repo, string) (worktree.QueuedLane, bool, bool) {
-		return worktree.QueuedLane{}, false, false
+	if ran, err := paths.TryFileLock(file+".lock", time.Second, func() error {
+		queueLane(laneJob{lane: lane}, worktree.QueuedLane{Reason: "x"})
+		return nil
+	}); !ran || err != nil {
+		t.Fatalf("hold lock: ran=%v err=%v", ran, err)
 	}
-	free := false
-	runWorktreeLand = func(string, string, string) (int, string) {
-		free, _ = paths.TryFileLock(filepath.Join(laneStateDir(), "serial.lock"), time.Millisecond, func() error { return nil })
-		return 0, ""
-	}
-	landAttempt(laneJob{lane: t.TempDir()}, &worktree.Repo{Main: t.TempDir()}, "")
-	if !free {
-		t.Fatal("serial.lock still held while worktree land runs")
+	fails, err := worktree.ListFailures(worktree.FailuresDir())
+	if err != nil || len(fails) != 1 || fails[0].Subject != filepath.Base(lane) || fails[0].Kind != worktree.FailLaneGate {
+		t.Fatalf("failures = %+v, err %v", fails, err)
 	}
 }
 

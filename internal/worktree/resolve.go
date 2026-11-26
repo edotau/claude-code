@@ -43,7 +43,7 @@ func withWorktreeLease(repo *Repo, name string, fn func() error) error {
 	return nil
 }
 
-// LandWaitEnv names who runs a land (the lane-land hook sets it); the lease file records it for a waiting land.
+// LandWaitEnv names who runs a land; the lease file records it for a waiting land.
 const LandWaitEnv = "HARNESS_LAND_BY"
 
 // LaneLanded reports whether name's worktree is gone and its ledger was closed by a land (not a clean).
@@ -126,7 +126,7 @@ var (
 	sleepFn        = time.Sleep
 	pollInterval   = 2 * time.Second
 	maxResolveWait = 10 * time.Minute
-	// maxLandWait matches the lane-land hook's land timeout (laneLandTime).
+	// maxLandWait bounds how long a land waits for another land.
 	maxLandWait = 45 * time.Minute
 	// resolveWaitDelay bounds how long a killed agent's orphaned children may hold its output pipes open.
 	resolveWaitDelay = 5 * time.Second

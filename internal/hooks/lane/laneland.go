@@ -215,7 +215,7 @@ func laneQueueContext(cwd, session string) string {
 			return ""
 		}
 		_ = os.MkdirAll(filepath.Dir(seenFile), 0o700)
-		_ = paths.AtomicWrite(seenFile, []byte(strings.Join(keys, "\n")+"\n"), 0o600)
+		_ = paths.AtomicWriteNoSync(seenFile, []byte(strings.Join(keys, "\n")+"\n"), 0o600)
 		if fresh == 0 && len(lanes) > 0 {
 			lines = append(lines, fmt.Sprintf("land queue: %d lanes waiting; claude-code worktree list shows each", len(lanes)))
 		}

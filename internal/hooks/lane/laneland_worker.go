@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,13 +28,13 @@ type laneJob struct {
 
 // Bounds of the detached worker; vars so tests run in milliseconds.
 var (
-	laneFinishWait = 2 * time.Hour // a held leaf stop keeps the leaf running up to leafStopMaxWait
-	laneExitWait   = time.Minute
-	laneFinishPoll = 2 * time.Second
-	laneSerialWait = time.Hour // another lane's judgement or promotion runs first, never concurrently
-	laneRetryWait  = 10 * time.Second
-	laneLandTime   = 45 * time.Minute
-	laneLandTries  = 3
+	laneFinishWait   = 2 * time.Hour // a held leaf stop keeps the leaf running up to leafStopMaxWait
+	laneExitWait     = time.Minute
+	laneFinishPoll   = 2 * time.Second
+	laneQueueBudget  = 10 * time.Second // the queue lock budget (worktree queueEditWait)
+	laneQueueAttempt = time.Second
+	laneQueuePause   = 200 * time.Millisecond
+	laneSerialWait   = time.Hour // another lane's judgement or promotion runs first, never concurrently
 )
 
 // laneResolveWith settles a rebase conflict in the lane (worktree-git.md → Land on completion).
@@ -164,7 +165,18 @@ func judgeLane(j laneJob, base string) {
 	case hold:
 		queueLane(j, q)
 	default:
-		landLane(j, repo, base)
+		q.Reason, q.QueuedAt = "finished and clean, ready to land", time.Now().Unix() // fresh: an older stamp hides it
+		queueLane(j, q)                                                               // the main session lands it; the worker never touches the live checkout
+	}
+}
+
+// laneDone clears a lane that has nothing left to land: its queue entry and the worker's own files.
+func laneDone(j laneJob, base string) {
+	if err := worktree.Dequeue(j.lane); err != nil && j.session != "" {
+		laneNotice(j.session, "lane "+filepath.Base(j.lane)+" is done but its land-queue entry stays: "+err.Error())
+	}
+	for _, f := range []string{base + ".verdicts", base + ".log"} {
+		_ = os.Remove(f)
 	}
 }
 
@@ -283,12 +295,33 @@ func laneNotice(session, text string) {
 	_ = worktree.Append(session, worktree.Notice{TS: time.Now().Unix(), Kind: "lane-land", From: "lane-land", Text: text})
 }
 
-// queueLane writes q; a queue it cannot write becomes a notice, so the lane is never silently dropped.
+// queueLane writes q, retrying a busy queue lock with backoff; a lane still unqueued is broadcast, never dropped.
 func queueLane(j laneJob, q worktree.QueuedLane) {
 	q.Lane = j.lane
 	q.Next = cmp.Or(q.Next, laneLandCmd(j.lane))
-	if err := worktree.Enqueue(q); err != nil && j.session != "" {
+	err := enqueueRetry(q)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, paths.ErrLockTimeout) {
+		_, _ = worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{Kind: worktree.FailLaneGate,
+			Subject: filepath.Base(j.lane), Summary: "not queued: land-queue lock busy", Log: q.Next})
+	}
+	if j.session != "" {
 		laneNotice(j.session, "lane "+filepath.Base(j.lane)+" "+q.Reason+" but the land queue is unwritable ("+err.Error()+
 			"); next: "+q.Next)
+	}
+}
+
+// enqueueRetry tries short lock waits with doubling pauses until laneQueueBudget is spent.
+func enqueueRetry(q worktree.QueuedLane) error {
+	deadline, pause := time.Now().Add(laneQueueBudget), laneQueuePause
+	for {
+		err := worktree.EnqueueWithin(laneQueueAttempt, q)
+		if err == nil || !errors.Is(err, paths.ErrLockTimeout) || time.Now().Add(pause).After(deadline) {
+			return err
+		}
+		time.Sleep(pause)
+		pause *= 2
 	}
 }
