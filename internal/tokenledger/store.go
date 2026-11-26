@@ -37,6 +37,11 @@ type Entry struct {
 	// CacheWrite is every cache-write token (5m and 1h); CacheWrite1h is the 1h part, 0 when unsplit.
 	CacheWrite   int `json:"cache_write,omitempty"`
 	CacheWrite1h int `json:"cache_write_1h,omitempty"`
+	// FirstMs is send to first client byte, TotalMs send to the ledger write, both of the attempt that served.
+	FirstMs int64 `json:"first_ms,omitempty"`
+	TotalMs int64 `json:"total_ms,omitempty"`
+	// CostUSD is the served model's owner price, else its list price; 0 when neither names one.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 // Path is <config dir>/state/usage/ledger.jsonl.
@@ -88,10 +93,16 @@ func (e Entry) ProfileName() string {
 	return e.Provider
 }
 
+type tally struct {
+	in, out, cacheRead int
+	usd                float64
+}
+
 type sessionLedger struct {
 	info   os.FileInfo
 	offset int64
-	totals map[string][3]int
+	totals map[string]tally
+	days   map[string]float64
 }
 
 var sessionLedgers = struct {
@@ -104,33 +115,47 @@ func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	if id == "" {
 		return 0, 0, 0, nil
 	}
+	t, _, err := totalsFor(id, "")
+	return t.in, t.out, t.cacheRead, err
+}
+
+// SpendTotals is the USD stamped on session's rows and on every row of now's local day; "" counts only the day.
+func SpendTotals(session string, now time.Time) (sessionUSD, dayUSD float64, err error) {
+	t, day, err := totalsFor(session, dayKey(now))
+	return t.usd, day, err
+}
+
+func dayKey(t time.Time) string { return t.In(time.Local).Format(time.DateOnly) }
+
+// totalsFor returns id's tally and day's USD, the unterminated tail line included.
+func totalsFor(id, day string) (t tally, d float64, err error) {
 	path := Path()
 	sessionLedgers.Lock()
 	defer sessionLedgers.Unlock()
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		delete(sessionLedgers.files, path)
-		return 0, 0, 0, nil
+		return tally{}, 0, nil
 	}
 	if err != nil {
-		return 0, 0, 0, err
+		return tally{}, 0, err
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
 	info, err := f.Stat()
 	if err != nil {
-		return 0, 0, 0, err
+		return tally{}, 0, err
 	}
 	c := sessionLedgers.files[path]
 	if !c.reusable(info) {
-		c = &sessionLedger{totals: make(map[string][3]int)}
+		c = &sessionLedger{totals: make(map[string]tally), days: make(map[string]float64)}
 		sessionLedgers.files[path] = c
 	}
-	totals, err := c.readTail(f, info.Size(), id)
+	t, d, err = c.readTail(f, info.Size(), id, day)
 	if err != nil {
 		delete(sessionLedgers.files, path)
 	}
 	c.info = info
-	return totals[0], totals[1], totals[2], err
+	return t, d, err
 }
 
 func (c *sessionLedger) reusable(info os.FileInfo) bool {
@@ -138,32 +163,43 @@ func (c *sessionLedger) reusable(info os.FileInfo) bool {
 		(info.Size() != c.info.Size() || info.ModTime().Equal(c.info.ModTime()))
 }
 
-func (c *sessionLedger) readTail(f *os.File, size int64, id string) ([3]int, error) {
-	if c.offset == size {
-		return c.totals[id], nil
-	}
-	var tail [3]int
-	_, err := textutil.ScanRawLines(io.NewSectionReader(f, c.offset, size-c.offset), false, func(line []byte) {
-		complete := line[len(line)-1] == '\n'
-		if complete {
-			c.offset += int64(len(line))
-		}
-		var e Entry
-		if _, err := schemas.Decode(format, line, &e); err != nil || e.Session == "" {
-			return
-		}
-		// An unterminated entry counts now but must be re-read if the next write extends it.
-		if !complete {
-			if e.Session == id {
-				tail = [3]int{e.Input, e.Output, e.CacheRead}
+func (c *sessionLedger) readTail(f *os.File, size int64, id, day string) (tally, float64, error) {
+	var tail tally
+	var tailDay float64
+	if c.offset != size {
+		_, err := textutil.ScanRawLines(io.NewSectionReader(f, c.offset, size-c.offset), false, func(line []byte) {
+			complete := line[len(line)-1] == '\n'
+			if complete {
+				c.offset += int64(len(line))
 			}
-			return
+			var e Entry
+			if _, err := schemas.Decode(format, line, &e); err != nil {
+				return
+			}
+			// An unterminated entry counts now but must be re-read if the next write extends it.
+			if !complete {
+				if e.Session != "" && e.Session == id {
+					tail = tally{e.Input, e.Output, e.CacheRead, e.CostUSD}
+				}
+				if dayKey(e.Ts) == day {
+					tailDay = e.CostUSD
+				}
+				return
+			}
+			c.days[dayKey(e.Ts)] += e.CostUSD
+			if e.Session == "" {
+				return
+			}
+			sum := c.totals[e.Session]
+			c.totals[e.Session] = tally{sum.in + e.Input, sum.out + e.Output, sum.cacheRead + e.CacheRead, sum.usd + e.CostUSD}
+		})
+		if err != nil {
+			return tally{}, 0, err
 		}
-		sum := c.totals[e.Session]
-		c.totals[e.Session] = [3]int{sum[0] + e.Input, sum[1] + e.Output, sum[2] + e.CacheRead}
-	})
+	}
 	sum := c.totals[id]
-	return [3]int{sum[0] + tail[0], sum[1] + tail[1], sum[2] + tail[2]}, err
+	return tally{sum.in + tail.in, sum.out + tail.out, sum.cacheRead + tail.cacheRead, sum.usd + tail.usd},
+		c.days[day] + tailDay, nil
 }
 
 const schemaVersion = 1

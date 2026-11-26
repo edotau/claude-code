@@ -31,7 +31,7 @@ var gatewayResolvePage = helptext.Page{
 func cmdGatewayResolve(args []string) int {
 	fs := helptext.NewFlagSet("gateway resolve", gatewayResolvePage)
 	model := fs.String("model", "", "typed model string, as --model takes it")
-	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks")
+	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks --profile <p>")
 	provider := fs.String("provider", "", "provider (databricks selects the pool)")
 	overlay := fs.String("overlay", "", `overlay document (keys provider, profile, model, effort): file, inline JSON or -; e.g. {"provider":"databricks","profile":"auto"}`)
 	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(route.FallbackModes, "|")+"); none refuses a model the listing lacks")

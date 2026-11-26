@@ -9,6 +9,34 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+func TestPriceUSD(t *testing.T) {
+	p := Price{Input: 3, Output: 4, CacheRead: 0.5, CacheWrite: 1, CacheWrite1h: 2}
+	if got := p.USD(1_000_000, 0, 0, 0, 0); got != 3 {
+		t.Errorf("input = %v, want 3", got)
+	}
+	if got := p.USD(0, 0, 0, 1_000_000, 400_000); got != 1.4 {
+		t.Errorf("1h write = %v, want 1.4", got)
+	}
+	if got := (Price{CacheWrite: 1}).USD(0, 0, 0, 1_000_000, 400_000); got != 1 {
+		t.Errorf("fallback write = %v, want 1", got)
+	}
+	if got := p.USD(0, 1_000_000, 1_000_000, 1_000_000, 2_000_000); got != 6.5 {
+		t.Errorf("clamped write plus output and read = %v, want 6.5", got)
+	}
+}
+
+func TestOwnerPrice(t *testing.T) {
+	p := &Provider{Options: Options{Prices: map[string]Price{"databricks-claude-opus-5-5[1m]": {Input: 3}}}}
+	for _, model := range []string{"claude-opus-5-5", "databricks-claude-opus-5-5[1m]"} {
+		if got, ok := p.OwnerPrice(model); !ok || got.Input != 3 {
+			t.Errorf("OwnerPrice(%q) = %+v, %v; want input 3", model, got, ok)
+		}
+	}
+	if _, ok := p.OwnerPrice("unknown"); ok {
+		t.Error("an unknown model must not be priced")
+	}
+}
+
 func TestCostOptionsValidate(t *testing.T) {
 	ok := Price{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}
 	tests := []struct {

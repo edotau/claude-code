@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,25 @@ type Price struct {
 	CacheRead    float64 `json:"cache_read"`
 	CacheWrite   float64 `json:"cache_write"`
 	CacheWrite1h float64 `json:"cache_write_1h,omitempty"`
+}
+
+// USD prices token counts; the 1h share of cacheWrite uses CacheWrite1h, else CacheWrite.
+func (p Price) USD(input, output, cacheRead, cacheWrite, cacheWrite1h int) float64 {
+	w1h := min(cacheWrite1h, cacheWrite)
+	rate1h := cmp.Or(p.CacheWrite1h, p.CacheWrite)
+	return (float64(input)*p.Input + float64(output)*p.Output + float64(cacheRead)*p.CacheRead +
+		float64(cacheWrite-w1h)*p.CacheWrite + float64(w1h)*rate1h) / 1e6
+}
+
+// OwnerPrice is the options.prices row naming model in any spelling.
+func (p *Provider) OwnerPrice(model string) (Price, bool) {
+	key := models.ModelKey(model)
+	for id, pr := range p.Options.Prices {
+		if models.ModelKey(id) == key {
+			return pr, true
+		}
+	}
+	return Price{}, false
 }
 
 var warehouseIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`) })

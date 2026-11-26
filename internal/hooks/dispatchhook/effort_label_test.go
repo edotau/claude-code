@@ -314,7 +314,7 @@ func TestLabelQueryUsesBakedProvider(t *testing.T) {
 	t.Setenv(route.OverlayVar, "")
 	old := readAgentFile
 	readAgentFile = func(string) ([]byte, error) {
-		return []byte("```bash\nclaude-code agents ask --agent codex --provider databricks --tools - < PATH\n```\n"), nil
+		return []byte("```bash\nclaude-code agents ask --agent codex --provider databricks --profile dev --tools - < PATH\n```\n"), nil
 	}
 	t.Cleanup(func() { readAgentFile = old })
 	var seen agentpkg.ModelQuery

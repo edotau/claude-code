@@ -234,6 +234,7 @@ func (s *fallbackState) runLocal(ctx context.Context, c Chain, sink wire.Sink, n
 		s.req.Timeout = max(time.Millisecond, s.req.Timeout-time.Since(waited))
 	}
 	keep, i := *s, len(c.Dispatches)
+	failedOn := s.prevDispatch.Route.Profile
 	if herr := s.handOff(i, d, false, sink, notify); herr != nil {
 		return herr
 	}
@@ -242,7 +243,7 @@ func (s *fallbackState) runLocal(ctx context.Context, c Chain, sink wire.Sink, n
 		*s = keep
 		return nil
 	}
-	s.fell = kind
+	s.fell, s.fellOn = kind, failedOn
 	return nil
 }
 
@@ -276,7 +277,7 @@ func (s *fallbackState) localAnswered(res wire.Result, err error) wire.Result {
 		return res
 	}
 	res.FallbackKind = s.fell.String()
-	noteLocalFallback(res.FallbackKind, "dispatch")
+	noteLocalFallback(s.fellOn, res.FallbackKind, "dispatch")
 	return res
 }
 

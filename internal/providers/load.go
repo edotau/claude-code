@@ -178,6 +178,7 @@ func (o Routing) clone() Routing {
 	out.ClaudeAnywhere = clonePtr(o.ClaudeAnywhere)
 	out.Ladders = cloneMap(o.Ladders, cloneRungs)
 	out.Opencode = o.Opencode.clone()
+	out.SpendCap = SpendCap{clonePtr(o.SpendCap.SessionUSD), clonePtr(o.SpendCap.DayUSD)}
 	return out
 }
 
@@ -388,6 +389,8 @@ func applyRoutingOverlay(base, o *Routing) {
 	setIf(&base.Weights, o.Weights, o.Weights != nil)
 	setIf(&base.ServedAware, o.ServedAware, o.ServedAware != nil)
 	setIf(&base.ClaudeAnywhere, o.ClaudeAnywhere, o.ClaudeAnywhere != nil)
+	setIf(&base.SpendCap.SessionUSD, o.SpendCap.SessionUSD, o.SpendCap.SessionUSD != nil)
+	setIf(&base.SpendCap.DayUSD, o.SpendCap.DayUSD, o.SpendCap.DayUSD != nil)
 	for name, ladder := range o.Ladders {
 		if base.Ladders == nil {
 			base.Ladders = map[string][]Rung{}

@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func TestToolPATHCopiesAndExtras(t *testing.T) {
@@ -564,5 +565,37 @@ func TestBrowserDoctorDetailSurfacesDetectionError(t *testing.T) {
 	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
 	if got, want := browserDoctorDetail(), "no Chromium-family default (claude-code network browser)"; got != want {
 		t.Errorf("empty report: got %q, want %q", got, want)
+	}
+}
+
+// The land row sums every repo's lands of the week from land-attempts.jsonl, after in-flight and report-only.
+func TestLandRow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if got := landDetail(); got != "no lands (7d)" {
+		t.Fatalf("empty log: landDetail = %q", got)
+	}
+	if err := os.MkdirAll(filepath.Dir(worktree.LandAttemptsFile()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	for _, a := range []worktree.LandAttempt{
+		{Time: now - 8*24*3600, Repo: "r", Lane: "old", Outcome: worktree.OutcomeLanded},
+		{Time: now - 100, Repo: "r", Lane: "a", Outcome: worktree.OutcomeTargetMoved},
+		{Time: now - 40, Repo: "r", Lane: "a", Outcome: worktree.OutcomeLanded, Seconds: worktree.StageSeconds{Build: 10}},
+		{Time: now - 30, Repo: "s", Lane: "b", Outcome: worktree.OutcomeLanded, Seconds: worktree.StageSeconds{Test: 20}},
+	} {
+		worktree.RecordAttempt(a)
+	}
+	rows := routingRows()
+	var names []string
+	for _, r := range rows {
+		names = append(names, r.Name)
+	}
+	if want := []string{"in-flight", "land", "routing fit", "local"}; !slices.Equal(names, want) {
+		t.Fatalf("routing rows = %v, want %v", names, want)
+	}
+	want := "p50 20s p95 1m10s · 1.5 attempts/land · moved 50% · 2 lands (7d)"
+	if land := rows[1]; !land.OK || land.Hard || land.Detail != want {
+		t.Fatalf("land row = %+v, want ok, soft, %q", land, want)
 	}
 }

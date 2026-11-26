@@ -28,5 +28,5 @@ var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 		OutputSchema: agent.None, Persona: agent.None},
 	Events:        []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
 	PromptVia:     agent.PromptStdin,
-	ConfigureHint: "run `claude-code install --tools=pi`, then dispatch with --provider databricks",
+	ConfigureHint: "run `claude-code install --tools=pi`, then dispatch with --provider databricks --profile <p>",
 }}

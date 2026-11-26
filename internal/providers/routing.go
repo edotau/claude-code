@@ -34,6 +34,34 @@ type Routing struct {
 	// Ladders orders the fallback agents after want, keyed by ladder name; an overlay replaces a ladder by name.
 	Ladders  map[string][]Rung `json:"ladders,omitempty"`
 	Opencode OpencodeRouting   `json:"opencode,omitzero"`
+	// SpendCap stops the proxy's metered calls at a USD spend; nil fields are off (the default).
+	SpendCap SpendCap `json:"spendCap,omitzero"`
+}
+
+// SpendCap is the proxy's metered-spend cap in USD per session and per local day; nil is off.
+type SpendCap struct {
+	SessionUSD *float64 `json:"sessionUSD,omitempty"`
+	DayUSD     *float64 `json:"dayUSD,omitempty"`
+}
+
+// On reports whether either cap is set.
+func (c SpendCap) On() bool { return c.SessionUSD != nil || c.DayUSD != nil }
+
+// maxSpendCapUSD bounds a spend cap field.
+const maxSpendCapUSD = 1000000
+
+// validateSpendCap flags a set field that is not a finite USD amount in (0, maxSpendCapUSD].
+func validateSpendCap(c SpendCap) []string {
+	var errs []string
+	for _, f := range []struct {
+		name string
+		v    *float64
+	}{{"dayUSD", c.DayUSD}, {"sessionUSD", c.SessionUSD}} {
+		if f.v != nil && !(*f.v > 0 && *f.v <= maxSpendCapUSD) {
+			errs = append(errs, "spendCap."+f.name+": must be a finite USD amount in (0, 1000000]")
+		}
+	}
+	return errs
 }
 
 // Ladder names: default unless a databricks:<p> confinement asks (router.ladderName); a provider only filters default.
@@ -130,6 +158,7 @@ func validateRouting(r Routing) []string {
 	if err := ValidateRouteWeights(r.Weights); err != nil {
 		errs = append(errs, err.Error())
 	}
+	errs = append(errs, validateSpendCap(r.SpendCap)...)
 	return append(errs, validateOpencodeRouting(r.Opencode)...)
 }
 

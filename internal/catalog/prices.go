@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -146,6 +147,16 @@ func (p Prices) ListRow(provider, id string) (ModelPrice, bool) {
 		}
 	}
 	return p.find(provider, false, own...)
+}
+
+// ListPrice is the Databricks list row for id, else its vendor's, at the base tier; other providers are unpriced.
+func (p Prices) ListPrice(provider, id string) (providers.Price, bool) {
+	if provider != "databricks" {
+		return providers.Price{}, false
+	}
+	row, ok := p.ListRow(provider, id)
+	ok = ok && row.Priced
+	return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
 }
 
 // Rate is Lookup's row when it carries a price; a reader uses it only where options.prices names none.

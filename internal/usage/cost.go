@@ -43,17 +43,7 @@ var listPrices = func() listLookup {
 		return func(string, string) (providers.Price, bool) { return providers.Price{}, false }
 	}
 	t, _ := catalog.ReadPrices()
-	return func(provider, id string) (providers.Price, bool) { return listPriceFrom(t, provider, id) }
-}
-
-// listPriceFrom is the Databricks snapshot row, else its vendor's, at the base tier; other providers stay unpriced.
-func listPriceFrom(t catalog.Prices, provider, id string) (providers.Price, bool) {
-	if provider != "databricks" {
-		return providers.Price{}, false
-	}
-	row, ok := t.ListRow(provider, id)
-	ok = ok && row.Priced
-	return providers.Price{Input: row.Input, Output: row.Output, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite}, ok
+	return func(provider, id string) (providers.Price, bool) { return t.ListPrice(provider, id) }
 }
 
 // listLookup is the models.dev list price for a serving provider and a ledger model key.
@@ -71,9 +61,9 @@ func (r costRow) label() string {
 func (r costRow) priced(owner map[string]providers.Price, list listLookup) costRow {
 	r.USD = math.NaN()
 	if p, ok := owner[r.Model]; ok {
-		r.USD = priceRow(r, p)
+		r.USD = p.USD(r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CacheW1h)
 	} else if p, ok := list(r.Provider, r.Model); ok {
-		r.USD, r.List = priceRow(r, p), true
+		r.USD, r.List = p.USD(r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CacheW1h), true
 	}
 	return r
 }
@@ -123,17 +113,6 @@ func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]prov
 	}
 	slices.SortFunc(out, compareCostRows)
 	return out
-}
-
-// priceRow is r's USD at p; the 1h share of CacheWrite uses cache_write_1h, falling back to cache_write.
-func priceRow(r costRow, p providers.Price) float64 {
-	w1h := min(r.CacheW1h, r.CacheWrite)
-	rate1h := p.CacheWrite1h
-	if rate1h == 0 {
-		rate1h = p.CacheWrite
-	}
-	return (float64(r.Input)*p.Input + float64(r.Output)*p.Output + float64(r.CacheRead)*p.CacheRead +
-		float64(r.CacheWrite-w1h)*p.CacheWrite + float64(w1h)*rate1h) / 1e6
 }
 
 // cacheHit is cache reads over all input (ledger input excludes cache reads); suspect: reads with no uncached input.

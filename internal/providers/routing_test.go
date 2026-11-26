@@ -28,6 +28,37 @@ func TestRoutingOverlayMergesWeightsCellsAndOpencode(t *testing.T) {
 	checkMergedOpencode(t, reg.Routing.Opencode)
 }
 
+func TestRoutingSpendCapMerge(t *testing.T) {
+	reg, err := Parse(assets.ProviderDefaults(), []byte(`{"routing":{"spendCap":{"dayUSD":5}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := reg.Routing.SpendCap
+	if c.DayUSD == nil || *c.DayUSD != 5 || c.SessionUSD != nil || !c.On() {
+		t.Errorf("spendCap = %+v, want dayUSD 5 only", c)
+	}
+	if _, err := Parse(assets.ProviderDefaults(), []byte(`{"routing":{"spendCap":{"sessionUSD":0}}}`)); err == nil ||
+		!strings.Contains(err.Error(), "spendCap.sessionUSD") {
+		t.Errorf("zero cap: err = %v, want spendCap.sessionUSD", err)
+	}
+}
+
+func TestValidateRouteWeightsLatencyOptional(t *testing.T) {
+	for name, tc := range map[string]struct {
+		w    map[string]float64
+		fail bool
+	}{
+		"two-weight overlay loads": {map[string]float64{"price": 0.5, "headroom": 0.5}, false},
+		"three weights":            {map[string]float64{"price": 0.4, "headroom": 0.4, "latency": 0.2}, false},
+		"unknown name":             {map[string]float64{"price": 0.5, "headroom": 0.4, "speed": 0.1}, true},
+		"missing headroom":         {map[string]float64{"price": 1}, true},
+	} {
+		if err := ValidateRouteWeights(tc.w); (err != nil) != tc.fail {
+			t.Errorf("%s: err = %v, want fail=%v", name, err, tc.fail)
+		}
+	}
+}
+
 // checkMergedOpencode asserts the opencode.* fields of the routing overlay above landed whole.
 func checkMergedOpencode(t *testing.T, oc OpencodeRouting) {
 	t.Helper()

@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -114,7 +115,7 @@ func (v values) text(key string) string {
 // Styles are the --style values; unset means config.json's style, and an unknown --style is refused.
 var Styles = []string{"gradient", "powerline", "capsule", "minimal", "dashboard", "twoline"}
 
-// Run is `claude-code theme statusline [--style S]`: payload on r, line(s) on w; fs carries the caller's Usage.
+// Run is `configure theme statusline [--style S]`: payload on r, line(s) on w; fs carries the caller's Usage.
 func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	style := fs.String("style", "", strings.Join(Styles, "|"))
 	if code, done := helptext.Parse(fs, args); done {
@@ -126,7 +127,7 @@ func Run(fs *flag.FlagSet, args []string, r io.Reader, w io.Writer) int {
 	}
 	if f, ok := r.(*os.File); ok && proc.IsTerminal(f) { // nothing piped in: ReadAll would wait for Ctrl+D
 		fmt.Fprintln(os.Stderr, "claude-code: theme statusline reads Claude Code's status JSON on stdin; "+
-			"try: echo '{}' | claude-code theme statusline")
+			"try: echo '{}' | claude-code configure theme statusline")
 		return 2
 	}
 	raw, err := io.ReadAll(r)
@@ -277,7 +278,7 @@ func (v *values) collectRouting(in input, cfg config, provider string, routed bo
 	}
 	if showProxy := cfg.seg("proxy"); showProxy || routed { // a routed session restarts a down proxy
 		if seg := proxySegment(routed); showProxy {
-			v.proxy = seg
+			v.proxy = joinSegments(seg, localHint(time.Now(), provider))
 		}
 	}
 }
@@ -537,4 +538,30 @@ func sigTokens(n int) string {
 		return fmt.Sprintf("%.1f%s", f, unit)
 	}
 	return fmt.Sprintf("%.2f%s", f, unit)
+}
+
+// localHintTTL is how long a local-qwen fallback stays on the status line.
+const localHintTTL = 10 * time.Minute
+
+// localHint is "local qwen (<kind>)" when the last local fallback on this session's route is recent; "" otherwise.
+func localHint(now time.Time, profile string) string {
+	at, kind, _, ok := router.LastLocalFallback(profile)
+	if !ok || now.Sub(at) > localHintTTL || at.After(now) {
+		return ""
+	}
+	if kind == "" {
+		return "local qwen"
+	}
+	return "local qwen (" + kind + ")"
+}
+
+// joinSegments joins the non-empty parts with a space.
+func joinSegments(parts ...string) string {
+	var keep []string
+	for _, p := range parts {
+		if p != "" {
+			keep = append(keep, p)
+		}
+	}
+	return strings.Join(keep, " ")
 }

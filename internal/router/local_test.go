@@ -224,12 +224,23 @@ func TestLocalAdmitStaleHolder(t *testing.T) {
 
 func TestNoteLocalFallback(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if _, _, _, ok := LastLocalFallback(); ok {
+	if _, _, _, ok := LastLocalFallback(""); ok {
 		t.Fatal("no note yet")
 	}
-	NoteLocalFallback("rate limited", "dispatch")
-	at, kind, surface, ok := LastLocalFallback()
+	NoteLocalFallback("", "rate limited", "dispatch")
+	at, kind, surface, ok := LastLocalFallback("")
 	if !ok || kind != "rate limited" || surface != "dispatch" || time.Since(at) > time.Minute {
 		t.Fatalf("got %v %q %q %v", at, kind, surface, ok)
+	}
+}
+
+func TestLastLocalFallbackFiltersByProfile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	NoteLocalFallback("dev", "rate limited", "session")
+	if _, _, _, ok := LastLocalFallback("dev"); !ok {
+		t.Error("dev session must see its own note")
+	}
+	if _, _, _, ok := LastLocalFallback("qa"); ok {
+		t.Error("qa session must not see dev's note")
 	}
 }

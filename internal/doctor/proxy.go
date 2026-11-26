@@ -12,6 +12,7 @@ import (
 
 	bolterrors "go.etcd.io/bbolt/errors"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
 	"github.com/edotau/claude-code/internal/vault"
@@ -184,4 +185,26 @@ func proxyDaemonStatus(ctx context.Context) (detail string, bad bool) {
 			h.Build), true
 	}
 	return fmt.Sprintf("port %d pid %d, %d sessions", st.Port, h.PID, h.Sessions), false
+}
+
+// spendCapStatus is today's metered spend against the caps; off reads no ledger.
+func spendCapStatus(c providers.SpendCap, spent func() (float64, error)) (detail string, bad bool) {
+	if !c.On() {
+		return "off (claude-code configure routing spendCap.dayUSD=<usd>)", false
+	}
+	day, err := spent()
+	if err != nil {
+		return "ledger unreadable: " + err.Error(), true
+	}
+	detail = fmt.Sprintf("today $%.2f", day)
+	if c.DayUSD != nil {
+		detail += fmt.Sprintf(" of $%.2f day cap", *c.DayUSD)
+		bad = day >= *c.DayUSD
+	} else {
+		detail += "; day cap off"
+	}
+	if c.SessionUSD != nil {
+		detail += fmt.Sprintf("; session cap $%.2f", *c.SessionUSD)
+	}
+	return detail, bad
 }

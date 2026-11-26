@@ -133,6 +133,9 @@ func askArgs(n int, options LaunchOptions) []string {
 	args := []string{"agents", "ask", "--batch", "-", "--jobs", strconv.Itoa(min(n, 24)), "--format", "json"}
 	if options.Provider != "" {
 		args = append(args, "--provider", options.Provider)
+		if len(options.Profiles) > 0 {
+			args = append(args, "--profile", options.Profiles[0]) // a provider with profiles needs the pair
+		}
 	}
 	return append(args, options.Route...)
 }

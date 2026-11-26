@@ -17,11 +17,13 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -661,3 +663,27 @@ func TestRenderFitWrapsWideSegments(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestLocalHintReadsOnlyRecentNote(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if got := localHint(time.Now(), "dev"); got != "" {
+		t.Fatalf("no note: got %q", got)
+	}
+	router.NoteLocalFallback("dev", "rate limited", "dispatch")
+	if got := localHint(time.Now(), "dev"); got != "local qwen (rate limited)" {
+		t.Fatalf("recent note: got %q", got)
+	}
+	if got := localHint(time.Now(), "qa"); got != "" {
+		t.Fatalf("another profile's note: got %q", got)
+	}
+	router.NoteLocalFallback("", "", "dispatch")
+	if got := localHint(time.Now(), "dev"); got != "local qwen" {
+		t.Fatalf("empty kind: got %q", got)
+	}
+	if got := localHint(time.Now().Add(11*time.Minute), "dev"); got != "" {
+		t.Fatalf("stale note: got %q", got)
+	}
+	if got := joinSegments("proxy:1", ""); got != "proxy:1" {
+		t.Fatalf("joinSegments: got %q", got)
+	}
+}

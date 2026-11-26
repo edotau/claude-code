@@ -93,6 +93,29 @@ func TestPricesFileAndSnapshotPath(t *testing.T) {
 	}
 }
 
+// The list lookup reads the Databricks row, else the vendor's; a tiered row prices at its base tier.
+func TestListPrice(t *testing.T) {
+	tbl := Prices{Providers: map[string]map[string]ModelPrice{
+		"databricks": {"databricks-m": {Priced: true, Input: 3}, "plain": {Priced: true, Input: 4},
+			"tiered":   {Priced: true, Input: 5, Tiers: []TierPrice{{Over: 1}}},
+			"unpriced": {Input: 7}},
+		"anthropic": {"m": {Priced: true, Input: 9}, "claude-v": {Priced: true, Input: 6},
+			"claude-unpriced": {Context: 1}},
+	}}
+	for _, c := range []struct {
+		provider, id string
+		input        float64
+		ok           bool
+	}{{"databricks", "m", 3, true}, {"databricks", "plain", 4, true}, {"databricks", "tiered", 5, true},
+		{"databricks", "claude-v", 6, true}, {"databricks", "unpriced", 0, false},
+		{"databricks", "claude-unpriced", 0, false},
+		{"anthropic", "m", 0, false}, {"ultra", "m", 0, false}} {
+		if p, ok := tbl.ListPrice(c.provider, c.id); ok != c.ok || (ok && p.Input != c.input) {
+			t.Errorf("%s/%s = %+v, %v, want input %v ok %v", c.provider, c.id, p, ok, c.input, c.ok)
+		}
+	}
+}
+
 // A model the provider lacks reads the vendor's own row, with dots spelled as dashes; the provider's row wins.
 func TestPricesListRow(t *testing.T) {
 	p, _ := fixtureFold(t)
@@ -118,5 +141,9 @@ func TestPricesListRow(t *testing.T) {
 	}
 	if _, ok := p.ListRow("databricks", "llama-4"); ok {
 		t.Error("an unknown model must stay unpriced")
+	}
+	p.Providers["databricks"]["databricks-unlisted"] = ModelPrice{Context: 1}
+	if r, ok := p.ListRow("databricks", "unlisted"); !ok || r.Priced || r.Context != 1 {
+		t.Errorf("unpriced row = %+v, %v; want unpriced context row", r, ok)
 	}
 }

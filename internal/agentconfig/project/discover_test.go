@@ -366,11 +366,11 @@ func TestAgentFilesTie(t *testing.T) {
 func TestExternalTypesBakeTheirAsk(t *testing.T) {
 	root := repoRoot(t)
 	cases := []struct{ file, agent, flags string }{ // coworker is Pi in code mode; gemini runs agy on its Google pin
-		{"codex", "codex", " --codemode on --provider databricks --tools"},
-		{"copilot", "copilot", " --codemode on --provider databricks --tools"},
+		{"codex", "codex", " --codemode on --provider databricks --profile dev --tools"},
+		{"copilot", "copilot", " --codemode on --provider databricks --profile qa --tools"},
 		{"gemini", "gemini", " --tools"},
-		{"opencode", "opencode", " --provider databricks --tools"},
-		{"coworker", "pi", " --provider databricks --tools --codemode on"},
+		{"opencode", "opencode", " --provider databricks --profile dev --tools"},
+		{"coworker", "pi", " --provider databricks --profile prod --tools --codemode on"},
 	}
 	for _, c := range cases {
 		data, err := os.ReadFile(filepath.Join(root, "agents", c.file+".md"))

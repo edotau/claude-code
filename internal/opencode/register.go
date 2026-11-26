@@ -59,7 +59,7 @@ func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
 	return agent.RouteInfo{Agent: "opencode", Route: agent.RouteNone, Reason: "no route for opencode: " + row.CLI.ConfigureHint}
 }
 
-// opencodeRouteDetail reports configure --restore routes, files and login booleans, never credentials.
+// opencodeRouteDetail reports configure restore routes, files and login booleans, never credentials.
 func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel providers.Selection, selErr error) string {
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()

@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -209,24 +208,5 @@ func TestCostRowPricedOwnerBeforeList(t *testing.T) {
 	}
 	if (costRow{Source: costEst, List: true}).label() != "est. list" {
 		t.Error("a list-priced row must be labelled est. list")
-	}
-}
-
-// The list lookup reads the Databricks row, else the vendor's; a tiered row prices at its base tier.
-func TestListPriceFrom(t *testing.T) {
-	tbl := catalog.Prices{Providers: map[string]map[string]catalog.ModelPrice{
-		"databricks": {"databricks-m": {Priced: true, Input: 3}, "plain": {Priced: true, Input: 4},
-			"tiered": {Priced: true, Input: 5, Tiers: []catalog.TierPrice{{Over: 1}}}},
-		"anthropic": {"m": {Priced: true, Input: 9}, "claude-v": {Priced: true, Input: 6}},
-	}}
-	for _, c := range []struct {
-		provider, id string
-		input        float64
-		ok           bool
-	}{{"databricks", "m", 3, true}, {"databricks", "plain", 4, true}, {"databricks", "tiered", 5, true}, {"databricks", "claude-v", 6, true},
-		{"anthropic", "m", 0, false}, {"ultra", "m", 0, false}} {
-		if p, ok := listPriceFrom(tbl, c.provider, c.id); ok != c.ok || (ok && p.Input != c.input) {
-			t.Errorf("%s/%s = %+v, %v, want input %v ok %v", c.provider, c.id, p, ok, c.input, c.ok)
-		}
 	}
 }

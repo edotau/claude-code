@@ -246,6 +246,7 @@ type localNote struct {
 	Time    time.Time `json:"time"`
 	Kind    string    `json:"kind"`
 	Surface string    `json:"surface"`
+	Profile string    `json:"profile,omitempty"`
 }
 
 const localNoteSchema = 1
@@ -259,10 +260,11 @@ var _ = schemas.Register(schemas.Format{
 
 func localNoteFile() string { return filepath.Join(paths.StateDir(), "router", "local.json") }
 
-// NoteLocalFallback records that kind (a retry.Kind string or an HTTP status) sent surface to the local row.
-func NoteLocalFallback(kind, surface string) {
-	writeLocalNote(localNote{Schema: localNoteSchema, Time: localNow().UTC(), Kind: kind, Surface: surface})
-	audit.Log(audit.RouterFallback, "local", "kind="+kind+" surface="+surface)
+// NoteLocalFallback records that kind sent surface on profile to the local row; "" profile marks every session.
+func NoteLocalFallback(profile, kind, surface string) {
+	n := localNote{Schema: localNoteSchema, Time: localNow().UTC(), Kind: kind, Surface: surface, Profile: profile}
+	writeLocalNote(n)
+	audit.Log(audit.RouterFallback, "local", "kind="+kind+" surface="+surface+" profile="+profile)
 }
 
 func writeLocalNote(n localNote) {
@@ -273,11 +275,12 @@ func writeLocalNote(n localNote) {
 	_ = paths.AtomicWriteNoSync(localNoteFile(), b, 0o600) // a hint: a lost write costs one doctor field
 }
 
-// LastLocalFallback reads the note only (no probe); ok is false when none was written.
-func LastLocalFallback() (n time.Time, kind, surface string, ok bool) {
+// LastLocalFallback reads the note only; an empty profile reads any note, ok is false on none or another profile.
+func LastLocalFallback(profile string) (n time.Time, kind, surface string, ok bool) {
 	b, err := os.ReadFile(localNoteFile())
 	var v localNote
-	if err != nil || json.Unmarshal(b, &v) != nil || v.Schema != localNoteSchema {
+	if err != nil || json.Unmarshal(b, &v) != nil || v.Schema != localNoteSchema ||
+		profile != "" && v.Profile != "" && v.Profile != profile {
 		return time.Time{}, "", "", false
 	}
 	return v.Time, v.Kind, v.Surface, true
@@ -310,6 +313,6 @@ func LocalStatus() LocalState {
 		st.Running = inflight.Count().Per[AccountOf(row)]
 	}
 	st.Waiting = int(localWaiting.Load())
-	st.LastAt, st.LastKind, _, _ = LastLocalFallback()
+	st.LastAt, st.LastKind, _, _ = LastLocalFallback("")
 	return st
 }

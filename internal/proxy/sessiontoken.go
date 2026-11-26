@@ -22,10 +22,12 @@ const SessionTokenPrefix = "cct_"
 // SessionTokenTTL outlasts any session (a passthrough header is never renewed); the bound process is the real limit.
 const SessionTokenTTL = 365 * 24 * time.Hour
 
-// RefusalHeader marks a 401 the proxy itself gave (any credential, none included), so no provider is to blame.
+// RefusalHeader marks the proxy's own refusal, so no provider is to blame.
 const (
 	RefusalHeader  = "X-Claude-Code-Proxy-Refusal"
 	RefusalSession = "session-refused"
+	// RefusalSpendCap marks the proxy's own 402 once a spend cap is reached.
+	RefusalSpendCap = "spend-cap"
 )
 
 // LegacySessionShape reports the previous build's stored-token shape (cct_ + 64 lowercase hex); only a proxy judges it.

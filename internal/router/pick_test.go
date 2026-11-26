@@ -74,7 +74,7 @@ func TestWeightValidation(t *testing.T) {
 	for name, w := range map[string]map[string]float64{
 		"sum":     {"price": 0.5, "headroom": 0.6},
 		"missing": {"price": 1},
-		"extra":   {"price": 0.5, "headroom": 0.5, "latency": 0},
+		"extra":   {"price": 0.5, "headroom": 0.5, "speed": 0},
 		"range":   {"price": 1.5, "headroom": -0.5},
 	} {
 		if _, err := LoadFrom(&providers.Registry{Routing: providers.Routing{Weights: w}}, "u"); err == nil {

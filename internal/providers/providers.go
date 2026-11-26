@@ -200,7 +200,7 @@ var RouteAgents = []string{agentid.Claude, agentid.Copilot, agentid.Codex, agent
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}
 
 // routeWeightNames are the dimensions a route weights map must sum to 1 over; router owns scoring, this package shape.
-var routeWeightNames = []string{"price", "headroom"}
+var routeWeightNames = []string{"price", "headroom", "latency"}
 
 // OwnLoginAccountKeys are each vendor's own CLI login on its own subscription (the hops a databricks route keeps).
 var OwnLoginAccountKeys = []string{"anthropic·ultra", "openai·chatgpt", "google·antigravity", "opencode·go"}
@@ -240,15 +240,18 @@ func ValidateRouteWeights(weights map[string]float64) error {
 		return nil
 	}
 	sum := 0.0
+	for name := range weights {
+		if !slices.Contains(routeWeightNames, name) {
+			return fmt.Errorf("route weight %q is not a known dimension", name)
+		}
+	}
 	for _, name := range routeWeightNames {
 		w, ok := weights[name]
-		if !ok || w < 0 || w > 1 {
+		// a missing latency reads as 0 so an overlay saved before it still loads
+		if !ok && name != "latency" || w < 0 || w > 1 {
 			return fmt.Errorf("route weight %q missing or outside [0,1]", name)
 		}
 		sum += w
-	}
-	if len(weights) != len(routeWeightNames) {
-		return fmt.Errorf("route weights name %d dimensions, want %d", len(weights), len(routeWeightNames))
 	}
 	if math.Abs(sum-1) > 1e-9 {
 		return fmt.Errorf("route weights sum to %g, want 1", sum)

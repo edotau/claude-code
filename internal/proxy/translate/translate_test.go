@@ -506,6 +506,13 @@ func TestFromChatError(t *testing.T) {
 	}
 }
 
+func TestErrorBodyBillingError(t *testing.T) {
+	jsonEqual(t, ErrorBody(402, "spend cap reached"),
+		`{"type":"error","error":{"type":"billing_error","message":"spend cap reached"}}`)
+	jsonEqual(t, FromChatError(402, []byte(`{"error":{"message":"payment required"}}`)),
+		`{"type":"error","error":{"type":"billing_error","message":"payment required"}}`)
+}
+
 func TestCountTokens(t *testing.T) {
 	tests := []struct {
 		name, in string

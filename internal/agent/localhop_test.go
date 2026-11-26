@@ -118,10 +118,10 @@ func TestLocalHopTakesOver(t *testing.T) {
 	vaulttest.Use(t)
 	fastDefaultBackoff(t)
 	setLocalStage(t, "last")
-	var noted string
+	var noted, notedProfile string
 	prevGate, prevNote := localGate, noteLocalFallback
 	t.Cleanup(func() { localGate, noteLocalFallback = prevGate, prevNote })
-	noteLocalFallback = func(kind, _ string) { noted = kind }
+	noteLocalFallback = func(profile, kind, _ string) { noted, notedProfile = kind, profile }
 	rows := []struct {
 		name   string
 		refuse bool
@@ -138,7 +138,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		{name: "wrapped prompt over the cap", o: RunOptions{Prompt: strings.Repeat("xxxx", testMaxPrompt+1)}},
 	}
 	for _, r := range rows {
-		noted = ""
+		noted, notedProfile = "", ""
 		var lines []string
 		var bounded bool
 		localGate = func(ctx context.Context, _ func(string)) (func(), error) {
@@ -149,19 +149,27 @@ func TestLocalHopTakesOver(t *testing.T) {
 			}
 			return func() {}, nil
 		}
-		herr := errors.New(cmp.Or(r.herr, "429 Too Many Requests"))
-		hosted := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{herr, herr, herr, herr}}
 		local := &fakeRunner{name: "pi", errs: []error{nil}}
-		c := chainOf([]Engine{hosted})
-		c.Dispatches = append(c.Dispatches, Dispatch{Agent: local, Account: "magnitude·local"})
-		c.Plan = &RoutePlan{Agent: "codex", Local: &LocalHop{Workspace: Workspace{Profile: "local", Account: "magnitude·local"}}}
+		c := hostedThenLocal(local, cmp.Or(r.herr, "429 Too Many Requests"))
 		res, err := runWithFallback(context.Background(), c, r.o, wire.Discard, func(l string) { lines = append(lines, l) })
 		announced := slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, "fallback ") })
 		if r.want != (err == nil) || r.want != (len(local.seen) == 1) || announced != r.want {
 			t.Errorf("%s: err=%v local runs=%d announced=%v lines=%q", r.name, err, len(local.seen), announced, lines)
 		}
+		if r.want && r.herr == "" && notedProfile != "dev" {
+			t.Errorf("%s: note profile = %q, want the hosted hop's pinned dev", r.name, notedProfile)
+		}
 		checkLocalRun(t, r.name, r.want && r.herr == "", r.wait, r.o.Timeout, local.seen, res, noted, bounded)
 	}
+}
+
+func hostedThenLocal(local Engine, herrText string) Chain {
+	herr := errors.New(herrText)
+	c := chainOf([]Engine{&fakeRunner{name: "codex", emptyAnswer: true, errs: []error{herr, herr, herr, herr}}})
+	c.Dispatches[0].Route = route.Route{Profile: "dev"}
+	c.Dispatches = append(c.Dispatches, Dispatch{Agent: local, Account: "magnitude·local"})
+	c.Plan = &RoutePlan{Agent: "codex", Local: &LocalHop{Workspace: Workspace{Profile: "local", Account: "magnitude·local"}}}
+	return c
 }
 
 func TestSlimForLocal(t *testing.T) {

@@ -217,6 +217,8 @@ func errorType(status int) string {
 	switch {
 	case status == 401:
 		return "authentication_error"
+	case status == 402:
+		return "billing_error"
 	case status == 403:
 		return "permission_error"
 	case status == 404:

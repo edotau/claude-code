@@ -635,7 +635,7 @@ func unknownModule(event, name string, stderr io.Writer) int {
 
 // staleHookHint names the re-render verbs on a fail-closed unknown module, which a stale hook file causes.
 const staleHookHint = "; blocked: re-render stale hook files with `claude-code agents sync` " +
-	"(Claude Code's settings.json: `claude-code configure --restore` or a hand edit)"
+	"(Claude Code's settings.json: `claude-code configure restore` or a hand edit)"
 
 // unknownHook fails closed when the unknown name reads as a guard; a stale agent hook file must not drop its gate.
 func unknownHook(name, what string, stderr io.Writer) int {

@@ -577,6 +577,7 @@ type fallbackState struct {
 	startHead    string     // HEAD before the first dispatch, for the successor's reconcile log; "" when unknown
 	skips        []string   // the wanted agent's skips, noted once the chain falls back
 	fell         retry.Kind // the failure the local hop took over; KindNone when it did not run
+	fellOn       string     // the profile that failure came from; "" when the hop was unpinned
 }
 
 // nextPrompt prefixes the cut-off note after a mid-run cut; read-only with no partial answer keeps the bare task.

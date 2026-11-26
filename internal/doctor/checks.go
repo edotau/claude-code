@@ -28,6 +28,8 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
 	"github.com/edotau/claude-code/internal/tailscale"
+	"github.com/edotau/claude-code/internal/tokenledger"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // check is one doctor line: Hard failures make the run fail; soft ones only report.
@@ -168,8 +170,9 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 }
 
 func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)) {
-	check(true, false, "in-flight", inflightDoctorDetail())
-	check(true, false, "routing fit", fitDoctorDetail())
+	for _, r := range routingRows() {
+		check(r.OK, false, r.Name, r.Detail)
+	}
 	store := memoryStoreRow()
 	check(store.OK, store.Hard, store.Name, store.Detail)
 	for _, r := range memorySyncRows() {
@@ -179,6 +182,15 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(dream.OK, false, dream.Name, dream.Detail)
 	proxyDetail, proxyBad := proxyStatus(ctx)
 	check(!proxyBad, false, "proxy", proxyDetail)
+	var spendCap providers.SpendCap
+	if reg, err := providers.LoadShared(); err == nil {
+		spendCap = reg.Routing.SpendCap // a load error is already reported by the provider registry row
+	}
+	spendDetail, spendBad := spendCapStatus(spendCap, func() (float64, error) {
+		_, d, err := tokenledger.SpendTotals("", time.Now())
+		return d, err
+	})
+	check(!spendBad, false, "spend cap", spendDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
 	check(rtkOK, false, "rtk compressor", rtkDetail)
 	rtkVerOK, rtkVerDetail := rtkVersionStatus(ctx)
@@ -215,6 +227,22 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(clipOK, false, "clipboard", clipDetail)
 	check(settingsErr == nil, false, "settings.json", orErr("valid", settingsErr))
 }
+
+// routingRows are the report-only dispatch rows, in order: slots, lands, the fit table, the local row.
+func routingRows() []check {
+	return []check{
+		{Name: "in-flight", OK: true, Detail: inflightDoctorDetail()},
+		{Name: "land", OK: true, Detail: landDetail()},
+		{Name: "routing fit", OK: true, Detail: fitDoctorDetail()},
+		localRow(),
+	}
+}
+
+// landWindow is how far back the land row reads land-attempts.jsonl.
+const landWindow = 7 * 24 * time.Hour
+
+// landDetail is time-to-land, attempts per land and the moved-target share across every repo's recent lands.
+func landDetail() string { return worktree.LandStats("", landWindow).Line(landWindow) }
 
 // routeDetail is the "<agent> route" row; the caller loaded the registry already, so a miss is not a doctor failure.
 func routeDetail(ctx context.Context, name string) string {
