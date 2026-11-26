@@ -127,9 +127,6 @@ func Release(in *core.Input) core.Result {
 			res = core.WithStderr(res, docs.ClearPlanClaim(in.CWD, id))
 		}
 	}
-	if core.SpawnTools[in.ToolName] { // after the release: the freed slot and cleared claim count
-		res.Context = core.JoinContext(res.Context, readyNotice(in.CWD))
-	}
 	return res
 }
 

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -124,40 +123,6 @@ func touching(in ReadyInput, owns []string) map[string][]string {
 		}
 	}
 	return live
-}
-
-// ReadyNotice is one context line naming each ready task's command; "" when none is ready, no slot free, or on error.
-func ReadyNotice(in ReadyInput) string {
-	if in.Slots <= 0 {
-		return ""
-	}
-	rep, err := Ready(in)
-	if err != nil {
-		return ""
-	}
-	return noticeOf(rep, in.Slots, nil)
-}
-
-// noticeOf is rep's ready notice with the tasks keyed in skip ("<plan-slug> <id>", already sent) left out.
-func noticeOf(rep ReadyReport, slots int, skip []string) string {
-	var parts []string
-	for _, t := range rep.Ready {
-		key := strings.TrimSuffix(filepath.Base(t.Plan), ".md") + " " + t.ID
-		if !slices.Contains(skip, key) {
-			parts = append(parts, key+": "+t.Command)
-		}
-	}
-	if len(parts) == 0 || slots <= 0 {
-		return ""
-	}
-	return "plans: " + plural(len(parts), "task") + " ready, " + plural(slots, "slot") + " free: " + strings.Join(parts, "; ")
-}
-
-func plural(n int, word string) string {
-	if n == 1 {
-		return "1 " + word
-	}
-	return strconv.Itoa(n) + " " + word + "s"
 }
 
 // activePlans is home's dated plans no older than recentDays, oldest first, as OpenPlans picks them.

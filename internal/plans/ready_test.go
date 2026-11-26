@@ -148,11 +148,4 @@ func TestReadyJSON(t *testing.T) {
 	if !reflect.DeepEqual(got.Ready[0], want) {
 		t.Fatalf("ready row %v, want %v", got.Ready[0], want)
 	}
-	in := readyFixture(t, doneBase)
-	if n := ReadyNotice(in); !strings.Contains(n, "Phase 1.2: claude-code agents brief --path codex") {
-		t.Fatalf("notice %q", n)
-	}
-	if in.Slots = 0; ReadyNotice(in) != "" {
-		t.Fatal("no free slot must print no notice")
-	}
 }
