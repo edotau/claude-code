@@ -14,7 +14,7 @@ import (
 var OverlayKeys = []string{"proxy-teams"}
 
 // SettableOverlayKeys excludes backups such as providers.prev.
-var SettableOverlayKeys = []string{"proxy-teams", "providers", "agent-records", "opencode-models", "github-auth"}
+var SettableOverlayKeys = []string{"proxy-teams", "providers", "agent-records", "opencode-models"}
 
 func checkOverlayKey(key string) error {
 	if !slices.Contains(OverlayKeys, key) {

@@ -96,7 +96,7 @@ func opencodeDisableToolStreaming(menu map[string]any) {
 }
 
 func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string, h *agent.Headless) ([]string, []string, error) {
-	denv, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
+	denv, def, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
 	if err != nil {
 		return denv, nil, err
 	}
@@ -114,7 +114,7 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 		// an inherited value would override the tools-off deny
 		denv = append(denv, opencodePermissionEnv+`="deny"`)
 	}
-	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
+	return denv, opencodeArgv(def, *h), nil
 }
 
 // interactivePlugin writes interactive guards; failures abort launch to keep guards fail-closed.
@@ -142,19 +142,6 @@ func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 			addPlugin(cfg, url)
 		}
 	}
-}
-
-// opencodeDatabricksModel is the default "model" the databricks split rendered into OPENCODE_CONFIG_CONTENT.
-func opencodeDatabricksModel(env []string) string {
-	var cfg struct {
-		Model string `json:"model"`
-	}
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, opencodeConfigEnv+"="); ok {
-			_ = json.Unmarshal([]byte(v), &cfg)
-		}
-	}
-	return cfg.Model
 }
 
 // opencodeModels is the model menu: the requested model, plus every alias for an interactive launch.

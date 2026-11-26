@@ -20,9 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"
 )
 
-const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models,\n" +
-	"github-auth. providers.prev is a backup and cannot be set.\n" +
-	"github-auth is a plain-text profile name; other keys are JSON.\n" +
+const vaultOverlaySetAbout = "Settable keys: proxy-teams, providers, agent-records, opencode-models.\n" +
+	"providers.prev is a backup and cannot be set. All settable keys are JSON.\n" +
 	"Set prints byte sizes only, never document values."
 
 // vaultOverlayList is `vault ls overlays`: every overlay key with its stored size.
@@ -96,10 +95,6 @@ var overlayValidators = map[string]func(doc []byte) error{
 	"agent-records": validateAgentRecords,
 	"opencode-models": func(doc []byte) error {
 		_, err := providers.ParseOpencodeMenu(doc)
-		return err
-	},
-	"github-auth": func(doc []byte) error {
-		_, err := vault.ParseGitHubAuth(doc)
 		return err
 	},
 	"proxy-teams": func(doc []byte) error {

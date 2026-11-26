@@ -34,9 +34,10 @@ type spelling struct {
 }
 
 type catalog struct {
-	Aliases   map[string]string   `json:"aliases"`
-	Spellings map[string]spelling `json:"spellings"`
-	Models    []entry             `json:"models"`
+	// ModelAlias is the one alias→canonical id map; provider rows, presets and reverse lookups read it.
+	ModelAlias map[string]string   `json:"model_alias"`
+	Spellings  map[string]spelling `json:"spellings"`
+	Models     []entry             `json:"models"`
 
 	byID    map[string]entry
 	byWire  map[string]string // every known spelling of every model -> canonical id
@@ -54,8 +55,13 @@ var load = sync.OnceValue(func() *catalog {
 	for _, m := range c.Models {
 		c.byID[m.ID] = m
 	}
-	for a, id := range c.Aliases {
+	for a, id := range c.ModelAlias {
 		c.aliasOf[id] = a
+	}
+	for _, a := range AliasNames { // every reader trusts the map: a missing alias is a build defect, not a skip
+		if _, ok := c.byID[c.ModelAlias[a]]; !ok {
+			panic("models: catalog.json: model_alias lacks a catalog id for " + a)
+		}
 	}
 	c.byWire = map[string]string{}
 	for _, m := range c.Models {
@@ -165,7 +171,7 @@ func WireOrOriginal(rule, id string) string {
 
 // Alias resolves an alias (opus, sonnet, haiku, fable) to the canonical id it currently backs.
 func Alias(name string) (canonical string, ok bool) {
-	canonical, ok = load().Aliases[strings.ToLower(strings.TrimSpace(name))]
+	canonical, ok = load().ModelAlias[strings.ToLower(strings.TrimSpace(name))]
 	return canonical, ok
 }
 
@@ -173,7 +179,7 @@ func Alias(name string) (canonical string, ok bool) {
 func IsKnownSpelling(s string) bool {
 	s = strings.ToLower(strings.TrimSpace(s))
 	_, wire := load().byWire[s]
-	_, alias := load().Aliases[s]
+	_, alias := load().ModelAlias[s]
 	return wire || alias
 }
 
@@ -220,7 +226,7 @@ func Resolve(s string) (canonical string, oneM bool, ok bool) {
 	marked := Has1M(s)
 	s = Strip1M(s)
 	c := load()
-	id, found := c.Aliases[s]
+	id, found := c.ModelAlias[s]
 	if !found {
 		if id = c.lookup(s); id == "" {
 			id = parseClaude(s)

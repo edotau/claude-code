@@ -19,6 +19,19 @@ const (
 // AliasNames lists every alias in precedence order (the opus alias is the session default).
 var AliasNames = []string{Opus, Sonnet, Haiku, Fable}
 
+// TierAliases maps a brief's `Tier:` word to the alias of that tier; AliasTier is its one reverse lookup.
+var TierAliases = map[string]string{"fast": Haiku, "standard": Sonnet, "deep": Opus}
+
+// AliasTier is the tier word whose alias is alias, "" for none (fable).
+func AliasTier(alias string) string {
+	for tier, a := range TierAliases {
+		if a == alias {
+			return tier
+		}
+	}
+	return ""
+}
+
 // NextAlias demotes opus → sonnet → haiku → ""; Fable is a distinct family outside the ladder.
 func NextAlias(alias string) string {
 	switch alias {

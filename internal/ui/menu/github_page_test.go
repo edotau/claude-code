@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	sdk "github.com/github/copilot-sdk/go"
 )
@@ -58,64 +57,6 @@ done
 	}
 }
 
-func TestGithubAuthLineFlagsPinnedProfileWithoutLogin(t *testing.T) {
-	hosttest.GithubScratch(t)
-	vaulttest.UseKeyring(t)
-	if err := vault.SetGitHubAuth("work"); err != nil {
-		t.Fatal(err)
-	}
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github"}}}
-	got := githubAuthLine(&dialog{reg: reg})
-	if !strings.HasPrefix(got, "work") || !strings.Contains(got, "drift") {
-		t.Errorf("githubAuthLine = %q, want the work pin flagged as drift", got)
-	}
-}
-
-func TestGithubAuthLineNamesDanglingPin(t *testing.T) {
-	hosttest.GithubScratch(t)
-	vaulttest.UseKeyring(t)
-	if err := vault.SetGitHubAuth("gone"); err != nil {
-		t.Fatal(err)
-	}
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github"}}}
-	got := githubAuthLine(&dialog{reg: reg})
-	if !strings.Contains(got, "pin names no github profile") {
-		t.Errorf("githubAuthLine = %q, want the dangling pin named as such", got)
-	}
-}
-
-func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake gh requires a POSIX shell")
-	}
-	hosttest.GithubScratch(t)
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho tok\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	if err := os.MkdirAll(vault.Path(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	ghDir := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", ghDir)
-	hosts := "github.com:\n    user: old\n    users:\n        old:\n"
-	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var switched []string
-	orig := github.SwitchGH
-	github.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
-	t.Cleanup(func() { github.SwitchGH = orig })
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github", Login: "new"}}}
-	var out bytes.Buffer
-	d := &dialog{reg: reg, out: &out, br: bufio.NewReader(strings.NewReader("2\n"))}
-	pickGitHubAuth(d)
-	if got := strings.Join(switched, ","); got != "new,old" {
-		t.Errorf("SwitchGH calls = %q, want new,old (switch then rollback); output:\n%s", got, out.String())
-	}
-}
-
 func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *bytes.Buffer) {
 	t.Helper()
 	hosttest.GithubScratch(t)
@@ -124,48 +65,38 @@ func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *
 	orig := github.SwitchGH
 	github.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
 	t.Cleanup(func() { github.SwitchGH = orig })
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"work": {Provider: "github", Login: "wl"}, "follow": {Provider: "github", Login: "fl"}}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github", Login: "wl"}}}
 	o.Auth, o.AuthSet = auth, true
 	var out bytes.Buffer
 	return &dialog{reg: reg, out: &out, o: o}, &switched, &out
 }
 
-func TestRunGithubAuthFlagPinsAndSwitches(t *testing.T) {
+func TestRunGithubAuthFlagOnlySwitchesGH(t *testing.T) {
 	d, switched, out := authFlagDialog(t, "wl", Options{})
-	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "work" || strings.Join(*switched, ",") != "wl" {
-		t.Errorf("pin=%q switched=%v out=%s", vault.GitHubAuth(), *switched, out)
-	}
-}
-
-func TestRunGithubAuthFlagFollowClearsPinWithoutSwitch(t *testing.T) {
-	d, switched, _ := authFlagDialog(t, "", Options{})
-	d.reg.Providers["follow"].Login = ""
-	if err := vault.SetGitHubAuth("work"); err != nil {
-		t.Fatal(err)
-	}
-	d.o.Auth = "follow"
-	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
-		t.Errorf("pin=%q switched=%v", vault.GitHubAuth(), *switched)
-	}
-}
-
-func TestRunGithubAuthFlagAccountNamedFollowIsPinned(t *testing.T) {
-	d, switched, _ := authFlagDialog(t, "follow", Options{})
-	d.reg.Providers["follow"].Login = "follow"
-	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "follow" || strings.Join(*switched, ",") != "follow" {
-		t.Errorf("pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	if !runGithubAuthFlag(d) || strings.Join(*switched, ",") != "wl" {
+		t.Errorf("switched=%v out=%s", *switched, out)
 	}
 }
 
 func TestRunGithubAuthFlagUnknownAndDryRun(t *testing.T) {
-	d, _, out := authFlagDialog(t, "nope", Options{})
-	if runGithubAuthFlag(d) || !strings.Contains(out.String(), "valid: follow") {
+	d, switched, out := authFlagDialog(t, "nope", Options{})
+	if runGithubAuthFlag(d) || !strings.Contains(out.String(), "valid:") || len(*switched) != 0 {
 		t.Errorf("unknown name must fail listing valid names: %s", out)
 	}
-	d, switched, _ := authFlagDialog(t, "wl", Options{DryRun: true})
-	if !runGithubAuthFlag(d) || vault.GitHubAuth() != "" || len(*switched) != 0 {
-		t.Errorf("dry-run touched state: pin=%q switched=%v", vault.GitHubAuth(), *switched)
+	d, switched, _ = authFlagDialog(t, "wl", Options{DryRun: true})
+	if !runGithubAuthFlag(d) || len(*switched) != 0 {
+		t.Errorf("dry-run switched: %v", *switched)
+	}
+}
+
+func TestCopilotAccountLineIsReadOnly(t *testing.T) {
+	d, switched, out := authFlagDialog(t, "", Options{})
+	copilotAccountLine(d)
+	if got := out.String(); !strings.HasPrefix(got, "copilot account ") || strings.Contains(got, "gh active") {
+		t.Errorf("output = %q, want one copilot account row", got)
+	}
+	if len(*switched) != 0 {
+		t.Errorf("status lines switched gh: %v", *switched)
 	}
 }
 

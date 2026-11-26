@@ -50,12 +50,6 @@
         "base_url": "https://api.anthropic.com",
         "auth": {
           "type": "cli"
-        },
-        "models": {
-          "opus": "claude-opus-5-5",
-          "sonnet": "claude-sonnet-5-5",
-          "haiku": "claude-haiku-5-5",
-          "fable": "claude-fable-5-2"
         }
       },
       "anthropic": {
@@ -64,12 +58,6 @@
         "auth": {
           "type": "key",
           "env": "ANTHROPIC_API_KEY"
-        },
-        "models": {
-          "opus": "claude-opus-5-5",
-          "sonnet": "claude-sonnet-5-5",
-          "haiku": "claude-haiku-5-5",
-          "fable": "claude-fable-5-2"
         }
       }
     },

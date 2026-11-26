@@ -52,9 +52,6 @@ func (p *Provider) OwnerPrice(model string) (Price, bool) {
 
 var warehouseIDRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9]{1,64}$`) })
 
-// ValidWarehouseID reports whether id is a well-formed SQL warehouse id.
-func ValidWarehouseID(id string) bool { return warehouseIDRE().MatchString(id) }
-
 // UnmarshalJSON rejects null rates, which encoding/json otherwise silently turns into zero.
 func (p *Price) UnmarshalJSON(data []byte) error {
 	type plain Price

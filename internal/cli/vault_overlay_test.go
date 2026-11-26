@@ -66,7 +66,6 @@ func TestVaultOverlaySetRefusesMalformed(t *testing.T) {
 		{"providers", `{"providers":{"openai":{"scratch":{"protocol":"openai","base_url":"https://example.invalid","auth":{"type":"private-value"}}}}}`},
 		{"agent-records", `{"private-value":{"model":[]}}`},
 		{"opencode-models", `[{"id":"private-value","responses":"not-a-bool"}]`},
-		{"github-auth", "work\nprivate-value"},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			vaulttest.Use(t)
@@ -117,7 +116,6 @@ func TestVaultOverlaySetStoresAndAudits(t *testing.T) {
 		{"providers", `{"providers":{"openai":{"scratch":{"protocol":"openai","base_url":"https://example.invalid","auth":{"type":"none"},"headers":{"X-Private":"private-value"},"models":{"opus":"model-x"}}}}}`},
 		{"agent-records", `{"claude":{"route":{"provider":"openai","profile":"scratch"},"model":"model-x","launch":{"env":["MODE=private-value"]}}}`},
 		{"opencode-models", `[{"id":"model-x","label":"private-value","responses":true}]`},
-		{"github-auth", "private-value\n"},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			vaulttest.Use(t)

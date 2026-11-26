@@ -136,7 +136,7 @@ func (c FitCell) Eval(now time.Time) fitEval {
 			capability = r.Capability
 		}
 	}
-	return evalCell(c, now, fitPrior(capability, t.Tiers[aliasTier(c.Alias)]))
+	return evalCell(c, now, fitPrior(capability, t.Tiers[models.AliasTier(c.Alias)]))
 }
 
 func evalCell(c FitCell, now time.Time, prior float64) fitEval {
@@ -164,18 +164,6 @@ func (f *Fit) cell(alias, agent, match string) (FitCell, bool) {
 	}
 	return f.Cells[i], true
 }
-
-// aliasTier is the dispatch tier word of a model alias, "" for an unknown alias.
-func aliasTier(alias string) string {
-	for tier, a := range tierAlias {
-		if a == alias {
-			return tier
-		}
-	}
-	return ""
-}
-
-var tierAlias = map[string]string{"fast": models.Haiku, "standard": models.Sonnet, "deep": models.Opus}
 
 var fitCache = paths.NewStampCache[*Fit]("catalog.fit")
 

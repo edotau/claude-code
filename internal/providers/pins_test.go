@@ -560,16 +560,6 @@ func TestLoadMalformedVaultOverlay(t *testing.T) {
 	}
 }
 
-func TestCopilotLoginIgnoresGitHubAuthPin(t *testing.T) {
-	reg := copilotLoginReg(t, "")
-	if err := vault.SetGitHubAuth("tester"); err != nil {
-		t.Fatal(err)
-	}
-	if login, profile := CopilotLogin(reg); login != "" || profile != "" {
-		t.Errorf("CopilotLogin = (%q, %q), want (\"\", \"\"): github-auth never feeds copilot", login, profile)
-	}
-}
-
 func TestConfigFixEmptyPinClearsAcrossProfiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(EnvSessionProfile, "current")

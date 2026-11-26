@@ -42,18 +42,25 @@ func DatabricksProfiles(r *Registry) []string { return r.ProfilesOf(GroupDatabri
 // BetaOffKey is the launch env key that disables Claude Code's experimental betas.
 const BetaOffKey = "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"
 
-// databricksModels are the canonical ids a databricks preset seeds into empty aliases.
-var databricksModels = map[string]string{
-	"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
-}
-
-// expandPresets fills each preset provider's empty fields; load-only. Invalid presets are left for Validate.
+// expandPresets fills preset fields and absent anthropic model maps; load-only.
 func expandPresets(r *Registry) {
 	for _, p := range r.Providers {
-		if p == nil || p.Preset != PresetDatabricks || PresetHost(p.Host) == "" {
-			continue
+		switch {
+		case p == nil:
+		case p.Preset == PresetDatabricks && PresetHost(p.Host) != "":
+			expandDatabricks(p)
+		case p.Preset == "" && p.Provider == "anthropic" && p.Models == nil:
+			fillAliasModels(p, models.AliasNames)
 		}
-		expandDatabricks(p)
+	}
+}
+
+// fillAliasModels seeds each alias p leaves empty from the catalog's model_alias map.
+func fillAliasModels(p *Provider, aliases []string) {
+	for _, alias := range aliases {
+		if id, ok := models.Alias(alias); ok && p.Models[alias] == "" {
+			p.Models = withKey(p.Models, alias, id)
+		}
 	}
 }
 
@@ -100,11 +107,7 @@ func expandDatabricks(p *Provider) {
 
 // fillDatabricksModelsEnv fills the default model aliases and the beta-off env key where unset.
 func fillDatabricksModelsEnv(p *Provider) {
-	for alias, id := range databricksModels {
-		if p.Models[alias] == "" {
-			p.Models = withKey(p.Models, alias, id)
-		}
-	}
+	fillAliasModels(p, RouteAliases)
 	if p.Env[BetaOffKey] == "" {
 		p.Env = withKey(p.Env, BetaOffKey, "1")
 	}

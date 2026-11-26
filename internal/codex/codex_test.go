@@ -212,10 +212,21 @@ func TestResolveTargetFallsBackWhenSessionProviderCannotServe(t *testing.T) {
 
 func assertFallbackModelPinAndExplicitProvider(t *testing.T, reg *providers.Registry, sel providers.Selection) {
 	t.Helper()
-	// The CODEX_MODEL pin beats chatgpt's opus alias and codexOwnModel's config.toml (unset here).
+	t.Setenv("CODEX_MODEL", "")
 	vaulttest.SetRecord(t, "codex", "model", "")
-	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
+	if err := os.WriteFile(filepath.Join(codexHome(), "config.toml"), []byte("model = \"gpt-own\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	target, _, err := agent.SchemaFor("codex").ResolveTarget(context.Background(), agent.RunOptions{}, reg, sel, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Model != "gpt-own" {
+		t.Fatalf("fallback model = %q, want config.toml model gpt-own", target.Model)
+	}
+
+	vaulttest.SetRecord(t, "codex", "model", "gpt-6.1-sol")
+	target, _, err = agent.SchemaFor("codex").ResolveTarget(context.Background(), agent.RunOptions{}, reg, sel, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,6 +386,7 @@ func TestCodexOwnModelTripleQuotedAndTableScoped(t *testing.T) {
 		"approval_policy = \"never\"\n[p]\nmodel = \"y\"\n": "",
 	} {
 		dir := t.TempDir()
+		t.Setenv("CLAUDE_CONFIG_DIR", dir)
 		t.Setenv("CODEX_HOME", dir)
 		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(raw), 0o600); err != nil {
 			t.Fatal(err)

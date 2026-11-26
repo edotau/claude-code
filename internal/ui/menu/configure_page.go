@@ -34,9 +34,9 @@ type Options struct {
 	Provider string
 	// --agent: scope keys/agents to one agent CLI
 	Agent string
-	// --auth (github page): pin this GitHub account; "" or "follow" clears the pin
+	// --auth (github page): switch gh to this GitHub account
 	Auth string
-	// --auth was passed (an empty Auth is meaningful)
+	// --auth was passed
 	AuthSet bool
 	// print what would change; write nothing
 	DryRun bool

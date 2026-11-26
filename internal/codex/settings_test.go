@@ -24,6 +24,7 @@ import (
 
 func TestCodexOwnModelSkipsMultilineValues(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("CODEX_HOME", dir)
 	raw := "notes = \"\"\"\nmodel = \"fake\"\n\"\"\"\nlist = [\n  \"a\",\n]\nmodel = \"real\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(raw), 0o600); err != nil {

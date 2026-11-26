@@ -127,10 +127,16 @@ func checkExplicitAuthModelsEnv(t *testing.T, p *Provider) {
 }
 
 func TestNoPresetProviderUnchanged(t *testing.T) {
-	reg := mustParse(t, `{"providers": {"anthropic": {"plain": {"protocol": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}}`)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reg := mustParse(t, `{"providers": {"local": {"plain": {"protocol": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}},
+		"anthropic": {"claude": {"protocol": "anthropic", "base_url": "https://p", "auth": {"type": "none"}}}}}`)
 	p := reg.Providers["plain"]
 	if p.Models != nil || p.Env != nil || p.Routes != nil || p.BaseURL != "https://p" || p.Auth.TTL != 0 || p.Auth.Command != "" {
 		t.Errorf("no-preset provider changed: %+v", p)
+	}
+	// an anthropic row's empty aliases read the catalog's model_alias map, the one alias home
+	if want, _ := models.Alias(models.Opus); reg.Providers["claude"].Models[models.Opus] != want {
+		t.Errorf("anthropic row opus = %q, want catalog %q", reg.Providers["claude"].Models[models.Opus], want)
 	}
 }
 
@@ -140,6 +146,45 @@ func TestExpandPresetsDoesNotMutateSharedMaps(t *testing.T) {
 	expandPresets(&Registry{Providers: map[string]*Provider{"d": p}})
 	if len(shared) != 1 || len(p.Models) != 3 {
 		t.Errorf("shared = %v, models = %v", shared, p.Models)
+	}
+}
+
+func TestAnthropicPresetAndExplicitModels(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const plain = `"protocol":"anthropic","base_url":"https://p","auth":{"type":"none"}`
+	aliases := make(map[string]string, len(models.AliasNames))
+	for _, alias := range models.AliasNames {
+		id, ok := models.Alias(alias)
+		if !ok {
+			t.Fatalf("catalog alias %q is missing", alias)
+		}
+		aliases[alias] = id
+	}
+	cases := []struct {
+		name, fields string
+		models       map[string]string
+	}{
+		{"databricks preset", `"preset":"databricks","host":"https://adb-1.azuredatabricks.net/"`,
+			map[string]string{"opus": "databricks-claude-opus-5-5", "sonnet": "databricks-claude-sonnet-5-5", "haiku": "databricks-claude-haiku-5-5"}},
+		{"absent models", plain, aliases},
+		{"partial models", plain + `,"models":{"opus":"my-opus"}`, map[string]string{"opus": "my-opus"}},
+		{"empty models", plain + `,"models":{}`, map[string]string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg, err := Parse([]byte(`{"providers":{"anthropic":{"custom":{`+tc.fields+`}}}}`), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := reg.Providers["custom"]
+			if !reflect.DeepEqual(p.Models, tc.models) {
+				t.Errorf("models = %v, want %v", p.Models, tc.models)
+			}
+			if p.Preset == PresetDatabricks {
+				checkPresetRoutes(t, p)
+				checkPresetModelsEnv(t, p)
+			}
+		})
 	}
 }
 

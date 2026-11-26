@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // Rank is a model's ordinal facts from ranks.json, each higher-is-more; Known is false when no pattern matched.
@@ -132,7 +133,7 @@ type Choice struct {
 // Choose ranks cands for agent on tier: those at or above its capability, else the strongest below; tools drops "no".
 func Choose(cands []Candidate, agent, tier string, tools bool) Choice {
 	c := Choice{Tier: tier, Need: loadRanks().Tiers[tier]}
-	fit, alias, now, live := LoadFit(), tierAlias[tier], time.Time{}, false
+	fit, alias, now, live := LoadFit(), models.TierAliases[tier], time.Time{}, false
 	if fit != nil {
 		now = fitNow()
 		live = fit.Live(now)

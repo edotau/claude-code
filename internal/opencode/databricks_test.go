@@ -39,7 +39,7 @@ func regressionDatabricksProfile(t *testing.T, name string, menu []providers.Ope
 
 func regressionGeneratedMenu(t *testing.T, p *providers.Provider, model string) []byte {
 	t.Helper()
-	env, err := opencodeDatabricks(p, "harness-"+p.Name, providers.ProtocolOpenAI, p.BaseURL, agentconfig.MenuWire(p, model), "", false, nil)
+	env, _, err := opencodeDatabricks(p, "harness-"+p.Name, providers.ProtocolOpenAI, p.BaseURL, agentconfig.MenuWire(p, model), "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestOpencodeDatabricksRunsUnknownFamilyMember(t *testing.T) {
 	if !strings.Contains(body, `"model":"harness-dev-gpt/databricks-gpt-7-sol"`) {
 		t.Errorf("gpt-7-sol launch config = %s, want it on the Responses provider", body)
 	}
-	if _, err := opencodeDatabricks(p, "harness-dev", providers.ProtocolOpenAI, p.BaseURL, "databricks-gpt-7-nova", "", false, nil); err == nil {
+	if _, _, err := opencodeDatabricks(p, "harness-dev", providers.ProtocolOpenAI, p.BaseURL, "databricks-gpt-7-nova", "", false, nil); err == nil {
 		t.Error("an off-menu id outside every family must stay refused")
 	}
 }

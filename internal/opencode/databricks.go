@@ -12,11 +12,11 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeDatabricks splits the menu over chat, Responses (GPT-6 rejects chat tools) and Anthropic providers.
-func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, error) {
+// opencodeDatabricks splits the menu over chat, Responses (GPT-6 rejects chat tools) and Claude; def is the default.
+func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) (out []string, def string, err error) {
 	chatBase, respBase, claudeBase, err := databricksRoutes(p, dialect, base, routed)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	chat, resp, claude, allowed, dropped := splitMenu(p, claudeBase != "")
 	if len(dropped) > 0 {
@@ -29,7 +29,7 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	}
 	defID, err := defaultProviderID(p, id, model, claudeBase != "", chat, resp, claude, allowed)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	prov := map[string]any{
 		id + "-gpt": map[string]any{"npm": "@ai-sdk/openai", "name": "GPT (claude-code)", "options": providerOptions(p, cred, respBase, false), "models": resp},
@@ -40,12 +40,13 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 	if claudeBase != "" {
 		prov[id+"-claude"] = map[string]any{"npm": "@ai-sdk/anthropic", "name": "Claude (claude-code)", "options": providerOptions(p, cred, claudeBase, true), "models": claude}
 	}
-	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": defID + "/" + model, "provider": prov,
+	def = defID + "/" + model
+	body, err := json.Marshal(map[string]any{"$schema": "https://opencode.ai/config.json", "model": def, "provider": prov,
 		"permission": nativeWebOff()})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return append(modelsDefined(env), opencodeConfigEnv+"="+string(body)), nil
+	return append(modelsDefined(env), opencodeConfigEnv+"="+string(body)), def, nil
 }
 
 // databricksRoutes is p's chat, Responses and Claude base URLs (the last "" when p has no Anthropic route).
