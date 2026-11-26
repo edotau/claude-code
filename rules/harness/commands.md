@@ -152,7 +152,7 @@ latest note, plus the free dirty files (`agents tree --files`; plain rows on an 
 | Tailnet status | `claude-code tailscale` (modes below) |
 | Read Databricks metadata (a GET, no `curl`) | `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user\|sp]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Housekeeping | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure history snapshot\|log\|diff` · `doctor --mcp` |
+| Housekeeping | `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` (removes; `DRY_RUN=1` previews) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code configure theme [--palettes\|--reset] [<palette>]` · `configure theme apply` · `configure vscode [--check\|--dry-run]` |
 
 `claude-code tailscale` accepts one mode at a time: `--machines`, `--connect`, `--token [--secret|--save]`,

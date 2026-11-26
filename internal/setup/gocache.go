@@ -62,7 +62,7 @@ func GoCacheDetail() (detail string, ok bool) {
 	cp := textutil.HumanBytes(GoCacheCap)
 	switch {
 	case size > GoCacheCap:
-		return fmt.Sprintf("%s >%s (cap %s; make sweep APPLY=1)", dir, cp, cp), false
+		return fmt.Sprintf("%s >%s (cap %s; make sweep)", dir, cp, cp), false
 	case !done:
 		return dir + " large, not measured (cap " + cp + ")", true
 	}

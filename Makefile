@@ -130,8 +130,8 @@ clean:  ## Remove bin/claude-code and bin/.hookd
 	@echo -e "$(C_OK)cleaned: $(BIN) $(HOOK_BIN) $(STAMP_FILE)"
 
 .PHONY: sweep
-sweep:  ## Preview stale state; APPLY=1 removes (AGE=7d, ONLY=x)
-	@$(BIN) clean $(if $(APPLY),,--dry-run) $(if $(AGE),--older-than $(AGE)) $(if $(ONLY),--target $(ONLY))
+sweep:  ## Remove stale state; DRY_RUN=1 previews (AGE=7d, ONLY=x)
+	@$(BIN) clean $(if $(DRY_RUN),--dry-run) $(if $(AGE),--older-than $(AGE)) $(if $(ONLY),--target $(ONLY))
 
 .PHONY: cover
 cover:  ## Per-package test coverage (opt-in; cached when unchanged)
@@ -180,18 +180,18 @@ toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
 	rm -rf "$$tmp"; \
 	"$(GO_LOCAL_ROOT)/bin/go" version >/dev/null 2>&1 || { echo "toolchain: $(GO_LOCAL_ROOT)/bin/go does not run" >&2; exit 1; }; \
 	echo -e "$(C_OK)installed $$($(GO_LOCAL_ROOT)/bin/go version) -> $(GO_LOCAL_ROOT)"; \
-	echo -e "$(C_NOTE)add it to your shell: make setup-env APPLY=1"; fi; \
+	echo -e "$(C_NOTE)add it to your shell: make setup-env"; fi; \
 	if command -v tsc >/dev/null 2>&1; then echo -e "$(C_OK)tsc found: $$(tsc --version) ($$(command -v tsc))"; \
 	elif ! command -v npm >/dev/null 2>&1; then echo -e "$(C_NOTE)tsc skipped: npm not found (it ships as an npm package)"; \
 	else npm install --global --prefix "$(TS_LOCAL_PREFIX)" --no-fund --no-audit "typescript@$(TS_VERSION)" && \
 	echo -e "$(C_OK)installed $$($(TS_LOCAL_PREFIX)/bin/tsc --version) -> $(TS_LOCAL_PREFIX)/bin/tsc"; fi
 
 .PHONY: setup-env
-setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
+setup-env:  ## Write the PATH line to the shell rc; DRY_RUN=1 prints it
 	@d="$(CURDIR)"; [ "$$d" = "$$HOME/.claude" ] && d='$$HOME/.claude'; \
 	line="export PATH=\"$$d/bin:\$$HOME/.local/bin:\$$HOME/.local/go/bin:\$$HOME/go/bin:\$$PATH\""; \
 	echo "$$line"; \
-	if [ -n "$(APPLY)" ]; then \
+	if [ -z "$(DRY_RUN)" ]; then \
 		rc="$$HOME/.bashrc"; case "$${SHELL:-}" in */zsh) rc="$$HOME/.zshrc";; esac; \
 		if grep -qxF "$$line" "$$rc" 2>/dev/null; then \
 			echo -e "$(C_NOTE)already present in $$rc"; \
