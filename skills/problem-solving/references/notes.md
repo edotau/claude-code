@@ -3,12 +3,12 @@
 Four facts that appear **as plain prose** in the report when owed, never as the raw tag (the tag is the internal
 trigger written at the action point). Owed and missing is a bug; not owed and present is noise.
 
-| Note       | Owed when                                          | Fires against                  |
-| ---------- | -------------------------------------------------- | ------------------------------ |
-| `TASK:`    | any behavior-changing edit                         | spec betrayal, weakened checks |
-| `AUTH:`    | an irreversible or outward-facing action was taken | unauthorized action            |
-| `ISSUE:`   | a defect was fixed                                 | missed twins, costume rigor    |
-| `PENDING:` | a prescribed follow-up was deliberately not taken  | silently dropped follow-up     |
+| Note | Owed when | Fires against |
+| --- | --- | --- |
+| `TASK:` | any behavior-changing edit | spec betrayal, weakened checks |
+| `AUTH:` | an irreversible or outward-facing action was taken | unauthorized action |
+| `ISSUE:` | a defect was fixed | missed twins, costume rigor |
+| `PENDING:` | a prescribed follow-up was deliberately not taken | silently dropped follow-up |
 
 ## TASK — before any behavior-changing edit
 

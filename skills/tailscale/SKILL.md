@@ -37,18 +37,18 @@ For a tailnet policy file (deny-by-default):
 
 ## Find your task
 
-| I want to…                                                                                                  | Read                                                              |
-| ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Install on a platform (macOS variants, static binaries, WSL)                                                | [installation.md](references/installation.md)                     |
-| Reach my home machine from anywhere (MagicDNS, SSH, auth keys, key expiry)                                  | [common-tasks.md](references/common-tasks.md)                     |
-| Reach LAN gear that can't run Tailscale, or link two sites                                                  | [subnet-routers.md](references/subnet-routers.md)                 |
-| Route all my traffic through home (untrusted Wi-Fi, travel, geo)                                            | [exit-nodes.md](references/exit-nodes.md)                         |
-| Remote desktop, slow/relayed links, DERP, NAT, DNS problems, Tailnet Lock                                   | [connectivity.md](references/connectivity.md)                     |
-| Look up an error or status message                                                                          | [error-messages.md](references/error-messages.md)                 |
-| Control who can reach which device, or fence off an agent                                                   | [access-control.md](references/access-control.md)                 |
+| I want to… | Read |
+| --- | --- |
+| Install on a platform (macOS variants, static binaries, WSL) | [installation.md](references/installation.md) |
+| Reach my home machine from anywhere (MagicDNS, SSH, auth keys, key expiry) | [common-tasks.md](references/common-tasks.md) |
+| Reach LAN gear that can't run Tailscale, or link two sites | [subnet-routers.md](references/subnet-routers.md) |
+| Route all my traffic through home (untrusted Wi-Fi, travel, geo) | [exit-nodes.md](references/exit-nodes.md) |
+| Remote desktop, slow/relayed links, DERP, NAT, DNS problems, Tailnet Lock | [connectivity.md](references/connectivity.md) |
+| Look up an error or status message | [error-messages.md](references/error-messages.md) |
+| Control who can reach which device, or fence off an agent | [access-control.md](references/access-control.md) |
 | Send a file or sync a folder (Taildrop, Taildrive); expose a service privately (Serve) or publicly (Funnel) | [sharing-and-publishing.md](references/sharing-and-publishing.md) |
-| Reach a home model server (Ollama, LM Studio) from my devices                                               | [installation.md](references/installation.md), then Serve         |
-| Centralize LLM API keys, see cost/usage, set quotas, govern MCP tools                                       | [aperture.md](references/aperture.md)                             |
-| Build a Go program that joins the tailnet, or give an agent its own identity                                | [tsnet.md](references/tsnet.md)                                   |
-| Script the tailnet (devices, DNS, policy file, webhooks, auth keys)                                         | [api.md](references/api.md)                                       |
-| Look up a CLI command or flag                                                                               | [cli.md](references/cli.md)                                       |
+| Reach a home model server (Ollama, LM Studio) from my devices | [installation.md](references/installation.md), then Serve |
+| Centralize LLM API keys, see cost/usage, set quotas, govern MCP tools | [aperture.md](references/aperture.md) |
+| Build a Go program that joins the tailnet, or give an agent its own identity | [tsnet.md](references/tsnet.md) |
+| Script the tailnet (devices, DNS, policy file, webhooks, auth keys) | [api.md](references/api.md) |
+| Look up a CLI command or flag | [cli.md](references/cli.md) |

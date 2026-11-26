@@ -77,11 +77,11 @@ Never skip a failing gate without documenting why. Migration needed → stop and
 work now", "I'm confident", "the linter passed" and an agent's own success report are non-evidence; verify a
 subagent's work from the VCS diff.
 
-| Claim            | Requires                                                           |
-| ---------------- | ------------------------------------------------------------------ |
-| Bug fixed        | The original symptom re-tested — not "code changed, assumed fixed" |
-| Agent completed  | VCS diff showing the changes                                       |
-| Requirements met | Line-by-line checklist — tests passing is not it                   |
+| Claim | Requires |
+| --- | --- |
+| Bug fixed | The original symptom re-tested — not "code changed, assumed fixed" |
+| Agent completed | VCS diff showing the changes |
+| Requirements met | Line-by-line checklist — tests passing is not it |
 
 **STOP** on "should"/"probably"/"seems to", or satisfaction voiced before verification ("Done!", "Perfect!"),
 including paraphrases.

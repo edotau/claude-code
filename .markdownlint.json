@@ -41,9 +41,9 @@
     "style": "asterisk"
   },
   "MD054": false,
-  "MD055": {
-    "style": "leading_and_trailing"
-  },
+  "MD055": false,
+  "MD056": false,
+  "MD058": false,
   "MD059": false,
   "MD060": false,
   "default": true

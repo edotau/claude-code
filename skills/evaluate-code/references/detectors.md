@@ -6,19 +6,19 @@ output is `--json` (`scope`: `--format json`; `report`: `-f json`; `gate`: none)
 
 ## Detector index
 
-| Verb (`claude-code review …`)  | Role                                  | Usage                                                                                           |
-| ------------------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `complexity`                   | #2 Simplicity                         | `<targets...> [--threshold strict\|medium\|relaxed] [--ext py,ts,tsx,js,jsx,go]`                |
-| `diff`                         | #3 Surgical                           | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff                            |
-| `claude-code plan assumptions` | #1 Clarify                            | `[plan.md\|-]`; plan text only (stdin default)                                                  |
-| `claude-code plan goals`       | #4 Goal-driven                        | `[plan.md\|-]`; plan text only (stdin default)                                                  |
-| `quality`                      | smells, SOLID, comments               | `<file\|dir> [-l <language>] [--json [-o FILE]] [--comments --format tsv]`                      |
-| `pr`                           | triage                                | `[repo] [-b main] [--head HEAD] [-o FILE]`                                                      |
-| `report`                       | pr + quality                          | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]`           |
-| `simplify`                     | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]`; `--fail` rejects `--threshold` and `--json` |
-| `bench`                        | performance (R22)                     | `[--bench RE] [--base] [--before F --after F]`; runs changed packages' benchmarks               |
-| `gate`                         | staged-change summary                 | `[--repo DIR]`                                                                                  |
-| `scope`                        | files a change touches, sized         | `(--range R \| --paths p1,p2) [--caps] [--importers] [--format text\|json] [--repo DIR]`        |
+| Verb (`claude-code review …`) | Role | Usage |
+| --- | --- | --- |
+| `complexity` | #2 Simplicity | `<targets...> [--threshold strict\|medium\|relaxed] [--ext py,ts,tsx,js,jsx,go]` |
+| `diff` | #3 Surgical | `[--diff <range>] [--file <saved.diff>]`; default is the staged diff |
+| `claude-code plan assumptions` | #1 Clarify | `[plan.md\|-]`; plan text only (stdin default) |
+| `claude-code plan goals` | #4 Goal-driven | `[plan.md\|-]`; plan text only (stdin default) |
+| `quality` | smells, SOLID, comments | `<file\|dir> [-l <language>] [--json [-o FILE]] [--comments --format tsv]` |
+| `pr` | triage | `[repo] [-b main] [--head HEAD] [-o FILE]` |
+| `report` | pr + quality | `[repo] [-f text\|markdown\|json] [--pr-analysis F] [--quality-analysis F] [-o FILE]` |
+| `simplify` | complexity + quality on changed files | `[paths...] [--base REF] [--threshold …] [--fail]`; `--fail` rejects `--threshold` and `--json` |
+| `bench` | performance (R22) | `[--bench RE] [--base] [--before F --after F]`; runs changed packages' benchmarks |
+| `gate` | staged-change summary | `[--repo DIR]` |
+| `scope` | files a change touches, sized | `(--range R \| --paths p1,p2) [--caps] [--importers] [--format text\|json] [--repo DIR]` |
 
 ## What each reports
 
@@ -60,12 +60,12 @@ echo "I'll just export all user data" | claude-code plan assumptions -
 
 The gate is opt-in and not in the seeded `settings.json`; higher levels catch more at more friction.
 
-| Level     | Mechanism                                                                    | Setup                               |
-| --------- | ---------------------------------------------------------------------------- | ----------------------------------- |
-| 1 Passive | the skill loads as context                                                   | none                                |
-| 2 Active  | `/code-review` before commit: diff scope, detectors, quality lenses, verdict | a command (default)                 |
-| 3 Gate    | `claude-code review gate` on staged files; awareness only, never blocks      | git pre-commit or a PreToolUse hook |
-| 4 CI      | detectors as PR checks; fail the job yourself, since the verbs exit 0        | CI config                           |
+| Level | Mechanism | Setup |
+| --- | --- | --- |
+| 1 Passive | the skill loads as context | none |
+| 2 Active | `/code-review` before commit: diff scope, detectors, quality lenses, verdict | a command (default) |
+| 3 Gate | `claude-code review gate` on staged files; awareness only, never blocks | git pre-commit or a PreToolUse hook |
+| 4 CI | detectors as PR checks; fail the job yourself, since the verbs exit 0 | CI config |
 
 - **Level 3, git:** `.git/hooks/pre-commit` = `#!/bin/sh` + `exec claude-code review gate`, then `chmod +x`.
 - **Level 3, PreToolUse:** add a hook per `rules/harness/change-protocol.md` (an entry in

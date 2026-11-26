@@ -20,13 +20,13 @@ The steps structure your work, never your output: **no step numbers or names in 
 only the facts `TASK:`, `AUTH:`, `ISSUE:`, `PENDING:` stand for, as plain prose, never the raw tag
 (`references/notes.md` — read before any report).
 
-| Step needs                                  | Load                                  |
-| ------------------------------------------- | ------------------------------------- |
-| Done criteria, gate chain, claim discipline | `references/verify.md`                |
-| Acting on review feedback                   | `references/feedback.md`              |
-| Plan artifact, task breakdown               | `Plan` agent (`agents/Plan.md`)       |
-| Scope tiering (TRIVIAL→EPIC)                | `rules/workflows/master-workflow.md`  |
-| Detectors over a plan                       | `claude-code plan goals\|assumptions` |
+| Step needs | Load |
+| --- | --- |
+| Done criteria, gate chain, claim discipline | `references/verify.md` |
+| Acting on review feedback | `references/feedback.md` |
+| Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
+| Scope tiering (TRIVIAL→EPIC) | `rules/workflows/master-workflow.md` |
+| Detectors over a plan | `claude-code plan goals\|assumptions` |
 
 ## Usage
 
@@ -52,11 +52,11 @@ Route by where the answer lives; name any route other than "run the loop" in the
 
 ## Step 0 — Classify the deliverable shape
 
-| Shape                     | Signal                                                                       | Deliverable                                                      |
-| ------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| **Question / assessment** | "why is…", "what do you think…", user thinks aloud                           | Findings + a recommendation. **Change nothing.**                 |
-| **Task**                  | "fix", "build", "change", "make"                                             | The completed change, verified.                                  |
-| **Plan-first**            | ambiguous scope, irreversible/outward-facing action, or a plan was asked for | A plan with your recommendation (dated, R18). Stop for approval. |
+| Shape | Signal | Deliverable |
+| --- | --- | --- |
+| **Question / assessment** | "why is…", "what do you think…", user thinks aloud | Findings + a recommendation. **Change nothing.** |
+| **Task** | "fix", "build", "change", "make" | The completed change, verified. |
+| **Plan-first** | ambiguous scope, irreversible/outward-facing action, or a plan was asked for | A plan with your recommendation (dated, R18). Stop for approval. |
 
 Tie-breaks: (1) any plan-first signal beats task; (2) a mixed ask ("why is this failing, can you fix it?") is a task
 whose report also answers the question; (3) unsure → plan-first.

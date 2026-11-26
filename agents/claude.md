@@ -36,14 +36,14 @@ provider and profile travel together), and relay its envelope.
 `"tools":false`. Flags:
 `skills/subagent-workflows/references/agent-verbs.md` → Headless `ask` flags. Beyond that table:
 
-| Need                       | Flags                                                                                                                     |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Answer only                | overlay `"noTools":true` (profile answers directly; not with `tools`)                                                     |
-| Live session               | `--live` (overlay `timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions                  |
-| Paired Databricks identity | `--as user\|sp`                                                                                                           |
-| Isolation                  | overlay `"noPersist":true` keeps no session · `"debugFile":"<path>"`                                                      |
-| Inline agents              | overlay `"agents":<object>` (inline definitions; `agent` takes their keys)                                                |
-| Code mode                  | overlay `"provider":"anthropic","profile":"<p>","codemode":"on"` (only when the brief says so); rtk is off inside the run |
+| Need | Flags |
+| --- | --- |
+| Answer only | overlay `"noTools":true` (profile answers directly; not with `tools`) |
+| Live session | `--live` (overlay `timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions |
+| Paired Databricks identity | `--as user\|sp` |
+| Isolation | overlay `"noPersist":true` keeps no session · `"debugFile":"<path>"` |
+| Inline agents | overlay `"agents":<object>` (inline definitions; `agent` takes their keys) |
+| Code mode | overlay `"provider":"anthropic","profile":"<p>","codemode":"on"` (only when the brief says so); rtk is off inside the run |
 
 Claude's code mode runs only on the direct Anthropic API; any other route runs with code mode off and prints
 `codemode: off for claude (<reason>)`. Overlay `"codemode":"only"` is not offered for claude.
@@ -68,13 +68,13 @@ A live session (`ask --live`, `agents send <id>`) and `--host`:
 
 ## Recommendations to the manager
 
-| Need                                                                                                    | Hand off to                                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Design/plan                                                                                             | `Plan` agent (`agents/Plan.md`); trivial/single-file work skips the plan, say so and implement directly                                                                                                                       |
-| Review                                                                                                  | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK`                                                                                                                                                               |
-| Gate chain (format → lint → test → security)                                                            | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`)                                                                            |
-| A task wholly another agent's                                                                           | the main session's direct ask, carried except Pi ([Work here or dispatch](#work-here-or-dispatch)); a named agent is binding, size is the manager's call                                                                      |
-| Wide codebase sweep                                                                                     | a carried `gemini` ask (`claude-code agents ask --carry --background --overlay '{"agent":"gemini","tools":true}' --dirs <d> - < BRIEF`, 1M-context pass)                                                                      |
+| Need | Hand off to |
+| --- | --- |
+| Design/plan | `Plan` agent (`agents/Plan.md`); trivial/single-file work skips the plan, say so and implement directly |
+| Review | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK` |
+| Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`) |
+| A task wholly another agent's | the main session's direct ask, carried except Pi ([Work here or dispatch](#work-here-or-dispatch)); a named agent is binding, size is the manager's call |
+| Wide codebase sweep | a carried `gemini` ask (`claude-code agents ask --carry --background --overlay '{"agent":"gemini","tools":true}' --dirs <d> - < BRIEF`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before a new utility/abstraction or dependency, look for an existing library, MCP

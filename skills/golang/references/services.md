@@ -9,12 +9,12 @@ Related: [performance.md](performance.md), [errors-testing.md](errors-testing.md
 - Label metrics/logs with `r.Pattern` (1.23), never `r.URL.Path`.
 - Never `http.ListenAndServe` or a zero `http.Server`: every timeout is off.
 
-| Field               | Bounds                                            | Typical              |
-| ------------------- | ------------------------------------------------- | -------------------- |
-| `ReadHeaderTimeout` | Headers (Slowloris; gosec G112)                   | 5s                   |
-| `ReadTimeout`       | Whole request incl. body                          | 15–30s               |
-| `WriteTimeout`      | Header read → response written; caps handler time | 30s; 0 for streaming |
-| `IdleTimeout`       | Keep-alive gap                                    | 60–120s              |
+| Field | Bounds | Typical |
+| --- | --- | --- |
+| `ReadHeaderTimeout` | Headers (Slowloris; gosec G112) | 5s |
+| `ReadTimeout` | Whole request incl. body | 15–30s |
+| `WriteTimeout` | Header read → response written; caps handler time | 30s; 0 for streaming |
+| `IdleTimeout` | Keep-alive gap | 60–120s |
 
 - Long/streaming handlers: keep server timeouts tight, lift per request with
   `http.NewResponseController(w).SetWriteDeadline(...)`.
@@ -60,12 +60,12 @@ return srv.Shutdown(shutCtx) // wait here: ListenAndServe returns ErrServerClose
 
 - `sql.Open` doesn't connect: `PingContext` at startup. One `*sql.DB` per database, for life.
 
-| Setter               | Default   | Rule                                                    |
-| -------------------- | --------- | ------------------------------------------------------- |
-| `SetMaxOpenConns`    | unlimited | Always set; replicas × value ≤ server `max_connections` |
-| `SetMaxIdleConns`    | 2         | ≈ MaxOpen under steady load                             |
-| `SetConnMaxLifetime` | forever   | Below any LB/proxy idle cut-off                         |
-| `SetConnMaxIdleTime` | forever   | 1–5 min to shed bursts                                  |
+| Setter | Default | Rule |
+| --- | --- | --- |
+| `SetMaxOpenConns` | unlimited | Always set; replicas × value ≤ server `max_connections` |
+| `SetMaxIdleConns` | 2 | ≈ MaxOpen under steady load |
+| `SetConnMaxLifetime` | forever | Below any LB/proxy idle cut-off |
+| `SetConnMaxIdleTime` | forever | 1–5 min to shed bursts |
 
 - Use only `*Context` methods; the plain forms outlive the caller and hold a connection.
 - Placeholders for values; dynamic identifiers only from an allowlist.
@@ -83,23 +83,23 @@ return srv.Shutdown(shutCtx) // wait here: ListenAndServe returns ErrServerClose
 
 ### NULLs
 
-| Option               | Use when                         |
-| -------------------- | -------------------------------- |
+| Option | Use when |
+| --- | --- |
 | `sql.Null[T]` (1.22) | Explicit validity in domain code |
-| `*T`                 | Must round-trip to JSON `null`   |
-| `COALESCE(col, '')`  | NULL and zero mean the same      |
+| `*T` | Must round-trip to JSON `null` |
+| `COALESCE(col, '')` | NULL and zero mean the same |
 
 Scanning NULL into a plain `string`/`int64` is a runtime error.
 
 ### Query layer
 
-| Choice                  | Pick when                                                    |
-| ----------------------- | ------------------------------------------------------------ |
-| `database/sql` + driver | Few queries, zero deps                                       |
-| sqlc (default)          | SQL-first, many queries; typed Go checked against the schema |
-| `pgxpool`               | Postgres-only features (COPY, LISTEN/NOTIFY, arrays)         |
-| sqlx                    | Struct scanning over `database/sql`                          |
-| GORM / ent              | Rarely: hidden queries, N+1 by default                       |
+| Choice | Pick when |
+| --- | --- |
+| `database/sql` + driver | Few queries, zero deps |
+| sqlc (default) | SQL-first, many queries; typed Go checked against the schema |
+| `pgxpool` | Postgres-only features (COPY, LISTEN/NOTIFY, arrays) |
+| sqlx | Struct scanning over `database/sql` |
+| GORM / ent | Rarely: hidden queries, N+1 by default |
 
 Migrations: an external tool (golang-migrate, Atlas, goose); never self-migrate at startup.
 
@@ -116,29 +116,29 @@ Migrations: an external tool (golang-migrate, Atlas, goose); never self-migrate 
 
 ### Status codes
 
-| Code                                   | Client should                                |
-| -------------------------------------- | -------------------------------------------- |
-| `InvalidArgument` / `OutOfRange`       | Fix the request; never retry                 |
-| `NotFound` / `AlreadyExists`           | Act on it                                    |
-| `FailedPrecondition`                   | Change state first                           |
-| `Aborted`                              | Retry the read-modify-write                  |
-| `Unauthenticated` / `PermissionDenied` | Re-auth / give up                            |
-| `ResourceExhausted`                    | Back off                                     |
-| `Unavailable`                          | Retry with backoff (the one safe auto-retry) |
-| `DeadlineExceeded`                     | Retry only if idempotent                     |
-| `Internal` / `Unknown`                 | Alert                                        |
+| Code | Client should |
+| --- | --- |
+| `InvalidArgument` / `OutOfRange` | Fix the request; never retry |
+| `NotFound` / `AlreadyExists` | Act on it |
+| `FailedPrecondition` | Change state first |
+| `Aborted` | Retry the read-modify-write |
+| `Unauthenticated` / `PermissionDenied` | Re-auth / give up |
+| `ResourceExhausted` | Back off |
+| `Unavailable` | Retry with backoff (the one safe auto-retry) |
+| `DeadlineExceeded` | Retry only if idempotent |
+| `Internal` / `Unknown` | Alert |
 
 - Return `status.Error(codes.X, msg)`: a plain `error` becomes `Unknown`. Details via `WithDetails`; clients read
   `status.FromError(err).Details()`.
 
 ### Streaming
 
-| Side                  | Ends the stream by                          | Forgetting leaks      |
-| --------------------- | ------------------------------------------- | --------------------- |
-| Server                | Returning (`nil` → `OK`)                    | n/a                   |
-| Client, server-stream | `Recv` until `io.EOF`                       | Stream until ctx ends |
-| Client, client-stream | `CloseAndRecv`                              | Server waits forever  |
-| Client, bidi          | `CloseSend`, drain `Recv`, `defer cancel()` | Same                  |
+| Side | Ends the stream by | Forgetting leaks |
+| --- | --- | --- |
+| Server | Returning (`nil` → `OK`) | n/a |
+| Client, server-stream | `Recv` until `io.EOF` | Stream until ctx ends |
+| Client, client-stream | `CloseAndRecv` | Server waits forever |
+| Client, bidi | `CloseSend`, drain `Recv`, `defer cancel()` | Same |
 
 - `Send` blocks on a slow peer: select on `stream.Context().Done()` in producer loops.
 

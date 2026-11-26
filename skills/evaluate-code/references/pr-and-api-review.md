@@ -25,27 +25,27 @@ git grep -nE 'schema.my_table|/data/my_dataset' -- '*.py' '*.sql'               
 
 The most exposed file sets the review bar:
 
-| Blast radius | Surface                                                                                                        |
-| ------------ | -------------------------------------------------------------------------------------------------------------- |
-| CRITICAL     | public API contract, DB model/migration, auth/token plumbing, a table other jobs read, a shared pipeline stage |
-| HIGH         | a module imported by 3+ others, shared settings/env var, a job other jobs depend on                            |
-| MEDIUM       | single-module internal change, a utility used in one place                                                     |
-| LOW          | a leaf React component, a test, docs                                                                           |
+| Blast radius | Surface |
+| --- | --- |
+| CRITICAL | public API contract, DB model/migration, auth/token plumbing, a table other jobs read, a shared pipeline stage |
+| HIGH | a module imported by 3+ others, shared settings/env var, a job other jobs depend on |
+| MEDIUM | single-module internal change, a utility used in one place |
+| LOW | a leaf React component, a test, docs |
 
 ## Pass 2 — Breaking-change detection
 
 A contract is anything a consumer you don't control relies on (REST response shape, DB column, env var, table
 schema). Adding is usually safe; removing, renaming, tightening or retyping usually isn't.
 
-| Safe (non-breaking)                     | Breaking (needs version bump / migration / coordination)         |
-| --------------------------------------- | ---------------------------------------------------------------- |
-| Add an *optional* request field         | Make an existing field required, or add a required one           |
-| Add a field to a response               | Remove or rename a response field                                |
-| Add a new endpoint / route              | Remove or rename an endpoint, change its URL                     |
-| Relax a required field to optional      | Change a field's type (str → int, scalar → list)                 |
-| Add a new enum value *clients tolerate* | Change/remove an enum value; change an HTTP status code          |
-| Add a *nullable* DB column              | Drop a column, add a `NOT NULL` without default, narrow a type   |
-| Add a table column                      | Drop/rename a table column, change its type, move a dataset path |
+| Safe (non-breaking) | Breaking (needs version bump / migration / coordination) |
+| --- | --- |
+| Add an *optional* request field | Make an existing field required, or add a required one |
+| Add a field to a response | Remove or rename a response field |
+| Add a new endpoint / route | Remove or rename an endpoint, change its URL |
+| Relax a required field to optional | Change a field's type (str → int, scalar → list) |
+| Add a new enum value *clients tolerate* | Change/remove an enum value; change an HTTP status code |
+| Add a *nullable* DB column | Drop a column, add a `NOT NULL` without default, narrow a type |
+| Add a table column | Drop/rename a table column, change its type, move a dataset path |
 
 **DRF / REST** — grep the diff's removed lines:
 

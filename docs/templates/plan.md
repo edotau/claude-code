@@ -10,8 +10,8 @@ Date: YYYY-MM-DD. Snapshot: `<sha>` (line numbers are as of that commit and drif
 **Out of scope.** What this plan does not change, and where that work goes instead.
 **Target shape, checked against the code.** Every assumption the design rests on, proven or refuted:
 
-| Assumption                         | Verdict                    | Evidence                                     |
-| ---------------------------------- | -------------------------- | -------------------------------------------- |
+| Assumption | Verdict | Evidence |
+| --- | --- | --- |
 | <what the design needs to be true> | Holds / **Wrong** / Partly | `<grep, go list or file:line that shows it>` |
 
 **Approaches.**
@@ -21,14 +21,14 @@ Date: YYYY-MM-DD. Snapshot: `<sha>` (line numbers are as of that commit and drif
 
 ## File map (when the plan moves or splits files)
 
-| File              | Lines | Verdict                | Stays       | Goes to `<new home>` |
-| ----------------- | ----- | ---------------------- | ----------- | -------------------- |
-| `path/to/file.go` | 120   | stays / moves / splits | <functions> | <functions>          |
+| File | Lines | Verdict | Stays | Goes to `<new home>` |
+| --- | --- | --- | --- | --- |
+| `path/to/file.go` | 120 | stays / moves / splits | <functions> | <functions> |
 
 ## Interface (when the plan adds or changes exports)
 
-| Action                 | Replaces                                |
-| ---------------------- | --------------------------------------- |
+| Action | Replaces |
+| --- | --- |
 | `NewFunc(arg T) error` | the direct call at `path/to/file.go:42` |
 
 ## Phases
@@ -69,9 +69,9 @@ checked by their recorded effect, not run.
 
 One message dispatches a whole wave; owned files are disjoint within it; a verifier leaf closes each wave.
 
-| Wave                     | Packages | Owned files              | Depends on | Width bound / what widens it                    | Verify (command → proof)      |
-| ------------------------ | -------- | ------------------------ | ---------- | ----------------------------------------------- | ----------------------------- |
-| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none       | <file overlap or dependency> / <split or hoist> | `rtk go build ./...` → exit 0 |
+| Wave | Packages | Owned files | Depends on | Width bound / what widens it | Verify (command → proof) |
+| --- | --- | --- | --- | --- | --- |
+| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `rtk go build ./...` → exit 0 |
 
 ## Leaf rules
 
@@ -81,9 +81,9 @@ One message dispatches a whole wave; owned files are disjoint within it; a verif
 
 ## Tests (when the plan moves, deletes or breaks tests)
 
-| Test file              | Lands in | Action                                                            |
-| ---------------------- | -------- | ----------------------------------------------------------------- |
-| `path/to/file_test.go` | `<pkg>`  | none / simple fix / move / **delete** (listed in the debt report) |
+| Test file | Lands in | Action |
+| --- | --- | --- |
+| `path/to/file_test.go` | `<pkg>` | none / simple fix / move / **delete** (listed in the debt report) |
 
 ## Risks
 

@@ -8,13 +8,13 @@ description: Go reference for writing, reviewing and debugging Go code - concurr
 Load only the reference for the task at hand; each is self-contained and general Go. A project's own rules win
 where a reference disagrees.
 
-| Task                                                                                                                     | Reference                                         |
-| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
-| Goroutines, channels, `sync`, worker pools, `context`; profiling, allocations, maps/slices internals, PGO, GC            | [performance.md](references/performance.md)       |
+| Task | Reference |
+| --- | --- |
+| Goroutines, channels, `sync`, worker pools, `context`; profiling, allocations, maps/slices internals, PGO, GC | [performance.md](references/performance.md) |
 | Creating, wrapping, inspecting, joining errors; panics; table tests, fuzzing, golden files, `httptest`, race, benchmarks | [errors-testing.md](references/errors-testing.md) |
-| Naming, doc comments, modern idioms, golangci-lint; interfaces, structs, options, DI, package layout, refactoring        | [style.md](references/style.md)                   |
-| `flag` subcommands, exit codes, signals, cobra, viper; modules, gopls/`go doc`, CI, troubleshooting, slog/OTel/pprof     | [tools.md](references/tools.md)                   |
-| `net/http` servers and clients, `database/sql`, gRPC                                                                     | [services.md](references/services.md)             |
+| Naming, doc comments, modern idioms, golangci-lint; interfaces, structs, options, DI, package layout, refactoring | [style.md](references/style.md) |
+| `flag` subcommands, exit codes, signals, cobra, viper; modules, gopls/`go doc`, CI, troubleshooting, slog/OTel/pprof | [tools.md](references/tools.md) |
+| `net/http` servers and clients, `database/sql`, gRPC | [services.md](references/services.md) |
 
 ## Loop
 

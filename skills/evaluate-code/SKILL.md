@@ -106,8 +106,8 @@ rtk git diff "$(git merge-base HEAD main)"...HEAD --stat
 The verdict word comes first, alone, from a closed vocabulary; evidence follows. A claim that can't be re-run is
 marked UNVERIFIABLE (a claim status, not a verdict). Never soften a failing verdict or inflate a caveat.
 
-| Mode                                                   | Vocabulary                                                                                                          |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| review (this file; `claude-code <agent> review`)       | **SHIP** (no CRITICAL/HIGH; MEDIUM fixed first) \| **FIX REQUIRED** (HIGH, no CRITICAL) \| **BLOCK** (any CRITICAL) |
-| judge (`references/judge.md`)                          | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED`                                                                      |
-| task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION`                                                                                      |
+| Mode | Vocabulary |
+| --- | --- |
+| review (this file; `claude-code <agent> review`) | **SHIP** (no CRITICAL/HIGH; MEDIUM fixed first) \| **FIX REQUIRED** (HIGH, no CRITICAL) \| **BLOCK** (any CRITICAL) |
+| judge (`references/judge.md`) | `VERIFIED \| VERIFIED WITH CAVEATS \| REFUTED` |
+| task-brief / plan review (`references/task-review.md`) | `READY \| NEEDS CLARIFICATION` |

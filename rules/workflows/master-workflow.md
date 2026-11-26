@@ -16,29 +16,29 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 
 ## Scope tiers (Phase 0, inline)
 
-| Scope   | Signal                               | Pipeline                                                                                                         |
-| ------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| TRIVIAL | Single-line fix, typo, rename        | Inline — the only inline scope; skip all phases                                                                  |
-| LOW     | One function or file                 | Dispatch (not inline); phases 2, 3, 8                                                                            |
-| MEDIUM  | 2–5 files or needs tests, one module | Phases 1–4, 8–9; fan out via 6 whatever is unblocked; worktree per `rules/standards/worktree-git.md` → Worktrees |
-| HIGH    | Cross-module, 5+ files               | Full pipeline, parallel dispatch                                                                                 |
-| EPIC    | Multi-session, architectural         | Full pipeline, phased across sessions                                                                            |
+| Scope | Signal | Pipeline |
+| --- | --- | --- |
+| TRIVIAL | Single-line fix, typo, rename | Inline — the only inline scope; skip all phases |
+| LOW | One function or file | Dispatch (not inline); phases 2, 3, 8 |
+| MEDIUM | 2–5 files or needs tests, one module | Phases 1–4, 8–9; fan out via 6 whatever is unblocked; worktree per `rules/standards/worktree-git.md` → Worktrees |
+| HIGH | Cross-module, 5+ files | Full pipeline, parallel dispatch |
+| EPIC | Multi-session, architectural | Full pipeline, phased across sessions |
 
 `code-engineer`'s tiers size a job it was already asked to run; TRIVIAL with no workflow request still goes inline.
 
 ## Phases
 
-| Phase                  | Agent / command                                                                                               | Output                            | Gate                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------- | -------------------------------- |
-| 1. Review (MEDIUM+)    | `Plan`, or a carried `codex` ask                                                                              | Refined Task Brief                | READY / NEEDS CLARIFICATION      |
-| 2. Codebase intel      | Scoped `Explore` leaves, or one carried `gemini` sweep                                                        | Codebase Context Brief            | Structure, conventions, deps     |
-| 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a carried `gemini` ask                                        | Prior art + library refs          | ≥1 reference, or "nothing found" |
-| 4. Plan (MEDIUM+)      | `Plan`                                                                                                        | Plan with task breakdown          | User approval                    |
-| 5. Refine *(opt-in)*   | `general-purpose`                                                                                             | Self-contained brief per sub-task | Cold-start test                  |
-| 6. Dispatch            | `skills/subagent-workflows/SKILL.md`                                                                          | Completed sub-tasks               | Each passes its own check        |
-| 7. Land                | `claude-code worktree land` (if a worktree was used)                                                          | Landed diff                       | Clean, no leaf still running     |
-| 8. Verify              | `rules/standards/quality.md` → Verification Order                                                             | Simplified, verified diff         | Order green                      |
-| 9. Commit              | Authorized carried `copilot` ask, brief naming `rules/standards/worktree-git.md` → LAST-MILE, or main session | Commit pushed                     | Clean tree, pushed               |
+| Phase | Agent / command | Output | Gate |
+| --- | --- | --- | --- |
+| 1. Review (MEDIUM+) | `Plan`, or a carried `codex` ask | Refined Task Brief | READY / NEEDS CLARIFICATION |
+| 2. Codebase intel | Scoped `Explore` leaves, or one carried `gemini` sweep | Codebase Context Brief | Structure, conventions, deps |
+| 3. Research (new code) | `gh search`, `skills/web-explorer/SKILL.md`, or a carried `gemini` ask | Prior art + library refs | ≥1 reference, or "nothing found" |
+| 4. Plan (MEDIUM+) | `Plan` | Plan with task breakdown | User approval |
+| 5. Refine *(opt-in)* | `general-purpose` | Self-contained brief per sub-task | Cold-start test |
+| 6. Dispatch | `skills/subagent-workflows/SKILL.md` | Completed sub-tasks | Each passes its own check |
+| 7. Land | `claude-code worktree land` (if a worktree was used) | Landed diff | Clean, no leaf still running |
+| 8. Verify | `rules/standards/quality.md` → Verification Order | Simplified, verified diff | Order green |
+| 9. Commit | Authorized carried `copilot` ask, brief naming `rules/standards/worktree-git.md` → LAST-MILE, or main session | Commit pushed | Clean tree, pushed |
 
 - **1 Review** vets the request before code: checklist and verdicts `skills/evaluate-code/references/task-review.md`,
   agent choice `skills/subagent-workflows/references/cost-routing.md`. The same pass on a finished diff is

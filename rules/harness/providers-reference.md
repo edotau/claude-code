@@ -143,37 +143,37 @@ skips the keyring. `HARNESS_VAULT_KEY` is moved out of every `claude-code` proce
 
 Process env read directly by the harness (not pins; set them in the shell or the vault's `env`):
 
-| Variable                    | Effect                                                                                                                                                                                                                                                                                                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HARNESS_KEEP_ENV`          | comma-separated names an agent CLI child keeps; codex, copilot, gemini and opencode otherwise drop every inherited `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD` and `*_CREDENTIALS` name except their own login (launch values are added after the scrub)                                                                               |
-| `COWORKER_OVERLAY`          | The dispatch document, from a private regular file (≤64 KiB), inline JSON or stdin; top-level asks read it when no `--overlay` is typed, and children receive a derived copy. Keys and inheritance: `rules/harness/agent.md` → Overlay; env-name refusals: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay. |
-| `HARNESS_KEYRING=off`       | skip the OS keyring when finding the vault key                                                                                                                                                                                                                                                                                          |
-| `CLAUDE_RECALL_SEMANTIC=0`  | memory recall ranks by keyword only (no embeddings)                                                                                                                                                                                                                                                                                     |
-| `OPENCODE_DB`               | opencode's database: a file name under its data dir, an absolute path, or `:memory:`                                                                                                                                                                                                                                                    |
-| `DATABRICKS_CONFIG_FILE`    | Databricks CLI config file (default `~/.databrickscfg`)                                                                                                                                                                                                                                                                                 |
-| `CLAUDE_WL_PASTE_PROXY`     | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic                                                                                                                                                                                                                                                              |
-| `AGENT_ERROR_FALLBACK`      | one of none, pin, agents, all (`1`/`true`/`yes` = all): how a failed dispatch falls back; unset = `none` (exit on the error); process env beats the vault env                                                                                                                                                                           |
-| `HARNESS_EGRESS_HOST`       | set by `--remote <h>`: Databricks workspace requests leave through that ssh host                                                                                                                                                                                                                                                        |
-| `HARNESS_REMOTE_BIN`        | the remote `claude-code` binary for `--host` runs                                                                                                                                                                                                                                                                                       |
-| `CLAUDE_REMOTE_HOST`        | a comma-separated list; the first entry is the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`)                                                                                                                                                                                                              |
-| `NETWORK_MEMORY`            | off by default: unset or any value other than `on` means no sync or connection; `on` (case-insensitive) opts this machine in to memory sync with the hosts in `CLAUDE_REMOTE_HOST`                                                                                                                                                      |
-| `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x                                                                                                                                                                                                                                                                              |
-| `HARNESS_MODEL_CACHE_TTL`   | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`)                                                                                                                                                                                                                                             |
-| `HARNESS_USAGE_CACHE_TTL`   | seconds a usage fetch stays fresh (default 60; 0 = always refetch)                                                                                                                                                                                                                                                                      |
-| `HARNESS_USAGE_WARN_PCT`    | quota warning threshold in percent, `(0,100]` (default 80)                                                                                                                                                                                                                                                                              |
+| Variable | Effect |
+| --- | --- |
+| `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps; codex, copilot, gemini and opencode otherwise drop every inherited `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD` and `*_CREDENTIALS` name except their own login (launch values are added after the scrub) |
+| `COWORKER_OVERLAY` | The dispatch document, from a private regular file (≤64 KiB), inline JSON or stdin; top-level asks read it when no `--overlay` is typed, and children receive a derived copy. Keys and inheritance: `rules/harness/agent.md` → Overlay; env-name refusals: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay. |
+| `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
+| `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
+| `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
+| `DATABRICKS_CONFIG_FILE` | Databricks CLI config file (default `~/.databrickscfg`) |
+| `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
+| `AGENT_ERROR_FALLBACK` | one of none, pin, agents, all (`1`/`true`/`yes` = all): how a failed dispatch falls back; unset = `none` (exit on the error); process env beats the vault env |
+| `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
+| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
+| `CLAUDE_REMOTE_HOST` | a comma-separated list; the first entry is the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
+| `NETWORK_MEMORY` | off by default: unset or any value other than `on` means no sync or connection; `on` (case-insensitive) opts this machine in to memory sync with the hosts in `CLAUDE_REMOTE_HOST` |
+| `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
+| `HARNESS_MODEL_CACHE_TTL` | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`) |
+| `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
+| `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
 
 ## Naming
 
-| Term                   | Means                                                                                                               | Values                                                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| agent                  | the CLI doing the work                                                                                              | `claude` `codex` `copilot` `opencode` `gemini`                                                                                        |
-| provider               | the platform hosting the endpoint                                                                                   | `anthropic` `databricks` `github` `openai` `google` `magnitude`                                                                       |
-| profile                | an account on a provider; carries billing                                                                           | unique across all providers, `[A-Za-z0-9_-]`, opaque to code                                                                          |
-| auth                   | how a profile proves who it is                                                                                      | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none`                                           |
-| model                  | what `--model` takes                                                                                                | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
-| proxy · router         | the loopback daemon · the agent + model pick                                                                        | `gateway proxy` · `gateway`                                                                                                           |
-| wire                   | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses`                                                                                                      |
-| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault                              | flag beats session profile beats agent record beats default; no profile = off, claude always on                                       |
+| Term | Means | Values |
+| --- | --- | --- |
+| agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
+| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` `magnitude` |
+| profile | an account on a provider; carries billing | unique across all providers, `[A-Za-z0-9_-]`, opaque to code |
+| auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
+| model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
+| proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
+| wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
+| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats session profile beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
 bucket" is the exception: an alias's ordered Databricks list in `internal/assets/files/router/table.json`), leg (→
@@ -181,25 +181,25 @@ dispatch), family (→ provider), pin, preference and saved override (→ agent 
 name), first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire
 is `serving` (`ai-gateway` is refused).
 
-| Surface              | Form                                                                                          | Example                                               |
-| -------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Label (display)      | `<agent> → <provider>·<profile>/<model>`                                                      | `copilot → databricks·dev/databricks-claude-opus-5-5` |
-| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases                              | `vault ls` AGENT table, `configure` agent pages       |
-| Vault secret         | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY`              |
+| Surface | Form | Example |
+| --- | --- | --- |
+| Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
+| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault ls` AGENT table, `configure` agent pages |
+| Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
 
 Agent records are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`,
 `COPILOT_*`) is only exported at launch, never renamed; model ids are built per provider from the canonical
 form (`opus-5-5` → `claude-opus-5-5`, `databricks-claude-opus-5-5`, `system.ai.claude-opus-5-5`); code never
 parses a profile name.
 
-| Provider   | Profile                                            | Auth                         | Vault entry                                                          |
-| ---------- | -------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------- |
-| anthropic  | `ultra` · `anthropic`                              | `cli` · `key`                | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
-| databricks | `dev`, `qa`, `prod` · service principals           | `oauth` · `m2m`              | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M`            |
-| github     | `copilot` (own login), one row per GitHub username | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account)         |
-| openai     | `chatgpt` · `openai`                               | `cli` · `key`                | none · `OPENAI_KEY`                                                  |
-| google     | `antigravity`                                      | `cli`                        | none                                                                 |
-| magnitude  | `local` (127.0.0.1:10100, chat only)               | `key` (`echo local`)         | none                                                                 |
+| Provider | Profile | Auth | Vault entry |
+| --- | --- | --- | --- |
+| anthropic | `ultra` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
+| databricks | `dev`, `qa`, `prod` · service principals | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
+| github | `copilot` (own login), one row per GitHub username | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
+| openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
+| google | `antigravity` | `cli` | none |
+| magnitude | `local` (127.0.0.1:10100, chat only) | `key` (`echo local`) | none |
 
 opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 
@@ -236,16 +236,16 @@ A **team** is one row of the schema in `internal/proxyteam`; the shipped rows ar
 `shared` is the daemon and the default team, so every kind no team claims goes there. `phase` takes kind `group` and
 runs in-process in the wave or batch that owns it, falling back to `shared`.
 
-| Field      | Values                                                                                                                                                          |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | unique; a scope is named `<team>@<id>`                                                                                                                          |
-| `kinds`    | `interactive`, `single`, `lane`, `nested`, `carried`, `group`, `memory`; a dispatch takes the first true of group, memory, carried, nested, lane, else `single` |
-| `host`     | `daemon` (`proxy.json`), `phase` (in-process in its owner), `detached` (standing scoped process), `ask` (in one ask; unused)                                    |
-| `lifetime` | `shared`, `phase`, `standing`, `ask`; each host pairs with one lifetime (daemon/shared, phase/phase, detached/standing, ask/ask)                                |
-| `reserved` | proxies kept for the team; a detached slot is `fnv32(dispatch id) % reserved`                                                                                   |
-| `borrow`   | `never` (no other team's work goes there), `idle` (overflow only at in-flight 0), `any`                                                                         |
-| `fallback` | team names in order; a dispatch's route list is its team, its fallback, then every shared team, each once                                                       |
-| `default`  | exactly one team; it takes every kind no team claims                                                                                                            |
+| Field | Values |
+| --- | --- |
+| `name` | unique; a scope is named `<team>@<id>` |
+| `kinds` | `interactive`, `single`, `lane`, `nested`, `carried`, `group`, `memory`; a dispatch takes the first true of group, memory, carried, nested, lane, else `single` |
+| `host` | `daemon` (`proxy.json`), `phase` (in-process in its owner), `detached` (standing scoped process), `ask` (in one ask; unused) |
+| `lifetime` | `shared`, `phase`, `standing`, `ask`; each host pairs with one lifetime (daemon/shared, phase/phase, detached/standing, ask/ask) |
+| `reserved` | proxies kept for the team; a detached slot is `fnv32(dispatch id) % reserved` |
+| `borrow` | `never` (no other team's work goes there), `idle` (overflow only at in-flight 0), `any` |
+| `fallback` | team names in order; a dispatch's route list is its team, its fallback, then every shared team, each once |
+| `default` | exactly one team; it takes every kind no team claims |
 
 **Load.** The vault overlay (key `proxy-teams` in the vault's overlay store) replaces or adds a row by name.
 `Validate` names each problem: unknown values, duplicate names or kind claims, zero or two defaults, not exactly one

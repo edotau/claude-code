@@ -32,18 +32,18 @@ Don't cache over an N+1; fix the query.
 
 ## Symptoms → fixes
 
-| Symptom                                           | Look for                                                                                                 | Fix                                                                            |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Slow list/detail endpoint                         | N+1 queries                                                                                              | `select_related` / `prefetch_related`; `.only()`/`.values()` for wide rows     |
-| Query > 1s                                        | `SELECT *`, missing index, full scan (`EXPLAIN`)                                                         | select needed columns, add an index the plan actually uses, paginate           |
-| Nested loop over same data / repeated `x in list` | O(n²)                                                                                                    | `set`/`dict` for O(1) lookup                                                   |
-| Sort inside a loop                                | O(n² log n)                                                                                              | sort once outside                                                              |
-| String `+=` in a loop                             | O(n²)                                                                                                    | `"".join(parts)`                                                               |
-| Recomputed subproblem in recursion                | O(2ⁿ)                                                                                                    | memoize (`functools.lru_cache`)                                                |
-| Memory grows unbounded                            | caches without LRU/TTL, listeners/timers never cleaned up, closures holding big refs, detached DOM nodes | bound the cache, explicit teardown, drop references                            |
-| Spark stage slow                                  | skew, wide shuffle, spill, per-row UDF                                                                   | repartition/broadcast, avoid UDFs, cache reused DataFrames                     |
-| Many serial I/O calls                             | independent awaits one by one                                                                            | `asyncio.gather` / batch; cache with TTL                                       |
-| Bundle > 500KB gzip                               | no splitting                                                                                             | code-split, lazy-load routes, tree-shake; debounce, stream, compress, paginate |
+| Symptom | Look for | Fix |
+| --- | --- | --- |
+| Slow list/detail endpoint | N+1 queries | `select_related` / `prefetch_related`; `.only()`/`.values()` for wide rows |
+| Query > 1s | `SELECT *`, missing index, full scan (`EXPLAIN`) | select needed columns, add an index the plan actually uses, paginate |
+| Nested loop over same data / repeated `x in list` | O(n²) | `set`/`dict` for O(1) lookup |
+| Sort inside a loop | O(n² log n) | sort once outside |
+| String `+=` in a loop | O(n²) | `"".join(parts)` |
+| Recomputed subproblem in recursion | O(2ⁿ) | memoize (`functools.lru_cache`) |
+| Memory grows unbounded | caches without LRU/TTL, listeners/timers never cleaned up, closures holding big refs, detached DOM nodes | bound the cache, explicit teardown, drop references |
+| Spark stage slow | skew, wide shuffle, spill, per-row UDF | repartition/broadcast, avoid UDFs, cache reused DataFrames |
+| Many serial I/O calls | independent awaits one by one | `asyncio.gather` / batch; cache with TTL |
+| Bundle > 500KB gzip | no splitting | code-split, lazy-load routes, tree-shake; debounce, stream, compress, paginate |
 
 ## Report format
 

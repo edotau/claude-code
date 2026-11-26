@@ -6,10 +6,10 @@ point it at the monitor folder. One-time lookup: plain search; table: `list.md`;
 
 ## Pick the kind
 
-| You have                     | Kind    | What "changed" means                             |
-| ---------------------------- | ------- | ------------------------------------------------ |
-| A topic, pages not known yet | search  | A result URL not in the previous snapshot        |
-| One or more known URLs       | extract | The hash of the page's extracted content changed |
+| You have | Kind | What "changed" means |
+| --- | --- | --- |
+| A topic, pages not known yet | search | A result URL not in the previous snapshot |
+| One or more known URLs | extract | The hash of the page's extracted content changed |
 
 Search suits mentions, news, jobs; extract suits pricing, changelog, docs or status pages.
 

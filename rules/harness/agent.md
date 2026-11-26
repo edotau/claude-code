@@ -222,34 +222,34 @@ paths:
   cannot loosen, `fenced` is bounded by the inherited fence, and `if set` caps an explicitly supplied value but does
   not inherit a missing one.
 
-  | Key                                             | Type                | Schema   | Child      | Tighten |
-  | ----------------------------------------------- | ------------------- | -------- | ---------- | ------- |
-  | `schema`                                        | `int`               | both     | reset      | no      |
-  | `provider`, `profile`                           | `string`            | both     | yes        | fenced  |
-  | `identity`, `account`, `endpoint`               | `string`            | both     | yes        | no      |
-  | `model`, `effort`                               | `string`            | both     | no         | no      |
-  | `fallback`                                      | `string`            | dispatch | yes        | no      |
-  | `runner`                                        | `string`            | both     | yes        | no      |
-  | `host`, `remote`                                | `string`            | both     | no         | no      |
-  | `providerMode`, `set`                           | `map[string]string` | both     | no         | no      |
-  | `unset`, `keep`                                 | `[]string`          | both     | no         | no      |
-  | `tokenCommand`                                  | `*[]string`         | dispatch | no         | no      |
-  | `maxChildren`, `maxTreeTokens`, `maxDepth`      | `*int`              | both     | yes        | yes     |
-  | `codemode`                                      | `string`            | both     | yes        | no      |
-  | `fence`                                         | `*route.Fence`      | both     | yes        | yes     |
-  | `budgetUSD`                                     | `*float64`          | dispatch | no         | if set  |
-  | `budgetCredits`                                 | `*int`              | dispatch | no         | if set  |
-  | `codexNetwork`, `cloud`                         | `bool`              | dispatch | no         | no      |
-  | `noTools`, `noPersist`                          | `*bool`             | both     | true only  | yes     |
-  | `tools`                                         | `*bool`             | both     | false only | yes     |
-  | `timeout`                                       | `string`            | both     | yes        | yes     |
-  | `agent`, `tier`                                 | `string`            | both     | no         | no      |
-  | `agents`                                        | `json.RawMessage`   | both     | no         | no      |
-  | `systemPrompt`, `appendSystemPrompt`            | `string`            | both     | no         | no      |
-  | `outputSchema`, `debugFile`, `googleTools`      | `string`            | both     | no         | no      |
-  | `native`, `autonomous`, `fleet`, `enableMemory` | `*bool`             | both     | no         | no      |
-  | `file`                                          | `string`            | both     | no         | no      |
-  | `files`                                         | `json.RawMessage`   | none     | no         | no      |
+  | Key | Type | Schema | Child | Tighten |
+  | --- | --- | --- | --- | --- |
+  | `schema` | `int` | both | reset | no |
+  | `provider`, `profile` | `string` | both | yes | fenced |
+  | `identity`, `account`, `endpoint` | `string` | both | yes | no |
+  | `model`, `effort` | `string` | both | no | no |
+  | `fallback` | `string` | dispatch | yes | no |
+  | `runner` | `string` | both | yes | no |
+  | `host`, `remote` | `string` | both | no | no |
+  | `providerMode`, `set` | `map[string]string` | both | no | no |
+  | `unset`, `keep` | `[]string` | both | no | no |
+  | `tokenCommand` | `*[]string` | dispatch | no | no |
+  | `maxChildren`, `maxTreeTokens`, `maxDepth` | `*int` | both | yes | yes |
+  | `codemode` | `string` | both | yes | no |
+  | `fence` | `*route.Fence` | both | yes | yes |
+  | `budgetUSD` | `*float64` | dispatch | no | if set |
+  | `budgetCredits` | `*int` | dispatch | no | if set |
+  | `codexNetwork`, `cloud` | `bool` | dispatch | no | no |
+  | `noTools`, `noPersist` | `*bool` | both | true only | yes |
+  | `tools` | `*bool` | both | false only | yes |
+  | `timeout` | `string` | both | yes | yes |
+  | `agent`, `tier` | `string` | both | no | no |
+  | `agents` | `json.RawMessage` | both | no | no |
+  | `systemPrompt`, `appendSystemPrompt` | `string` | both | no | no |
+  | `outputSchema`, `debugFile`, `googleTools` | `string` | both | no | no |
+  | `native`, `autonomous`, `fleet`, `enableMemory` | `*bool` | both | no | no |
+  | `file` | `string` | both | no | no |
+  | `files` | `json.RawMessage` | none | no | no |
 
   Notes. The route unit is replaced together, including identity (Databricks only) and account (GitHub only).
   Only a dispatch-child hop turns a concrete parent profile into a fence; a session-child hop does not, and `auto`
@@ -411,13 +411,13 @@ vendor CLI untouched.
   `.github/copilot-instructions.md`: first present) plus unscoped `rules/standards/*.md`, listed by
   `project.PortableCore`; headless and interactive runs load the same core.
 
-| Agent                 | Reads the core from                                                                      | Probe                        |
-| --------------------- | ---------------------------------------------------------------------------------------- | ---------------------------- |
-| codex                 | `~/.codex/AGENTS.md` (rendered by sync)                                                  | `project/targets.go` `docs:` |
-| gemini (agy)          | `~/.gemini/GEMINI.md` (rendered by sync)                                                 | same                         |
-| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md`               | `project/targets.go`         |
-| copilot `ask` (SDK)   | appended system text + instruction, skill, agent dirs                                    | `copilot/sdk.go`             |
-| opencode              | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go`         |
+| Agent | Reads the core from | Probe |
+| --- | --- | --- |
+| codex | `~/.codex/AGENTS.md` (rendered by sync) | `project/targets.go` `docs:` |
+| gemini (agy) | `~/.gemini/GEMINI.md` (rendered by sync) | same |
+| copilot (interactive) | `~/.copilot/copilot-instructions.md` (rendered), not `~/.claude/CLAUDE.md` | `project/targets.go` |
+| copilot `ask` (SDK) | appended system text + instruction, skill, agent dirs | `copilot/sdk.go` |
+| opencode | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go` |
 
 - **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --overlay '{"agent":"copilot"}'` carries no
   policy; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are

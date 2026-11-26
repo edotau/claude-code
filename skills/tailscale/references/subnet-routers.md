@@ -45,6 +45,6 @@ firewall-cmd --permanent --add-masquerade   # only if using firewalld
 
 ## Worked examples
 
-| If the user wants to…                                                              | Fetch                                                                                           |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| If the user wants to… | Fetch |
+| --- | --- |
 | Reach a printer, camera, IoT device or home/office subnet that can't run Tailscale | <https://tailscale.com/docs/use-cases/personal-or-at-home-use/access-devices-without-tailscale> |

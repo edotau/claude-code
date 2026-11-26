@@ -10,12 +10,12 @@ An exit node routes all non-Tailscale internet traffic through a tailnet device.
 
 ## Run an exit node
 
-| Platform            | How                                                                                                                                                              | Notes                                             |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Linux (recommended) | Enable IP forwarding ([subnet-routers.md](subnet-routers.md#ip-forwarding-linux), incl. `firewalld` masquerade), then `sudo tailscale set --advertise-exit-node` | Kernel routing — best performance                 |
-| macOS               | Menu: **Exit Node > Run Exit Node**                                                                                                                              | Userspace routing; prevent sleep                  |
-| Windows             | Tray: **Exit node > Run exit node**                                                                                                                              | Userspace; enable "Run Unattended"; prevent sleep |
-| Android             | App > **Exit Node** > **Run as exit node**                                                                                                                       | Userspace; battery-intensive, keep plugged in     |
+| Platform | How | Notes |
+| --- | --- | --- |
+| Linux (recommended) | Enable IP forwarding ([subnet-routers.md](subnet-routers.md#ip-forwarding-linux), incl. `firewalld` masquerade), then `sudo tailscale set --advertise-exit-node` | Kernel routing — best performance |
+| macOS | Menu: **Exit Node > Run Exit Node** | Userspace routing; prevent sleep |
+| Windows | Tray: **Exit node > Run exit node** | Userspace; enable "Run Unattended"; prevent sleep |
+| Android | App > **Exit Node** > **Run as exit node** | Userspace; battery-intensive, keep plugged in |
 
 Then an admin approves it: **Machines** → device with **Exit Node** badge → menu > **Edit route settings** > **Use as
 exit node**. `autoApprovers` skip this.
@@ -39,7 +39,7 @@ blocked by default; keep it with `--exit-node-allow-lan-access=true` or the "All
 
 ## Worked examples
 
-| If the user wants to…                                    | Fetch                                                                           |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Test app behavior for users in other countries           | <https://tailscale.com/docs/use-cases/application-testing/geo-specific-testing> |
-| Protect browsing on untrusted Wi-Fi via their own device | <https://tailscale.com/docs/solutions/secure-traffic-public-wifi-appletv>       |
+| If the user wants to… | Fetch |
+| --- | --- |
+| Test app behavior for users in other countries | <https://tailscale.com/docs/use-cases/application-testing/geo-specific-testing> |
+| Protect browsing on untrusted Wi-Fi via their own device | <https://tailscale.com/docs/solutions/secure-traffic-public-wifi-appletv> |

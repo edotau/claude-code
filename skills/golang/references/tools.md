@@ -50,13 +50,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 
 ### Exit codes
 
-| Code      | Meaning                            | Typical source                              |
-| --------- | ---------------------------------- | ------------------------------------------- |
-| 0         | success, including requested `-h`  | normal return                               |
-| 1         | runtime failure                    | any error from the work                     |
-| 2         | usage error                        | bad flag, wrong arg count, unknown verb     |
-| 3+        | tool-specific, documented outcomes | "diff found", "not logged in" (few, stable) |
-| 130 / 143 | interrupted by SIGINT / SIGTERM    | context cancelled by a signal               |
+| Code | Meaning | Typical source |
+| --- | --- | --- |
+| 0 | success, including requested `-h` | normal return |
+| 1 | runtime failure | any error from the work |
+| 2 | usage error | bad flag, wrong arg count, unknown verb |
+| 3+ | tool-specific, documented outcomes | "diff found", "not logged in" (few, stable) |
+| 130 / 143 | interrupted by SIGINT / SIGTERM | context cancelled by a signal |
 
 - Map errors to codes in one place (`exitCode(err)`, `errors.As` on a typed error carrying the code); changing a code
   breaks scripts.
@@ -124,15 +124,15 @@ JSON/TOML file plus `os.LookupEnv`.
 - Never raise the `go` line as a side effect: it gates language features and stdlib APIs for every consumer.
   `toolchain go1.27.x` only selects the local toolchain; `GOTOOLCHAIN=local` refuses auto-download.
 
-| Command                                           | Answers                                                  |
-| ------------------------------------------------- | -------------------------------------------------------- |
-| `go mod why -m example.com/m`                     | Shortest import chain that pulls the module in           |
-| `go mod graph \| grep ' example.com/m@'`          | Who requires which version (edges, not the selected set) |
-| `go list -m all`                                  | The selected build list after MVS                        |
-| `go list -m -u all`                               | Which selected modules have newer versions               |
-| `go list -m -versions example.com/m`              | Every tagged version the proxy knows                     |
-| `go version -m ./bin/app`                         | Module versions and build settings embedded in a binary  |
-| `go mod edit -json` / `-go=1.27` / `-droprequire` | Scripted, non-interactive go.mod edits                   |
+| Command | Answers |
+| --- | --- |
+| `go mod why -m example.com/m` | Shortest import chain that pulls the module in |
+| `go mod graph \| grep ' example.com/m@'` | Who requires which version (edges, not the selected set) |
+| `go list -m all` | The selected build list after MVS |
+| `go list -m -u all` | Which selected modules have newer versions |
+| `go list -m -versions example.com/m` | Every tagged version the proxy knows |
+| `go version -m ./bin/app` | Module versions and build settings embedded in a binary |
+| `go mod edit -json` / `-go=1.27` / `-droprequire` | Scripted, non-interactive go.mod edits |
 
 ### Tools in go.mod (Go 1.24+)
 
@@ -162,13 +162,13 @@ A tool requiring a newer `x/sys` raises it for your code too; if that hurts, use
 
 Grep finds text; gopls finds meaning in the build as resolved by your `go.sum` and replaces.
 
-| Question                                                         | Tool                                                  |
-| ---------------------------------------------------------------- | ----------------------------------------------------- |
-| Definition, references, implementers, callers in this workspace  | gopls (MCP server, LSP, or CLI)                       |
-| Signature and doc of an imported symbol, offline                 | `go doc pkg.Symbol`, `go doc -src`, `go doc -all pkg` |
-| Browse docs locally, internal packages included (Go 1.25+)       | `go doc -http`                                        |
-| Versions, licenses, importers, CVEs of a module not yet required | pkg.go.dev, `go list -m -versions`                    |
-| Is this vuln reachable from my code                              | `govulncheck ./...`                                   |
+| Question | Tool |
+| --- | --- |
+| Definition, references, implementers, callers in this workspace | gopls (MCP server, LSP, or CLI) |
+| Signature and doc of an imported symbol, offline | `go doc pkg.Symbol`, `go doc -src`, `go doc -all pkg` |
+| Browse docs locally, internal packages included (Go 1.25+) | `go doc -http` |
+| Versions, licenses, importers, CVEs of a module not yet required | pkg.go.dev, `go list -m -versions` |
+| Is this vuln reachable from my code | `govulncheck ./...` |
 
 ```bash
 gopls definition internal/store/store.go:42:7
@@ -187,30 +187,30 @@ gopls check internal/store/store.go                   # diagnostics for one file
 
 Cheap, deterministic gates first so a syntax or vet failure fails fast.
 
-| Step           | Command                                     | Why                                                     |
-| -------------- | ------------------------------------------- | ------------------------------------------------------- |
-| Module hygiene | `go mod tidy -diff` (Go 1.23+)              | Fails when go.mod/go.sum drift, without editing         |
-| Format         | `test -z "$(gofmt -l .)"`                   | Unformatted files fail the build                        |
-| Vet            | `go vet ./...`                              | Printf, copylocks, lostcancel, unreachable, struct tags |
-| Cross-OS vet   | `GOOS=windows go vet ./...` (plus `darwin`) | Compiles platform-tagged files the host skips           |
-| Lint           | `go tool golangci-lint run`                 | Pinned via `tool`, same version locally and in CI       |
-| Test           | `go test -race -shuffle=on ./...`           | Races and order-dependent tests                         |
-| Vulns          | `go tool govulncheck ./...`                 | Reachable CVEs in deps and stdlib                       |
-| Build          | `CGO_ENABLED=0 go build -trimpath ./...`    | Reproducible, path-free binaries                        |
+| Step | Command | Why |
+| --- | --- | --- |
+| Module hygiene | `go mod tidy -diff` (Go 1.23+) | Fails when go.mod/go.sum drift, without editing |
+| Format | `test -z "$(gofmt -l .)"` | Unformatted files fail the build |
+| Vet | `go vet ./...` | Printf, copylocks, lostcancel, unreachable, struct tags |
+| Cross-OS vet | `GOOS=windows go vet ./...` (plus `darwin`) | Compiles platform-tagged files the host skips |
+| Lint | `go tool golangci-lint run` | Pinned via `tool`, same version locally and in CI |
+| Test | `go test -race -shuffle=on ./...` | Races and order-dependent tests |
+| Vulns | `go tool govulncheck ./...` | Reachable CVEs in deps and stdlib |
+| Build | `CGO_ENABLED=0 go build -trimpath ./...` | Reproducible, path-free binaries |
 
 ## Troubleshooting
 
-| Symptom                                            | First move                                                                                       |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Build fails oddly or depends on env                | `go env` (GOFLAGS, GOOS, CGO_ENABLED, GOWORK), then `go build -x -v`                             |
-| Wrong file compiled or missing                     | `go list -f '{{.GoFiles}} {{.IgnoredGoFiles}}' ./pkg`                                            |
-| Crash with partial stack                           | `GOTRACEBACK=all` (every goroutine), `=crash` for a core dump                                    |
-| Hang                                               | SIGQUIT (`kill -QUIT`) dumps all goroutines; or `/debug/pprof/goroutine?debug=2`                 |
-| Flaky test                                         | `go test -race -count=50 -run '^TestX$' ./pkg`, then `-shuffle=<seed>` from the failure          |
-| GC or scheduler suspicion                          | `GODEBUG=gctrace=1` or `schedtrace=1000`                                                         |
-| Regression with a known good commit                | `git bisect run go test -run '^TestX$' ./pkg`                                                    |
-| `go.mod requires go >= 1.27 (… GOTOOLCHAIN=local)` | Install the toolchain or unset `local`                                                           |
-| cgo `C compiler "gcc" not found` / link errors     | `CGO_ENABLED=0`, or install gcc and `pkg-config` deps (cross-compiling needs a cross C compiler) |
+| Symptom | First move |
+| --- | --- |
+| Build fails oddly or depends on env | `go env` (GOFLAGS, GOOS, CGO_ENABLED, GOWORK), then `go build -x -v` |
+| Wrong file compiled or missing | `go list -f '{{.GoFiles}} {{.IgnoredGoFiles}}' ./pkg` |
+| Crash with partial stack | `GOTRACEBACK=all` (every goroutine), `=crash` for a core dump |
+| Hang | SIGQUIT (`kill -QUIT`) dumps all goroutines; or `/debug/pprof/goroutine?debug=2` |
+| Flaky test | `go test -race -count=50 -run '^TestX$' ./pkg`, then `-shuffle=<seed>` from the failure |
+| GC or scheduler suspicion | `GODEBUG=gctrace=1` or `schedtrace=1000` |
+| Regression with a known good commit | `git bisect run go test -run '^TestX$' ./pkg` |
+| `go.mod requires go >= 1.27 (… GOTOOLCHAIN=local)` | Install the toolchain or unset `local` |
+| cgo `C compiler "gcc" not found` / link errors | `CGO_ENABLED=0`, or install gcc and `pkg-config` deps (cross-compiling needs a cross C compiler) |
 
 ```bash
 go build -x -work ./cmd/app 2>&1 | less        # every compile/link command; keeps the temp dir
@@ -267,12 +267,12 @@ admin.Handle("/debug/vars", expvar.Handler())
 go func() { errc <- http.ListenAndServe("127.0.0.1:6060", admin) }()
 ```
 
-| Endpoint                                                         | Use                                                                           |
-| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `go tool pprof -http=: host:6060/debug/pprof/profile?seconds=30` | CPU hotspots                                                                  |
-| `.../debug/pprof/heap` (`-sample_index=alloc_space` for churn)   | Live heap or allocation volume                                                |
-| `.../debug/pprof/goroutine?debug=2`                              | Full stacks: leaks and deadlocks                                              |
-| `.../debug/pprof/mutex`, `.../block`                             | Contention; off until `runtime.SetMutexProfileFraction`/`SetBlockProfileRate` |
-| `curl host:6060/debug/vars`                                      | `expvar` counters plus `memstats` and `cmdline` as JSON                       |
+| Endpoint | Use |
+| --- | --- |
+| `go tool pprof -http=: host:6060/debug/pprof/profile?seconds=30` | CPU hotspots |
+| `.../debug/pprof/heap` (`-sample_index=alloc_space` for churn) | Live heap or allocation volume |
+| `.../debug/pprof/goroutine?debug=2` | Full stacks: leaks and deadlocks |
+| `.../debug/pprof/mutex`, `.../block` | Contention; off until `runtime.SetMutexProfileFraction`/`SetBlockProfileRate` |
+| `curl host:6060/debug/vars` | `expvar` counters plus `memstats` and `cmdline` as JSON |
 
 - `trace.NewFlightRecorder` (Go 1.25+) keeps the last seconds of execution trace in memory for a post-incident dump.

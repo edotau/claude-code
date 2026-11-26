@@ -64,14 +64,14 @@ hand.
 
 ## Files + mutation contracts
 
-| File                | Holds                                                                                             | Contract                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/files/memory/prompts/init.md` seeds it) | Replace, sparingly                                                           |
-| `activeContext.md`  | Focus, open questions, blockers, next steps                                                       | **Replace** each session end                                                 |
-| `progress.md`       | What Works / In Progress / What's Next / Known Issues                                             | **Replace** each session end                                                 |
-| `decisionLog.md`    | Dated decisions + rationale                                                                       | **Append-only, newest first; supersede, never delete**                       |
-| `conventions.md`    | Learned patterns not yet promoted                                                                 | Append; `memory dream` prunes                                                |
-| `sessionHistory.md` | Newest-first summaries                                                                            | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
+| File | Holds | Contract |
+| --- | --- | --- |
+| `projectContext.md` | Orientation + do-not-regress invariants (`internal/assets/files/memory/prompts/init.md` seeds it) | Replace, sparingly |
+| `activeContext.md` | Focus, open questions, blockers, next steps | **Replace** each session end |
+| `progress.md` | What Works / In Progress / What's Next / Known Issues | **Replace** each session end |
+| `decisionLog.md` | Dated decisions + rationale | **Append-only, newest first; supersede, never delete** |
+| `conventions.md` | Learned patterns not yet promoted | Append; `memory dream` prunes |
+| `sessionHistory.md` | Newest-first summaries | Append at top; past the cap rotates to `archive/sessionHistory-<yyyy-mm>.md` |
 
 Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name>.md`, knowledge
 `knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
@@ -140,15 +140,15 @@ pointer.
 
 ## Caps
 
-| Limit                                 | Value                                                                         | Defined by                 |
-| ------------------------------------- | ----------------------------------------------------------------------------- | -------------------------- |
-| `projectContext.md` · `progress.md`   | 60 lines each                                                                 | `fileCaps`                 |
-| `activeContext.md` · `conventions.md` | 80 lines each                                                                 | `fileCaps`                 |
-| `decisionLog.md`                      | 200 lines                                                                     | `fileCaps`                 |
-| `sessionHistory.md`                   | 30 entries (rotates)                                                          | `sessionHistoryMaxEntries` |
-| Generated `MEMORY.md`                 | 120 lines / 12 KB; newest drop first, pins stay (warns)                       | `bankIndexMaxLines/Bytes`  |
-| Pinned lines                          | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*`               |
-| Whole `MEMORY.md` (native index)      | 200 lines / 25 KB                                                             | Claude Code loader         |
+| Limit | Value | Defined by |
+| --- | --- | --- |
+| `projectContext.md` · `progress.md` | 60 lines each | `fileCaps` |
+| `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
+| `decisionLog.md` | 200 lines | `fileCaps` |
+| `sessionHistory.md` | 30 entries (rotates) | `sessionHistoryMaxEntries` |
+| Generated `MEMORY.md` | 120 lines / 12 KB; newest drop first, pins stay (warns) | `bankIndexMaxLines/Bytes` |
+| Pinned lines | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*` |
+| Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code loader |
 
 The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow;
 `activeContext.md` and `progress.md` split per section into `archive/<file>-<yyyy-mm>.md`.
