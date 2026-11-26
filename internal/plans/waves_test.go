@@ -247,6 +247,45 @@ func BenchmarkParseWaves(b *testing.B) {
 	}
 }
 
+func TestAddTaskOrderedOverlap(t *testing.T) {
+	first := "- [ ] Phase 1.1 — First — leaf: claude, Agent: claude — owns: a.go\n"
+	// wrap lands "Blocked by:" on its own indented line, then splits the key itself across a newline
+	wrapped := "- [ ] Phase 1.2 — " + strings.Repeat("second ", 20) + "— leaf: claude, Agent: pi —\n" +
+		"      Blocked\n" +
+		"      by: Phase 1.1 — owns: a.go\n"
+	file := wavesFile(t, "## Tasks\n\n"+first+wrapped)
+	if _, err := ParseWaves(file); err != nil {
+		t.Fatalf("ordered overlap across a wrapped blocker: %v", err)
+	}
+	err := AddTask(file, WaveTask{ID: "Phase 1.3", Task: "Third", Leaf: "claude", Agent: "pi", Owns: []string{"b.go"}})
+	if err != nil {
+		t.Fatalf("ordered overlap blocked an unrelated add: %v", err)
+	}
+	plain := "- [ ] Phase 1.2 — " + strings.Repeat("second ", 20) + "— leaf: claude, Agent: pi —\n" +
+		"      Blocked by: Phase 1.1 — owns: a.go\n"
+	if _, err := ParseWaves(wavesFile(t, "## Tasks\n\n"+first+plain)); err != nil {
+		t.Fatalf("ordered overlap across an indented blocker line: %v", err)
+	}
+	bare := wavesFile(t, "## Tasks\n\n"+first)
+	err = AddTask(bare, WaveTask{ID: "Phase 1.2", Task: "shares with no order", Leaf: "claude", Agent: "pi", Owns: []string{"a.go"}})
+	if err == nil || !strings.Contains(err.Error(), "owns: overlaps Phase 1.1 at a.go") {
+		t.Fatalf("unordered share: %v", err)
+	}
+	line := func(id, extra string) string {
+		return "- [ ] Phase 1." + id + " — T — leaf: claude, Agent: pi" + extra + " — owns: a.go\n"
+	}
+	// 1.1 and 1.3 order against 1.2 but not each other: 1.2 must not hide 1.1 from 1.3
+	hidden := "## Tasks\n\n" + line("1", "") + line("2", ", Blocked by: 1.1, 1.3") + line("3", "")
+	if _, err := ParseWaves(wavesFile(t, hidden)); err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("unordered pair behind a shared blocker: %v", err)
+	}
+	// a ticked intermediate is satisfied, so it orders nothing behind it
+	done := "## Tasks\n\n" + line("1", ", Blocked by: 1.2") + strings.Replace(line("2", ", Blocked by: 1.3"), "[ ]", "[x]", 1) + line("3", "")
+	if _, err := ParseWaves(wavesFile(t, done)); err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("order through a ticked task: %v", err)
+	}
+}
+
 func TestAddTaskRendersParsableLine(t *testing.T) {
 	file := wavesFile(t, "## Tasks\n\n- [ ] Phase 1.1 — First — leaf: claude, Agent: claude — owns: a.go\n")
 	err := AddTask(file, WaveTask{ID: "Phase 1.2", Task: "Second", Leaf: "claude", Agent: "pi", BlockedBy: []string{"Phase 1.1"}, Owns: []string{"b.go", "c.go"}})

@@ -362,7 +362,13 @@ func ownsRefusal(own string) string {
 func (t Task) closed() bool { return t.Done || t.Dropped }
 
 func waveOverlap(w Wave) error {
-	owners := map[string]string{}
+	byID := map[string]WaveTask{}
+	for _, t := range w.Tasks {
+		byID[t.ID] = t
+	}
+	reach := map[string]map[string]bool{} // per task, every task its BlockedBy chain reaches; built once
+	type owner struct{ own, id string }
+	var owners []owner // every earlier owner is kept: an ordered pair must not hide a third task
 	for _, t := range w.Tasks {
 		if t.Manual || t.Done {
 			continue // a ticked task launches nothing, so its files are free
@@ -371,16 +377,42 @@ func waveOverlap(w Wave) error {
 			if strings.EqualFold(strings.TrimSpace(own), "none") {
 				continue // `owns: none` marks a task that edits no file, so it shares nothing
 			}
-			for _, prev := range slices.Sorted(maps.Keys(owners)) {
-				id := owners[prev]
-				if id != t.ID && OwnsOverlap(prev, own) {
-					return &WaveError{t.ID, "owns: overlaps " + id + " at " + own}
+			for _, prev := range owners {
+				if OwnsOverlap(prev.own, own) && !blockerOrdered(t.ID, prev.id, byID, reach) {
+					return &WaveError{t.ID, "owns: overlaps " + prev.id + " at " + own}
 				}
 			}
-			owners[own] = t.ID
+			owners = append(owners, owner{own, t.ID})
 		}
 	}
 	return nil
+}
+
+// blockerOrdered reports whether from and to are one task or reach each other through BlockedBy, cycle-safe.
+func blockerOrdered(from, to string, byID map[string]WaveTask, reach map[string]map[string]bool) bool {
+	return from == to || reachable(from, byID, reach)[to] || reachable(to, byID, reach)[from]
+}
+
+// reachable caches the tasks from's BlockedBy chain reaches; a ticked task orders nothing behind it.
+func reachable(from string, byID map[string]WaveTask, reach map[string]map[string]bool) map[string]bool {
+	if r, ok := reach[from]; ok {
+		return r
+	}
+	r := map[string]bool{}
+	stack := append([]string(nil), byID[from].BlockedBy...)
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if r[id] {
+			continue
+		}
+		r[id] = true
+		if !byID[id].Done {
+			stack = append(stack, byID[id].BlockedBy...)
+		}
+	}
+	reach[from] = r
+	return r
 }
 
 // OwnsOverlap reports whether two owned paths or globs name the same file or one contains the other.
