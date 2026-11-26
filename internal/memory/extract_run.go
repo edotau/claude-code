@@ -38,7 +38,7 @@ type ExtractRunReport struct {
 	RemainingSHA256 string       `json:"remaining_sha256,omitempty"`
 }
 
-// RunExtract resolves the same store as upgrade and never calls a model.
+// RunExtract classifies or purges the store without calling a model.
 func RunExtract(o ExtractRunOptions, w io.Writer) error {
 	if err := validateExtractRun(o); err != nil {
 		return err
@@ -595,31 +595,78 @@ func dreamExtract(o dreamOptions, agentErr error) {
 		fmt.Fprintln(o.Out, "memory dream: extract:", err)
 		return
 	}
+	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
+	refused, err := ExtractRefusals(ledger)
+	if err != nil {
+		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		return
+	}
+	pass := extractPass{o: o, root: root, ledger: ledger, refused: refused, opts: opts}
 	for _, folder := range result.Folders {
 		for _, group := range folder.Groups {
 			if folder.OverBudget == 0 || group.Action != ExtractRewrite {
 				continue
 			}
-			report, err := dreamExtractGroup(root, group, opts)
-			if err != nil {
-				fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+			if !pass.try(folder.Folder, group) {
 				return
 			}
-			fmt.Fprintf(o.Out, "memory dream: extract %s consolidated %d files; %s\n", folder.Folder, len(group.Paths), report)
-			return
 		}
 	}
 }
 
-func dreamExtractGroup(root string, group ExtractGroup, opts ExtractOptions) (report ExtractRecallReport, err error) {
+// extractPass is one dream run's extract state: the store, the refusal ledger and what it already refused.
+type extractPass struct {
+	o            dreamOptions
+	root, ledger string
+	refused      map[string]string
+	opts         ExtractOptions
+}
+
+// try attempts one group; false once a group was tried (rewritten or refused), true to go on to the next.
+func (p extractPass) try(folder string, group ExtractGroup) bool {
+	o, root, ledger, refusals, opts := p.o, p.root, p.ledger, p.refused, p.opts
+	sources, err := dreamReadSources(root, group.Paths)
+	if err != nil {
+		fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+		return false
+	}
+	hash := extractGroupHash(sources)
+	if reason, ok := refusals[hash]; ok {
+		fmt.Fprintf(o.Out, "memory dream: extract skipped %s group (%d files): refused earlier: %s\n", folder, len(group.Paths), reason)
+		return true
+	}
+	report, err := dreamExtractGroup(root, group, sources, opts)
+	if err == nil {
+		fmt.Fprintf(o.Out, "memory dream: extract %s consolidated %d files; %s\n", folder, len(group.Paths), report)
+		return false
+	}
+	fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+	if errors.As(err, new(extractChecked)) && refused(err) {
+		recErr := WithBankLock(BankLockWait, func() error {
+			current, readErr := dreamReadSources(root, group.Paths)
+			if readErr != nil || extractGroupHash(current) != hash {
+				return readErr
+			}
+			return RecordExtractRefusal(ledger, time.Now(), hash, err)
+		})
+		if recErr != nil {
+			fmt.Fprintln(o.Out, "memory dream: extract:", recErr)
+		}
+	}
+	return false
+}
+
+// extractChecked marks a refusal by the validator, loss or recall check: the only kind a group is skipped for.
+type extractChecked struct{ err error }
+
+func (e extractChecked) Error() string { return e.err.Error() }
+func (e extractChecked) Unwrap() error { return e.err }
+
+func dreamExtractGroup(root string, group ExtractGroup, sources map[string][]byte, opts ExtractOptions) (report ExtractRecallReport, err error) {
 	if len(opts.AccessLogs) == 0 {
 		return report, ErrExtractNoAccessLog
 	}
 	if report.BytesBefore, report.ScanBefore, err = ExtractRecallMeasure(root); err != nil {
-		return report, err
-	}
-	sources, err := dreamReadSources(root, group.Paths)
-	if err != nil {
 		return report, err
 	}
 	ans, err := RewriteExtractGroup(context.Background(), root, group, "")
@@ -665,9 +712,18 @@ func dreamApplyChecked(root string, group ExtractGroup, ans ExtractRewriteAnswer
 	if err != nil {
 		return report, err
 	}
+	debit, err := snapshotFile(ledger)
+	if err != nil {
+		return report, err
+	}
 	if err := RecordExtractLoss(ledger, time.Now(), report.Lost); err != nil {
 		return report, err
 	}
-	_, err = ApplyExtractRewrite(storeRepo{Dir: root}, group, ans, time.Now())
+	sha, err := ApplyExtractRewrite(storeRepo{Dir: root}, group, ans, time.Now())
+	if err != nil && sha == "" && refused(err) {
+		if restoreErr := debit.restore(); restoreErr != nil {
+			return report, &AfterCommitError{errors.Join(err, restoreErr)}
+		}
+	}
 	return report, err
 }

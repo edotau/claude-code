@@ -34,36 +34,36 @@ paths:
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
   `invoked_model` is the plain model asked (`auto` or the selector; the profile is the route's) and `model` the model
-  that ran. Isolation: `--no-persist` (claude, codex), `--debug-file <path>`
+  that ran. Isolation: overlay `noPersist` (claude, codex), `debugFile` `<path>`
   (claude, gemini).
-- `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
-  `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
+- `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless an overlay `model`,
+  `agent` or `"fallback":"none"` pins the route or claude itself was cut off; it keeps the route and names the move.
   A plain resubmit of the same agent, model and task within 60 minutes of such a cutoff gets the same rule, from
   `state/harness/agent/cutoffs.json` (task hashes only); a successful run on the route clears its entry.
 - `agents ask --loop "<goal>"` (top level only) plans rounds of parts on `--loop-planner` (claude), runs
-  them on the `--batch` pool, retries a failed part once on claude (not a typed model or `--fallback none`) and keeps
+  them on the `--batch` pool, retries a failed part once on claude (not a typed model or `"fallback":"none"`) and keeps
   state in `state/harness/ask/loops/<id>.json`: exit 0 done, 1 `needs_main`, 4 cap or budget, `--loop-resume <id>`.
-- Tools are on by default. With `--tools=false`, claude and opencode launch no tools, copilot's SDK rejects every
-  request, gemini is only instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude
-  only (others exit 2). An allow rule never reopens a deny; claude `--tools` off Anthropic gates only explicit
+- Tools are on by default. With overlay `"tools":false`, claude and opencode launch no tools, copilot's SDK rejects
+  every request, gemini is only instructed not to use them, codex keeps a read-only sandbox shell. `noTools` is claude
+  only (others exit 2). An allow rule never reopens a deny; claude `tools` off Anthropic gates only explicit
   rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Tools.
 - **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by
-  `agents ask --agent pi`, on a Databricks profile through the loopback proxy, with no own login. It runs the models on
-  the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
-  `--tools=false` it runs with no tools. Any tools run runs Pi with `--no-builtin-tools` plus the harness's guard
-  extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
+  `agents ask --overlay '{"agent":"pi"}'`, on a Databricks profile through the loopback proxy, with no own login. It
+  runs the models on the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto
+  pool. With `"tools":false` it runs with no tools. Any tools run runs Pi with `--no-builtin-tools` plus the harness's
+  guard extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
   `hook PreToolUse --pi-guard` (path normalized as Pi does and judged as typed and as the disk spells it,
   `safety-scan`) and fails closed (a guard that fails to load leaves Pi no tools; it refuses any
   Pi but the pinned one); a cancelled or timed-out run gets SIGTERM, a 2 s grace, then every descendant is killed
   (Pi's bash groups included), and the idle watch is held while any tool call runs; Pi proves it loaded by writing the
   run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
-  refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
-  rule tool names match in any case (`write` is `Write`). An `--env` naming `PI_CODING_AGENT_DIR`, `HARNESS_PI_*` or
-  `HARNESS_HOOK_*` is refused. Pi has no permission
+  refused"). `"tools":true` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
+  rule tool names match in any case (`write` is `Write`). An overlay `set` naming `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`
+  or `HARNESS_HOOK_*` is refused. Pi has no permission
   prompts or sandbox of its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
   so a repo's own `.pi` never runs code with your privileges, `--no-approve --no-extensions --no-skills
-  --no-prompt-templates --no-themes`; `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier
+  --no-prompt-templates --no-themes`; `effort` maps to `--thinking` (minimal to max); `"model":"auto"` and tier
   aliases follow the other agents' rules. Wire routing is per model (`internal/pi/config.go` `pickWire`): Claude ids
   on Anthropic Messages, any non-Claude, non-Grok model that serves Responses on the Responses wire, everything else
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
@@ -76,36 +76,36 @@ paths:
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi runner** — an ask of any roster agent except pi whose first hop is its own Databricks route runs through Pi
   first, on the model the agent resolves there; the asked agent's own CLI is the later hop. `runner: own` in the
-  overlay opts a dispatch out. A plain `--agent pi` ask with no fallback mode set (overlay, env, vault) follows
+  overlay opts a dispatch out. A plain `"agent":"pi"` ask with no fallback mode set (overlay, env, vault) follows
   `agents`: pi on the workspace, pi on the other workspaces (same model; not under a rotation's drop or a
   confinement), then claude on that Databricks workspace (`withPiClaudeHop`, `withPiSiblings`).
-  First-party Anthropic, Copilot and Google routes are unchanged. Workspace auto picks and `--fallback none`
-  keep Pi first; model auto picks, a resumed session, `--native` or `--runner own` keep the own CLI.
+  First-party Anthropic, Copilot and Google routes are unchanged. Workspace auto picks and `"fallback":"none"`
+  keep Pi first; model auto picks, a resumed session, `"native":true` or `"runner":"own"` keep the own CLI.
   A profile pin keeps Pi on that workspace (`internal/agent/pirunner.go` `withPiRunner`, `staysOnWorkspace`).
   Planning is fail-closed: invalid policy, overlay or fence inputs stop dispatch instead of bypassing the plan;
   I/O planning failures remain runtime errors, not usage errors.
-  A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
+  A request Pi cannot carry (`--carry`, `host`, `--as`, a vendor session, `"endpoint":"direct"`, a vendor
   budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens through Pi against 61k
   on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles, then the agent's own CLI;
-  hops off Databricks only under a typed `--fallback all`. Last of all, when every hosted hop fails before answering,
+  hops off Databricks only under a typed `"fallback":"all"`. Last of all, when every hosted hop fails before answering,
   one Pi hop on the local Qwen row (`magnitude`/`local`, `ranks.json` `local.stage` `last`;
-  `internal/agent/localhop.go`), receipt `fallback local(<kind>)`; barred by `--fallback none`, a typed pin, model or
-  backend, `--native`/`--host`/`--as`, a fence typed on the command line, a tier outside `local.tiers`, a security
-  brief or a prompt over `local.max_prompt`; one slot, its wait taken from `--timeout`. An overflow refusal re-picks
+  `internal/agent/localhop.go`), receipt `fallback local(<kind>)`; barred by `"fallback":"none"`, a typed pin, model or
+  backend, `native`/`host`/`--as`, a fence typed on the command line, a tier outside `local.tiers`, a security
+  brief or a prompt over `local.max_prompt`; one slot, its wait taken from `timeout`. An overflow refusal re-picks
   once by context size under `all` or `agents` (a typed model is kept, not replaced); a policy refusal and
   `x-should-retry` are typed error classes. Fable is refused on Databricks by name, never run as Opus;
   among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name.
   A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
 - **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
   typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
-  its footer line (`internal/pi/stream.go` `handbackStatuses`). A spec's `own`, `report` and `verify` keys on
-  `agents ask --spec` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
+  its footer line (`internal/pi/stream.go` `handbackStatuses`). A brief's `own`, `report` and `verify` keys on
+  `agents ask --brief` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
   and records it as the result's `verify` object; a failed verify does not change the run's status.
   The record carries per-tool stats.
 - **pi prompt** — a dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space);
-  `--direct` is refused, and Pi has no interactive launch.
-- **pi rtk wrapping** — always on, except a code-mode run (`--codemode on|only`, or `CODEMODE` resolving to on;
-  `--codemode off` wraps; Pi sets `CODEMODE=on` for it): every Pi launch puts `state/harness/rtkwrap/bin`
+  `"endpoint":"direct"` is refused, and Pi has no interactive launch.
+- **pi rtk wrapping** — always on, except a code-mode run (overlay `codemode` `on|only`, or `CODEMODE` resolving to
+  on; `codemode` `off` wraps; Pi sets `CODEMODE=on` for it): every Pi launch puts `state/harness/rtkwrap/bin`
   first on PATH and, with code mode off, sets `BASH_ENV` to its `.bash_env` (an EXIT trap that stops bash exec'ing
   a line's last command, sourcing the user's own `BASH_ENV` first). Its stand-ins (`bin/.rtkwrap`, one symlink per
   rtk command) run `rtk <cmd>` only when stdout is a pipe and Pi's own tool shell ran the command.
@@ -119,21 +119,22 @@ paths:
   agy cannot rewrite (it judges its own rules on the rewritten text, so `rtk <cmd>` escapes them) and gets
   awareness text only.
   `claude-code doctor` shows one rtk row per agent.
-- **code mode (trial, per agent)** — `agents ask --tools --codemode off|on|only`, or `CODEMODE=off|on|only` per
-  machine (a typed flag wins, so `off` beats the setting; ignored without `--tools`). Each agent with a row
-  (`agentid.CodeModeAgents()`: pi, claude, opencode) turns it on its own way: pi loads `builtin:codemode`, where the
-  model writes a script that calls the guard's tools in a QuickJS sandbox, and `only` routes every tool through
-  scripts; claude takes `on` only on the direct Anthropic route (`--provider anthropic`), via its
-  `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` in the `--settings` env block; opencode takes `on` via
+- **code mode (trial, per agent)** — `agents ask --overlay '{"codemode":"off|on|only","tools":true}'`, or
+  `CODEMODE=off|on|only` per machine (a typed flag wins, so `off` beats the setting; ignored without `tools`). Each
+  agent with a row (`agentid.CodeModeAgents()`: pi, claude, opencode) turns it on its own way: pi loads
+  `builtin:codemode`, where the model writes a script that calls the guard's tools in a QuickJS sandbox, and `only`
+  routes every tool through scripts; claude takes `on` only on the direct Anthropic route (overlay
+  `"provider":"anthropic","profile":"auto"`),
+  via its `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` in the `--settings` env block; opencode takes `on` via
   `OPENCODE_EXPERIMENTAL_CODE_MODE`. A run that cannot give code mode (no row, `only` where it is not offered, claude
-  off the direct route, or `--tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
+  off the direct route, or `tools` off) runs with code mode off and prints `codemode: off for <agent> (<reason>)`,
   recorded as `codemode_reason`; only a misspelled value exits 2. The guard allows pi's one tool only from
   `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
-  experiments, rule 4). The type `coworker` means Pi in code mode (`--agent coworker` is `--agent pi --codemode
-  on`): `CodeModeRow.TypedByMode` on Pi's row (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi
-  code-mode run `coworker` (receipt `coworker`) and a Pi run with code mode off by its model (`claude`,
-  runner `pi`).
-  Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
+  experiments, rule 4). The type `coworker` means Pi in code mode (`"agent":"coworker"` is
+  `"agent":"pi","codemode":"on"`): `CodeModeRow.TypedByMode` on Pi's row
+  (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi code-mode run `coworker` (receipt `coworker`) and a
+  Pi run with code mode off by its model (`claude`, runner `pi`). Plan:
+  `/Users/edotau/.claude/plans/2026-11-22-pi-codemode-trial.md`; the per-agent rollout:
   `/Users/edotau/.claude/plans/claude-code/2026-11-24-codemode-every-agent.md`.
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
@@ -164,79 +165,109 @@ paths:
   line reads `compacting 12s` or `retrying 4s` (the announced wait) instead of `quiet`, until the next log line.
 - The wave owned-files gate covers pi, and `doctor` has the rows
   `pi route`, `tool pi` and `pi packages`.
-- `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
-  `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
-  takes the same selector; `--host` with `--agents` exits 2.
-- `agents ask --spec FILE|-|'{...}'`: one JSON object whose keys are ask's own flag names (generated from its FlagSet;
-  `prompt` is the task; `overlay`, `agents`, `output-schema` also take an object). An unknown key or bad value exits 2
-  naming the nearest key; typed flags beat the spec, typed list flags add to it. A `route` object takes provider,
-  profile, identity (`--as`), agent, runner (`pi|own`) and fallback (`--fallback`), each equal to its flag and checked
-  by the same validators (`coworker` as agent is Pi in code mode); an unknown key exits 2;
-  `host`, `remote`, `account` and a null are ignored with a stderr line, and a top-level key wins. `--batch` lines use
-  the same keys (`id`, `plan_task` extra; a batch-wide key on a line exits naming it).
+- `agents ask --overlay '{"agents":<json>}'` defines agents inline (`name`, `description`, `prompt`, `tools`,
+  `model`, `max_turns`, `agent`, `profile`, `effort`); `agent` also takes an `agents` key. With `--batch`, a line's
+  `agent` takes the same selector; `host` with `agents` exits 2.
+- `agents ask --brief FILE|-|'{...}'`: task-only JSON (`prompt`, `own`, `report`, `verify`, `contract`, `action`);
+  configuration goes in `--overlay`. An unknown key or bad value exits 2 naming the nearest key. `--batch` lines take
+  the same keys plus `id` and `plan_task` (a batch-wide key on a line exits naming it).
   `--dry-run` prints agent, route (as `gateway resolve`), hops, overlay and the canonical argv through the real
   resolvers; it saves no record and calls no model and stamps neither workspace nor model picks;
   not with `--live`, `--batch`, `--job`.
-- **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
-  (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
-  normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context, never the
-  dispatch's env. A route is ONE unit (provider, profile, identity, account, host, remote) taken whole from the highest
-  source that sets any of it: command line (flags + `--overlay`) > `COWORKER_OVERLAY` > `--retry`/`--job` record > agent
-  definition > vault record > session > registry default; settings (model, effort, fallback…) merge per key (order,
-  fallback: `providers.md` → Routing precedence). An inherited `COWORKER_OVERLAY` from a parent dispatch is a fence, not
-  a source; `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and credential env names are
-  refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.  An object that
-  sets any route key names provider AND profile (a github account route: provider `github` + `account`); a partial
-  object exits 2 naming the missing key. Flags take the same pair: `--provider P --profile N`, or `--overlay
-  '{"provider":"P","profile":"N"}'`; a provider with profiles typed alone, or a registry profile typed without its
-  provider, exits 2; a provider with no profiles takes `--provider P` alone. The pool pick (least busy workspace serving
-  the model) is the overlay profile `auto`: `ask --profile auto` and `label` refuse it. A flag and `--overlay` setting
-  one key differently on one command line exit 2 naming both; `--spec` stays a template typed flags beat. Interactive
-  launchers accept route, `model` and `effort` in `--overlay`; a key marked `dispatch` in the table below is refused
-  naming the key. Held-job hints print `--overlay '<object>'`; batch lines take an `overlay` key.  **Two steps.** The
-  *launch overlay* is built first, from `settings.json` and the vault (the keys, records and configs each agent's launch
-  needs); the *dispatch overlay* (`--overlay {}`, `COWORKER_OVERLAY`, flags folded into it) is laid over it per call. A
-  child's overlay is a copy of its parent's, changed by one function (`Overlay.Derive`, one hop per step: append,
-  session child, dispatch child, resume, fallback); never a reference, never an ambient variable. A child copy keeps
-  only the "child: yes" keys below; every other key is dropped, so what a child receives is that column and nothing
-  else.  Every overlay key (the embedded `overlay.schema.json`, one `Overlay` type). Schema: `both` = the launch and the
-  dispatch overlay; `dispatch` = the launch refuses it naming the key; `launch` = the launch overlay only. Child: `yes`
-  = copied into a child's overlay. Tighten: a child may only narrow or lower it, never loosen.  | Key
-  | Type                 | Schema   | Child | Tighten | | ------------------------------------ | -------------------- |
-  -------- | ----- | ------- | | `schema`                             | integer, 0-2         | both     | no    | no
-  | | `provider`, `profile`                | string, string       | both     | yes   | no      | | `identity`,
-  `account`, `endpoint`    | string               | both     | yes   | no      | | `model`, `effort`
-  | string, enum         | both     | no    | no      | | `fallback`                           | enum                 |
-  dispatch | yes   | no      | | `runner`                             | enum `pi\|own`       | both     | yes   | no
-  | | `host`, `remote`                     | string (ssh host)    | both     | no    | no      | | `providerMode`
-  | map name to mode     | both     | no    | no      | | `set`, `unset`, `keep`               | map / list / list    |
-  both     | no    | no      | | `tokenCommand`                       | list of string       | dispatch | no    | no
-  | | `maxChildren`, `maxTreeTokens`       | integer              | both     | yes   | yes     | | `maxDepth`
-  | integer              | both     | yes   | yes     | | `codemode`                           | enum `off\|on\|only` |
-  both     | yes   | no      | | `fence`                              | object               | both     | yes   | yes
-  | | `budgetUSD`, `budgetCredits`         | number, integer      | both     | no    | yes     | | `codexNetwork`,
-  `cloud`              | boolean              | dispatch | no    | no      | | `noTools`, `noPersist`               |
-  boolean              | both     | yes   | yes     | | `tools`                              | boolean              |
-  both     | false | yes     | | `timeout`                            | Go duration, <= 24h  | both     | yes   | yes
-  | | `agent`, `agents`, `tier`            | string, object, enum | both     | no    | no      | | `systemPrompt`,
-  `appendSystemPrompt` | string               | both     | no    | no      | | `outputSchema`, `debugFile`          |
-  string               | both     | no    | no      | | `googleTools`                        | comma list           |
-  both     | no    | no      | | `native`, `autonomous`, `fleet`      | boolean              | both     | no    | no
-  | | `enableMemory`                       | boolean              | both     | no    | no      | | `file`
-  | path (codex toml)    | launch   | no    | no      | | `files`                              | reserved, refused    |
-  none     | no    | no      |  Notes. `provider` and `profile` travel as one unit with `identity`, `account` and
-  `endpoint` (identity is Databricks only, account GitHub only); a child's `profile` also becomes its fence.
-  `maxChildren` and `maxTreeTokens` resolve env > overlay > default (8, 20000000); 0 = no cap, invalid = default; a
-  child takes the smaller. `budgetUSD` is Claude only (`--max-budget-usd`, > 0), `budgetCredits` Copilot only (integer
-  >= 30); a child's own budget is capped at its parent's. `codexNetwork` gives codex `--tools` `workspace-write` a
-  network (inert under `danger-full-access`; top-level ask only); `cloud` sends the diff or repo to the vendor's cloud
-  (`claude review`, `codex cloud exec`; own login). `model`, `effort`, `fallback`, `host` fold onto a flag no one typed
-  (flag > overlay > default). The run keys (`agent` to `file`) are accepted and carried across hops, but the ask path
-  does not read them yet.
+- **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: one flat JSON document
+  (current schema 2; omitted or older schema accepted), as a private regular file (≤ 64 KiB), inline `'{...}'` or `-`.
+  Typed unknown keys stop with a key-naming error and an investigation event; stored unknown keys warn, report the
+  event and are dropped. Invalid values stop, except malformed optional caps, which use the default. File ownership,
+  env-name refusals, relaunch and `--env` details: `dispatch-policy-details.md`; the key catalogue is only below.
+
+  **Two steps (R36's standard).** Launch takes `settings.json` and the vault's keys and configs; dispatch takes a
+  copy of the parent's overlay plus that call's input. `Overlay.Derive` copies by value: append/resume preserve the
+  base, child hops first select the inherited subset, and fallback keeps the base but clears the model when the
+  provider/profile changes without an explicit model. No dispatch writes back to its parent. A child hop then lays
+  its own keys over the subset; Child below describes inherited values, not everything the resulting child can hold.
+
+  **What a child receives.** `Derive`'s child hops (`HopSessionChild`, `HopDispatchChild`) start from `childCopy`: the
+  route unit (endpoint, provider, profile, identity, account), the fence, `maxChildren`, `maxTreeTokens`, `maxDepth`,
+  `fallback`, `runner`, `codemode` and the run restrictions (`noTools`, `noPersist` and `tools: false` only when set,
+  `timeout`); the Child column below marks the keys and the notes cover the restrictions. A dispatch child also fences
+  itself to the leaf's own profile, narrowed by the inherited fence; a session child adds no fence. Model, effort, host,
+  remote, `set`, `unset`, `keep`, `tokenCommand`, budgets and the other run keys do not cross, so no shell model
+  variable or kept credential name reaches a sub-leaf. A child's own budget is capped at the parent's.
+  `HopResume` replays a saved overlay whole, and only a typed key overrides it.
+
+  **Saved and replayed state.** A launch saves its overlay: Claude's session file holds the unit, model, inherited
+  caps, runner and fence, and `--resume` replays it with `HopResume`. The job record stores the unit, model, fallback,
+  caps and budgets as `Overlay`, and `--retry` and `--job` replay it through `Record.ReplayOverlay`. Ask folds the
+  overlay's run keys onto its flags (a typed flag wins) and selects `--overlay`, else the run's `COWORKER_OVERLAY`, else
+  the vault default (top-level only), rather than merging all three documents; settings fold under typed flags
+  (`providers.md` → Routing precedence). `COWORKER_OVERLAY` carries a child copy in the child process's env; it is not
+  an extra configuration schema.
+
+  **Not done yet.** The per-setting `ask` flags (`--provider`, `--profile`, `--model`, `--host` and the rest) still
+  parse beside `--overlay`, though the owner ruled `--overlay` only (D8). The waves `rerun` line still prints
+  `--provider` and `--profiles`, and the remote ask still emits `--profile` and `--env` beside the overlay document.
+
+  An explicit route names provider and profile together; endpoint travels with that unit (omitted endpoint uses the
+  provider row). A partial unit is refused. Flags must agree with a typed overlay; a provider with profiles needs its
+  profile, while a provider without profiles may be selected alone by flag. The pool pick is overlay profile `auto`;
+  `ask --profile auto` and `label` refuse it. Held-job hints and batch lines carry an overlay document.
+
+  Every field of `agentconfig.Overlay`, including its embedded route and run fields, appears once in this table.
+  Type is the Go type (`*` means optional; `json.RawMessage` holds JSON). Schema describes acceptance: `both` passes
+  the launch and dispatch overlay loaders; `dispatch` is refused at launch when set (non-nil pointer or true boolean);
+  `none` is refused whenever present. Acceptance does not promise that each consumer uses the field. Launch routing
+  from a document requires an explicit `--overlay`; inherited route/model/effort values are not interactive launch
+  settings. Child is the parent value selected by `Derive`'s child hops: `true only`/`false only` means only that
+  boolean value crosses; `reset` means regenerated, not copied. Tighten applies to child/fallback derivation: `yes`
+  cannot loosen, `fenced` is bounded by the inherited fence, and `if set` caps an explicitly supplied value but does
+  not inherit a missing one.
+
+  | Key                                             | Type                | Schema   | Child      | Tighten |
+  | ----------------------------------------------- | ------------------- | -------- | ---------- | ------- |
+  | `schema`                                        | `int`               | both     | reset      | no      |
+  | `provider`, `profile`                           | `string`            | both     | yes        | fenced  |
+  | `identity`, `account`, `endpoint`               | `string`            | both     | yes        | no      |
+  | `model`, `effort`                               | `string`            | both     | no         | no      |
+  | `fallback`                                      | `string`            | dispatch | yes        | no      |
+  | `runner`                                        | `string`            | both     | yes        | no      |
+  | `host`, `remote`                                | `string`            | both     | no         | no      |
+  | `providerMode`, `set`                           | `map[string]string` | both     | no         | no      |
+  | `unset`, `keep`                                 | `[]string`          | both     | no         | no      |
+  | `tokenCommand`                                  | `*[]string`         | dispatch | no         | no      |
+  | `maxChildren`, `maxTreeTokens`, `maxDepth`      | `*int`              | both     | yes        | yes     |
+  | `codemode`                                      | `string`            | both     | yes        | no      |
+  | `fence`                                         | `*route.Fence`      | both     | yes        | yes     |
+  | `budgetUSD`                                     | `*float64`          | dispatch | no         | if set  |
+  | `budgetCredits`                                 | `*int`              | dispatch | no         | if set  |
+  | `codexNetwork`, `cloud`                         | `bool`              | dispatch | no         | no      |
+  | `noTools`, `noPersist`                          | `*bool`             | both     | true only  | yes     |
+  | `tools`                                         | `*bool`             | both     | false only | yes     |
+  | `timeout`                                       | `string`            | both     | yes        | yes     |
+  | `agent`, `tier`                                 | `string`            | both     | no         | no      |
+  | `agents`                                        | `json.RawMessage`   | both     | no         | no      |
+  | `systemPrompt`, `appendSystemPrompt`            | `string`            | both     | no         | no      |
+  | `outputSchema`, `debugFile`, `googleTools`      | `string`            | both     | no         | no      |
+  | `native`, `autonomous`, `fleet`, `enableMemory` | `*bool`             | both     | no         | no      |
+  | `file`                                          | `string`            | both     | no         | no      |
+  | `files`                                         | `json.RawMessage`   | none     | no         | no      |
+
+  Notes. The route unit is replaced together, including identity (Databricks only) and account (GitHub only).
+  Only a dispatch-child hop turns a concrete parent profile into a fence; a session-child hop does not, and `auto`
+  creates no profile fence. A closed inherited fence keeps the provider and admits only its profiles; it does not
+  freeze endpoint or identity. Child schema resets to 2. Caps take the smaller positive value (0 = uncapped,
+  negative/unset = absent); admission also takes the tighter of overlay and legacy env, then uses defaults
+  (width 8, tree tokens 20000000, depth 5) when neither is valid. Budgets are not inherited: if a child supplies one,
+  it cannot exceed the parent's corresponding budget; omitting it leaves it unset. USD is Claude-only (> 0), credits
+  Copilot-only (integer ≥ 30). Tool/persistence restrictions are sticky and timeout can only shorten (positive Go
+  duration string, at most 24h). Append/resume can replace these run restrictions and budgets, not widen caps or fence.
+  `codexNetwork` opens network in codex's `workspace-write` sandbox (top-level ask only; inert under
+  `danger-full-access`); `cloud` opts into vendor cloud execution on the vendor's own login. The run fields are parsed
+  and merged by `Derive`, and ask folds them into its run options; `file` is intended for codex launch config, not
+  consumed from a dispatch overlay.
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 - **Model precedence** (`agent.ResolveRun`; model merges per key across layers, preflight refuses an unserved one):
-  a typed model (`--model`, overlay `model`), then a
+  a typed model (overlay `model`), then a
   typed `auto`, then the agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a
   `Tier: fast|standard|deep` line in the brief wins, else its wording picks (audit, security, parser, design: deep;
   typo, rename, move: fast), and a brief the effort classifier rates high never takes the fast tier.
@@ -244,7 +275,7 @@ paths:
   run. A tier the row
   does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
   `internal/assets/files/catalog/ranks.json`.
-  `--model auto` or `configure agents <agent> model=auto` picks the least-recent eligible model on a rotation row
+  `"model":"auto"` or `configure agents <agent> model=auto` picks the least-recent eligible model on a rotation row
   (Databricks workspace or copilot GitHub login); `auto` rotates models only, never the row. Claude's model never
   rotates: its typed or pinned `auto` runs the brief's tier model (haiku fast, sonnet standard or untiered, opus deep)
   on the row its route names (typed, inherited, pinned, else the session's), and label, `gateway resolve`,
@@ -257,16 +288,16 @@ paths:
   `internal/assets/files/catalog/ranks.json` (unranked models skip both where the tier admits them); a tier's
   `defer_cost`/`defer_turns` make a model that dear take one of every `defer_turns` of its turns (standard: cost 5,
   3 turns; a lone or only-remaining dear model still runs). The vault's
-  `discovery-models` allowlist only narrows it; held models and, under `--tools`, models probed tools `no` are skipped.
+  `discovery-models` allowlist only narrows it; held models and, under `tools`, models probed tools `no` are skipped.
   Outside a rotation row, auto runs the row's tier model (no listing to rank). A cold (missing or stale)
   listing runs the row's tier model with a note; a fresh listing with nothing runnable in the brief's tier and
   nothing held there steps to the standard tier, and only nothing eligible then exits naming held ids, without
   launching; unwritable pick state errors. An untyped, unpinned model keeps the ranked pick.
   Refused auto picks share at most 3 re-picks per ask, including a move after an exhausted pool (a 429 move is
-  free); no re-pick follows streamed text or tool execution. Under `--fallback none` an auto-picked workspace
-  whose pool is exhausted moves to another workspace of the same provider, never past an inherited `--profile`. A
-  typed `--profile <workspace>` is a start, not a lock: a 429 moves it to the next workspace unless
-  `--fallback none`.
+  free); no re-pick follows streamed text or tool execution. Under `"fallback":"none"` an auto-picked workspace
+  whose pool is exhausted moves to another workspace of the same provider, never past an inherited `profile`. A
+  typed `profile` `<workspace>` is a start, not a lock: a 429 moves it to the next workspace unless
+  `"fallback":"none"`.
   Vault agent records store `route`/`fallbackRoute` objects (`configure agents <a> profile=qa` is sugar,
   `route='{…}'` takes the object; legacy profile/account/fallback are read; a copilot record is route
   `{github, account}` plus `fallbackRoute`). Dispatch records write `route`/`ran_route` as objects.
@@ -283,7 +314,7 @@ paths:
   `doctor`'s 7-day rotation summary counts final routes from records with `ran_route`. OpenCode's text catalog
   shows `SERVED` in dev/qa/prod order: `y` READY, `n` not READY, `?` missing/stale cache; login-prefixed ids are blank.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
-  (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
+  (Anthropic); an unlisted `model` is refused at preflight; a model with no openai route is left out of the chat
   list with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router: use codex or copilot.
 - **copilot** follows the session profile (then its pin) through the proxy, except a pin on its own GitHub row, which
@@ -296,20 +327,20 @@ paths:
   (`models.PromptTokens`).
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); an unregistered model fails closed, `--direct` keeps the single-model
-  route, macOS skips the registry. `ask --agent copilot` uses the same registry via the SDK.
+  route, macOS skips the registry. `ask --overlay '{"agent":"copilot"}'` uses the same registry via the SDK.
 For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=dev`) selects the profile.
 Use `claude-code copilot -- databricks` to pass the literal word; everything after the first `--` goes to the
 vendor CLI untouched.
 
-- **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
-  the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
-  `--google-tools search|url|code` (comma list, gemini only: other agents exit 2) turns on Gemini built-ins. On a
-  Databricks row agy sends them in `X-Claude-Code-Google-Tools`; the proxy strips the header, adds
-  `{"urlContext":{}}` / `{"codeExecution":{}}` to a generateContent `tools[]`, and refuses an unserved tool with 400.
-  Preflight refuses first, naming the row's served tools (`options.google_tools`; unset = unprobed: a warning, sent as
-  asked). agy's own Google login refuses every tool: agy has no settings key for them. `computer` and `file` are held.
-  `--retry`/`--job` replay the list; a retry that moves off gemini drops it with a note. Code:
-  `/Users/edotau/.claude/internal/proxy/translate/googletools.go`.
+- **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile
+  (`"provider":"databricks","profile":"<dev|qa|prod>"`) through the agy gateway; `ask --dirs/--files/--diff` inline
+  tracked files only, never `.env*`, `state/` or keys. overlay `googleTools` `search|url|code` (comma list, gemini only:
+  other agents exit 2) turns on Gemini built-ins. On a Databricks row agy sends them in `X-Claude-Code-Google-Tools`;
+  the proxy strips the header, adds `{"urlContext":{}}` / `{"codeExecution":{}}` to a generateContent `tools[]`, and
+  refuses an unserved tool with 400. Preflight refuses first, naming the row's served tools (`options.google_tools`;
+  unset = unprobed: a warning, sent as asked). agy's own Google login refuses every tool: agy has no settings key for
+  them. `computer` and `file` are held. `--retry`/`--job` replay the list; a retry that moves off gemini drops it with a
+  note. Code: `/Users/edotau/.claude/internal/proxy/translate/googletools.go`.
 
 ## Proxy routes
 
@@ -332,17 +363,18 @@ vendor CLI untouched.
 
 ## Pi carrier and experiments
 
-1. **Carrier (D1).** `agents ask --carry --agent <a> [ask flags] -- "<task>"` (spec key `carry`) builds the inner
+1. **Carrier (D1).** `agents ask --carry --overlay '{"agent":"<a>"}' [ask flags] -- "<task>"` builds the inner
    ask line itself (its typed flags minus `--carry`/`--background`) and runs it as a plain child process: the task
    goes in on stdin byte-identical, output streams through, and no model runs on the happy path. Only an agent whose
    roster row sets `CLI.Carry` is carried (codex, copilot, gemini, opencode); pi, claude, a persona, `--live`,
-   `--batch`, `--loop`, `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
+   `--batch`, `--loop`, `--loop-resume`, `--waves`, `--retry`, overlay `host`, `--dry-run`, `--env` and `--overlay -`
+   are refused. Overlay `set` is accepted subject to the overlay's environment restrictions.
    Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
    - **Takeover.** A child cut off (deadline, stall, idle, auth-retry, or a partial/stalled record) is finished by
-     `agents ask --agent pi` under the inner line's tools tier, `--workdir` and overlay caps, on a fixed brief: the
-     task, the last 16 KiB of output, "continue and finish; say what
+     `agents ask --overlay '{"agent":"pi"}'` under the inner line's tools tier, `--workdir` and overlay caps, on a fixed
+     brief: the task, the last 16 KiB of output, "continue and finish; say what
      you changed". Its record has `takeover_of: <child id>`; the receipt prints the child's, then
-     `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `ask`
+     `ask: finished by pi (<model>)`. `"fallback":"none"` with a typed model refuses takeover and says so; an `ask`
      rule refuses it too (Pi has no ask).
    - **Long runs.** Add `--background`, then `claude-code agents result -f <id>`: the `--job` child runs the carrier.
      `result -f --events <id>` streams the child's and a takeover's events, each with `via: <child id>`, then the
@@ -352,15 +384,15 @@ vendor CLI untouched.
      is the child's ancestor.
    - The child inherits the carrier's token caps and any route fence (`COWORKER_OVERLAY`) the carrier
      itself inherited; the carrier adds no route of its own (it runs before ask exports one).
-   - Every other nested dispatch, a plain `--agent pi` run's included, stays fenced to its parent's route.
+   - Every other nested dispatch, a plain `"agent":"pi"` run's included, stays fenced to its parent's route.
 3. **Each shell layer wraps only its own commands.** The rtk stand-ins act in Pi's own tool shell. A carried
    agent's PATH has no shim dir, and the `claude-code agents ask` line between layers is never wrapped.
 4. **Code mode and wrapping.** One gate decides from the environment, with no judgment:
-   - Code mode off (unset or `--codemode off`) → wrap.
+   - Code mode off (unset or `"codemode":"off"`) → wrap.
    - Code mode on → never wrap. A script's `rtk <cmd>` or `rtk bypass <cmd>` has the prefix stripped, so the script
      parses exact output; rtk-only verbs (`read`, `recall`, `gain`) run as typed.
    - A record names one `experiment`: `codemode`, `rtk-wrap` (a bash tool, off Windows) or `none`.
-5. **When to use code mode** (`--codemode on|only` for pi, `on` for claude and opencode, `off` for one call, or
+5. **When to use code mode** (`"codemode":"on|only"` for pi, `on` for claude and opencode, `off` for one call, or
    `CODEMODE` per machine): read-heavy
    work that fans out (audits, sweeps, many-file investigations, a script driving several `agents ask` calls). Not
    single reads or edits: the first runs cost more tokens there.
@@ -387,8 +419,8 @@ vendor CLI untouched.
 | copilot `ask` (SDK)   | appended system text + instruction, skill, agent dirs                                    | `copilot/sdk.go`             |
 | opencode              | `~/.claude/CLAUDE.md` natively; its own `AGENTS.md` **replaces** it, so sync writes none | `project/targets.go`         |
 
-- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --agent copilot` carries no policy;
-  hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are
+- **copilot SDK vs interactive.** Interactive stays `--allow-all`. `ask --overlay '{"agent":"copilot"}'` carries no
+  policy; hooks run natively from `~/.copilot/hooks/*.json`, which the SDK session loads too, so no SDK callbacks are
   registered (each guard would run twice).
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
@@ -403,12 +435,12 @@ vendor CLI untouched.
   (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.
-- **No policy (R30).** No dispatch carries a permission policy: `--tools` gives the agent its tools whole
-  (claude runs `bypassPermissions`), `--tools=false` turns them off, and only `safety-scan` (settings.json deny rules
+- **No policy (R30).** No dispatch carries a permission policy: `"tools":true` gives the agent its tools whole
+  (claude runs `bypassPermissions`), `"tools":false` turns them off, and only `safety-scan` (settings.json deny rules
   and the AI-attribution block) judges calls. `--workdir` is no write boundary for any agent.
 - **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools
   and no fallback to another vendor.
-  Each hop runs at `--fallback none`: the pin, the other Databricks workspaces,
+  Each hop runs at `"fallback":"none"`: the pin, the other Databricks workspaces,
   then `magnitude`/`local` when its `/models` answers within 2 s; a local run is marked lower trust.
 
 ## Codex child routing

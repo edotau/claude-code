@@ -10,12 +10,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/cli/menu"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaultdoc"

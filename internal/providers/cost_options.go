@@ -13,8 +13,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/googletools"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/proxy/translate"
 )
 
 const (
@@ -98,7 +98,7 @@ func (o Options) Validate() error {
 	if o.WarehouseID != "" && !warehouseIDRE().MatchString(o.WarehouseID) {
 		return errors.New("options.warehouse_id must be 1-64 alphanumeric characters")
 	}
-	if _, err := translate.ParseGoogleTools(o.GoogleTools); err != nil {
+	if _, err := googletools.Parse(o.GoogleTools); err != nil {
 		return fmt.Errorf("options.google_tools: %w", err)
 	}
 	return o.validatePrices()

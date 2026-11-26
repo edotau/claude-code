@@ -122,18 +122,58 @@ func childDoc(o agentconfig.Overlay) string {
 // ChildOverlay is the run's overlay copied for a child (D5), over the env this process reads at the top of a tree.
 func ChildOverlay(ctx context.Context, provider, profile string) agentconfig.Overlay {
 	own, loadErr := agentconfig.LoadOverlayContext(ctx, "", nil)
+	return childOverlayOn(ctx, own, UnitOf(own, provider, profile), loadErr)
+}
+
+// childOverlayOn is own copied for a child onto unit, inside own's fence; loadErr is own's read failure.
+func childOverlayOn(ctx context.Context, own, unit agentconfig.Overlay, loadErr error) agentconfig.Overlay {
 	hop := agentconfig.HopSessionChild
 	if inDispatch(ctx) {
 		hop = agentconfig.HopDispatchChild
 	}
 	merged, err := DeriveUnit(ambientOverlay(ctx), own, agentconfig.HopAppend)
 	if err == nil {
-		merged, err = DeriveUnit(merged, UnitOf(own, provider, profile), hop)
+		merged, err = DeriveUnit(merged, unit, hop)
 	}
 	if err != nil || loadErr != nil { // fail closed: the unit under a fence that admits no profile
-		return agentconfig.Overlay{Provider: provider, Profile: profile, Fence: &route.Fence{}}
+		return agentconfig.Overlay{Provider: unit.Provider, Profile: unit.Profile, Fence: &route.Fence{}}
 	}
 	return merged
+}
+
+// childOverlay is the run's confinement for a child; on that same row the launch's endpoint, identity and account win.
+func (p Plan) childOverlay() agentconfig.Overlay {
+	ctx := valuesContext(context.Background(), p.Values)
+	provider, profile, _ := router.OverlayRoute(ctx)
+	own, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	unit := UnitOf(own, provider, profile)
+	in, _, _ := route.ReadDoc(proc.Value(ctx, route.OverlayVar)) // only an existing confinement: a bare unit would fence asks
+	if u := p.launchUnit(); in.Provider != "" && u.Provider == in.Provider && (u.Profile == in.Profile || in.Profile == route.AutoArm) {
+		if u.Profile != in.Profile && strings.Contains(u.Endpoint, "://") {
+			u.Endpoint = "" // a row URL never stands for the auto arm
+		}
+		unit = UnitOf(own, in.Provider, in.Profile)
+		unit.Endpoint, unit.Identity, unit.Account = cmp.Or(u.Endpoint, unit.Endpoint), cmp.Or(u.Identity, unit.Identity), cmp.Or(u.Account, unit.Account)
+	}
+	return childOverlayOn(ctx, own, unit, err)
+}
+
+// launchUnit is the launch's unit on the row it ran; a row URL or another provider's scoped field never moves rows.
+func (p Plan) launchUnit() route.Route {
+	u := p.Unit
+	u.Profile = cmp.Or(p.Set[providers.EnvSessionProfile], p.Profile, u.Profile)
+	if u.Profile != p.Unit.Profile && strings.Contains(u.Endpoint, "://") {
+		u.Endpoint = ""
+	}
+	if reg, err := providers.LoadShared(); err == nil {
+		if row := reg.Row(u.Profile); row != nil && u.Provider != row.Provider {
+			if u.Provider != "" {
+				u.Endpoint, u.Identity, u.Account = "", "", ""
+			}
+			u.Provider = row.Provider
+		}
+	}
+	return u
 }
 
 // inDispatch reports a run that is a dispatch or a dispatch's child: its id is on ctx or in its run values.

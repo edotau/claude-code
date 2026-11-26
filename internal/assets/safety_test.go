@@ -27,7 +27,7 @@ func TestSafetyTextMatchesOldLiterals(t *testing.T) {
 		{"rtk-shadow-none", RtkShadowNone("/b/rtk"), "rtk: no rtk on PATH, so the pinned /b/rtk runs by path — run make install"},
 		{"rtk-shadow-found", RtkShadowFound("/x/rtk"), "rtk: rtk on PATH is /x/rtk, not the pinned binary — run make install"},
 		{"claude-print", ClaudePrintHint(), "headless claude print runs skip dispatch records, routing and recall; " +
-			"use `claude-code agents ask --agent claude \"<task>\"` instead"},
+			"use `claude-code agents ask --overlay '{\"agent\":\"claude\"}' \"<task>\"` instead"},
 		{"copilot-deny", CopilotDenyFeedback(), "Tool use is disabled for this headless run. Answer from the prompt alone."},
 	})
 }

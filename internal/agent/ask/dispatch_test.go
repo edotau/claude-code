@@ -3,9 +3,9 @@ package ask
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -136,17 +136,18 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 	}
 }
 
-// Every flag RegisterRouteFlags defines comes back out of Args, so a new route flag cannot be dropped silently.
+// RouteFlags.Args folds --fallback into the single --overlay document and refuses --overlay -.
 func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	route := RegisterRouteFlags(fs)
+	values := map[string]string{"overlay": `{"runner":"own"}`, "fallback": "none"}
 	var args []string
 	fs.VisitAll(func(f *flag.Flag) {
-		val := "x"
-		if f.Name == "permissions" {
-			val = "plan"
+		value, ok := values[f.Name]
+		if !ok {
+			t.Fatalf("new route flag --%s needs a forwarding assertion", f.Name)
 		}
-		args = append(args, "--"+f.Name, val)
+		args = append(args, "--"+f.Name, value)
 	})
 	if err := fs.Parse(args); err != nil {
 		t.Fatal(err)
@@ -155,11 +156,10 @@ func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs.VisitAll(func(f *flag.Flag) {
-		if !slices.Contains(got, "--"+f.Name) {
-			t.Errorf("route flag --%s is not forwarded by Args: %q", f.Name, got)
-		}
-	})
+	var ov struct{ Runner, Fallback string }
+	if len(got) != 2 || got[0] != "--overlay" || json.Unmarshal([]byte(got[1]), &ov) != nil || ov.Runner != "own" || ov.Fallback != "none" {
+		t.Fatalf("route.Args() = %q, want one --overlay carrying runner and fallback", got)
+	}
 	if _, err := (&RouteFlags{f: askFlags{overlay: "-"}}).Args(); err == nil {
 		t.Error("--overlay - must be refused: stdin carries the batch lines")
 	}

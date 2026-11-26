@@ -277,11 +277,6 @@ func ensureRouter(ctx context.Context) (string, error) {
 	return proxy.TaggedBase(ctx, base, id), nil
 }
 
-// ranIdentityOf is the identity (sp|user) the proxy recorded for dispatch id, "" when none.
-func ranIdentityOf(id string) string { return proxy.ReadRanIdentity(id) }
-
-func ranIdentityPath(id string) string { return proxy.RanIdentityPath(id) }
-
 // refuseDirectContext rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
 func refuseDirectContext(ctx context.Context, direct bool) error {
 	if direct && egress.HostContext(ctx) != "" {
@@ -292,9 +287,14 @@ func refuseDirectContext(ctx context.Context, direct bool) error {
 
 type endpointKey struct{}
 
+// WithEndpoint sets the run's overlay endpoint in ctx; WithDirect sets it to direct.
+func WithEndpoint(ctx context.Context, endpoint string) context.Context {
+	return context.WithValue(ctx, endpointKey{}, endpoint)
+}
+
 // WithDirect is the overlay's `endpoint: direct`: the agent gets the provider's own route and credential.
 func WithDirect(ctx context.Context) context.Context {
-	return context.WithValue(ctx, endpointKey{}, EndpointDirect)
+	return WithEndpoint(ctx, EndpointDirect)
 }
 
 // IsDirect reports a run whose unit endpoint is direct, set by --direct or by its overlay (D2); a bad overlay is not.
@@ -643,19 +643,22 @@ var defaultLauncher Launcher
 
 // LaunchOptions are the harness flags consumed before passthrough.
 type LaunchOptions struct {
-	Values   proc.Values `json:"-"`
-	Provider string      // the profile name from --profile (field name kept until the agent lane moves off it)
-	Model    string      // alias, canonical version or wire id, this launch only
-	Alias    string      // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
-	PrintEnv bool
-	Direct   bool     // agents only: skip the proxy, hand the CLI the profile route
-	KeepEnv  []string // names the credential scrub must not drop, from --keep-env
-	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
-	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
-	Dispatch bool
-	Asked    bool   // Provider was named by the dispatch, not filled from the session profile
-	Binary   string // launcher only: the native claude to exec (VS Code wrapper's bundled path)
-	Route    route.Route
+	Values      proc.Values `json:"-"`
+	Provider    string      // the profile name from --profile (field name kept until the agent lane moves off it)
+	Model       string      // alias, canonical version or wire id, this launch only
+	Alias       string      // opus|sonnet|haiku|fable: the main-loop model; the other slots keep their own pins
+	PrintEnv    bool
+	Direct      bool     // agents only: skip the proxy, hand the CLI the profile route
+	KeepEnv     []string // names the credential scrub must not drop, from --keep-env
+	File        string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
+	Overlay     string   // --overlay <value>; empty reads $COWORKER_OVERLAY
+	Dispatch    bool
+	Asked       bool   // Provider was named by the dispatch, not filled from the session profile
+	Binary      string // launcher only: the native claude to exec (VS Code wrapper's bundled path)
+	Route       route.Route
+	ProfileFlag bool // --profile was typed on this command line
+	ModelFlag   bool // --model was typed on this command line
+	Resumed     bool // launched with -r/--resume from a saved session overlay
 }
 
 func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
@@ -664,8 +667,11 @@ func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) 
 		fields["-f"], fields["--file"] = &o.File, &o.File
 	}
 	if field := fields[name]; field != nil {
-		if name == "--profile" {
-			return func(v string) { o.Provider, o.Route = v, route.FromWord(v) }
+		switch name {
+		case "--profile":
+			return func(v string) { o.Provider, o.Route, o.ProfileFlag = v, route.FromWord(v), true }
+		case "--model":
+			return func(v string) { o.Model, o.ModelFlag = v, true }
 		}
 		return func(v string) { *field = v }
 	}
@@ -693,8 +699,9 @@ type Plan struct {
 	CLI         bool         // true for an agent CLI child: HARNESS_VAULT_KEY is scrubbed too (never for Claude itself)
 	Files       []LaunchFile // written 0600 by WriteFiles before the child starts
 	Warnings    []string
-	ForeignBase bool   // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
-	Profile     string // the profile an agent CLI launch resolved
+	ForeignBase bool        // the shell's ANTHROPIC_BASE_URL differs from the profile's: no harness credential may go there
+	Profile     string      // the profile an agent CLI launch resolved
+	Unit        route.Route // the launch's own unit; the child's overlay carries it whole, so /clear and a fork keep it
 }
 
 // Env applies the plan to base (KEY=VALUE list).
@@ -925,16 +932,6 @@ func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) 
 	return req
 }
 
-// confinementDoc carries the run's provider, profile and inherited dispatch caps.
-func confinementDoc(req RunOptions) string {
-	o := confinementOverlay(valuesContext(context.Background(), req.Values))
-	o.Fallback = "" // remoteScript always passes --fallback, and a flag and the overlay may not differ
-	if req.Codemode != "" {
-		o.Codemode = "" // --codemode crosses as its own flag
-	}
-	return childDoc(o)
-}
-
 // withOverlay layers r over an interactive plan like ApplyOverlay; the vault's standing document never reaches it.
 func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	set := maps.Clone(r.Set)
@@ -944,7 +941,7 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	planSet := p.foldedSet()
 	maps.DeleteFunc(set, func(k string, _ string) bool { return planSet[proc.EnvFold(k)] })
 	maps.Copy(set, p.Set)
-	if doc := confinementDocContext(valuesContext(context.Background(), p.Values)); doc != "" {
+	if doc := childDoc(p.childOverlay()); doc != "" {
 		set[route.OverlayVar] = doc
 	}
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)

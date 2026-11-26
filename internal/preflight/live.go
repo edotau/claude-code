@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	endpoints "github.com/edotau/claude-code/internal/serving"
 
@@ -142,15 +143,28 @@ func (p Pong) line() string {
 	return s
 }
 
-// runAsk runs `<bin> agents ask --agent a [--profile p] --fallback none --format json`; a seam for tests.
+// runAsk runs `<bin> agents ask --overlay {agent,provider,profile,tools,fallback} --format json`; a seam for tests.
 var runAsk = defaultRunAsk
 
 func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.Envelope, error) {
-	argv := []string{"agents", "ask", "--agent", agentName}
+	tools := false
+	ov := agentconfig.Overlay{Fallback: "none"}
+	ov.Agent, ov.Tools = agentName, &tools
+	argv := []string{"agents", "ask"}
 	if profile != "" {
-		argv = append(argv, "--profile", profile)
+		reg, _ := providers.LoadShared()
+		var prov *providers.Provider
+		if reg != nil {
+			prov = reg.Providers[profile]
+		}
+		if prov != nil && prov.Provider != "" {
+			ov.Provider, ov.Profile = prov.Provider, profile
+		} else {
+			argv = append(argv, "--profile", profile)
+		}
 	}
-	cmd := exec.CommandContext(ctx, bin, append(argv, "--tools=false", "--fallback", "none", "--format", "json", assets.PreflightPongPrompt())...)
+	argv = append(argv, "--overlay", ov.Doc(), "--format", "json", assets.PreflightPongPrompt())
+	cmd := exec.CommandContext(ctx, bin, argv...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = 2 * time.Second
 	if v, ok := proc.ValuesFromContext(ctx); ok { // the child sees the run snapshot the prediction read, not the ambient env

@@ -34,6 +34,10 @@
   typed arguments) and Go builds the exact command, path or record from it; a model never writes a command line,
   file name or status text that code could produce ready to run. New surfaces start typed; an existing free-text
   one is converted when it is next touched.
+- **One overlay key table** — configuration has two schemas (R36); a third, a wrapper key, a combined value or a
+  non-key flag needs the owner's yes. The human-readable catalogue of every overlay key, its Go type, which of the two
+  inputs accepts it, what a child inherits and what can only tighten is in `rules/harness/agent.md` → Overlay; add a
+  new key there in the same change, and point other rules, skills and docs there rather than repeat the catalogue.
 - **Precise changes** — every changed line traces to the request: no drive-by reformatting, comment churn or "while
   I'm here" refactors. When adding an entry (flag, command, target), write only its text. Remove only orphans your
   change created; mention pre-existing dead code. Never rename what an established naming scheme defines unless asked;

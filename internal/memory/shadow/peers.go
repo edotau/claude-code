@@ -48,13 +48,15 @@ func mintMachineID(ctx context.Context, path string) (string, error) {
 				return err
 			}
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO peers(origin, acked_seq, schema) SELECT origin, MAX(origin_seq), ?
-			FROM changes WHERE origin = ? GROUP BY origin ON CONFLICT(origin) DO UPDATE SET
-			acked_seq = MAX(acked_seq, excluded.acked_seq)`, memory.EnvelopeSchema, old)
+		_, err := tx.ExecContext(ctx, `INSERT INTO peers(origin, acked_seq, schema) SELECT origin, MAX(origin_seq),
+			MAX(COALESCE(schema, 0), ?) FROM changes WHERE origin = ? GROUP BY origin ON CONFLICT(origin) DO UPDATE SET
+			acked_seq = MAX(acked_seq, excluded.acked_seq), schema = MAX(peers.schema, excluded.schema)`, memory.EnvelopeSchema, old)
 		return err
 	})
 	return id, errors.Join(err, db.Close())
 }
+
+func (s sqlEnvelopeStore) LocalSchema() int { return s.schema }
 
 // SyncPair sends each origin's changes after to's watermark; the importer safely acknowledges echoed own changes.
 func SyncPair(ctx context.Context, from, to memory.EnvelopeStore, origins []string) (memory.ImportReport, error) {
@@ -77,5 +79,59 @@ func SyncPair(ctx context.Context, from, to memory.EnvelopeStore, origins []stri
 	if err := ctx.Err(); err != nil {
 		return memory.ImportReport{}, err
 	}
-	return memory.ImportEnvelopes(to, &buf, memory.EnvelopeSchema)
+	return memory.ImportEnvelopes(to, &buf, memory.EnvelopeMaxSchema)
+}
+
+// Origins is this db's machine_id and every origin it holds changes or a watermark for.
+func (s sqlEnvelopeStore) Origins() (string, []string, error) {
+	ctx := context.Background()
+	var self string
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT value FROM meta WHERE key = 'machine_id'), '')`).Scan(&self); err != nil {
+		return "", nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT origin FROM changes UNION SELECT origin FROM peers ORDER BY 1`)
+	if err != nil {
+		return "", nil, err
+	}
+	defer rows.Close()
+	var all []string
+	for rows.Next() {
+		var o string
+		if err := rows.Scan(&o); err != nil {
+			return "", nil, err
+		}
+		all = append(all, o)
+	}
+	return self, all, rows.Err()
+}
+
+// Batch runs f over a store whose applies share one transaction and one bank-lock hold: any error rolls all back.
+func (s sqlEnvelopeStore) Batch(f func(memory.EnvelopeStore) error) error {
+	return s.write(func(ctx context.Context, tx *sql.Tx) error {
+		return f(txEnvelopeStore{sqlEnvelopeStore: s, ctx: ctx, tx: tx})
+	})
+}
+
+// txEnvelopeStore reads watermarks and applies inside the Batch transaction; its other methods are the plain store's.
+type txEnvelopeStore struct {
+	sqlEnvelopeStore
+	ctx context.Context
+	tx  *sql.Tx
+}
+
+func (t txEnvelopeStore) Watermark(origin string) (int64, int, error) {
+	var seq int64
+	var schema int
+	err := t.tx.QueryRowContext(t.ctx, `SELECT acked_seq, schema FROM peers WHERE origin = ?`, origin).Scan(&seq, &schema)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, nil
+	}
+	return seq, schema, err
+}
+
+func (t txEnvelopeStore) ApplyEnvelope(e memory.Envelope) (bool, error) {
+	if err := checkApply(e); err != nil {
+		return false, err
+	}
+	return applyEnvelopeTx(t.ctx, t.tx, e)
 }

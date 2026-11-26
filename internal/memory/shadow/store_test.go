@@ -26,7 +26,6 @@ func openStoreEnv(t *testing.T) string {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := paths.MemoryStoreDir()
 	writeShadowStore(t, root, false)
-	pinFilesTruth(t)
 	if _, err := RebuildShadow(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +33,10 @@ func openStoreEnv(t *testing.T) string {
 }
 
 func TestOpenBankStoreLoadsImport(t *testing.T) {
-	root := openStoreEnv(t)
 	for i, locked := range []bool{false, true} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		root := paths.MemoryStoreDir()
+		writeShadowStore(t, root, false) // unimported db: first open imports Markdown, later opens read db
 		newBody := "# Conventions\n\n- use gofmt\n- wrap errors\n- edit " + strings.Repeat("x", i+1) + "\n"
 		if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(newBody), 0o600); err != nil {
 			t.Fatal(err)
@@ -58,23 +59,28 @@ func TestFirstOpenAfterTruthFilesImportsFirst(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := paths.MemoryStoreDir()
 	writeShadowStore(t, root, false)
+	pinFilesTruth(t)
 	want := "# Conventions\n\n- use gofmt\n- edited under files truth\n"
 	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(want), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, closeFn, err := memory.OpenBankStore(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	docs, _, err := s.Load()
+	docs, _, err := memory.NewBankStore(false).Load()
 	if err != nil || string(docs["conventions.md"].Render()) != want {
 		t.Fatalf("first open: render=%q err=%v; want the file content imported before any read", docs["conventions.md"].Render(), err)
 	}
-	if err := closeFn(); err != nil {
+	add := memory.Op{Op: "add", Target: "decisionLog", Title: "n", Text: "t"}
+	err = memory.WithBankLock(memory.BankLockWait, func() error {
+		_, e := memory.NewBankStore(true).Apply(memory.Batch{Ops: []memory.Op{add}}, nil, storeNow)
+		return e
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, changed, err := memory.ShadowImport(); err != nil || changed {
+	if _, changed, err := importShadow(); err != nil || changed {
 		t.Fatalf("second import changed=%v err=%v; want no re-import of unchanged files", changed, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "truth")); err != nil || strings.TrimSpace(string(b)) != "db" {
+		t.Fatalf("truth file = %q, %v; want the files truth retired to db after the first open", b, err)
 	}
 }
 
@@ -330,9 +336,6 @@ var parityQueries = []string{
 	"settle probe checkpoint recorded rotation session",
 }
 
-// parityKnownDiffs maps a step name to the exact known, documented difference that stops its parity; none today.
-var parityKnownDiffs = map[string]string{}
-
 // parityShot is everything read back after one step through the public read paths.
 type parityShot struct {
 	files  map[string]string // store-relative path to bytes: the six bank files and archive/*.md
@@ -341,16 +344,15 @@ type parityShot struct {
 	search []string          // SearchBank hits per query
 }
 
-// parityEnv is one run of the script in its own temp store under one truth.
+// parityEnv is one run of the script in its own temp store.
 type parityEnv struct {
 	t      *testing.T
-	truth  string
 	step   int
 	probes int
 	ids    map[string]string
 }
 
-// parityStep is one scripted operation; the same script runs under both truths.
+// parityStep is one scripted operation; the script runs against the db store.
 type parityStep struct {
 	name string
 	run  func(e *parityEnv)
@@ -412,7 +414,7 @@ var parityScript = []parityStep{
 	}},
 }
 
-func newParityEnv(t *testing.T, truth string) *parityEnv {
+func newParityEnv(t *testing.T) *parityEnv {
 	t.Helper()
 	for k, d := range map[string]string{"CLAUDE_CONFIG_DIR": "", "HOME": "", "XDG_CONFIG_HOME": ".config"} {
 		dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -423,43 +425,30 @@ func newParityEnv(t *testing.T, truth string) *parityEnv {
 	}
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "0") // keyword recall only: no model call, no network
 	t.Setenv("CLAUDE_SESSION_UPDATE_CHILD", "")
-	e := &parityEnv{t: t, truth: truth, ids: map[string]string{}}
+	e := &parityEnv{t: t, ids: map[string]string{}}
 	if _, err := memory.Init(); err != nil {
 		t.Fatal(err)
 	}
-	if truth == "db" {
-		if err := memory.SetTruth("db"); err != nil {
-			t.Fatal(err)
-		}
-		e.export()
-		return e
-	}
-	pinFilesTruth(t) // a missing truth file reads db here, so the files run pins its own
+	e.export()
 	return e
 }
 
-// now is the script clock: one distinct November day per step, so both truths write the same dates and archive month.
+// now is the script clock: one distinct November day per step, so every step writes its own date and archive month.
 func (e *parityEnv) now() time.Time {
 	return time.Date(2026, time.November, 2+e.step, 9, 0, 0, 0, time.UTC)
 }
 
-// apply runs a typed batch through the truth's store and requires every op to land.
+// apply runs a typed batch through the db store and requires every op to land.
 func (e *parityEnv) apply(ops ...memory.Op) []memory.OpResult {
 	e.t.Helper()
 	b := memory.Batch{Ops: ops}
-	var res []memory.OpResult
-	var err error
-	if e.truth == "db" {
-		res, err = e.applyDB(b)
-	} else {
-		res, err = memory.ApplyBatch(b, nil, e.now())
-	}
+	res, err := e.applyDB(b)
 	if err != nil {
-		e.t.Fatalf("apply under truth=%s: %v", e.truth, err)
+		e.t.Fatalf("apply: %v", err)
 	}
 	for i, r := range res {
 		if r.Outcome != memory.DreamOK {
-			e.t.Fatalf("op %d (%s) under truth=%s: %s %s", i, r.Op.Op, e.truth, r.Outcome, r.Reason)
+			e.t.Fatalf("op %d (%s) %s %s", i, r.Op.Op, r.Outcome, r.Reason)
 		}
 	}
 	return res
@@ -496,12 +485,9 @@ func (e *parityEnv) read(file, id string) string {
 	return ""
 }
 
-// export brings the Markdown files up to date with the db (truth=db only), as settle and the flip do.
+// export brings the Markdown files up to date with the db as settle does.
 func (e *parityEnv) export() {
 	e.t.Helper()
-	if e.truth != "db" {
-		return
-	}
 	edb, closeDB, err := memory.OpenExportDB()
 	if err != nil {
 		e.t.Fatal(err)
@@ -518,14 +504,14 @@ func (e *parityEnv) export() {
 	}
 }
 
-// settle runs the real settle under the truth, through the entry a remember writes, and returns that entry's id.
+// settle runs the real settle through the entry a remember writes, and returns that entry's id.
 func (e *parityEnv) settle() string {
 	e.t.Helper()
 	e.export()
 	e.probes++
 	id, err := memory.Remember("project", fmt.Sprintf("Checkpoint %d recorded by the parity script", e.probes), e.now())
 	if err != nil {
-		e.t.Fatalf("settle under truth=%s: %v", e.truth, err)
+		e.t.Fatalf("settle: %v", err)
 	}
 	return id
 }
@@ -570,7 +556,7 @@ func entryIDs(files map[string]string) []string {
 	return out
 }
 
-// shot exports (truth=db), then reads the bank back through every public path.
+// shot exports, then reads the bank back through every public path.
 func (e *parityEnv) shot() parityShot {
 	e.t.Helper()
 	e.export()
@@ -586,9 +572,7 @@ func (e *parityEnv) shot() parityShot {
 		}
 		s.search = append(s.search, q+"\n"+strings.Join(hits, "\n"))
 	}
-	if e.truth == "db" {
-		e.checkDBDocs(s.files)
-	}
+	e.checkDBDocs(s.files)
 	return s
 }
 
@@ -611,10 +595,10 @@ func (e *parityEnv) checkDBDocs(files map[string]string) {
 	}
 }
 
-// runParity runs the script under one truth and returns the shot of the initial bank and one per step.
-func runParity(t *testing.T, truth string) []parityShot {
+// runParity runs the script and returns the shot of the initial bank and one per step.
+func runParity(t *testing.T) []parityShot {
 	t.Helper()
-	e := newParityEnv(t, truth)
+	e := newParityEnv(t)
 	shots := []parityShot{e.shot()}
 	for _, st := range parityScript {
 		e.step++
@@ -627,104 +611,22 @@ func runParity(t *testing.T, truth string) []parityShot {
 	last := shots[len(shots)-1]
 	if !slices.ContainsFunc(last.recall, func(r string) bool { return strings.Count(r, "\n") > 1 }) ||
 		!slices.ContainsFunc(last.search, func(r string) bool { return strings.Contains(r, "|") }) {
-		t.Errorf("truth=%s: the final recall or search found nothing, so parity proves nothing", truth)
+		t.Error("the final recall or search found nothing, so the script proves nothing")
 	}
-	if truth == "db" {
-		time.Sleep(paths.RacyWindow + 100*time.Millisecond) // row recall declines files written inside the racy window
-		if _, ok := recallRows(strings.Fields(parityQueries[0])); !ok {
-			t.Error("truth=db: row recall declined a settled bank, so recall was never served from the db")
-		}
-		if got := e.shot(); !slices.Equal(got.recall, last.recall) || !slices.Equal(got.search, last.search) {
-			t.Error("truth=db: recall or search served from db rows differs from the fresh-file answer")
-		}
+	time.Sleep(paths.RacyWindow + 100*time.Millisecond) // row recall declines files written inside the racy window
+	if _, ok := recallRows(strings.Fields(parityQueries[0])); !ok {
+		t.Error("row recall declined a settled bank, so recall was never served from the db")
 	}
-	before := bankMarkdown(t)
-	if truth == "files" {
-		e.flip("db")
-		e.flip("files")
-	} else {
-		e.flip("files") // leaving db exports under the bank lock
-	}
-	if after := bankMarkdown(t); !maps.Equal(before, after) {
-		t.Errorf("truth=%s: Markdown changed across the flips:\n%s", truth, diffFiles(before, after))
+	if got := e.shot(); !slices.Equal(got.recall, last.recall) || !slices.Equal(got.search, last.search) {
+		t.Error("recall or search served from db rows differs from the fresh-file answer")
 	}
 	return shots
 }
 
-func (e *parityEnv) flip(to string) {
-	e.t.Helper()
-	if err := memory.SetTruth(to); err != nil {
-		e.t.Fatalf("SetTruth(%s): %v", to, err)
-	}
-	if got := memory.Truth(); got != to {
-		e.t.Fatalf("Truth() = %q after SetTruth(%q)", got, to)
-	}
-}
-
-func diffFiles(a, b map[string]string) string {
-	var sb strings.Builder
-	for _, rel := range slices.Sorted(maps.Keys(mergeKeys(a, b))) {
-		if a[rel] != b[rel] {
-			fmt.Fprintf(&sb, "--- %s\nfirst:\n%s\nsecond:\n%s\n", rel, a[rel], b[rel])
-		}
-	}
-	return sb.String()
-}
-
-func mergeKeys(a, b map[string]string) map[string]bool {
-	out := map[string]bool{}
-	for k := range a {
-		out[k] = true
-	}
-	for k := range b {
-		out[k] = true
-	}
-	return out
-}
-
-func diffLists(t *testing.T, what string, files, db []string) {
-	t.Helper()
-	if slices.Equal(files, db) {
-		return
-	}
-	for i := range max(len(files), len(db)) {
-		var f, d string
-		if i < len(files) {
-			f = files[i]
-		}
-		if i < len(db) {
-			d = db[i]
-		}
-		if f != d {
-			t.Errorf("%s[%d] differs:\ntruth=files: %s\ntruth=db:    %s", what, i, f, d)
-		}
-	}
-}
-
-// TestTruthParityScript runs one script under truth=files and truth=db, then compares every step's read-backs.
-func TestTruthParityScript(t *testing.T) {
-	var files, db []parityShot
-	t.Run("files", func(t *testing.T) { files = runParity(t, "files") })
-	t.Run("db", func(t *testing.T) { db = runParity(t, "db") })
-	names := []string{"init"}
-	for _, st := range parityScript {
-		names = append(names, st.name)
-	}
-	if len(files) != len(names) || len(db) != len(names) {
-		t.Fatalf("shots: files %d, db %d, want %d each", len(files), len(db), len(names))
-	}
-	for i, name := range names {
-		t.Run(name, func(t *testing.T) {
-			if why, known := parityKnownDiffs[name]; known {
-				t.Skip(why)
-			}
-			if !maps.Equal(files[i].files, db[i].files) {
-				t.Errorf("exported Markdown differs:\n%s", diffFiles(files[i].files, db[i].files))
-			}
-			diffLists(t, "entry ids", files[i].ids, db[i].ids)
-			diffLists(t, "recall", files[i].recall, db[i].recall)
-			diffLists(t, "search", files[i].search, db[i].search)
-		})
+// TestDBScript runs the script against the db store; every shot's own checks (db docs, recall) are the assertions.
+func TestDBScript(t *testing.T) {
+	if got := runParity(t); len(got) != len(parityScript)+1 {
+		t.Fatalf("shots = %d, want %d", len(got), len(parityScript)+1)
 	}
 }
 
@@ -798,7 +700,7 @@ func listedRead(t *testing.T, listing, id string) string {
 }
 
 func TestDreamReadTokenAppliesUnderDBTruth(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	st := memory.NewBankStore(false)
 	add := memory.Op{Op: "add", Target: "conventions", Text: "listed rule"}
 	rs, err := st.Apply(memory.Batch{Ops: []memory.Op{add}}, nil, e.now())
@@ -825,7 +727,8 @@ func TestDreamReadTokenAppliesUnderDBTruth(t *testing.T) {
 }
 
 func TestOpenBankStoreImportTakesTheBankLock(t *testing.T) {
-	openStoreEnv(t) // files truth: every open imports first
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	writeShadowStore(t, paths.MemoryStoreDir(), false) // unimported db: first open must import under the bank lock
 	old := memory.BankLockWait
 	memory.BankLockWait = 50 * time.Millisecond
 	t.Cleanup(func() { memory.BankLockWait = old })
@@ -854,9 +757,9 @@ func TestOpenBankStoreImportTakesTheBankLock(t *testing.T) {
 }
 
 func TestOpenBankStoreMissingTruthKeepsUnexportedRow(t *testing.T) {
-	e := newParityEnv(t, "db")
-	if err := os.Remove(filepath.Join(paths.StateDir(), "memory", "truth")); err != nil {
-		t.Fatal(err)
+	e := newParityEnv(t)
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "memory", "truth")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("truth file stat = %v, want not exist", err)
 	}
 	old := memory.OpenExportDB
 	t.Cleanup(func() { memory.OpenExportDB = old })

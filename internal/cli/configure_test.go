@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/cli/menu"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	_ "github.com/edotau/claude-code/internal/proxyteam" // registers its formats until the binary links it
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )

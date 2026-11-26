@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -179,90 +178,6 @@ func fitDoctorDetail() string {
 		ran = "daily job ran " + fi.ModTime().Local().Format("2006-01-02 15:04")
 	}
 	return fmt.Sprintf("%s; folded through %s, %d cells", ran, f.Folded.Local().Format("2006-01-02 15:04"), len(f.Cells))
-}
-
-func memoryTruthRow() check {
-	return check{Name: "memory truth", OK: true, Detail: memory.TruthRow()}
-}
-
-// memoryStoreRow reads the stamp directly so an old or unknown store is never initialised.
-func memoryStoreRow() check {
-	row := check{Name: "memory store"}
-	raw, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
-	if err != nil {
-		row.Detail = ".layout unreadable"
-		if errors.Is(err, fs.ErrNotExist) {
-			row.Detail = ".layout missing"
-		}
-		return row
-	}
-	fields := strings.Fields(string(raw))
-	row.Detail = ".layout unparseable"
-	if len(fields) != 2 || fields[0] != "flat" {
-		return row
-	}
-	version, err := strconv.Atoi(fields[1])
-	if err != nil || version < 1 || strings.HasPrefix(fields[1], "+") {
-		return row
-	}
-	code := memory.StoreVersion()
-	switch {
-	case version < code:
-		row.Detail = fmt.Sprintf("warn v%d<%d; claude-code memory upgrade --dry-run", version, code)
-	case version > code:
-		row.Hard = true
-		row.Detail = fmt.Sprintf("v%d>%d; binary older than store; writes refused", version, code)
-	default:
-		row.OK = true
-		row.Detail = fmt.Sprintf("flat %d matches code", code)
-	}
-	return row
-}
-
-// memorySyncRows reads only the opt-in and sync.json (via SyncReport); the off row costs one env or vault read.
-func memorySyncRows() []check {
-	if !memory.SyncOn() {
-		return []check{{Name: "memory sync", OK: true, Detail: "off: not opted in (vault env NETWORK_MEMORY)"}}
-	}
-	report := memory.SyncReport()
-	if len(report) == 0 {
-		return []check{{Name: "memory sync", OK: true, Detail: "on; CLAUDE_REMOTE_HOST names no peer"}}
-	}
-	rows := make([]check, 0, len(report))
-	for _, r := range report {
-		rows = append(rows, memorySyncPeerRow(r))
-	}
-	return rows
-}
-
-func memorySyncPeerRow(r memory.SyncRow) check {
-	row := check{Name: "memory sync " + r.Peer, OK: r.Refusal == ""}
-	at := func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
-	var parts []string
-	switch {
-	case r.Refusal != "":
-		parts = append(parts, "refused: "+r.Refusal)
-	case !r.Unreachable.IsZero():
-		parts = append(parts, "unreachable since "+at(r.Unreachable))
-	}
-	if r.Pulled.IsZero() && r.Pushed.IsZero() {
-		parts = append(parts, "never synced")
-	} else {
-		if !r.Pulled.IsZero() {
-			parts = append(parts, "pulled "+at(r.Pulled))
-		}
-		if !r.Pushed.IsZero() {
-			parts = append(parts, "pushed "+at(r.Pushed))
-		}
-	}
-	if r.Differ > 0 {
-		parts = append(parts, fmt.Sprintf("differ %d", r.Differ))
-	}
-	if r.Summary != "" {
-		parts = append(parts, r.Summary)
-	}
-	row.Detail = strings.Join(parts, "; ")
-	return row
 }
 
 const dreamStale = 48 * time.Hour
@@ -451,4 +366,26 @@ func printVault(w io.Writer) bool {
 	fmt.Fprintln(w, "== vault checks ==")
 	printCheckLines(w, checks)
 	return ok
+}
+
+// memoryStoreRow reports refusing stamps without initialising or changing the store.
+func memoryStoreRow() check {
+	row := check{Name: "memory store", OK: true, Detail: "layout ok"}
+	raw, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return row
+	case err != nil:
+		return check{Name: row.Name, Detail: ".layout unreadable"}
+	}
+	v, err := memory.StoreLayoutVersion(string(raw))
+	switch {
+	case err != nil:
+		return check{Name: row.Name, Detail: ".layout unparseable; writes refused"}
+	case v > memory.StoreVersion():
+		return check{Name: row.Name, Hard: true, Detail: fmt.Sprintf("v%d>%d; binary older than store; writes refused", v, memory.StoreVersion())}
+	case v == memory.StoreVersion():
+		row.Detail = fmt.Sprintf("flat %d matches code", v)
+	}
+	return row
 }

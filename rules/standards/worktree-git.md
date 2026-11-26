@@ -66,8 +66,9 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
 - **One trunk worktree, everything converges on it (owner, 2026-11-26):** per wave there is ONE open collector
   (n=1), cut from the local working branch. Every other worktree (a lane, a leaf's worktree: n>=2) is cut from the
   collector's current head, not from main, and converges back into it (`claude-code worktree collapse <collector>
-  <lane>`, by the session that owns the lane, after one other-family review with no CRITICAL or HIGH). Only the
-  collector lands on local, after the one suite run in it once every lane is committed into it. The collector's
+  <lane>`, by the session that owns the lane, as soon as its task is finished: no review per lane). Only the
+  collector lands on local, after the one shared other-family review of its merged diff (R28) and the one suite run
+  in it once every lane is committed into it. The collector's
   owner announces open and closed; nobody picks into a closed one, and nobody resets or rebases it.
 - **Landing:** every repo, `~/.claude` included, lands on local, the only way a lane comes back: the gate-green lane's
   net diff becomes uncommitted changes in the live checkout; you commit (owner, 2026-11-24: "no merging, just land on

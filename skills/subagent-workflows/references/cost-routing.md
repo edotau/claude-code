@@ -19,15 +19,18 @@ OpenCode run may write outside its intended workdir: verify the actual tree and 
 `ask` takes flags before or after the task; a task starting with `-` must follow `--` (`ask [flags] -- "<task>"`), as
 must any task text built from variable data. A flag an agent can't honor is named in the envelope's `dropped`, never
 silent. `ask --format stream-json` emits NDJSON events (`result` holds the envelope; each dispatch also writes
-`state/harness/dispatch/<id>.events.jsonl`); `--env NAME=VALUE` reaches every agent (credential-looking names
-refused); `--host <h>` runs the ask on that host over ssh (`rules/harness/network.md`); `--agent claude|gemini --live`
-holds one session open and `agents send <id> "<task>"` feeds it (one turn in flight, ≤4 sessions). On a finished
+`state/harness/dispatch/<id>.events.jsonl`); `--overlay '{"set":{"NAME":"VALUE"}}'` reaches every agent
+(credential-looking names refused unless using an allowed vault reference). Both `set` and the legacy `--env` flag
+refuse route endpoints, proxies, TLS and agent-config locations. `--overlay '{"host":"<h>"}'` runs the ask over ssh
+(`rules/harness/network.md`); `--overlay '{"agent":"claude"}' --live` holds one session open (also for `gemini`)
+and `agents send <id> "<task>"` feeds it (one turn in flight, ≤4 sessions). On a finished
 dispatch of any agent, `agents send <id> "<task>"` resumes its session and records the reply as a child dispatch.
 
 ## Local route
 
-- **Local (`--profile local`: provider `magnitude`, Qwen 27B at 127.0.0.1:10100):** serves `pi` and `opencode` (a dry
-  run also resolves `copilot`); every tier alias is that one model. `codex` is refused (`provider local serves no
+- **Local (`--overlay '{"provider":"magnitude","profile":"local"}'`: Qwen 27B at 127.0.0.1:10100):** serves `pi`
+  and `opencode` (a dry run also resolves `copilot`); every tier alias is that one model. `codex` is refused
+  (`provider local serves no
   responses route`) and so is `gemini` (agy takes no custom base URL). A dispatch inside a Databricks fence cannot
   leave it (`outside overlay databricks·prod`): start local asks from a session without one.
 - **One local model serves every leaf.** Observed, not enforced by code: long research briefs sharing it timed out at
@@ -37,18 +40,21 @@ dispatch of any agent, `agents send <id> "<task>"` resumes its session and recor
 
 ## Fallback
 
-- **Order**: the requested target (agent, `--profile` or overlay `profile` workspace, `--model`), then the agent's own
+- **Order**: the requested target (overlay `agent`, `profile` workspace, `model`), then the agent's own
   pin (its vault profile and model; skipped when it has none or the pin is what was requested), then, by mode,
   other agents and Claude on the current session. Nothing else: no sibling workspace, no login but the pin's.
   `claude-code gateway --agent <a>` shows the resolved order and skip gates. The overlay `provider` chooses an
-  execution arm; `--profile` leads on a profile and `--fallback none` pins that call. Neither changes persistent pins.
+  execution arm; overlay `profile` leads on a profile and `fallback: none` pins that call. Neither changes
+  persistent pins.
 - **Pin hop left out**: inside an overlay `provider: databricks, profile: <p>` when the pin is another workspace
-  (the arm refuses it; the skip reads `outside databricks:<p>`), and with `--native`. An own-login pin (copilot's
-  GitHub profile) stays, so unless `--fallback none` the confined dispatch can end on that login, then `claude`.
+  (the arm refuses it; the skip reads `outside databricks:<p>`), and with overlay `native: true`. An own-login pin
+  (copilot's GitHub profile) stays, so unless overlay `fallback` is `none` the confined dispatch can end on that login,
+  then `claude`.
 - **Gates**: `off` (`claude-code <agent> profile --off`), no table row, binary/login missing, Copilot's pinned GitHub
   profile only while credits are verified < 95%, an exhausted account (100% window or a remembered `402`/quota
   error). A gated step is skipped; the order does not change.
-- **`--fallback none|pin|agents|all`** (default from `AGENT_ERROR_FALLBACK` in the shell or vault env, else `none`):
+- **Overlay `fallback: none|pin|agents|all`** (default from `AGENT_ERROR_FALLBACK` in the shell or vault env, else
+  `none`):
   `none` runs the requested target only and exits non-zero with the reason, `pin` stops after the agent's pin,
   `agents` also walks other agents, `all` is the full order ending on Claude;
   review never falls back to Claude. A non-empty `fallback` goes on the `Ran on:` line.
@@ -57,12 +63,12 @@ dispatch of any agent, `agents send <id> "<task>"` resumes its session and recor
   A run that ended on another step reads `ask: ran on <agent> · <account> · <model> · fallback from <requested>
   (<first reason>)`; the envelope carries `requested`. Codex asked for a model its workspace cannot serve over
   Responses fails the `wire` check instead of running another model.
-- **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; `--model` > `--model auto` >
+- **Pins**: `claude-code <agent> profile <p>` keeps that agent on one profile; overlay `model` > `model: auto` >
   `<AGENT>_MODEL`/record model > the task tier (a `Tier: fast|standard|deep` line in the brief wins, else its wording)
   ranked on the row; `gateway resolve <a> --model auto --task F [--tools]` prints the pick
-  and why; `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any
-  other explicit `--fallback`.
-  `--profile` takes a registry row or `session`, never `auto`, which is valid only as overlay `profile`.
+  and why; overlay `profile` is one dispatch that pins with `fallback: none` and leads (still falling back) with any
+  other explicit `fallback`. The legacy `--profile` flag takes a registry row or `session`, never `auto`, which is valid
+  only as overlay `profile`.
   Without a fresh listing an untyped Databricks run takes the row's tier model and says so; with one it takes
   the ranked pick, so the model can change after a listing refresh.
 - A `<agent>: session profile … cannot serve …; using <x>` line is the credential route, not a fallback: report

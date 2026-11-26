@@ -296,7 +296,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	}
 	hasStore := scaffolded()
 	var rotated int
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		var serr error
 		rotated, serr = settleBankLocked(time.Now())
 		return serr
@@ -473,7 +473,7 @@ func FormatOwn(w io.Writer) error {
 		return err
 	}
 	var changed []string
-	err = withFlatLock(BankLockWait, func() (ferr error) {
+	err = withBankLock(BankLockWait, func() (ferr error) {
 		changed, ferr = formatFiles(own, false)
 		if len(changed) > 0 { // commit what was written even when a later file failed
 			if cerr := commitStore("fmt: wrap bank lines", StoreRepo().dropCredentialShaped(storeRels(changed), nil)...); cerr != nil {

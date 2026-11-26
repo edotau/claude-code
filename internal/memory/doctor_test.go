@@ -446,18 +446,6 @@ func (x *e2eRun) layout(t *testing.T) {
 	}
 }
 
-func equalSnap(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if bv, ok := b[k]; !ok || bv != v {
-			return false
-		}
-	}
-	return true
-}
-
 // decisionLogOver writes n newest-first decisionLog.md entries, each with enough distinct tokens to stay distinct.
 func decisionLogOver(t *testing.T, path string, n int) {
 	t.Helper()
@@ -711,18 +699,5 @@ func TestDoctorRoundTripRow(t *testing.T) {
 	write(t, filepath.Join(paths.MemorySubDir("notes"), "n.md"), "---\nname: n\n---\nbody\n")
 	if got := roundTripProblems(statBank()); len(got) != 0 {
 		t.Fatalf("clean store: got %v, want none", got)
-	}
-}
-
-func TestDoctorTruthRow(t *testing.T) {
-	tempConfig(t)
-	if got := TruthRow(); got != "truth: files, diverged: 0" {
-		t.Fatalf("default row = %q", got)
-	}
-	if err := appendShadowLog(time.Now(), []string{"a.md", "b.md"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := TruthRow(); got != "truth: files, diverged: 2" {
-		t.Fatalf("diverged row = %q", got)
 	}
 }

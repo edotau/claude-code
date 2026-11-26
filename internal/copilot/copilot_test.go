@@ -908,3 +908,65 @@ func TestRunStampsProxyBeforeSDK(t *testing.T) {
 		})
 	}
 }
+
+// A registry-routed Databricks run never leaves the record's proxy empty, even when no route label was chosen.
+func TestRunRegistryRoutedKeepsProxyLabel(t *testing.T) {
+	runScratch(t, func(context.Context, sdk.Options, string, []string) (sdk.Result, error) {
+		return sdk.Result{Text: "ok"}, nil
+	})
+	stubSettingsRegistry(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"COPILOT_TEST_KEY"},`+
+		`"models":{"opus":"databricks-claude-opus-5-5"}}}}}`)
+	t.Setenv("COPILOT_TEST_KEY", "test-key")
+	setGOOS(t, "linux")
+	req := agent.RunOptions{Prompt: "do it", Provider: "dev", WorkDir: t.TempDir()}
+	res, err := copilotAgent.Run(t.Context(), req, wire.Discard)
+	if err != nil || res.Transport == nil || res.Transport.Proxy == "" || strings.HasPrefix(res.Transport.Proxy, "none") {
+		t.Fatalf("res.Transport = %+v, err = %v; want a proxy label for the routed run", res.Transport, err)
+	}
+}
+
+func TestLoginRejectsInvalidOverlay(t *testing.T) {
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"github"}`})
+	env, argv, err := (copilotEngine{}).Login(ctx, nil, "sonnet", nil)
+	if err == nil || !strings.Contains(err.Error(), "profile") || len(env) != 0 || len(argv) != 0 {
+		t.Fatalf("login = %d env entries, %q, %v; want no login after an overlay error", len(env), argv, err)
+	}
+}
+
+func TestLoginOverlayAccountReachesAuth(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	vaulttest.Secret(t, providers.CopilotTokenEnv, "fixture-stored-token")
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"github","profile":"auto","account":"missing-fixture-login"}`})
+	env, _, err := (copilotEngine{}).Login(ctx, nil, "sonnet", nil)
+	if err == nil || !strings.Contains(err.Error(), "missing-fixture-login") || len(env) != 0 {
+		t.Fatalf("login emitted %d env entries, error %v; want the requested account refused", len(env), err)
+	}
+}
+
+func TestRegistryLaunchPassesVendorModelUnvalidated(t *testing.T) {
+	hosttest.PinScratch(t)
+	vaulttest.Use(t)
+	setGOOS(t, "linux")
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("FIXTURE_TOKEN", "fixture-workspace-key")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"fixture":{"preset":"databricks",`+
+		`"host":"https://fixture.cloud.databricks.com","auth":{"type":"key","env":"FIXTURE_TOKEN"},`+
+		`"models":{"opus":"databricks-claude-sonnet-5-5"}}}}}`)
+	stubSettingsRegistry(t)
+	discoverModels = func(context.Context, *providers.Registry, *providers.Provider) ([]CopilotEndpoint, error) {
+		return []CopilotEndpoint{{ID: "databricks-claude-opus-5-5"}, {ID: "databricks-claude-sonnet-5-5"}}, nil
+	}
+	pathstest.FakeVendor(t, "copilot", "")
+	o, args, err := agent.ParseLaunchArgs([]string{"--profile", "fixture", "--print-env", "--", "--model", "passthrough-not-in-menu"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := agent.LaunchPlan(t.Context(), "copilot", o, args)
+	if err != nil || len(plan.Argv) < 2 || !slices.Equal(plan.Argv[len(plan.Argv)-2:], []string{"--model", "passthrough-not-in-menu"}) {
+		t.Fatalf("passthrough argv = %q, error %v", plan.Argv, err)
+	}
+}

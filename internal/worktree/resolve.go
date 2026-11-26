@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -151,8 +152,11 @@ var runResolveAgent = func(ctx context.Context, agentName, prompt, workDir strin
 	// belt-and-suspenders over ask's own --timeout
 	runCtx, cancel := context.WithTimeout(ctx, timeout+30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, bin, "agents", "ask", "--agent", agentName, "--workdir", workDir,
-		"--tools", "--fallback", "none", "--timeout", timeout.String(), "--format", "json", "-")
+	tools := true
+	ov := agentconfig.Overlay{Fallback: "none"}
+	ov.Agent, ov.Tools, ov.Timeout = agentName, &tools, timeout.String()
+	cmd := exec.CommandContext(runCtx, bin, "agents", "ask", "--workdir", workDir,
+		"--overlay", ov.Doc(), "--format", "json", "-")
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.WaitDelay = resolveWaitDelay
 	var stderr bytes.Buffer

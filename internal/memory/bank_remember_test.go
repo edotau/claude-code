@@ -522,3 +522,155 @@ func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 		t.Errorf("id %s is not unique in decisionLog.md:\n%s", second, body)
 	}
 }
+
+// Remember writes only its new entry, lint-clean with a readable id; unformatted entries around it keep their bytes.
+func TestRememberWritesOnlyTheNewEntry(t *testing.T) {
+	legacy := strings.Repeat("legacy  text ", 14)
+	for _, c := range []struct{ kind, file, before, fact string }{
+		{"user", "conventions.md", "# Conventions\n\n>  odd   header\n\n- User:   odd " + legacy + "<!-- id:aaaa1111 -->\n",
+			strings.Repeat("fresh words ", 15)},
+		{"project", "decisionLog.md", "# Decision Log\n\n>  odd   header\n\n## 2026-01-01 — old <!-- id:aaaa1111 -->\n" + legacy + "\n",
+			"fresh decision"},
+	} {
+		t.Run(c.file, func(t *testing.T) {
+			tempConfig(t)
+			write(t, Path(c.file), c.before)
+			id, err := Remember(c.kind, c.fact, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			after := mustRead(t, Path(c.file))
+			at := len(c.before) // conventions appends; decisionLog inserts above its first entry
+			if c.file == "decisionLog.md" {
+				at = strings.Index(c.before, "## ")
+			}
+			head, tail := c.before[:at], c.before[at:]
+			if !strings.HasPrefix(after, head) || !strings.HasSuffix(after, tail) {
+				t.Fatalf("untouched bytes changed:\nbefore %q\nafter  %q", c.before, after)
+			}
+			added := strings.TrimSpace(after[len(head) : len(after)-len(tail)])
+			assertLintClean(t, added)
+			if e := ParseDoc(c.file, []byte(added)).Entries; len(e) != 1 || e[0].ID != id {
+				t.Errorf("new entry does not read back with id %s: %q", id, added)
+			}
+		})
+	}
+}
+
+// Settle after Remember stamps an unstamped entry of another id file; that file's other entries keep their bytes.
+func TestRememberStampsOtherIDFiles(t *testing.T) {
+	tempConfig(t)
+	long := "- User:   odd " + strings.Repeat("legacy  text ", 14) + "<!-- id:aaaa1111 -->\n"
+	write(t, Path("conventions.md"), "# Conventions\n\n"+long+"\n- unstamped rule\n")
+	if _, err := Remember("project", "a decision", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after := mustRead(t, Path("conventions.md"))
+	if !strings.HasPrefix(after, "# Conventions\n\n"+long+"\n- unstamped rule <!-- id:") {
+		t.Fatalf("settle changed an untouched entry or left the new one unstamped:\n%s", after)
+	}
+	if e := ParseDoc("conventions.md", []byte(after)).Entries; len(e) != 2 || e[1].ID == "" {
+		t.Errorf("the stamped entry has no readable id: %+v", e)
+	}
+}
+
+// The entry goes on top; a fence left open below does not block its id.
+func TestRememberStampsDecisionAboveUnclosedFenceBelow(t *testing.T) {
+	tempConfig(t)
+	path := Path("decisionLog.md")
+	write(t, path, templates()["decisionLog.md"]+"\n## 2026-01-01 — old\n\n```go\nx := 1\n")
+	id, err := Remember("project", "new fact", time.Now())
+	if err != nil || id == "" {
+		t.Fatalf("Remember = %q, %v; want an id", id, err)
+	}
+	if got := mustRead(t, path); !strings.Contains(got, id) || !strings.HasSuffix(got, "```go\nx := 1\n") {
+		t.Errorf("decisionLog.md = %q", got)
+	}
+}
+
+func TestRememberRefusesDuplicateInsideFence(t *testing.T) {
+	tempConfig(t)
+	before := "# C\n\n- User: repeat <!-- id:12345678 -->\n\n```\n"
+	write(t, Path("conventions.md"), before)
+	if id, err := writeRememberFact("conventions.md", "user", "repeat", "", testEnv().Now); err == nil {
+		t.Fatalf("reported old id %s as a new write inside a fence", id)
+	}
+	if got := mustRead(t, Path("conventions.md")); got != before {
+		t.Errorf("refused write changed file: %q", got)
+	}
+}
+
+func TestRememberKeepsOutsideEdit(t *testing.T) {
+	tempConfig(t)
+	path := Path("conventions.md")
+	write(t, path, "# C\n\n- before <!-- id:12345678 -->\n")
+	outside := "# C\n\n- outside <!-- id:23456789 -->\n"
+	prev := readFile
+	t.Cleanup(func() { readFile = prev })
+	readFile = func(p string) ([]byte, error) {
+		b, err := os.ReadFile(p)
+		if p == path && err == nil {
+			write(t, path, outside)
+		}
+		return b, err
+	}
+	if _, err := writeRememberFact("conventions.md", "user", "new", "", testEnv().Now); err == nil {
+		t.Fatal("outside edit reported as a successful write")
+	}
+	if got := mustRead(t, path); got != outside {
+		t.Fatalf("outside edit lost: %q", got)
+	}
+}
+
+func TestRememberPreservesInlineIDExample(t *testing.T) {
+	for _, kind := range []string{"user", "project"} {
+		t.Run(kind, func(t *testing.T) {
+			tempConfig(t)
+			file := RememberTypes[kind]
+			before := "# Bank\n\n"
+			write(t, Path(file), before)
+			fact := "use ``literal ` <!-- id:11111111 --> code`` as an example"
+			id, err := Remember(kind, fact, testEnv().Now)
+			if err != nil || id == "" || id == "11111111" {
+				t.Fatalf("Remember = %q, %v", id, err)
+			}
+			got := mustRead(t, Path(file))
+			d := ParseDoc(file, []byte(got))
+			if !strings.HasPrefix(got, before) || len(d.Entries) != 1 || d.Entries[0].ID != id || !strings.Contains(got, fact) {
+				t.Errorf("lost original bytes, id or example: %q", got)
+			}
+		})
+	}
+}
+
+func TestReportPreservesEarlierDecisionBytes(t *testing.T) {
+	tempConfig(t)
+	path := paths.MemorySub("reports", now().Format(dayLayout)+"-decisions.md")
+	before := "# Decisions\n\n- prior   " + strings.Repeat("legacy  text ", 20) + "\n"
+	write(t, path, before)
+	files, err := appendReportLocked("review", ReportInput{Report: "# Report\nSummary.\n- item\n", Decisions: []string{strings.Repeat("new words ", 20)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := mustRead(t, path)
+	if !strings.HasPrefix(got, before) {
+		t.Errorf("earlier decision bytes changed: %q", got)
+	}
+	assertWrapped(t, got[len(before):])
+	if got := mustRead(t, files[0]); got != "# Report\n\nSummary.\n\n- item\n" {
+		t.Errorf("new report has unclean block boundaries: %q", got)
+	}
+}
+
+func TestReportDecisionAppendRefusesFence(t *testing.T) {
+	tempConfig(t)
+	path := paths.MemorySub("reports", now().Format(dayLayout)+"-decisions.md")
+	before := "# Decisions\n\n```\n"
+	write(t, path, before)
+	if _, err := appendReportLocked("review", ReportInput{Report: "# Report\n\nSummary.\n", Decisions: []string{"new"}}); err == nil {
+		t.Fatal("decision hidden inside an unclosed fence")
+	}
+	if got := mustRead(t, path); got != before {
+		t.Errorf("refused append changed bytes: %q", got)
+	}
+}

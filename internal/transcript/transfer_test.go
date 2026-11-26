@@ -247,11 +247,11 @@ func TestHandoffSingleTurnByteLimit(t *testing.T) {
 
 func TestTransferArgs(t *testing.T) {
 	wait := TransferArgs("gemini", "/work", "prompt text", true)
-	if strings.Join(wait, " ") != "--agent gemini --tools --workdir /work prompt text" {
+	if strings.Join(wait, " ") != `--overlay {"agent":"gemini","tools":true} --workdir /work prompt text` {
 		t.Errorf("wait args = %v", wait)
 	}
 	background := TransferArgs("gemini", "/work", "prompt text", false)
-	want := []string{"--agent", "gemini", "--tools", "--workdir", "/work", "--background", "prompt text"}
+	want := []string{"--overlay", `{"agent":"gemini","tools":true}`, "--workdir", "/work", "--background", "prompt text"}
 	if strings.Join(background, "|") != strings.Join(want, "|") {
 		t.Errorf("background args = %v, want %v", background, want)
 	}

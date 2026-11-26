@@ -228,6 +228,10 @@ func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
 			t.Errorf("argv %q has %s %d times, want once", argv, flag, n)
 		}
 	}
+	pass, err := configureCopilotRegistry(t.Context(), reg, providers.Target{Provider: &providers.Provider{Name: "fixture"}}, []string{"--", "--model", "passthrough-not-in-menu"}, true)
+	if err != nil || !slices.Equal(pass.Args, []string{"--model", "passthrough-not-in-menu"}) {
+		t.Fatalf("passthrough model validated: args=%q err=%v", pass.Args, err)
+	}
 }
 
 func countOf(argv []string, s string) (n int) {

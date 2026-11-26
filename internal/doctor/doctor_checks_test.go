@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -269,13 +268,6 @@ func seedHarness(t *testing.T, name, body string) {
 	}
 }
 
-func TestMemoryTruthRow(t *testing.T) {
-	hermetic(t)
-	if row := memoryTruthRow(); !row.OK || row.Name != "memory truth" || !strings.HasPrefix(row.Detail, "truth: db, diverged: ") {
-		t.Fatalf("row = %+v", row)
-	}
-}
-
 func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	hermetic(t)
 	seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)
@@ -284,88 +276,6 @@ func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	formats := findCheck([]check{formatsCheck()}, "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
-	}
-}
-
-func TestMemoryStoreRowFlagsSkew(t *testing.T) {
-	version := memory.StoreVersion()
-	cases := []struct {
-		name, stamp, mark, want string
-		pass, hard              bool
-	}{
-		{"equal", fmt.Sprintf("flat %d\n", version), "✓", fmt.Sprintf("flat %d", version), true, false},
-		{"older", fmt.Sprintf("flat %d\n", version-1), "⚠", "claude-code memory upgrade --dry-run", false, false},
-		{"newer", fmt.Sprintf("flat %d\n", version+1), "✗", "binary older than store; writes refused", false, true},
-		{"missing", "", "✗", ".layout missing", false, false},
-		{"unparseable", "flat nope", "✗", ".layout unparseable", false, false},
-		{"extra token", "flat 4 extra", "✗", ".layout unparseable", false, false},
-		{"signed", "flat +4", "✗", ".layout unparseable", false, false},
-		{"unreadable", "directory", "✗", ".layout unreadable", false, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			hermetic(t)
-			seedMemoryLayout(t, tc.stamp)
-			row := memoryStoreRow()
-			if row.Name != "memory store" || row.OK != tc.pass || row.Hard != tc.hard {
-				t.Fatalf("row = %+v, want memory store (ok=%t, hard=%t)", row, tc.pass, tc.hard)
-			}
-			var out bytes.Buffer
-			printCheckLines(&out, []check{row})
-			line := strings.TrimSuffix(out.String(), "\n")
-			if !strings.HasPrefix(line, tc.mark+" ") || !strings.Contains(line, tc.want) {
-				t.Errorf("rendered row = %q, want %s and %q", line, tc.mark, tc.want)
-			}
-			if strings.ContainsAny(line, "\r\n") || textutil.DisplayWidth(line) > 80 {
-				t.Errorf("row is not one line of at most 80 columns: %q", line)
-			}
-		})
-	}
-}
-
-func seedMemoryLayout(t *testing.T, stamp string) {
-	t.Helper()
-	switch stamp {
-	case "": // leave the stamp missing
-	case "directory":
-		if err := os.MkdirAll(filepath.Join(paths.MemoryStoreDir(), ".layout"), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	default:
-		hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", stamp)
-	}
-}
-
-func TestMemorySyncRows(t *testing.T) {
-	at := time.Date(2026, 11, 18, 9, 30, 0, 0, time.Local)
-	st := &memory.SyncState{Peers: map[string]*memory.PeerSync{
-		"ok.example":    {Pull: memory.SyncDir{OK: at, Summary: "3 files", Differ: 2}, Push: memory.SyncDir{OK: at}},
-		"sleep.example": {Pull: memory.SyncDir{OK: at}, Unreachable: at},
-		"bad.example":   {Pull: memory.SyncDir{Refusal: "layout differs"}},
-	}}
-	cases := []struct {
-		name, on, hosts string
-		want            []check
-	}{
-		{"off", "", "ok.example", []check{{Name: "memory sync", OK: true, Detail: "off: not opted in (vault env NETWORK_MEMORY)"}}},
-		{"no peer", "on", "", []check{{Name: "memory sync", OK: true, Detail: "on; CLAUDE_REMOTE_HOST names no peer"}}},
-		{"healthy", "on", "ok.example", []check{{Name: "memory sync ok.example", OK: true, Detail: "pulled 2026-11-18 09:30; pushed 2026-11-18 09:30; differ 2; 3 files"}}},
-		{"unreachable", "on", "sleep.example", []check{{Name: "memory sync sleep.example", OK: true, Detail: "unreachable since 2026-11-18 09:30; pulled 2026-11-18 09:30"}}},
-		{"refused", "on", "bad.example", []check{{Name: "memory sync bad.example", OK: false, Detail: "refused: layout differs; never synced"}}},
-		{"never", "on", "new.example", []check{{Name: "memory sync new.example", OK: true, Detail: "never synced"}}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			hermetic(t)
-			t.Setenv("NETWORK_MEMORY", tc.on)
-			t.Setenv("CLAUDE_REMOTE_HOST", tc.hosts)
-			if err := memory.SaveSync(st); err != nil {
-				t.Fatal(err)
-			}
-			if got := memorySyncRows(); !slices.Equal(got, tc.want) {
-				t.Fatalf("rows = %+v, want %+v", got, tc.want)
-			}
-		})
 	}
 }
 
@@ -412,5 +322,62 @@ func TestLocalRowProbes(t *testing.T) {
 	want := "up · qwen3.8-27b:gguf:q6 · 0 running"
 	if got.Name != "local" || !got.OK || got.Hard || !strings.HasPrefix(got.Detail, want) {
 		t.Fatalf("localRow = %+v, want up on the overlaid row", got)
+	}
+}
+
+func TestMemoryStoreRowFlagsRefusedStamps(t *testing.T) {
+	v := memory.StoreVersion()
+	for _, tc := range []struct {
+		name, stamp, want string
+		ok, hard          bool
+	}{
+		{"current", fmt.Sprintf("flat %d\n", v), fmt.Sprintf("flat %d matches code", v), true, false},
+		{"older", fmt.Sprintf("flat %d\n", v-1), "layout ok", true, false},
+		{"missing", "", "layout ok", true, false},
+		{"newer", fmt.Sprintf("flat %d\n", v+1), fmt.Sprintf("v%d>%d; binary older than store; writes refused", v+1, v), false, true},
+		{"malformed", "flat nope", ".layout unparseable; writes refused", false, false},
+		{"empty", "empty", ".layout unparseable; writes refused", false, false},
+		{"whitespace", " \n", ".layout unparseable; writes refused", false, false},
+		{"signed", "flat +4", ".layout unparseable; writes refused", false, false},
+		{"zero", "flat 0", ".layout unparseable; writes refused", false, false},
+		{"negative", "flat -1", ".layout unparseable; writes refused", false, false},
+		{"extra token", "flat 4 extra", ".layout unparseable; writes refused", false, false},
+		{"unreadable", "directory", ".layout unreadable", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			seedMemoryLayout(t, tc.stamp)
+			row := memoryStoreRow()
+			want := check{Name: "memory store", OK: tc.ok, Hard: tc.hard, Detail: tc.want}
+			if row != want {
+				t.Errorf("row = %+v, want ok=%t hard=%t detail %q", row, tc.ok, tc.hard, tc.want)
+			}
+			var out bytes.Buffer
+			printCheckLines(&out, []check{row})
+			line := strings.TrimSuffix(out.String(), "\n")
+			mark := "✗"
+			if tc.ok {
+				mark = "✓"
+			}
+			if !strings.HasPrefix(line, mark+" ") || !strings.Contains(line, tc.want) ||
+				strings.ContainsAny(line, "\r\n") || textutil.DisplayWidth(line) > 80 {
+				t.Errorf("invalid rendered row: %q", line)
+			}
+		})
+	}
+}
+
+func seedMemoryLayout(t *testing.T, stamp string) {
+	t.Helper()
+	switch stamp {
+	case "":
+	case "empty":
+		hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", "")
+	case "directory":
+		if err := os.MkdirAll(filepath.Join(paths.MemoryStoreDir(), ".layout"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		hosttest.WriteRel(t, paths.MemoryStoreDir(), ".layout", stamp)
 	}
 }

@@ -273,3 +273,15 @@ func TestReviewLaneCloudGate(t *testing.T) {
 		}
 	}
 }
+
+// A typed --model reaches the cloud review's refusal through the applied overlay, as an overlay model does.
+func TestReviewLaneModelFromOverlay(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	t.Setenv(proc.DispatchIDEnv, "")
+	for _, o := range []ReviewOptions{{Base: "main", Overlay: `{"cloud":true,"model":"opus"}`}, {Base: "main", Overlay: `{"cloud":true}`, Model: "opus"}} {
+		if rc, done := reviewLane("claude", o); !done || rc == 0 {
+			t.Errorf("%+v: rc=%d done=%v, want the cloud review to refuse the model", o, rc, done)
+		}
+	}
+}

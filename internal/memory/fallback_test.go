@@ -22,7 +22,8 @@ func fakeCodeMode(t *testing.T, answer string) *int {
 }
 
 func TestTypedWriteFallsBackToCodeModeOnce(t *testing.T) {
-	upgradeFixture(t)
+	isolatedConfig(t)
+	initStore(t)
 	calls := fakeCodeMode(t, goodBatch)
 	var fb CodeFallback
 	if ans, who, err := fb.Run(context.Background(), "p", t.TempDir(), BatchSchema()); err != nil || who != "fake-pi" || ans != goodBatch {
@@ -56,6 +57,19 @@ func TestRefusedTellsCommitErrorsFromRefusals(t *testing.T) {
 	} {
 		if got := refused(err); got != want {
 			t.Errorf("refused(%v) = %v, want %v", err, got, want)
+		}
+	}
+}
+
+func TestFallbackModelCatalogValidation(t *testing.T) {
+	for in, want := range map[string]string{"": "opus", "astra": "astra", "gpt-6-astra": "gpt-6-astra"} {
+		if got, err := FallbackModel(in); err != nil || got != want {
+			t.Errorf("FallbackModel(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"no-such-model", "claude-opus-9-9"} {
+		if _, err := FallbackModel(in); err == nil {
+			t.Errorf("FallbackModel(%q) accepted an id outside the catalog", in)
 		}
 	}
 }

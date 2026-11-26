@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
@@ -135,16 +136,7 @@ type QueueWatch struct {
 var WatchQueue func(time.Time) QueueWatch
 
 // watchAlive is the liveness probe; tests replace it.
-var watchAlive = func(r Record) bool {
-	if !r.Alive() {
-		return false
-	}
-	if r.PIDStart == "" || r.PID <= 0 {
-		return true
-	}
-	got, err := proc.StartTime(r.PID)
-	return err != nil || got == r.PIDStart // a reused pid is not the job
-}
+var watchAlive = holderLive
 
 // WatchDir holds the watchdog's markers: collected-<id>, resumed-<id>, <session>.tick and <session>.seen.
 func WatchDir() string { return filepath.Join(paths.StateDir(), "watch") }
@@ -157,15 +149,35 @@ func WatchMarker(kind, id string) string {
 	return filepath.Join(WatchDir(), kind+"-"+id)
 }
 
-// ResumedAs is the job id the watchdog resumed id as; an empty marker is a claim whose launch never finished.
+// ResumedAs is the job id the watchdog resumed id as: the record's claim first, else a published marker.
 func ResumedAs(id string) (string, bool) {
+	if rec, ok := parentRecord(id); ok {
+		return rec.resumedAs()
+	}
+	return markerSuccessor(id)
+}
+
+// resumedAs is the successor r's claim names once adopted; a record with no claim falls back to a legacy named marker.
+func (r Record) resumedAs() (string, bool) {
+	if r.Resumer != nil {
+		return r.Resumer.Successor, r.Resumer.phase() == claimAdopted
+	}
+	return markerSuccessor(r.ID)
+}
+
+// markerSuccessor is the id a named resumed marker holds; an empty, malformed or pid marker names nobody.
+func markerSuccessor(id string) (string, bool) {
 	p := WatchMarker("resumed", id)
 	if p == "" {
 		return "", false
 	}
 	b, err := os.ReadFile(p)
 	next := strings.TrimSpace(string(b))
-	return next, err == nil && next != ""
+	named := err == nil && next != "" && !strings.ContainsAny(next, " \t\r\n/\\") && !strings.HasPrefix(next, "pid:")
+	if !named {
+		return "", false
+	}
+	return next, true
 }
 
 // Watch classifies owner's jobs (and the jobs the watchdog resumed for them) at now.
@@ -389,8 +401,8 @@ func recoverArgs(r Record) []string {
 
 // ResumeArgs is the `agents ask --session` argv that continues r's session in the background.
 func ResumeArgs(r Record, session string) []string {
-	args := []string{"claude-code", "agents", "ask", "--agent", cmp.Or(r.RanAs, r.Agent), "--session", session, "--background"}
-	args = append(args, map[bool]string{true: "--tools", false: "--tools=false"}[r.Request.Tools]) // ask defaults tools on
+	doc := agentconfig.Overlay{Agent: cmp.Or(r.RanAs, r.Agent), Tools: new(r.Request.Tools)}.Doc() // ask defaults tools on
+	args := []string{"claude-code", "agents", "ask", "--session", session, "--background", "--overlay", doc}
 	if r.Request.WorkDir != "" {
 		args = append(args, "--workdir", r.Request.WorkDir)
 	}

@@ -2,9 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,17 +14,15 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// The journaled commit: journal first, capture native revisions, apply with preimage checks, commit, retire the journal
+// The batch commit: capture native revisions, apply with preimage checks, roll back on a write error, commit
 
-// storeChange is one store-relative write or deletion; replay checks its journal-time preimage.
+// storeChange is one store-relative write or deletion, checked against its preimage before the write.
 type storeChange struct {
 	Rel    string // store-relative, validated like Commit
 	Data   []byte // new bytes; ignored when Delete
@@ -39,7 +34,6 @@ type storeChange struct {
 
 // commitReceipt records one applied batch; it is returned to the caller and never written.
 type commitReceipt struct {
-	ID          string
 	Commit      string
 	Applied     []string // written or removed by this batch
 	Skipped     []string // already at Data (or deleted and absent)
@@ -48,153 +42,60 @@ type commitReceipt struct {
 }
 
 // errDivergent accompanies a receipt when some checked changes found other bytes; what applied is committed.
-var errDivergent = errors.New("memory transaction: live bytes diverged from the journaled preimage")
+var errDivergent = errors.New("memory transaction: live bytes diverged from the preimage")
 
-// journal is the durable pre-write record of a batch; it is removed when the batch completes.
-type journal struct {
-	Schema  int             `json:"schema"`
-	ID      string          `json:"id"`
-	Subject string          `json:"subject"`
-	Changes []journalChange `json:"changes"`
-}
-
-type journalChange struct {
-	Rel            string `json:"rel"`
-	Delete         bool   `json:"delete"`
-	HasPreimage    bool   `json:"hasPreimage"`
-	PreimageSHA256 string `json:"preimageSha256,omitempty"`
-	Data           []byte `json:"data,omitempty"` // base64 in JSON
-}
-
-// outcome is what check decided for one change against the live bytes.
-type outcome int
+// changeState is what decide found for one change against the live bytes.
+type changeState int
 
 const (
-	outApply   outcome = iota // preimage matches (or absent as expected): write/remove
-	outSkip                   // already at Data, or deleted and absent: an earlier attempt applied it
-	outDiverge                // other bytes: leave untouched, report
+	stApply   changeState = iota // preimage holds: write or remove
+	stSkip                       // already at Data, or deleted and absent
+	stDiverge                    // other bytes: leave untouched, report
 )
 
-// commitChangesLocked applies changes while callers hold the writable bank lock.
+// commitChangesLocked applies changes while callers hold the writable bank lock; a failed write rolls the batch back.
 func commitChangesLocked(subject string, changes []storeChange) (commitReceipt, error) {
-	skipped, err := recoverEach() // a journal that cannot be finished must not wedge new batches
-	if err != nil {
-		return commitReceipt{}, err
-	}
 	repo := StoreRepo()
+	seen := make(map[string]bool, len(changes))
 	for _, c := range changes {
+		if seen[c.Rel] {
+			return commitReceipt{}, fmt.Errorf("memory transaction: duplicate path %s", c.Rel)
+		}
+		seen[c.Rel] = true
 		if err := repo.validateRel(c.Rel); err != nil {
 			return commitReceipt{}, err
 		}
 	}
-	j, err := newJournal(repo, subject, changes)
+	if err := repo.Ensure(); err != nil {
+		return commitReceipt{}, err
+	}
+	present, err := dirtyFiles(repo)
 	if err != nil {
 		return commitReceipt{}, err
 	}
-	if err := j.save(); err != nil {
+	touches := func(rel string) bool { return touchesTop(changes, rel) }
+	present = repo.dropCredentialShaped(present, touches) // an unrelated dir's credential file must not wedge this batch
+	if err := repo.refuseCredentialShaped(present, touches); err != nil {
 		return commitReceipt{}, err
 	}
-	rec, err := j.run(repo)
-	if err != nil && skipped != nil { // a stuck journal stays on disk and is retried by the next commit
-		err = errors.Join(err, skipped)
-	}
-	return rec, err
-}
-
-// recoverEach finishes every unfinished journal oldest first; a failing one is skipped and may diverge on replay.
-func recoverEach() (skipped, err error) {
-	entries, err := os.ReadDir(JournalDir())
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range entries { // ReadDir sorts by name: the id's timestamp prefix makes that oldest first
-		if !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		if err := recoverJournal(filepath.Join(JournalDir(), e.Name())); err != nil {
-			skipped = errors.Join(skipped, err)
-		}
-	}
-	return skipped, nil
-}
-
-// recoverJournal replays the journal in file f.
-func recoverJournal(f string) error {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return err
-	}
-	var j journal
-	if _, err := schemas.Decode(journalFormat, data, &j); err != nil { // ErrNewer: untouched, never replayed
-		return fmt.Errorf("memory journal %s: %w", f, err)
-	}
-	if j.ID == "" || j.path() != f { // the body's id names where save/retire write: it must be this file
-		return fmt.Errorf("memory journal %s: id %q does not match its file name", f, j.ID)
-	}
-	if _, err := j.run(StoreRepo()); err != nil && !errors.Is(err, errDivergent) {
-		return err
-	}
-	return nil
-}
-
-// newJournal records preimages as hashes and new bytes verbatim, so replay tells "not applied" from "edited since".
-func newJournal(repo storeRepo, subject string, changes []storeChange) (*journal, error) {
-	var rnd [4]byte
-	if _, err := rand.Read(rnd[:]); err != nil {
-		return nil, err
-	}
-	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, Schema: journalSchema}
-	for _, c := range changes {
-		jc := journalChange{Rel: c.Rel, Delete: c.Delete, HasPreimage: c.PreSHA256 != "", PreimageSHA256: c.PreSHA256}
-		if !c.Planned {
-			pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel))
-			if err != nil && !os.IsNotExist(err) {
-				return nil, err
-			}
-			jc.HasPreimage, jc.PreimageSHA256 = pre != nil, ""
-			if pre != nil {
-				jc.PreimageSHA256 = textutil.SHA256Hex(pre)
-			}
-		}
-		if !c.Delete {
-			jc.Data = c.Data
-		}
-		j.Changes = append(j.Changes, jc)
-	}
-	return j, nil
-}
-
-func (j *journal) path() string { return filepath.Join(JournalDir(), j.ID+".json") }
-
-// save writes the journal atomically under state; it is never committed.
-func (j *journal) save() error {
-	data, err := json.Marshal(j)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(JournalDir(), 0o700); err != nil {
-		return err
-	}
-	return paths.AtomicWrite(j.path(), data, 0o600)
-}
-
-// run drives one journal: check, native capture, apply, commit, retire; a failed commit leaves the journal for replay.
-func (j *journal) run(repo storeRepo) (commitReceipt, error) {
-	rec := commitReceipt{ID: j.ID}
-	present, err := j.applyBatch(repo, &rec)
+	var rec commitReceipt
+	states, initial, err := captureNative(repo, subject, changes, present, &rec)
 	if err != nil {
 		return rec, err
 	}
-	if stage := commitStage(rec, present); len(stage) > 0 {
-		if err := j.commit(repo, &rec, stage); err != nil {
+	if err := writeChanges(repo, changes, states, initial, &rec); err != nil {
+		return rec, err
+	}
+	if stage := commitStage(rec, present); len(stage) > 0 { // a failed commit leaves the files for the next settle
+		body := fmt.Sprintf("applied %d, skipped %d, divergent %d, preexisting %d",
+			len(rec.Applied), len(rec.Skipped), len(rec.Divergent), len(rec.Preexisting))
+		sha, committed, err := repo.Commit(stage, subject, body)
+		if committed {
+			rec.Commit = sha
+		}
+		if err != nil {
 			return rec, err
 		}
-	}
-	if err := os.Remove(j.path()); err != nil && !os.IsNotExist(err) {
-		return rec, err
 	}
 	if len(rec.Divergent) > 0 {
 		return rec, errDivergent
@@ -202,141 +103,122 @@ func (j *journal) run(repo storeRepo) (commitReceipt, error) {
 	return rec, nil
 }
 
-// applyBatch validates, plans, captures native revisions and applies every change; present lists the dirty files.
-func (j *journal) applyBatch(repo storeRepo, rec *commitReceipt) (present []string, err error) {
-	for _, c := range j.Changes { // replayed journals need path validation before any read
-		if err := repo.validateRel(c.Rel); err != nil {
-			return nil, err
-		}
-	}
-	if err := repo.Ensure(); err != nil {
-		return nil, err
-	}
-	present, err = dirtyFiles(repo)
-	if err != nil {
-		return nil, err
-	}
-	present = repo.dropCredentialShaped(present, j.touches) // an unrelated dir's credential file must not wedge this batch
-	if err := repo.refuseCredentialShaped(present, j.touches); err != nil {
-		return nil, err
-	}
-	outcomes, capture, err := j.plan(repo.Dir, present, rec)
-	if err != nil {
-		return nil, err
-	}
-	if err := j.captureNative(repo, capture); err != nil {
-		return nil, err
-	}
-	for i, c := range j.Changes {
-		if err := c.apply(repo, outcomes[i], rec); err != nil {
-			return nil, err
-		}
-	}
-	return present, nil
-}
-
-// touches reports whether rel sits under a top-level dir (or is a root file) this journal changes.
-func (j *journal) touches(rel string) bool {
+// touchesTop reports whether rel sits under a top-level dir (or is a root file) the changes touch.
+func touchesTop(changes []storeChange, rel string) bool {
 	top, _, _ := strings.Cut(rel, "/")
-	return slices.ContainsFunc(j.Changes, func(c journalChange) bool {
+	return slices.ContainsFunc(changes, func(c storeChange) bool {
 		t, _, _ := strings.Cut(c.Rel, "/")
 		return t == top
 	})
 }
 
-// commitStage lists the paths the batch commit stages: applied, preexisting, and skipped ones left dirty earlier.
-func commitStage(rec commitReceipt, present []string) []string {
-	stage := append(append([]string{}, rec.Applied...), rec.Preexisting...)
-	for _, p := range rec.Skipped {
-		if slices.Contains(present, p) {
-			stage = append(stage, p)
-		}
-	}
-	return stage
-}
-
-// plan checks each change against live bytes; dirty files outside the batch are Preexisting, inside it are captured.
-func (j *journal) plan(dir string, present []string, rec *commitReceipt) (outcomes []outcome, capture []string, err error) {
-	outcomes = make([]outcome, len(j.Changes))
-	batch := map[string]outcome{}
-	for i, c := range j.Changes {
-		if outcomes[i], err = c.check(dir); err != nil {
+// captureNative commits, ahead of the batch, the dirty revisions it replaces; other dirty files are Preexisting.
+func captureNative(repo storeRepo, subject string, changes []storeChange, present []string, rec *commitReceipt) ([]changeState, []fileSnapshot, error) {
+	inBatch := map[string]bool{}
+	states := make([]changeState, len(changes))
+	initial := make([]fileSnapshot, len(changes))
+	var capture []string
+	for i, c := range changes {
+		var err error
+		initial[i], err = snapshotFile(filepath.Join(repo.Dir, c.Rel))
+		if err != nil {
 			return nil, nil, err
 		}
-		batch[c.Rel] = outcomes[i]
-	}
-	for _, p := range present {
-		if o, inBatch := batch[p]; !inBatch {
-			rec.Preexisting = append(rec.Preexisting, p)
-		} else if o == outApply {
-			capture = append(capture, p)
+		st, err := c.decide(repo.Dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		states[i] = st
+		inBatch[c.Rel] = true
+		if st == stApply {
+			capture = append(capture, c.Rel)
 		}
 	}
-	return outcomes, capture, nil
-}
-
-// captureNative commits, ahead of the batch, the dirty revisions it replaces so the write cannot erase them.
-func (j *journal) captureNative(repo storeRepo, capture []string) error {
+	for _, p := range present {
+		if !inBatch[p] {
+			rec.Preexisting = append(rec.Preexisting, p)
+		}
+	}
 	if len(capture) == 0 {
-		return nil
+		return states, initial, nil
 	}
-	_, _, err := repo.Commit(capture, "native: before "+j.Subject, fmt.Sprintf("captured %d", len(capture)))
-	return err
+	_, _, err := repo.Commit(capture, "native: before "+subject, fmt.Sprintf("captured %d", len(capture)))
+	return states, initial, err
 }
 
-// commit stages the batch and commits it; Commit stays empty when nothing changed.
-func (j *journal) commit(repo storeRepo, rec *commitReceipt, stage []string) error {
-	body := fmt.Sprintf("applied %d, skipped %d, divergent %d, preexisting %d",
-		len(rec.Applied), len(rec.Skipped), len(rec.Divergent), len(rec.Preexisting))
-	sha, committed, err := repo.Commit(stage, j.Subject, body)
-	if committed {
-		rec.Commit = sha
+type appliedWrite struct {
+	change storeChange
+	snap   fileSnapshot
+}
+
+// writeChanges rechecks each change's live bytes, writes the ones that hold, and restores the earlier files on error.
+func writeChanges(repo storeRepo, changes []storeChange, states []changeState, initial []fileSnapshot, rec *commitReceipt) error {
+	abs := make([]string, len(changes))
+	for i, c := range changes {
+		abs[i] = filepath.Join(repo.Dir, c.Rel)
 	}
-	return err
-}
-
-// check reads the live bytes once and decides the change's outcome; every change is conditional on its preimage.
-func (c journalChange) check(dir string) (outcome, error) {
-	cur, err := os.ReadFile(filepath.Join(dir, c.Rel))
-	absent := err != nil && os.IsNotExist(err)
-	if err != nil && !absent {
-		return 0, err
-	}
-	switch {
-	case c.alreadyApplied(cur, absent):
-		return outSkip, nil
-	case c.preimageHolds(cur, absent):
-		return outApply, nil
-	}
-	return outDiverge, nil
-}
-
-// alreadyApplied reports whether the live bytes already show the change: a delete of an absent file or the same data.
-func (c journalChange) alreadyApplied(cur []byte, absent bool) bool {
-	return c.Delete && absent || !c.Delete && !absent && bytes.Equal(cur, c.Data)
-}
-
-// preimageHolds reports whether the live bytes are still the change's recorded preimage (or absent when it had none).
-func (c journalChange) preimageHolds(cur []byte, absent bool) bool {
-	return !c.HasPreimage && absent || c.HasPreimage && !absent && textutil.SHA256Hex(cur) == c.PreimageSHA256
-}
-
-// apply rechecks live bytes before mutating and sorts the rel into Applied, Skipped or Divergent.
-func (c journalChange) apply(repo storeRepo, planned outcome, rec *commitReceipt) error {
-	o, err := c.check(repo.Dir)
+	snaps, err := snapshotPaths(abs...)
 	if err != nil {
 		return err
 	}
-	if o == outApply && planned != outApply {
-		o = outDiverge
+	var applied []appliedWrite
+	for i, c := range changes {
+		before := len(rec.Applied)
+		if err := c.write(repo, abs[i], states[i], initial[i], rec); err != nil {
+			return rollbackWritten(appliedWrite{c, snaps[i]}, applied, rec, err)
+		}
+		if len(rec.Applied) > before {
+			applied = append(applied, appliedWrite{c, snaps[i]})
+		}
 	}
-	if c.recordUnapplied(o, rec) {
+	return nil
+}
+
+// restoreIfOurs leaves a native edit alone if it arrived after this batch wrote the file.
+func (w appliedWrite) restoreIfOurs() error {
+	current, err := snapshotFile(w.snap.path)
+	if err != nil {
+		return err
+	}
+	if current.existed == w.snap.existed && bytes.Equal(current.prev, w.snap.prev) {
+		return nil
+	}
+	if w.change.Delete && !current.existed || !w.change.Delete && current.existed && bytes.Equal(current.prev, w.change.Data) {
+		return w.snap.restore()
+	}
+	return fmt.Errorf("memory transaction: %s changed during rollback", w.change.Rel)
+}
+
+// rollbackWritten restores only this batch's bytes and leaves foreign edits untouched.
+func rollbackWritten(failed appliedWrite, applied []appliedWrite, rec *commitReceipt, cause error) error {
+	current, err := snapshotFile(failed.snap.path)
+	if err == nil && (current.existed != failed.snap.existed || !bytes.Equal(current.prev, failed.snap.prev)) {
+		applied = append(applied, failed)
+	}
+	for _, w := range slices.Backward(applied) {
+		err = errors.Join(err, w.restoreIfOurs())
+	}
+	rec.Applied = nil // callers must not restore a native edit after this guard refuses it
+	return errors.Join(cause, err)
+}
+
+// write sorts one change into Applied, Skipped or Divergent, mutating only when the preimage still holds.
+func (c storeChange) write(repo storeRepo, abs string, planned changeState, snap fileSnapshot, rec *commitReceipt) error {
+	st, err := c.guardedState(repo.Dir, abs, planned, snap)
+	if err != nil {
+		return err
+	}
+	switch st {
+	case stSkip:
+		rec.Skipped = append(rec.Skipped, c.Rel)
+		return nil
+	case stDiverge:
+		rec.Divergent = append(rec.Divergent, c.Rel)
 		return nil
 	}
 	if err := repo.validateRel(c.Rel); err != nil { // again, right before the write: an ancestor may have become a link
 		return err
 	}
-	abs := filepath.Join(repo.Dir, c.Rel)
 	if c.Delete {
 		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 			return err
@@ -348,17 +230,53 @@ func (c journalChange) apply(repo storeRepo, planned outcome, rec *commitReceipt
 	return nil
 }
 
-// recordUnapplied files a skipped or divergent change in rec and reports whether it did.
-func (c journalChange) recordUnapplied(o outcome, rec *commitReceipt) bool {
-	switch o {
-	case outSkip:
-		rec.Skipped = append(rec.Skipped, c.Rel)
-	case outDiverge:
-		rec.Divergent = append(rec.Divergent, c.Rel)
-	default:
-		return false
+// guardedState rejects a late preimage match or an unplanned change to the captured bytes.
+func (c storeChange) guardedState(dir, abs string, planned changeState, snap fileSnapshot) (changeState, error) {
+	st, err := c.decide(dir)
+	if err != nil || st != stApply {
+		return st, err
 	}
-	return true
+	if planned != stApply {
+		return stDiverge, nil
+	}
+	if c.Planned {
+		return stApply, nil
+	}
+	cur, err := snapshotFile(abs)
+	if err != nil {
+		return 0, err
+	}
+	if cur.existed != snap.existed || !bytes.Equal(cur.prev, snap.prev) {
+		return stDiverge, nil
+	}
+	return stApply, nil
+}
+
+// decide reads the live bytes once; an unplanned change takes whatever is live as its preimage.
+func (c storeChange) decide(dir string) (changeState, error) {
+	cur, err := os.ReadFile(filepath.Join(dir, c.Rel))
+	absent := os.IsNotExist(err)
+	if err != nil && !absent {
+		return 0, err
+	}
+	switch {
+	case c.Delete && absent, !c.Delete && !absent && bytes.Equal(cur, c.Data):
+		return stSkip, nil
+	case !c.Planned, c.PreSHA256 == "" && absent, !absent && textutil.SHA256Hex(cur) == c.PreSHA256:
+		return stApply, nil
+	}
+	return stDiverge, nil
+}
+
+// commitStage lists the paths the batch commit stages: applied, preexisting, and skipped ones left dirty earlier.
+func commitStage(rec commitReceipt, present []string) []string {
+	stage := append(append([]string{}, rec.Applied...), rec.Preexisting...)
+	for _, p := range rec.Skipped {
+		if slices.Contains(present, p) {
+			stage = append(stage, p)
+		}
+	}
+	return stage
 }
 
 // dirtyFiles lists dirty regular files outside .git, or now-missing ones (a tracked deletion); oddities are skipped.
@@ -383,17 +301,6 @@ func dirtyFiles(repo storeRepo) (present []string, err error) {
 	}
 	return present, nil
 }
-
-// journalSchema versions memory-journal.
-const journalSchema = 1
-
-var journalFormat = schemas.Register(schemas.Format{
-	Name: "memory-journal", Owner: "internal/memory", Kind: schemas.Record, Version: journalSchema,
-	Glob:    func() string { return filepath.Join(JournalDir(), "*.json") },
-	New:     func() any { return new(journal) },
-	Keep:    "a pending journal is replayed by the next commit; a newer one is never replayed",
-	Migrate: schemas.SameShape,
-})
 
 // Bounded git for the nested memory repo: explicit --git-dir/--work-tree keep a stray GIT_DIR off ~/.claude.
 

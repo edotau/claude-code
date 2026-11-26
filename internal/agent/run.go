@@ -643,8 +643,11 @@ type RunOptions struct {
 
 	// FallbackDefaulted: Fallback is ask's env default, not typed; any other none (a flag, code, an old record) holds.
 	FallbackDefaulted bool `json:"fallback_defaulted,omitempty"`
-	// FenceTyped: --overlay on this command line confined the run, so the last-resort row stays off it.
+	// FenceTyped: a typed --overlay or route flag confined the run, so the last-resort row stays off it.
 	FenceTyped bool `json:"fence_typed,omitempty"`
+	// A --job relaunch recomputes its origins from these; the record is trusted whole (a same-user forger: out of scope).
+	TypedFlags       []string `json:"typed_flags,omitempty"`
+	InheritedOverlay string   `json:"inherited_overlay,omitempty"`
 	// Rotated: Lead and Model are a role rotation's pick, so a --job or --retry replay leads with them again.
 	Rotated bool `json:"rotated,omitempty"`
 }

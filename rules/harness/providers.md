@@ -32,12 +32,13 @@ paths:
 - Agent settings live in the vault, one record per agent (`vault` AGENT table); an external agent's shell
   `<AGENT>_MODEL` outranks the record's `model`, and `--model` beats both; `switch` and `<agent> profile` write the
   record (no last-used profile exists).
-- Agents run on their pins (gemini on Google); per-call routes use the overlay: every key
-  (type, schema, child, tighten) is in the one table in `agent.md` → Overlay; precedence and fallback below. A standing
-  default for top-level dispatches is vault env `COWORKER_OVERLAY`
+- Agents run on their pins (gemini on Google); per-call routes use the overlay: the one key catalogue is
+  `agent.md` → Overlay (Key, Type, Schema acceptance, Child inheritance, Tighten); precedence and fallback below. A
+  standing default for top-level dispatches is vault env `COWORKER_OVERLAY`
   (`claude-code vault set env COWORKER_OVERLAY <value>` / `vault rm env COWORKER_OVERLAY`). Brief fields:
   `skills/subagent-workflows/SKILL.md`.
-- The proxy replaces itself: `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
+- The proxy replaces itself: the shared daemon and standing scopes spawn from `bin/claude-code` when installed (never a
+  lane or `/tmp` build), `make install` runs `gateway proxy --restart --if-changed`, and a session's status line
   replaces a stale daemon (`proxy.json` `exe` sha256 differs from the installed binary, the one staleness test, also
   doctor's) at its first poll with no request in flight; in-flight streams drain (up to 2 min, then are cut) while the
   replacement serves; `--stop` waits as long. The respawn gap is ~55 ms (max ~110 ms, connection refused; clients

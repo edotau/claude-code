@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -74,12 +75,48 @@ func TestOverlayUnknownKeyNestedTerminates(t *testing.T) {
 
 func TestCutMemberKeepsBytes(t *testing.T) {
 	in := `{"provider":"anthropic", "bogus":{"a":[1,2]} ,"Provider":"databricks"}`
-	out, ok := cutMember([]byte(in), "bogus")
-	if want := `{"provider":"anthropic", "Provider":"databricks"}`; !ok || string(out) != want {
-		t.Fatalf("cut = %q, %v; want %q", out, ok, want)
+	out, dropped := cutUnknownMembers([]byte(in), true)
+	if want := `{"provider":"anthropic","Provider":"databricks"}`; len(dropped) != 1 || string(out) != want {
+		t.Fatalf("cut = %q, %v; want %q", out, dropped, want)
 	}
-	out, _ = cutMember([]byte(`{"a":1,"bogus":2}`), "bogus")
-	if string(out) != `{"a":1}` {
+	out, _ = cutUnknownMembers([]byte(`{"model":"haiku","bogus":2}`), true)
+	if string(out) != `{"model":"haiku"}` {
 		t.Fatalf("last member cut = %q", out)
+	}
+}
+
+func TestStoredUnknownPreservesKnownMembers(t *testing.T) {
+	for _, doc := range []string{
+		`{"set":{"extra":"keep"},"extra":1}`,
+		`{"set":{"extra":"keep"},"fence":{"extra":1}}`,
+		`{"model":"haiku","fence":{"model":1},"agents":{"model":{"prompt":"keep"}}}`,
+	} {
+		t.Run(doc, func(t *testing.T) {
+			got := captureUnknown(t)
+			o, err := LoadOverlayFrom(t.Context(), doc, nil, false)
+			if err != nil || len(*got) != 1 {
+				t.Fatalf("load = %s, %v; reports %v", o.Doc(), err, *got)
+			}
+			if strings.Contains(doc, `"set"`) && o.Set["extra"] != "keep" {
+				t.Errorf("valid set entry lost: %s", o.Doc())
+			}
+			if strings.Contains(doc, `"agents"`) && (o.Model != "haiku" || !strings.Contains(string(o.Agents), `"prompt":"keep"`)) {
+				t.Errorf("valid model or agent definition lost: %s", o.Doc())
+			}
+		})
+	}
+}
+
+func TestStoredUnknownBeyondSixtyFour(t *testing.T) {
+	got := captureUnknown(t)
+	var doc strings.Builder
+	doc.WriteString(`{"model":"haiku"`)
+	for i := range 70 {
+		fmt.Fprintf(&doc, `,"extra%d":true`, i)
+	}
+	doc.WriteString("}")
+	o, err := LoadOverlayFrom(t.Context(), doc.String(), nil, false)
+	if err != nil || o.Model != "haiku" || len(*got) != 1 || strings.Count((*got)[0], "extra") != 70 {
+		t.Fatalf("load = %s, %v; reports %v", o.Doc(), err, *got)
 	}
 }

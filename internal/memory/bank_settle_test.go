@@ -2,8 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,6 +24,49 @@ func runBank(t *testing.T, fn func(t *testing.T)) {
 	fn(t)
 }
 
+func TestTolerateIndexKeepsNestedFailures(t *testing.T) {
+	commitErr, closeErr := errors.New("commit busy"), errors.New("db close failed")
+	advisory := fmt.Errorf("%w: pin left out", errIndexProblem)
+	for _, err := range []error{
+		errors.Join(errors.Join(commitErr, advisory), closeErr),
+		errors.Join(errors.Join(advisory, commitErr)),
+		errors.Join(errors.Join(closeErr, advisory)),
+	} {
+		got := tolerateIndex(err)
+		for _, want := range []error{commitErr, closeErr} {
+			if errors.Is(got, want) != errors.Is(err, want) {
+				t.Errorf("tolerateIndex(%v) = %v; lost %v", err, got, want)
+			}
+		}
+		if errors.Is(got, errIndexProblem) {
+			t.Errorf("index advisory was not filtered: %v", got)
+		}
+	}
+	if got := tolerateIndex(errors.Join(errors.Join(advisory))); got != nil {
+		t.Errorf("advisory alone returned %v", got)
+	}
+}
+
+func TestSnapshotRestoreKeepsMode(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "catalog.md")
+	write(t, file, "before\n")
+	if err := os.Chmod(file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := snapshotFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, file, "after\n")
+	if err := snap.restore(); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(file)
+	if err != nil || fi.Mode().Perm() != 0o644 || mustRead(t, file) != "before\n" {
+		t.Fatalf("restore lost bytes or mode: %v, %v", fi, err)
+	}
+}
+
 func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
@@ -35,7 +76,8 @@ func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 		}
 		path := Path("sessionHistory.md")
 		archive := paths.MemorySub("archive", "sessionHistory-2026-11.md")
-		write(t, path, rejoin("# Session history", entries))
+		before := rejoin("# Session history", entries)
+		write(t, path, before)
 		// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
 		write(t, archive, rejoin("# Archived sessions", entries[sessionHistoryMaxEntries:sessionHistoryMaxEntries+1]))
 
@@ -47,7 +89,7 @@ func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 		if want := entries[sessionHistoryMaxEntries:]; !slices.Equal(archived, want) {
 			t.Fatalf("retry duplicated or lost archived entries:\n got: %q\nwant: %q", archived, want)
 		}
-		if got, want := mustRead(t, path), rejoin("# Session history", entries[:sessionHistoryMaxEntries]); got != want {
+		if got, want := mustRead(t, path), before[:strings.Index(before, entries[sessionHistoryMaxEntries])-1]; got != want {
 			t.Fatalf("retained history:\n got: %q\nwant: %q", got, want)
 		}
 	})
@@ -72,6 +114,46 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 			t.Fatalf("unreadable history: got %d, %v; want wrapped %v", n, err, want.Err)
 		}
 	})
+}
+
+func TestRotationPreservesEntryBytes(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		var body strings.Builder
+		header := "# History\n\n\n"
+		body.WriteString(header)
+		for i := range sessionHistoryMaxEntries + 1 {
+			fmt.Fprintf(&body, "## Session %d\n\nbody %d\n\n\n", i, i)
+		}
+		in := body.String()
+		last := strings.LastIndex(in, "## Session ")
+		write(t, Path("sessionHistory.md"), in)
+		if n, err := rotateSessionHistory(testEnv().Now); err != nil || n != 1 {
+			t.Fatalf("rotate = %d, %v", n, err)
+		}
+		// the newline joining the moved entry goes with it, so the file is what the store renders once that row moves
+		if got := mustRead(t, Path("sessionHistory.md")); got != in[:last-1] {
+			t.Errorf("retained entries changed: %q", got)
+		}
+		archive := archivePath("sessionHistory.md", testEnv().Now)
+		if got := mustRead(t, archive); !strings.HasSuffix(got, in[last:]) {
+			t.Errorf("archived entry changed: %q", got)
+		}
+	})
+}
+
+func TestArchiveAppendsRefuseOpenFence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.md")
+	before := "# Archive\n\n```\nexample\n"
+	write(t, path, before)
+	if err := appendBlocks(path, []string{"## New <!-- id:12345678 -->"}); err == nil {
+		t.Error("prune append hid an entry inside a fence")
+	}
+	if _, err := appendUnarchived(path, []string{"## New <!-- id:12345678 -->"}); err == nil {
+		t.Error("rotation append hid an entry inside a fence")
+	}
+	if got := mustRead(t, path); got != before {
+		t.Errorf("refused append changed bytes: %q", got)
+	}
 }
 
 // TestSettleBankLockLivesUnderStateNotStore: settleBank locks BankLockPath() under state, not a dotfile in the store.
@@ -113,8 +195,8 @@ func TestSettleBankRefusesCredentialFile(t *testing.T) {
 	}
 }
 
-// TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
-func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
+// A failed rotation leaves the blocks settle stamped wrapped and every file it did not change byte-identical.
+func TestSettleDirWrapsOnlyChangedBlocksWhenALaterStepFails(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		long := "- " + string(bytes.Repeat([]byte("word "), 40)) + "\n"
 		write(t, Path("activeContext.md"), "# Active\n\n"+long)
@@ -132,9 +214,12 @@ func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
 		if _, err := settleDir(now); err == nil {
 			t.Fatal("settle succeeded with an unwritable archive")
 		}
-		files := []string{Path("activeContext.md"), Path("decisionLog.md"), Path("sessionHistory.md")}
+		files := []string{Path("decisionLog.md"), Path("sessionHistory.md")} // every entry got its id
 		if changed, err := formatFiles(files, true); err != nil || len(changed) != 0 {
 			t.Fatalf("settle left unwrapped files %v (err %v)", changed, err)
+		}
+		if got := mustRead(t, Path("activeContext.md")); got != "# Active\n\n"+long {
+			t.Errorf("settle rewrote a file it did not change:\n%s", got)
 		}
 	})
 }
@@ -159,126 +244,6 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 			t.Errorf("%s remains dirty after settle: %v, %v", name, dirty, err)
 		}
 	}
-}
-
-// shadowStep is one settle's stubbed import result.
-type shadowStep struct {
-	docs    []string
-	changed bool
-	err     error
-	panic   bool
-}
-
-func TestSettleShadowLog(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		steps  []shadowStep
-		lines  []string // docs of each log line, in order, "-" for a cleared set
-		notice bool
-	}{
-		{name: "diverged", steps: []shadowStep{{docs: []string{"a.md"}, changed: true}}, lines: []string{"a.md"}},
-		{name: "matched", steps: []shadowStep{{}}},
-		{name: "import error", steps: []shadowStep{{err: errors.New("shadow unavailable")}}, notice: true},
-		{name: "partial result kept", steps: []shadowStep{{docs: []string{"a.md"}, changed: true, err: errors.New("late")}},
-			lines: []string{"a.md"}, notice: true},
-		{name: "error keeps the set", steps: []shadowStep{{docs: []string{"a.md"}, changed: true}, {err: errors.New("late")}},
-			lines: []string{"a.md"}, notice: true},
-		{name: "panic", steps: []shadowStep{{panic: true}}, notice: true},
-		{name: "change only", steps: []shadowStep{{docs: []string{"a.md", "b.md"}, changed: true}, {docs: []string{"a.md", "b.md"}},
-			{docs: []string{"a.md"}, changed: true}, {changed: true}, {}}, lines: []string{"a.md b.md", "a.md", "-"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			runBank(t, func(t *testing.T) {
-				var got []string
-				for _, st := range tc.steps {
-					stubShadowImport(t, st)
-					got = append(got, stderrOf(t, func() {
-						if _, err := settleBank(time.Now()); err != nil {
-							t.Fatal(err)
-						}
-					}))
-				}
-				if has := strings.Contains(strings.Join(got, ""), "notice: memory shadow: "); has != tc.notice {
-					t.Fatalf("shadow notice = %q, want notice %v", got, tc.notice)
-				}
-				if lines := shadowLogDocs(t); !slices.Equal(lines, tc.lines) {
-					t.Fatalf("shadow log lines = %q, want %q", lines, tc.lines)
-				}
-			})
-		})
-	}
-}
-
-func TestSettleShadowLogWriteFails(t *testing.T) {
-	runBank(t, func(t *testing.T) {
-		if err := os.MkdirAll(shadowLogPath(), 0o700); err != nil { // a directory where the log file goes
-			t.Fatal(err)
-		}
-		stubShadowImport(t, shadowStep{docs: []string{"a.md"}, changed: true})
-		out := stderrOf(t, func() {
-			if _, err := settleBank(time.Now()); err != nil {
-				t.Fatal(err)
-			}
-		})
-		if !strings.Contains(out, "notice: memory shadow: ") {
-			t.Fatalf("no notice for a failed log write: %q", out)
-		}
-	})
-}
-
-func stubShadowImport(t *testing.T, st shadowStep) {
-	t.Helper()
-	old := ShadowImport
-	t.Cleanup(func() { ShadowImport = old })
-	ShadowImport = func() ([]string, bool, error) {
-		if st.panic {
-			panic("boom")
-		}
-		return st.docs, st.changed, st.err
-	}
-}
-
-// shadowLogDocs is each log line's docs joined by space, "-" for an empty set; nil when there is no log.
-func shadowLogDocs(t *testing.T) []string {
-	t.Helper()
-	b, err := os.ReadFile(shadowLogPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
-		var line struct {
-			Time string   `json:"time"`
-			Docs []string `json:"docs"`
-		}
-		if err := json.Unmarshal([]byte(l), &line); err != nil || line.Time == "" || line.Docs == nil {
-			t.Fatalf("bad shadow log line %q: %v", l, err)
-		}
-		out = append(out, cmp.Or(strings.Join(line.Docs, " "), "-"))
-	}
-	return out
-}
-
-// stderrOf runs fn and returns what it wrote to os.Stderr, restored by t.Cleanup; never use it in a parallel test.
-func stderrOf(t *testing.T, fn func()) string {
-	t.Helper()
-	f, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	orig := os.Stderr
-	t.Cleanup(func() { os.Stderr = orig; _ = f.Close() })
-	os.Stderr = f
-	fn()
-	os.Stderr = orig
-	b, err := os.ReadFile(f.Name())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }
 
 // writeNote writes a native note under the store's folder.
@@ -364,7 +329,7 @@ func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
 	})
 }
 
-// dbTruthBank is an initialized bank in db truth over a fake export db wired as OpenExportDB.
+// dbTruthBank is an initialized bank over a fake export db wired as OpenExportDB.
 func dbTruthBank(t *testing.T) *fakeExportDB {
 	t.Helper()
 	isolatedConfig(t)
@@ -373,12 +338,9 @@ func dbTruthBank(t *testing.T) *fakeExportDB {
 		t.Fatal(err)
 	}
 	db := &fakeExportDB{root: paths.MemoryStoreDir(), docs: map[string]string{}, last: map[string]string{}}
-	oldOpen, oldFlip := OpenExportDB, ExportBeforeFlip
+	oldOpen := OpenExportDB
 	OpenExportDB = func() (ExportDB, func() error, error) { return db, func() error { return nil }, nil }
-	t.Cleanup(func() { OpenExportDB, ExportBeforeFlip = oldOpen, oldFlip })
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { OpenExportDB = oldOpen })
 	return db
 }
 
@@ -420,26 +382,6 @@ func wantExportMatchesDB(t *testing.T, db *fakeExportDB) {
 		if got := mustRead(t, filepath.Join(db.root, filepath.FromSlash(rel))); got != want {
 			t.Errorf("%s export differs from the db:\n got: %q\nwant: %q", rel, got, want)
 		}
-	}
-}
-
-func TestSetTruthFilesExportsDBFirst(t *testing.T) {
-	db := dbTruthBank(t)
-	write(t, Path("conventions.md"), "# Conventions\n\n- old\n")
-	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
-		t.Fatal(err)
-	}
-	db.docs["conventions.md"] = "# Conventions\n\n- db only\n"
-	ExportBeforeFlip = nil
-	if err := SetTruth("files"); err == nil || Truth() != "db" {
-		t.Fatalf("flip with no export = %v, truth %q; want a refusal and db", err, Truth())
-	}
-	ExportBeforeFlip = func() error { _, err := ExportGuardLocked(db, db.root); return err }
-	if err := SetTruth("files"); err != nil || Truth() != "files" {
-		t.Fatalf("flip = %v, truth %q; want nil and files", err, Truth())
-	}
-	if got := mustRead(t, Path("conventions.md")); got != "# Conventions\n\n- db only\n" {
-		t.Fatalf("file after flip = %q, want the db-only change exported first", got)
 	}
 }
 
@@ -489,18 +431,19 @@ func TestSettleKeepsEditMadeAfterRead(t *testing.T) {
 	})
 }
 
-func TestSetTruthFilesRefreshesCatalog(t *testing.T) {
+// H-6: settle imports the Markdown a stored files truth left behind, then retires the truth to db.
+func TestSettleDBRetiresFilesTruthAfterImport(t *testing.T) {
 	db := dbTruthBank(t)
-	write(t, Path("conventions.md"), "# Conventions\n\n- old\n")
-	if err := os.WriteFile(filepath.Join(paths.MemoryStoreDir(), routerFile), []byte("stale\n"), 0o644); err != nil {
+	write(t, truthPath(), "files\n")
+	write(t, Path("conventions.md"), "# Conventions\n\n- written under files truth\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
 		t.Fatal(err)
 	}
-	ExportBeforeFlip = func() error { _, err := ExportGuardLocked(db, db.root); return err }
-	if err := SetTruth("files"); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(db.docs["conventions.md"], "- written under files truth") {
+		t.Fatalf("the files-era edit was not imported: %q", db.docs["conventions.md"])
 	}
-	if got := mustRead(t, filepath.Join(paths.MemoryStoreDir(), routerFile)); got == "stale\n" {
-		t.Fatal("catalog.md stayed stale after the flip to files")
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "db" {
+		t.Fatalf("truth = %q after settle, want db", got)
 	}
 }
 
@@ -595,5 +538,40 @@ func TestSettleDBStillRotatesWhenAnotherPathConflicts(t *testing.T) {
 	write(t, Path("sessionHistory.md"), overflowHistory())
 	if rotated, err := settleBankWith(now, nil, "settle: test"); err != nil || rotated != 2 {
 		t.Fatalf("settle = %d, %v; want 2 rotated, nil", rotated, err)
+	}
+}
+
+// A settle whose guard keeps a conflict apart leaves the files truth in place: nothing was imported for that doc.
+func TestSettleDBKeepsFilesTruthOnConflict(t *testing.T) {
+	dbTruthBank(t)
+	write(t, Path("conventions.md"), "# Conventions\n\n- old\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(Path("conventions.md")); err != nil { // deleted outside after an export: a kept conflict
+		t.Fatal(err)
+	}
+	write(t, truthPath(), "files\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "files" {
+		t.Fatalf("truth = %q after a conflicting guard, want files kept", got)
+	}
+}
+
+// An export db that cannot open: a files truth settles the files alone and stays; a db truth keeps the error.
+func TestSettleDBExportOpenFailure(t *testing.T) {
+	dbTruthBank(t)
+	OpenExportDB = func() (ExportDB, func() error, error) { return nil, nil, errors.New("export db down") }
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err == nil {
+		t.Fatal("a db truth settled with its export db down")
+	}
+	write(t, truthPath(), "files\n")
+	if _, err := settleBankWith(time.Now(), nil, "settle: test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "files" {
+		t.Fatalf("truth %q after settling with no export db, want files kept", got)
 	}
 }

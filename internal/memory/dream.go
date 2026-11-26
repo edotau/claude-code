@@ -184,33 +184,24 @@ func dreamChanged(since time.Time) []string {
 	return out
 }
 
-// agentDreamPrompt frames the consolidation pass; its error slot is retained for existing prompt callers.
-func agentDreamPrompt(changed []string) (string, error) {
-	ref := dreamProcedure(dreamTyped())
+// agentDreamPrompt frames the consolidation pass.
+func agentDreamPrompt(changed []string) string {
+	ref := dreamProcedure()
 	list := assets.MemoryDreamUnchanged()
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return assets.MemoryDreamPrompt(assets.MemoryDreamWorker(paths.MemoryStoreDir()), list, ref), nil
+	return assets.MemoryDreamPrompt(assets.MemoryDreamWorker(paths.MemoryStoreDir()), list, ref)
 }
 
-// dreamLegacyMarker starts the legacy procedure inside dream.md; Phase 6 extraction stops at it ("## Phase 7").
-const dreamLegacyMarker = "## Phase 7: Legacy store procedure"
+// dreamReportMarker ends the typed procedure in dream.md; the report and run notes after it are not sent.
+const dreamReportMarker = "## Phase 7: Report"
 
-const dreamLegacyNote = "memory dream: store is older than flat 4; running the legacy path; run `claude-code memory upgrade` for typed dream"
-
-// dreamProcedure is the typed procedure, or the legacy one for a store older than flat 4.
-func dreamProcedure(typed bool) string {
-	all := assets.MemoryDreamProcedure()
-	head, legacy, found := strings.Cut(all, dreamLegacyMarker)
-	if typed {
-		return strings.TrimSpace(head)
-	}
-	return map[bool]string{true: strings.TrimSpace(legacy), false: all}[found]
+// dreamProcedure is dream.md up to its report phase.
+func dreamProcedure() string {
+	head, _, _ := strings.Cut(assets.MemoryDreamProcedure(), dreamReportMarker)
+	return strings.TrimSpace(head)
 }
-
-// dreamTyped is always true: the db is the truth, not a layout stamp.
-func dreamTyped() bool { return true }
 
 // dream runs one consolidation and records it, whatever the outcome, in dream-results.jsonl.
 func dream(o dreamOptions) error {
@@ -285,7 +276,7 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 		res.Reason = dreamNotDue
 		return nil
 	}
-	if lockErr == nil && run.runErr == nil && run.typed && o.Run != nil {
+	if lockErr == nil && run.runErr == nil && o.Run != nil {
 		run.runAgent(o) // no store lock across the model call
 		dreamExtract(o, run.runErr)
 	}
@@ -321,7 +312,6 @@ type dreamRan struct {
 	runErr, archiveErr error
 	archived           int
 	changed            []string // bank files the batch modified, store-relative
-	typed              bool     // the typed batch path; false is the in-place legacy run
 	prompt             string
 	plan               *dreamPlans       // the plan phase of this run; nil outside a checkout with plans
 	base               Versions          // refs to the versions the model saw
@@ -355,17 +345,7 @@ func dreamLocked(o dreamOptions) dreamRan {
 	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
 	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
-	prompt, err := agentDreamPrompt(changed)
-	if err != nil {
-		r.runErr = err
-		return r
-	}
-	if !dreamTyped() {
-		fmt.Fprintln(o.Out, dreamLegacyNote)
-		r.runLegacyAgent(o, prompt, len(changed))
-		return r
-	}
-	r.typed = true
+	prompt := agentDreamPrompt(changed)
 	listing, base, files, docs, err := dreamListing()
 	r.prompt, r.base, r.files, r.docs, r.runErr = prompt+listing, base, files, docs, err
 	return r
@@ -425,12 +405,9 @@ func dreamEncodeListing(entries any) (string, error) {
 	return listing.String(), nil
 }
 
-// runAgent runs outside the bank lock; ApplyBatch takes the lock only to apply the answer.
+// runAgent runs outside the bank lock; the store's Apply takes the lock only to apply the answer.
 func (r *dreamRan) runAgent(o dreamOptions) {
 	r.plan = startPlanPhase(o.CWD)
-	if r.plan != nil {
-		r.plan.typed = true
-	}
 	defer func() { r.dropReverted(r.plan.finish(o.Out)) }()
 	prompt := r.prompt + r.plan.promptBlock()
 	misses, rtkErr := readDreamRtk()
@@ -1024,46 +1001,11 @@ func pruneDreamLogs(dir string, keep int) {
 	}
 }
 
-// runLegacyAgent runs the agent on prompt in place of a typed batch; the plan phase brackets the run.
-func (r *dreamRan) runLegacyAgent(o dreamOptions, prompt string, nChanged int) {
-	plan := startPlanPhase(o.CWD)
-	prompt += plan.promptBlock()
-	misses, rtkErr := readDreamRtk()
-	writeDreamRtk(o.Out, misses, rtkErr)
-	prompt += rtkPromptBlock(misses)
-	defer plan.finish(o.Out)
-	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
-	defer cancel()
-	ctx, r.job = WithJobReport(ctx)
-	ctx = WithJobOutput(ctx, o.Out)
-	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
-	start := time.Now()
-	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
-	fmt.Fprintln(o.Out, dreamRunLine(who, err, r.job.Local))
-	if err != nil && strings.Contains(err.Error(), "\n") {
-		fmt.Fprintln(o.Out, "memory dream: error detail:", err) // the run line keeps only the first line
-	}
-	after := dreamChanged(start)
-	for _, f := range after {
-		rel, relErr := filepath.Rel(paths.MemoryStoreDir(), f)
-		if relErr != nil {
-			rel = f
-		}
-		r.changed = append(r.changed, rel)
-	}
-	if err == nil && nChanged > 0 && len(after) == 0 {
-		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", nChanged)
-	}
-	r.runErr = err
-	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out)) // again: a report may land during the run
-}
-
 // dreamPlans is the plan phase: the session checkout and its plans and citable evidence from before the run.
 type dreamPlans struct {
 	root   string
 	before plans.Snapshot
 	cite   plans.Cite
-	typed  bool                 // set by the typed path: finish then undoes only what applyPlanTask wrote
 	open   []plans.OpenTask     // listed in the prompt; the only tasks a typed plan_tasks entry may close
 	wrote  map[string]planWrite // typed plan_tasks writes by plan: what finish may undo
 }
@@ -1137,16 +1079,13 @@ func (d *dreamPlans) finish(out io.Writer) []plans.Change {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	var own func(plan, id string) bool // the typed path undoes only its own writes; the legacy agent's are unknowable
-	if d.typed {
-		mine := map[[2]string]bool{} // judged before any revert rewrites a plan's bytes
-		for plan, w := range d.wrote {
-			for id := range w.ids {
-				mine[[2]string{plan, id}] = d.owns(plan, id)
-			}
+	mine := map[[2]string]bool{} // judged before any revert rewrites a plan's bytes
+	for plan, w := range d.wrote {
+		for id := range w.ids {
+			mine[[2]string{plan, id}] = d.owns(plan, id)
 		}
-		own = func(plan, id string) bool { return mine[[2]string{plan, id}] }
 	}
+	own := func(plan, id string) bool { return mine[[2]string{plan, id}] }
 	rep, err := plans.RecheckOwned(ctx, d.root, JobDream, d.before, d.cite, own)
 	if err == nil && len(rep.Kept)+len(rep.Reverted)+len(rep.Flagged) == 0 && !rep.TextChanged {
 		return nil

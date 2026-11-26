@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -440,5 +441,28 @@ func TestEnsurePreservesRestartPort(t *testing.T) {
 	want := []string{"/bin/claude-code", "gateway", "proxy", "--serve", "--port", strconv.Itoa(recordedPort)}
 	if !slices.Equal(args, want) {
 		t.Fatalf("restart command=%v, want %v", args, want)
+	}
+}
+
+// a lane build spawns and hashes the installed binary as the shared proxy; with none installed it uses itself.
+func TestSharedProxyExePrefersInstalled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	self := filepath.Join(t.TempDir(), "cc-lane")
+	if got := sharedProxyExe(self); got != self {
+		t.Fatalf("no installed binary: got %s, want %s", got, self)
+	}
+	installed := filepath.Join(paths.BinDir(), "claude-code")
+	if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := sharedProxyExe(self); got != installed {
+		t.Fatalf("installed binary present: got %s, want %s", got, installed)
+	}
+	want := ExeHash(installed)
+	if got := cachedExeHash(); got != want || Stale(State{Exe: want}) {
+		t.Fatalf("cachedExeHash = %q (want %q) or Stale = true for the installed binary", got, want)
 	}
 }

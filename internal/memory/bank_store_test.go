@@ -1,41 +1,105 @@
 package memory
 
 import (
+	"bytes"
 	"errors"
+	"hash/fnv"
+	"io/fs"
+	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
-func TestBankStoreLoadReturnsSixDocs(t *testing.T) {
-	batchStore(t)
-	docs, _, err := newBankStore(false).Load()
-	if err != nil || len(docs) != len(bankFiles) {
-		t.Fatalf("docs=%d err=%v", len(docs), err)
-	}
+// memTestStore stands in for the shadow store (an import cycle bars it): import files, ApplyDocs, export; no settle.
+type memTestStore struct{}
+
+func init() {
+	OpenBankStore = func(bool) (BankStore, func() error, error) { return memTestStore{}, func() error { return nil }, nil }
 }
 
-func TestBankStoreApplyWritesAdd(t *testing.T) {
-	batchStore(t)
-	rs, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
-	if err != nil || len(rs) != 1 || rs[0].Outcome != DreamOK {
-		t.Fatalf("rs=%+v err=%v", rs, err)
+func readBankDocs() (map[string]Doc, map[string][]byte, error) {
+	docs, raw := map[string]Doc{}, map[string][]byte{}
+	for _, name := range bankFiles {
+		data, err := os.ReadFile(Path(name))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, err
+		}
+		raw[name], docs[name] = data, ParseDoc(name, data)
 	}
-	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("not written:\n%s", got)
-	}
+	return docs, raw, nil
 }
 
-func TestBankStoreApplyLocked(t *testing.T) {
-	batchStore(t)
-	err := withFlatLock(BankLockWait, func() error {
-		_, err := newBankStore(true).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
-		return err
-	})
+// memVersions issues numeric tokens like the db store's row versions, never equal to a content ref.
+func memVersions(docs map[string]Doc) Versions {
+	versions := Versions{}
+	for ref, content := range contentRefs(docs) {
+		if content == "" {
+			versions[ref] = ""
+			continue
+		}
+		h := fnv.New32a()
+		h.Write([]byte(content))
+		versions[ref] = Version(strconv.FormatUint(uint64(h.Sum32()), 10))
+	}
+	return versions
+}
+
+func (memTestStore) Load() (map[string]Doc, Versions, error) {
+	docs, _, err := readBankDocs()
 	if err != nil {
-		t.Fatal(err)
+		return nil, nil, err
 	}
+	return docs, memVersions(docs), nil
+}
+
+// memCheckBase mirrors shadow's checkBase: an op naming a ref whose current version is not its base conflicts.
+func memCheckBase(b Batch, base, cur Versions) error {
+	for i, o := range b.Ops {
+		have, want := cur[o.ID], base[o.ID]
+		if !memBaseConflicts(o, have, want, cur) {
+			continue
+		}
+		return &ConflictError{Op: i, Ref: o.ID, Base: want, Current: have}
+	}
+	return nil
+}
+
+func memBaseConflicts(o Op, have, want Version, cur Versions) bool {
+	if _, known := cur[o.ID]; o.ID == "" || (!known && want == "") || (want != "" && have == want) {
+		return false
+	}
+	unchecked := want == "" && (o.Read != "" || strings.HasPrefix(o.ID, "z"))
+	return !unchecked || have == ""
+}
+
+func (memTestStore) Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) {
+	docs, raw, err := readBankDocs()
+	if err != nil {
+		return nil, err
+	}
+	if err := memCheckBase(b, base, memVersions(docs)); err != nil {
+		return nil, err
+	}
+	if b, err = withBase(b, contentRefs(docs)); err != nil { // the version is opaque; Read guards on content
+		return nil, err
+	}
+	docs, results, err := ApplyDocs(docs, b, now)
+	if err != nil {
+		return results, err
+	}
+	for _, name := range bankFiles {
+		if out := docs[name].Render(); !bytes.Equal(out, raw[name]) {
+			if err := paths.AtomicWrite(Path(name), out, 0o644); err != nil {
+				return results, err
+			}
+		}
+	}
+	return results, commitBanks("test: export") // the real export commits what it writes
 }
 
 type fakeDBStore struct {
@@ -51,135 +115,58 @@ func (f *fakeDBStore) Apply(_ Batch, base Versions, _ time.Time) ([]OpResult, er
 	return []OpResult{{Outcome: DreamOK}}, f.opErr
 }
 
-func truthEnv(t *testing.T, f *fakeDBStore, openErr error) {
+// linkStore points OpenBankStore at f (nil: no store linked) for the test; opened runs on each open.
+func linkStore(t *testing.T, f *fakeDBStore, openErr error, opened func()) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	oldOpen, oldExp := OpenBankStore, ExportBeforeFlip
-	t.Cleanup(func() { OpenBankStore, ExportBeforeFlip = oldOpen, oldExp })
-	OpenBankStore, ExportBeforeFlip = nil, nil
-	if f != nil {
-		OpenBankStore = func(bool) (BankStore, func() error, error) {
-			if openErr != nil {
-				return nil, nil, openErr
-			}
-			return f, func() error { f.closed++; return f.closeErr }, nil
+	old := OpenBankStore
+	t.Cleanup(func() { OpenBankStore = old })
+	OpenBankStore = nil
+	if f == nil {
+		return
+	}
+	OpenBankStore = func(bool) (BankStore, func() error, error) {
+		if opened != nil {
+			opened()
 		}
-	}
-}
-
-func TestTruthDefault(t *testing.T) {
-	truthEnv(t, &fakeDBStore{}, nil)
-	if got, err := TruthErr(); got != "db" || err != nil {
-		t.Fatalf("linked store: TruthErr() = %q, %v", got, err)
-	}
-	truthEnv(t, nil, nil)
-	if got, err := TruthErr(); got != "files" || err != nil {
-		t.Fatalf("no store: TruthErr() = %q, %v", got, err)
-	}
-	write(t, truthPath(), "bogus\n")
-	if _, err := TruthErr(); err == nil {
-		t.Fatal("unknown value read without error")
-	}
-	if got := Truth(); got != "files" {
-		t.Fatalf("Truth() = %q", got)
-	}
-}
-
-func TestSetTruthRoundTrip(t *testing.T) {
-	truthEnv(t, nil, nil)
-	flips := 0
-	ExportBeforeFlip = func() error { flips++; return nil }
-	for _, want := range []string{"db", "files"} {
-		if err := SetTruth(want); err != nil || Truth() != want {
-			t.Fatalf("SetTruth(%q): err=%v Truth=%q", want, err, Truth())
+		if openErr != nil {
+			return nil, nil, openErr
 		}
-	}
-	if flips != 1 {
-		t.Errorf("export ran %d times, want 1 (leaving db only)", flips)
-	}
-	if err := SetTruth("sql"); err == nil {
-		t.Error("invalid truth accepted")
+		return f, func() error { f.closed++; return f.closeErr }, nil
 	}
 }
 
-func TestSetTruthFlipBackNeedsExport(t *testing.T) {
-	truthEnv(t, nil, nil)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
-	if err := SetTruth("files"); err == nil || Truth() != "db" {
-		t.Fatalf("flip without exporter: err=%v truth=%q", err, Truth())
-	}
-	ExportBeforeFlip = func() error { return errors.New("boom") }
-	if err := SetTruth("files"); err == nil || Truth() != "db" {
-		t.Fatalf("flip with failing exporter: err=%v truth=%q", err, Truth())
-	}
-	write(t, truthPath(), "bogus\n")
-	ExportBeforeFlip = func() error { return nil }
-	if err := SetTruth("files"); err == nil {
-		t.Fatal("SetTruth overwrote an unknown state file")
-	}
-}
-
-func TestNewBankStoreFailsClosedUnderDB(t *testing.T) {
-	truthEnv(t, nil, nil)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
+func TestNewBankStoreFailsClosedWithNoStore(t *testing.T) {
+	tempConfig(t)
+	linkStore(t, nil, nil, nil)
 	s := newBankStore(false)
-	if _, _, err := s.Load(); err == nil {
-		t.Error("Load with no opener succeeded")
+	if _, _, err := s.Load(); !errors.Is(err, errNoDBStore) {
+		t.Errorf("Load with no opener = %v", err)
 	}
 	if _, err := s.Apply(Batch{}, nil, time.Now()); err == nil {
 		t.Error("Apply with no opener succeeded")
 	}
-	write(t, truthPath(), "bogus\n")
-	if _, _, err := newBankStore(false).Load(); err == nil {
-		t.Error("unknown truth did not fail closed")
-	}
-}
-
-func TestApplyFollowsFlipAfterSelection(t *testing.T) {
-	f := &fakeDBStore{}
-	truthEnv(t, f, nil)
-	batchStore(t)
-	s := newBankStore(false)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil || f.applies != 1 {
-		t.Fatalf("err=%v applies=%d", err, f.applies)
-	}
-	if got := mustRead(t, Path("decisionLog.md")); strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("stale file store wrote:\n%s", got)
-	}
 }
 
 func TestNewBankStoreOpenerFailureNeverWritesFiles(t *testing.T) {
-	truthEnv(t, &fakeDBStore{}, errors.New("locked out"))
 	batchStore(t)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
+	linkStore(t, &fakeDBStore{}, errors.New("locked out"), nil)
 	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err == nil {
 		t.Fatal("Apply succeeded")
 	}
 	if got := mustRead(t, Path("decisionLog.md")); strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("files written under db truth:\n%s", got)
+		t.Errorf("files written after a failed open:\n%s", got)
 	}
 }
 
 func TestNewBankStoreUsesOpener(t *testing.T) {
+	batchStore(t)
 	f := &fakeDBStore{}
-	truthEnv(t, f, nil)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
+	linkStore(t, f, nil, nil)
 	if _, _, err := newBankStore(false).Load(); err != nil || f.loads != 1 || f.closed != 1 {
 		t.Fatalf("err=%v loads=%d closed=%d", err, f.loads, f.closed)
 	}
 	base := Versions{"r": "v"}
-	rs, err := newBankStore(true).Apply(Batch{}, base, time.Now())
+	rs, err := newBankStore(false).Apply(Batch{}, base, time.Now())
 	if err != nil || len(rs) != 1 {
 		t.Fatalf("rs=%v err=%v base=%v", rs, err, f.base)
 	}
@@ -189,11 +176,9 @@ func TestNewBankStoreUsesOpener(t *testing.T) {
 }
 
 func TestDBStoreCloseAndOpErrors(t *testing.T) {
+	batchStore(t)
 	f := &fakeDBStore{closeErr: errors.New("close")}
-	truthEnv(t, f, nil)
-	if err := SetTruth("db"); err != nil {
-		t.Fatal(err)
-	}
+	linkStore(t, f, nil, nil)
 	if _, err := newBankStore(false).Apply(Batch{}, nil, time.Now()); err != nil {
 		t.Fatalf("close failure failed a committed batch: %v", err)
 	}
@@ -203,18 +188,137 @@ func TestDBStoreCloseAndOpErrors(t *testing.T) {
 	}
 }
 
-func TestBankStoreLoadVersions(t *testing.T) {
+// A caller that holds the lock passes locked=true: Apply must not take it again (flock is not reentrant).
+func TestDBStoreApplyLockedDoesNotRelock(t *testing.T) {
 	batchStore(t)
-	write(t, Path("progress.md"), "# Progress\n\n## In Progress\n\n- Dup\n- Dup\n- Solo\n")
-	_, v, err := newBankStore(false).Load()
-	if err != nil {
+	f := &fakeDBStore{}
+	linkStore(t, f, nil, nil)
+	done := make(chan error, 1)
+	go func() {
+		done <- WithBankLock(BankLockWait, func() error {
+			_, err := newBankStore(true).Apply(Batch{}, nil, time.Now())
+			return err
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil || f.applies != 1 {
+			t.Fatalf("err=%v applies=%d", err, f.applies)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a locked Apply deadlocked on the bank lock")
+	}
+}
+
+// A locked Apply runs the export under the caller's lock: a relock in exportAfterApply or ExportGuardLocked hangs here.
+func TestDBStoreApplyLockedExportDoesNotRelock(t *testing.T) {
+	dbTruthBank(t)
+	opens := 0
+	inner := OpenExportDB
+	OpenExportDB = func() (ExportDB, func() error, error) { opens++; return inner() }
+	linkStore(t, &fakeDBStore{}, nil, nil)
+	done := make(chan error, 1)
+	go func() {
+		done <- WithBankLock(BankLockWait, func() error {
+			_, err := newBankStore(true).Apply(Batch{}, nil, time.Now())
+			return err
+		})
+	}()
+	select {
+	case err := <-done:
+		if err != nil || opens != 1 {
+			t.Fatalf("err=%v export opens=%d, want one export", err, opens)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a locked Apply deadlocked in the export")
+	}
+}
+
+// H-2: a failed Markdown export after the db commit leaves the batch committed and reports it as applied.
+func TestDBStoreApplyExportFailureKeepsBatch(t *testing.T) {
+	batchStore(t)
+	f := &fakeDBStore{}
+	linkStore(t, f, nil, nil)
+	old := OpenExportDB
+	t.Cleanup(func() { OpenExportDB = old })
+	OpenExportDB = func() (ExportDB, func() error, error) { return nil, nil, errors.New("export db down") }
+	rs, err := newBankStore(false).Apply(Batch{}, nil, time.Now())
+	if _, after := errors.AsType[*AfterCommitError](err); !after || refused(err) || f.applies != 1 || len(rs) != 1 {
+		t.Fatalf("err=%v applies=%d rs=%v; want the commit kept and an after-commit error", err, f.applies, rs)
+	}
+}
+
+// linkExport wires a fake export db whose guard imports the bank files; it is restored by t.Cleanup.
+func linkExport(t *testing.T) {
+	t.Helper()
+	db := &fakeExportDB{root: paths.MemoryStoreDir(), docs: map[string]string{}, last: map[string]string{}}
+	old := OpenExportDB
+	t.Cleanup(func() { OpenExportDB = old })
+	OpenExportDB = func() (ExportDB, func() error, error) { return db, func() error { return nil }, nil }
+}
+
+func applyOnce(t *testing.T) error {
+	t.Helper()
+	_, err := newBankStore(false).Apply(Batch{}, nil, time.Now())
+	return err
+}
+
+// H-6: a stored "files" truth reads as db only after the open and a clean guard import, never on a Load alone.
+func TestFirstOpenAfterTruthFilesImportsFirst(t *testing.T) {
+	batchStore(t)
+	linkExport(t)
+	write(t, truthPath(), "files\n")
+	var atOpen string
+	linkStore(t, &fakeDBStore{}, nil, func() { atOpen = strings.TrimSpace(mustRead(t, truthPath())) })
+	if _, _, err := newBankStore(false).Load(); err != nil || strings.TrimSpace(mustRead(t, truthPath())) != "files" {
+		t.Fatalf("Load = %v, truth %q; want no retire on a read", err, mustRead(t, truthPath()))
+	}
+	if err := applyOnce(t); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := v[contentRef("- Dup")]; !ok || got != "" {
-		t.Errorf("duplicate ref version = %q, %v; want empty", got, ok)
+	if got := strings.TrimSpace(mustRead(t, truthPath())); atOpen != "files" || got != "db" {
+		t.Fatalf("truth at open %q, after %q; want files, then db", atOpen, got)
 	}
-	if v[contentRef("- Solo")] == "" {
-		t.Error("unique ref has no version")
+}
+
+func TestFilesTruthKeptWhenOpenFails(t *testing.T) {
+	batchStore(t)
+	linkExport(t)
+	write(t, truthPath(), "files\n")
+	linkStore(t, &fakeDBStore{}, errors.New("import failed"), nil)
+	if err := applyOnce(t); err == nil {
+		t.Fatal("Apply succeeded")
+	}
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "files" {
+		t.Fatalf("truth = %q after a failed import, want files kept", got)
+	}
+}
+
+func TestFilesTruthKeptWhenExportUnavailable(t *testing.T) {
+	batchStore(t)
+	write(t, truthPath(), "files\n")
+	linkStore(t, &fakeDBStore{}, nil, nil)
+	old := OpenExportDB
+	t.Cleanup(func() { OpenExportDB = old })
+	OpenExportDB = nil // no guard ran, so no import is proven
+	if err := applyOnce(t); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "files" {
+		t.Fatalf("truth = %q with no guard pass, want files kept", got)
+	}
+}
+
+func TestUnknownTruthValueRetiresToDB(t *testing.T) {
+	batchStore(t)
+	linkExport(t)
+	write(t, truthPath(), "bogus\n")
+	linkStore(t, &fakeDBStore{}, nil, nil)
+	if err := applyOnce(t); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(mustRead(t, truthPath())); got != "db" {
+		t.Fatalf("truth = %q, want db", got)
 	}
 }
 
@@ -269,7 +373,7 @@ func TestDBStoreApplyTakesBankLock(t *testing.T) {
 	_, st := dbBank(t)
 	shortBankWait(t) // a held lock makes Apply fail after the wait, so no sleep decides the result
 	var err error
-	if lerr := withFlatLock(BankLockWait, func() error {
+	if lerr := withBankLock(BankLockWait, func() error {
 		_, err = newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
 		return nil
 	}); lerr != nil {
@@ -280,6 +384,30 @@ func TestDBStoreApplyTakesBankLock(t *testing.T) {
 	}
 	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil || !st.applied.Load() {
 		t.Fatalf("Apply after release: err=%v applied=%v", err, st.applied.Load())
+	}
+}
+
+func TestApplyTypedDBWritesChangedFilesOnly(t *testing.T) {
+	db, _ := dbBank(t)
+	decision, conventions := db.docs["decisionLog.md"], db.docs["conventions.md"]
+	bad := Op{Op: "update", ID: "ffffffff", Read: "z00000000", Text: "x"}
+	store := newBankStore(false)
+	if _, err := store.Apply(Batch{Ops: []Op{batchAdd, bad}}, nil, testEnv().Now); err == nil {
+		t.Fatal("a failing op must refuse the whole batch")
+	}
+	if db.docs["decisionLog.md"] != decision || db.docs["conventions.md"] != conventions ||
+		mustRead(t, Path("decisionLog.md")) != decision || mustRead(t, Path("conventions.md")) != conventions {
+		t.Fatal("a refused batch changed the db or its export")
+	}
+	rs, err := store.Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+	if err != nil || len(rs) != 1 || rs[0].Outcome != DreamOK {
+		t.Fatalf("rs=%+v err=%v", rs, err)
+	}
+	if got := mustRead(t, Path("decisionLog.md")); got != db.docs["decisionLog.md"] || !strings.Contains(got, " — n <!-- id:") {
+		t.Fatalf("committed entry was not exported: %q", got)
+	}
+	if db.docs["conventions.md"] != conventions || mustRead(t, Path("conventions.md")) != conventions {
+		t.Fatal("an unrelated document changed")
 	}
 }
 

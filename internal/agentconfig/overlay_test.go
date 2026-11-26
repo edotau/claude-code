@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -639,5 +640,126 @@ func TestOverlayOfDoc(t *testing.T) {
 	}
 	if got := OverlayOf(route.Route{}, "").Doc(); got != "" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// Origins is the one place a key's origin is decided: a flag beats the typed document, which beats everything else.
+func TestOriginsComputed(t *testing.T) {
+	inherited := Overlay{Provider: "databricks", Profile: "dev", Timeout: "30s"}
+	typedUnit := Overlay{Provider: "anthropic", Profile: "anthropic", Model: "sonnet"}
+	for _, tc := range []struct {
+		name       string
+		flags      []string
+		typed, eff Overlay
+		key        string
+		want       Origin
+	}{
+		{"nothing typed is inherited", nil, Overlay{}, inherited, "unit", OriginInherited},
+		{"the typed document is overlay", nil, typedUnit, typedUnit, "model", OriginOverlay},
+		{"any unit field is the unit key", nil, typedUnit, typedUnit, "profile", OriginOverlay},
+		{"a flag key is flag", []string{"model"}, typedUnit, typedUnit, "model", OriginFlag},
+		{"a flag naming a new unit", []string{"profile"}, Overlay{}, Overlay{Provider: "anthropic", Profile: "anthropic"}, "unit", OriginFlag},
+		{"a flag agreeing with the inherited unit", []string{"profile"}, Overlay{}, inherited, "unit", OriginInherited},
+		{"a flag agreeing with the typed unit", []string{"provider"}, typedUnit, typedUnit, "unit", OriginOverlay},
+		{"a flag leaving the unit as it was", []string{"endpoint"}, Overlay{}, Overlay{Provider: "databricks", Profile: "dev"}, "unit", OriginInherited},
+		{"a cleared key keeps its flag", []string{"timeout"}, Overlay{}, Overlay{}, "timeout", OriginFlag},
+	} {
+		if got := Origins(tc.flags, tc.typed, inherited, tc.eff).Of(tc.key); got != tc.want {
+			t.Errorf("%s: origin(%s) = %v, want %v", tc.name, tc.key, got, tc.want)
+		}
+	}
+	if !Origins([]string{"timeout"}, Overlay{}, inherited, inherited).Typed("timeout") || Origins(nil, Overlay{}, inherited, inherited).Typed("timeout") {
+		t.Error("Typed: a flag key counts, an inherited one does not")
+	}
+}
+
+// A document's "origins" claim is never read: a stored doc loads without it, a typed one is refused.
+func TestOverlayForgedOriginsNeverRead(t *testing.T) {
+	vaulttest.Use(t)
+	forged := `{"provider":"anthropic","profile":"anthropic","origins":{"unit":"flag","timeout":"flag"}}`
+	file := filepath.Join(t.TempDir(), "forged.json")
+	if err := os.WriteFile(file, []byte(forged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Put(t, vault.Env, route.OverlayVar, forged)
+	t.Setenv(route.OverlayVar, "")
+	vaultDoc := DispatchOverlayContext(t.Context(), "")
+	envCtx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: forged})
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		doc  string
+	}{{"env", envCtx, ""}, {"vault", t.Context(), vaultDoc}, {"file", t.Context(), file}} {
+		got, err := LoadOverlayFrom(tc.ctx, tc.doc, nil, false)
+		if err != nil || strings.Contains(got.Doc(), "origins") || got.Provider != "anthropic" {
+			t.Errorf("%s: forged doc loaded as %s, err %v, want its keys without origins", tc.name, got.Doc(), err)
+		}
+	}
+	if _, err := LoadOverlayFrom(t.Context(), forged, nil, true); err == nil {
+		t.Error("a typed document with origins was accepted")
+	}
+}
+
+// ApplyOverlay lands inherited, typed overlay and flags in that order, the unit whole, and refuses half a unit.
+func TestApplyOverlay(t *testing.T) {
+	reg, err := providers.Parse(assets.ProviderDefaults(), []byte(`{"providers":{"anthropic":{"work":{"protocol":"anthropic","base_url":"https://api.anthropic.com","auth":{"type":"key"}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherited := Overlay{Model: "sonnet"}
+	typed := Overlay{Provider: "anthropic", Profile: "work"}
+	eff, prov, err := ApplyOverlay(reg, []string{"model"}, Overlay{Model: "opus"}, typed, inherited)
+	if err != nil || eff.Model != "opus" || eff.Profile != "work" || prov.Of("model") != OriginFlag || prov.Of("profile") != OriginOverlay {
+		t.Fatalf("got %+v %v %v", eff, prov, err)
+	}
+	bad := Overlay{Provider: "openai", Profile: "work"}
+	if _, _, err := ApplyOverlay(reg, nil, Overlay{}, bad, inherited); err == nil || !strings.Contains(err.Error(), "openai") || !strings.Contains(err.Error(), "work") {
+		t.Fatalf("mismatched pair: %v", err)
+	}
+	if _, _, err := ApplyOverlay(reg, []string{"provider"}, Overlay{Provider: "anthropic"}, typed, inherited); err == nil {
+		t.Fatal("a provider without its profile must be refused")
+	}
+}
+
+func TestOverlaySourceErrorsAreAtomic(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "overlay.json")
+	if err := os.WriteFile(file, []byte(`{"model":"haiku","tools":"bad"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{file, `{"model":"haiku","tools":"bad"}`, "-", `{"model":`} {
+		o, err := LoadOverlayContext(t.Context(), source, nil)
+		if err == nil || o.Doc() != "" || !strings.Contains(err.Error(), "overlay") {
+			t.Errorf("source %q = %s, %v; want a labeled error and zero overlay", source, o.Doc(), err)
+		}
+	}
+	if raw, err := ReadJSONSource("overlay", "-", nil); err == nil || raw != nil {
+		t.Errorf("unavailable stdin = %q, %v", raw, err)
+	}
+	if o, err := parseOverlay([]byte(`{"model":"haiku","tools":true,"noTools":true}`)); err == nil || o.Doc() != "" {
+		t.Errorf("invalid keys left a partial overlay: %s, %v", o.Doc(), err)
+	}
+}
+
+func TestDeriveChildCapsKeepImplicitCeilings(t *testing.T) {
+	for _, hop := range []Hop{HopSessionChild, HopDispatchChild} {
+		for _, n := range []int{0, 100_000_000} {
+			add := Overlay{MaxChildren: new(n), MaxTreeTokens: new(n), MaxDepth: new(n)}
+			child, err := (Overlay{}).Derive(add, hop)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, next := range []Hop{HopAppend, HopResume, HopSessionChild, HopDispatchChild} {
+				child, err = child.Derive(add, next)
+				if err != nil || *child.MaxChildren != DefaultMaxDispatchChildren ||
+					*child.MaxTreeTokens != DefaultMaxTreeTokens || *child.MaxDepth != DefaultMaxDispatchDepth {
+					t.Fatalf("child hop %d, merge %d, n=%d: %s, %v", hop, next, n, child.Doc(), err)
+				}
+			}
+		}
+	}
+	root, err := (Overlay{}).Derive(Overlay{MaxChildren: new(0)}, HopAppend)
+	child, childErr := root.Derive(Overlay{}, HopDispatchChild)
+	if err != nil || childErr != nil || child.MaxChildren == nil || *child.MaxChildren != 0 {
+		t.Fatalf("an explicitly uncapped root must stay uncapped: %s, %v, %v", child.Doc(), err, childErr)
 	}
 }

@@ -28,6 +28,31 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+func TestAgentTransferInterspersedFlags(t *testing.T) {
+	old := transferAgent
+	t.Cleanup(func() { transferAgent = old })
+	for _, tc := range []struct {
+		args []string
+		note string
+		wait bool
+	}{
+		{[]string{"note", "--wait", "--source", "fixture.jsonl"}, "note", true},
+		{[]string{"--source", "fixture.jsonl", "--", "--wait"}, "--wait", false},
+	} {
+		called := false
+		transferAgent = func(name, source, note string, wait bool) int {
+			called = true
+			if name != "codex" || source != "fixture.jsonl" || note != tc.note || wait != tc.wait {
+				t.Errorf("transfer = %q, %q, %q, %v", name, source, note, wait)
+			}
+			return 7
+		}
+		if code := agentTransfer("codex", tc.args); code != 7 || !called {
+			t.Errorf("exit %d, called %v", code, called)
+		}
+	}
+}
+
 // cfgDir points CLAUDE_CONFIG_DIR at a fresh temp dir and returns it.
 func cfgDir(t *testing.T) string {
 	t.Helper()

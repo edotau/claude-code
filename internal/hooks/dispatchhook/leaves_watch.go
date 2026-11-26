@@ -334,33 +334,38 @@ func resumeOnce(s agent.StaleJob, mode string) string {
 	if marker == "" {
 		return "next: " + cmd
 	}
-	if err := writeWatch(marker, nil, os.O_EXCL); err != nil {
+	_, nonce, err := agent.ClaimResend(s.ID)
+	if err != nil { // the one takeover gate: live, cancelled, budget and a rival claim
+		if errors.Is(err, agent.ErrHolderLive) || errors.Is(err, agent.ErrNotResent) {
+			return "not resumed (" + err.Error() + "); next: claude-code agents result " + s.ID
+		}
 		return fmt.Sprintf("already resumed once or unmarkable (%v); next: claude-code agents result %s", err, s.ID)
 	}
-	id, err := startResume(s.Next)
-	if err != nil {
-		if rerr := os.Remove(marker); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-			err = errors.Join(err, rerr)
-		}
+	if err := agent.MarkLaunching(s.ID, nonce); err != nil { // nothing launched yet: the claim can go
+		err = errors.Join(err, agent.ReleaseResend(s.ID, nonce))
 		return fmt.Sprintf("the one resume failed (%v); not retried. Resume by hand: %s", err, cmd)
 	}
-	if werr := paths.AtomicWriteNoSync(marker, []byte(id+"\n"), 0o600); werr != nil { // readers never see a torn id
-		return fmt.Sprintf("resumed once as %s (marker not saved: %v); next: claude-code agents result -f %s", id, werr, id)
+	// From here a launch may have happened whatever the outcome: the claim stays launching until the successor adopts it.
+	id, err := startResume(s.Next, nonce)
+	if err != nil {
+		return fmt.Sprintf("the one resume failed (%v); not retried. Resume by hand: %s", err, cmd)
 	}
 	return fmt.Sprintf("resumed once as %s; next: claude-code agents result -f %s", id, id)
 }
 
 var jobStartedRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^job (\S+) started`) })
 
-// launchResume runs the resume argv through this binary; `ask --background` detaches the job and prints its id.
-func launchResume(argv []string) (string, error) {
+// launchResume runs the resume argv through this binary with the claim's nonce; `ask --background` detaches the job.
+func launchResume(argv []string, nonce string) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), resumeLaunchIn)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, exe, argv[1:]...).Output()
+	cmd := exec.CommandContext(ctx, exe, argv[1:]...)
+	cmd.Env = append(os.Environ(), agent.ResumeNonceEnv+"="+nonce)
+	out, err := cmd.Output()
 	if m := jobStartedRe().FindSubmatch(out); m != nil {
 		return string(m[1]), nil
 	}

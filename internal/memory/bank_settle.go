@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -51,15 +50,16 @@ func rotateSessionHistory(now time.Time) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("rotate session history: %w", err)
 	}
-	header, keep, overflow := sessionOverflow(string(data))
+	_, keep, overflow := sessionOverflow(string(data))
 	if len(overflow) == 0 {
 		return 0, nil
 	}
+	text, overflow := partitionDoc(ParseDoc("sessionHistory.md", data), keep)
 	archive := paths.MemorySub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if ok, err := appendUnarchived(archive, overflow); err != nil || !ok {
 		return 0, err // never truncate unarchived entries
 	}
-	if ok, err := writeIfStill(path, data, true, []byte(rejoin(header, keep)), 0o600); err != nil || !ok {
+	if ok, err := writeIfStill(path, data, true, []byte(text), 0o600); err != nil || !ok {
 		return 0, err
 	}
 	return len(overflow), nil
@@ -94,6 +94,9 @@ func appendUnarchived(archive string, blocks []string) (bool, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
+	if fenceOpenAtEnd(string(existing)) {
+		return false, fmt.Errorf("archive %s ends inside a code fence", archive)
+	}
 	_, held := splitHeadingBlocks(string(existing))
 	seen := make(map[string]bool, len(held))
 	for _, b := range held {
@@ -101,7 +104,7 @@ func appendUnarchived(archive string, blocks []string) (bool, error) {
 	}
 	var missing []string
 	for _, b := range blocks {
-		if !seen[b] {
+		if !seen[strings.TrimRight(b, "\n")] {
 			missing = append(missing, b)
 		}
 	}
@@ -136,7 +139,7 @@ func lockPathOf() string { return filepath.Join(storeLockDir(), ".postupdate") }
 
 // settleBank rotates sessionHistory, regenerates MEMORY.md and the catalog, and commits, under the lock.
 func settleBank(now time.Time) (rotated int, err error) {
-	err = withFlatLock(BankLockWait, func() error {
+	err = withBankLock(BankLockWait, func() error {
 		rotated, err = settleBankLocked(now)
 		return err
 	})
@@ -155,11 +158,7 @@ func tolerateIndex(err error) error {
 	}
 	var rest []error
 	for _, e := range joined.Unwrap() {
-		if errors.Is(e, errIndexProblem) {
-			fmt.Fprintln(os.Stderr, "memory index:", e)
-		} else {
-			rest = append(rest, e)
-		}
+		rest = append(rest, tolerateIndex(e))
 	}
 	return errors.Join(rest...)
 }
@@ -172,47 +171,12 @@ func settleBankLocked(now time.Time) (rotated int, err error) {
 // settleBankWith settles with extra entries folded into the catalog (an import's), committing under subject.
 func settleBankWith(now time.Time, extra []string, subject string) (rotated int, err error) {
 	defer func() { recordIndexProblem(err) }()
-	if skipped, err := recoverEach(); err != nil || skipped != nil {
-		return 0, errors.Join(err, skipped)
-	}
-	truth, terr := TruthErr()
-	switch {
-	case terr != nil:
-		return 0, terr // never settle files on a truth that cannot be read
-	case truth == truthDB:
-		return settleDB(now, extra, subject)
-	}
-	return settleFiles(now, extra, subject)
+	return settleDB(now, extra, subject)
 }
 
-func settleFiles(now time.Time, extra []string, subject string) (rotated int, err error) {
-	// an unscaffolded repo gets its store from Init (with its origin), never here
-	if rotated, err = settleDir(now); err != nil {
-		return rotated, err
-	}
-	if err := sweepNotes(nil); err != nil {
-		return rotated, err
-	}
-	rep, ierr := refreshIndexFiles(now, extra)
-	if ierr != nil && !errors.Is(ierr, errIndexProblem) {
-		return rotated, ierr
-	}
-	if rep.notable() {
-		fmt.Fprintln(os.Stderr, "memory index:", rep)
-	}
-	commitErr := commitBanks(subject)
-	if commitErr == nil {
-		shadowSettle(now)
-	}
-	return rotated, errors.Join(commitErr, ierr)
-}
-
-// settleDB settles in db truth under the held bank lock: guard, file steps on the export, guard, index, commit.
+// settleDB settles under the held bank lock: guard, file steps on the export, guard, index, commit.
 func settleDB(now time.Time, extra []string, subject string) (rotated int, err error) {
-	if OpenExportDB == nil {
-		return 0, errors.New("memory truth is db but no export db is linked")
-	}
-	edb, closeDB, err := OpenExportDB()
+	edb, closeDB, err := openSettleExport()
 	if err != nil {
 		return 0, err
 	}
@@ -221,6 +185,9 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	ierr, held, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
 	if err != nil {
 		return 0, err
+	}
+	if edb != nil && len(held) == 0 {
+		retireFilesTruth() // the guard imported the Markdown a files truth left behind, with no conflict kept apart
 	}
 	if rotated, err = settleFilesSkipping(now, held); err != nil {
 		return rotated, err
@@ -259,8 +226,25 @@ func conflictsTouch(conflicts []string, rels ...string) bool {
 	})
 }
 
+// openSettleExport is the export db, or nil (file steps alone, no retire) when unlinked or, before db truth, down.
+func openSettleExport() (ExportDB, func() error, error) {
+	noop := func() error { return nil }
+	if OpenExportDB == nil {
+		return nil, noop, nil
+	}
+	db, closeDB, err := OpenExportDB()
+	if err != nil && storedTruthNotDB() {
+		fmt.Fprintln(os.Stderr, "notice: memory settle: export db unavailable, settling the files alone:", err)
+		return nil, noop, nil
+	}
+	return db, closeDB, err
+}
+
 // guardPass runs the export guard without retaking the held lock, printing what it imported or kept apart.
 func guardPass(db ExportDB, root string) (indexErr error, conflicts []string, err error) {
+	if db == nil {
+		return nil, nil, nil
+	}
 	rep, err := ExportGuardLocked(db, root)
 	if len(rep.Imported) > 0 {
 		fmt.Fprintln(os.Stderr, "notice: memory settle imported outside edits:", strings.Join(rep.Imported, ", "))
@@ -272,51 +256,6 @@ func guardPass(db ExportDB, root string) (indexErr error, conflicts []string, er
 		return err, rep.Conflicts, nil
 	}
 	return nil, rep.Conflicts, err
-}
-
-// shadowSettle imports into the shadow db and logs a change in its divergent docs; it never fails the settle.
-func shadowSettle(now time.Time) {
-	if ShadowImport == nil {
-		return
-	}
-	docs, changed, err := guardedShadowImport()
-	if changed { // a failed import still logs the partial set it found
-		err = errors.Join(err, appendShadowLog(now, append([]string{}, docs...)))
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "notice: memory shadow:", err)
-	}
-}
-
-func guardedShadowImport() (docs []string, changed bool, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			docs, changed, err = nil, false, fmt.Errorf("import panicked: %v", r)
-		}
-	}()
-	return ShadowImport()
-}
-
-func shadowLogPath() string { return filepath.Join(paths.MemoryStateDir(), "shadow.log") }
-
-func appendShadowLog(now time.Time, docs []string) error {
-	b, err := json.Marshal(struct {
-		Time string   `json:"time"`
-		Docs []string `json:"docs"`
-	}{now.UTC().Format(time.RFC3339), docs})
-	if err != nil {
-		return err
-	}
-	path := shadowLogPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(append(b, '\n'))
-	return errors.Join(werr, f.Close())
 }
 
 // refreshIndexFiles writes catalog.md and refreshes MEMORY.md, after the alias check that guards both.
@@ -370,6 +309,7 @@ type fileSnapshot struct {
 	path    string
 	prev    []byte
 	existed bool
+	mode    os.FileMode
 }
 
 // snapshotFile records path's current bytes; an absent file is a snapshot with existed false.
@@ -378,7 +318,14 @@ func snapshotFile(path string) (fileSnapshot, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fileSnapshot{}, err
 	}
-	return fileSnapshot{path: path, prev: prev, existed: err == nil}, nil
+	if err != nil {
+		return fileSnapshot{path: path}, nil
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	return fileSnapshot{path: path, prev: prev, existed: true, mode: fi.Mode().Perm()}, nil
 }
 
 // restore puts the snapshot back: removes a file that was absent (if it now exists), else rewrites its prior bytes.
@@ -389,7 +336,7 @@ func (s fileSnapshot) restore() error {
 		}
 		return nil
 	}
-	return paths.AtomicWrite(s.path, s.prev, 0o600)
+	return paths.AtomicWrite(s.path, s.prev, s.mode)
 }
 
 // snapshotPaths snapshots each path before a locked write (fileSnapshot); unreadable refuses it.
@@ -425,39 +372,16 @@ func newestMtime() time.Time {
 	return newest
 }
 
-// settleDir stamps IDs, strikes revised entries, rotates sessionHistory and wraps files.
+// settleDir stamps IDs, strikes revised entries and rotates sessionHistory; it wraps only the blocks it changed.
 func settleDir(now time.Time) (int, error) {
-	rotated, wrapped, err := settleSteps(now)
-	return rotated, errors.Join(err, wrapDir(wrapped)) // a failed step still leaves the dir wrapped
-}
-
-// settleSteps is settleDir's writing steps; wrapped names the typed files they already left wrapped (nil on error).
-func settleSteps(now time.Time) (rotated int, wrapped map[string]string, err error) {
 	_, texts, err := assignIDTexts(now)
 	if err != nil {
-		return 0, nil, err
+		return 0, err
 	}
 	if err := reviseDir(texts); err != nil {
-		return 0, nil, err
+		return 0, err
 	}
-	if rotated, err = rotateSessionHistory(now); err != nil {
-		return rotated, nil, err
-	}
-	return rotated, texts, nil
-}
-
-// wrapDir wraps the bank's markdown, skipping the typed files in held: settle wrapped their text before writing it.
-func wrapDir(held map[string]string) error {
-	targets, err := dirFmtTargets()
-	if err != nil {
-		return err
-	}
-	targets = slices.DeleteFunc(targets, func(p string) bool {
-		_, ok := held[filepath.Base(p)]
-		return ok && p == Path(filepath.Base(p)) // only the typed files at b's top level
-	})
-	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
-	return err
+	return rotateSessionHistory(now)
 }
 
 // catalogDescMax caps a catalog description in runes, ellipsis included.

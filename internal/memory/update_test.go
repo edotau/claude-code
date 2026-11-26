@@ -476,11 +476,8 @@ func TestProcedureReadersPreserveReferenceWhitespace(t *testing.T) {
 
 // TestAgentDreamPrompt_UsesReference: the embedded dream procedure lands in the built prompt.
 func TestAgentDreamPrompt_UsesReference(t *testing.T) {
-	got, err := agentDreamPrompt([]string{"/m/a.md"})
-	if err != nil {
-		t.Fatalf("agentDreamPrompt: %v", err)
-	}
-	ref := dreamProcedure(dreamTyped())
+	got := agentDreamPrompt([]string{"/m/a.md"})
+	ref := dreamProcedure()
 	if !strings.Contains(got, ref) {
 		t.Errorf("prompt missing the embedded dream reference:\n%s", got)
 	}
@@ -948,14 +945,6 @@ func TestFiledByGoBlockListsEntryAndBareTagMatchesRationaleTitle(t *testing.T) {
 	}
 }
 
-// typedStore stands in for the schema stamp so the typed path runs on a fresh test store.
-func typedStore(t *testing.T, ready bool) {
-	t.Helper()
-	old := typedStoreReady
-	typedStoreReady = func() bool { return ready }
-	t.Cleanup(func() { typedStoreReady = old })
-}
-
 func TestUpdateAppliesTypedBatch(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
@@ -963,7 +952,6 @@ func TestUpdateAppliesTypedBatch(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	typedStore(t, true)
 	good := `{"ops":[{"op":"add","target":"sessionHistory","title":"typed arc","text":"- shipped typed update"},` +
 		`{"op":"add","target":"activeContext","section":"Next Steps","text":"verify the typed path"}]}`
 	calls := 0
@@ -1005,31 +993,6 @@ func assertTypedFallback(t *testing.T, root string) {
 	}
 }
 
-func TestUpdateOlderStoreKeepsUntypedPath(t *testing.T) {
-	clearChildEnv(t)
-	tempConfig(t)
-	root := repoRoot(t, "proj")
-	if _, err := Init(); err != nil {
-		t.Fatal(err)
-	}
-	typedStore(t, false)
-	calls := 0
-	run := func(ctx context.Context, _, _ string) (string, error) {
-		calls++
-		if JobAnswerSchema(ctx) != "" {
-			t.Error("a v3 store must not ask for a typed answer")
-		}
-		return "stub", nil
-	}
-	var out bytes.Buffer
-	if err := update(updateOptions{Run: run, CWD: root, Session: "t3", Out: &out}); err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := readUpdateResult("t3"); r.Typed != "" || calls != 1 || !strings.Contains(out.String(), "memory upgrade") {
-		t.Errorf("old-store result %+v after %d runs, out %q", r, calls, out.String())
-	}
-}
-
 func TestUpdateApplyFailureFallsBackOnce(t *testing.T) {
 	stale := `{"ops":[{"op":"close","id":"z00000000","reason":"done"}]}`
 	good := `{"ops":[{"op":"add","target":"sessionHistory","title":"fallback arc","text":"- placed by the fallback"}]}`
@@ -1041,7 +1004,6 @@ func TestUpdateApplyFailureFallsBackOnce(t *testing.T) {
 			if _, err := Init(); err != nil {
 				t.Fatal(err)
 			}
-			typedStore(t, true)
 			calls := 0
 			standInStoreCopy(t)
 			old := CodeModeRun
@@ -1075,7 +1037,6 @@ func TestUpdateExhaustedValidationUsesTheFallbackOnce(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	typedStore(t, true)
 	standInStoreCopy(t)
 	calls, runs := 0, 0
 	old := CodeModeRun
@@ -1106,7 +1067,6 @@ func TestUpdateDecisionEventsNotFiledOnFailure(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	typedStore(t, true)
 	write(t, TagEventsPath("failed"), `{"event":"decision","text":"must not appear","at":"2026-11-20T10:00:00Z"}`+"\n")
 	before := mustRead(t, Path("decisionLog.md"))
 	calls := 0
@@ -1130,7 +1090,6 @@ func TestUpdateFallbackErrorNamesBothModels(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	typedStore(t, true)
 	standInStoreCopy(t)
 	old := CodeModeRun
 	CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {

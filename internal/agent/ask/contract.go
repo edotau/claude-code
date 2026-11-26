@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/assets"
@@ -463,7 +462,7 @@ func (o *contractOpen) terms() []contract.Term {
 }
 
 // newContractOpen is the spec's contract key as a typed open; contract.Open's problems are returned as one error.
-func newContractOpen(t askspec.Task, bf briefFlags) (*contractOpen, error) {
+func newContractOpen(t Task, bf briefFlags) (*contractOpen, error) {
 	dir, err := filepath.Abs(cmp.Or(bf.workdir, "."))
 	if err != nil {
 		return nil, err
@@ -503,7 +502,7 @@ func problemsErr(ps []contract.Problem) error {
 	for i, p := range ps {
 		s[i] = p.String()
 	}
-	return fmt.Errorf("spec contract: %s", strings.Join(s, "; "))
+	return fmt.Errorf("brief contract: %s", strings.Join(s, "; "))
 }
 
 // laneOf is the lane dir sits in: its first path element under the repo's worktree root, else "".
@@ -555,6 +554,7 @@ func contractBlock(o *contractOpen) string {
 func startAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	err := openAsk(ctx, jobRec, rec)
 	if err != nil {
+		rollbackRetry(ctx, rec.ID) // a recover adopted before the contract refused: the holder is resumable again
 		return failSpawn(rec, err) // Prepare already claimed a running record: settle it, never leave it running
 	}
 	return nil
@@ -565,6 +565,9 @@ func openAsk(ctx context.Context, jobRec, rec *agent.Record) error {
 	stampPlanTask(ctx, jobRec, rec)
 	if jobRec != nil { // a --job child's contract was opened by its parent
 		return nil
+	}
+	if c := recoverOf(ctx); c != nil && c.err != nil { // the successor could not adopt the claim: it must not start
+		return c.err
 	}
 	if took, err := retryTakeOver(ctx, rec.ID); took || err != nil { // its fleet slot and spent budget stay
 		return err
@@ -592,16 +595,19 @@ func retryTakeOver(ctx context.Context, id string) (bool, error) {
 	if cid == "" {
 		return false, nil
 	}
-	if from, err := agent.LoadRecord(r.ID); err != nil || from.Alive() { // never take a live run's contract
+	_, nonce, err := agent.ClaimResend(r.ID) // live, cancelled, budget end and a rival claim all refuse under the holder's lock
+	if errors.Is(err, agent.ErrHolderLive) || errors.Is(err, agent.ErrNotResent) || errors.Is(err, agent.ErrAlreadyResumed) ||
+		errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
-	m, err := linkResumed(r.ID, id)
-	if m == "" || err != nil {
+	if err != nil {
 		return false, err
 	}
+	if err := agent.AdoptResend(r.ID, nonce, id); err != nil { // heldID finds the contract through this adoption
+		return false, errors.Join(err, agent.ReleaseResend(r.ID, nonce))
+	}
 	if !takeOver(cid, id, []string{r.ID}) {
-		_ = os.Remove(m)
-		return false, nil
+		return false, agent.RollbackResend(r.ID, id)
 	}
 	fmt.Fprintf(os.Stderr, "ask: %s takes over contract %s\n", id, cid)
 	return true, nil
@@ -613,22 +619,21 @@ func rollbackRetry(ctx context.Context, id string) {
 	if !ok {
 		return
 	}
-	m := agent.WatchMarker("resumed", r.ID)
-	if b, err := os.ReadFile(m); m == "" || err != nil || strings.TrimSpace(string(b)) != id {
+	if won, _ := agent.ResumedAs(r.ID); won != id {
 		return
 	}
-	cid := retriedContract(id)
-	if cid == "" {
-		return
+	if cid := retriedContract(id); cid != "" { // a --recover adopts with no contract: its adoption still rolls back
+		_, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
+			return unhold(c, id, r.ID), nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ask: contract %s: roll back takeover: %v\n", r.ID, err)
+			return
+		}
 	}
-	_, err := contract.Update(cid, func(c contract.Contract) (contract.Contract, error) {
-		return unhold(c, id, r.ID), nil
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ask: contract %s: roll back takeover: %v\n", r.ID, err)
-		return
+	if err := agent.RollbackResend(r.ID, id); err != nil {
+		fmt.Fprintf(os.Stderr, "ask: contract %s: release claim: %v\n", r.ID, err)
 	}
-	_ = os.Remove(m)
 }
 
 // unhold gives c's second holder id back to prev (the retried run), or to the contract's own id when prev is it.
@@ -654,30 +659,6 @@ func retriedContract(holder string) string {
 		}
 	}
 	return ""
-}
-
-// linkResumed claims from's resumed marker for id, so heldID finds the contract here and in a --job child.
-func linkResumed(from, id string) (string, error) {
-	m := agent.WatchMarker("resumed", from)
-	if m == "" {
-		return "", nil
-	}
-	if err := os.MkdirAll(filepath.Dir(m), 0o700); err != nil {
-		return "", err
-	}
-	f, err := os.OpenFile(m, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if errors.Is(err, fs.ErrExist) { // a recovery claimed it first: this retry opens its own
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	_, werr := f.WriteString(id + "\n")
-	if err := errors.Join(werr, f.Close()); err != nil {
-		_ = os.Remove(m)
-		return "", err
-	}
-	return m, nil
 }
 
 // joinFleet reserves a leaf of the owner contract parent for child under its lock, before the child spawns.

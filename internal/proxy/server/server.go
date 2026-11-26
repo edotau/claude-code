@@ -311,7 +311,7 @@ type attemptLadder struct {
 func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder attemptLadder,
 	clientModel string, count bool) (string, string, int) {
 	var lastErr error
-	tpmHopped := r.tpmFront(&ladder)
+	tpmHopped := r.tpmFront(in, &ladder)
 	for i := 0; i < len(ladder.rows); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
 		t := ladder.rows[i]
 		if !count && r.spendCapRefused(w, in, ladder.spendCap, t.Provider) { // every hop, so a failover cannot dodge it
@@ -320,7 +320,7 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody,
 		last := i == len(ladder.rows)-1
 		tin, spare := in, (*tpmSpareSlot)(nil)
 		if last && !tpmHopped {
-			spare = &tpmSpareSlot{find: func() (providers.Target, bool) { return r.tpmHop(t, ladder.lacks(r.now())) }}
+			spare = &tpmSpareSlot{find: func() (providers.Target, bool) { return r.tpmHop(in, t, ladder.lacks(r.now())) }}
 			tin = in.WithContext(context.WithValue(in.Context(), tpmSpareKey{}, spare))
 		}
 		done, err := r.try(w, tin, body, t, clientModel, count, last)

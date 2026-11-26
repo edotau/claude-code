@@ -137,10 +137,6 @@ func MemoryHandoffRequest(path, identity string) string {
 	return renderMemory("misc/handoff-request", tmplFields{"Path": path, "Identity": identity})
 }
 
-func MemoryResiduePrompt(rows string) string {
-	return renderMemory("misc/residue", tmplFields{"Rows": rows})
-}
-
 func MemoryRetryNote(failure string) string { return renderMemory("misc/retry-note", failure) }
 
 func MemoryHomeOverflow(count int) string {

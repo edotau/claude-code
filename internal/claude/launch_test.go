@@ -1260,3 +1260,29 @@ func TestShellModelKeptOnlyOutsideASession(t *testing.T) {
 		}
 	}
 }
+
+// The run unit's endpoint picks claude's base: empty and direct keep the row's route, proxy takes /p/<row>.
+func TestClaudeBaseFollowsUnitEndpoint(t *testing.T) {
+	const direct, routed = "https://gw.example/anthropic", "http://127.0.0.1:4000/p/gw"
+	for _, c := range []struct{ name, endpoint, base, headers string }{
+		{"empty", "", direct, "X-A: 1\nX-B: 2"},
+		{"direct", agent.EndpointDirect, direct, "X-A: 1\nX-B: 2"},
+		{"url", direct, direct, "X-A: 1\nX-B: 2"},
+		{"proxy", agent.EndpointProxy, routed, "X-Claude-Code-Agent: claude"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			hermetic(t, gwProviders)
+			t.Setenv("TEST_GW_KEY", fakeToken)
+			p, err := claudePlan(agent.WithEndpoint(context.Background(), c.endpoint), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.Set["ANTHROPIC_BASE_URL"]; got != c.base {
+				t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got, c.base)
+			}
+			if got := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; got != c.headers {
+				t.Errorf("ANTHROPIC_CUSTOM_HEADERS = %q, want %q", got, c.headers)
+			}
+		})
+	}
+}

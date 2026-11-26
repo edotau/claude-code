@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/proxy/translate"
+	"github.com/edotau/claude-code/internal/googletools"
 )
 
 // runKeys are per-run keys; a child inherits only restrictions; the ask path reads them from task 3.1a on.
@@ -48,7 +48,7 @@ var durationRE = regexp.MustCompile(durationPattern)
 
 // googleToolsPattern is a comma list of the built tool names, optional spaces after commas.
 func googleToolsPattern() string {
-	n := "(?:" + strings.ReplaceAll(translate.JoinGoogleTools(translate.GoogleTools), ",", "|") + ")"
+	n := "(?:" + strings.ReplaceAll(googletools.Join(googletools.All), ",", "|") + ")"
 	return "^" + n + "(?:, *" + n + ")*$"
 }
 
@@ -158,8 +158,8 @@ func (o Overlay) checkGoogleTools() error {
 	if o.GoogleTools == "" {
 		return nil
 	}
-	if _, err := translate.ParseGoogleTools(strings.Split(o.GoogleTools, ",")); err != nil || !googleToolsRE.MatchString(o.GoogleTools) {
-		return errors.New("googleTools: want a comma list of " + translate.JoinGoogleTools(translate.GoogleTools))
+	if _, err := googletools.Parse(strings.Split(o.GoogleTools, ",")); err != nil || !googleToolsRE.MatchString(o.GoogleTools) {
+		return errors.New("googleTools: want a comma list of " + googletools.Join(googletools.All))
 	}
 	return nil
 }

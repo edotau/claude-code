@@ -52,7 +52,19 @@ func watchStubs(t *testing.T, stale ...agent.StaleJob) (now *time.Time, checks, 
 		nc++
 		return agent.WatchReport{Stale: stale}, nil
 	}
-	startResume = func([]string) (string, error) { nr++; return "20261116T120000.000-opencode", nil }
+	startResume = func(_ []string, nonce string) (string, error) { // the launched successor adopts the claim itself
+		nr++
+		id := "20261116T120000.000-opencode"
+		if len(stale) == 0 {
+			return id, nil
+		}
+		return id, agent.AdoptResend(stale[0].ID, nonce, id)
+	}
+	for _, s := range stale { // the takeover gate reads each stale job's record
+		if err := (agent.Record{ID: s.ID, Status: "lost", Time: time.Now().Add(-time.Minute)}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Cleanup(func() { watchNow, watchOwner, watchJobs, startResume = oldNow, oldOwner, oldJobs, oldStart })
 	return &clock, &nc, &nr
 }
@@ -134,32 +146,61 @@ func TestWatchTickResumesADeadJobOnce(t *testing.T) {
 
 func TestWatchTickClaimsMarkerBeforeSpawn(t *testing.T) {
 	watchStubs(t, deadStale())
-	var claimed bool
+	adopt := startResume
+	var launching bool
 	var idAtSpawn string
-	startResume = func([]string) (string, error) {
-		_, err := os.Stat(agent.WatchMarker("resumed", deadJob))
+	startResume = func(argv []string, nonce string) (string, error) {
+		rec, err := agent.LoadRecord(deadJob)
+		launching = err == nil && rec.Resumer != nil && string(rec.Resumer.Phase) == "launching"
 		idAtSpawn, _ = agent.ResumedAs(deadJob)
-		claimed = err == nil
-		return "20261116T120000.000-opencode", nil
+		return adopt(argv, nonce)
 	}
 	watchTick(promptIn("s1"))
-	if !claimed || idAtSpawn != "" {
-		t.Fatalf("at spawn: marker exists %v id %q, want an empty claim already published", claimed, idAtSpawn)
+	if !launching || idAtSpawn != "" {
+		t.Fatalf("at spawn: launching claim in record %v id %q, want the claim written with no successor", launching, idAtSpawn)
 	}
 	if id, ok := agent.ResumedAs(deadJob); !ok || id == "" {
-		t.Fatalf("after spawn marker id %q %v, want the new job id", id, ok)
+		t.Fatalf("after spawn marker id %q %v, want the new job id the successor adopted", id, ok)
 	}
 }
 
+// An ambiguous launch failure leaves the claim launching: the hook never releases a claim a survivor may carry.
 func TestWatchTickFailedResumeLeavesNoMarker(t *testing.T) {
-	watchStubs(t, deadStale())
-	startResume = func([]string) (string, error) { return "", os.ErrDeadlineExceeded }
+	_, _, resumes := watchStubs(t, deadStale())
+	startResume = func([]string, string) (string, error) { return "", os.ErrDeadlineExceeded }
 	got := watchTick(promptIn("s1"))
 	if !strings.Contains(got.Context, "the one resume failed") {
 		t.Fatalf("context %q, want the failed resume named", got.Context)
 	}
 	if _, err := os.Stat(agent.WatchMarker("resumed", deadJob)); !os.IsNotExist(err) {
 		t.Fatalf("resume marker after a failed launch: %v, want none", err)
+	}
+	if rec, _ := agent.LoadRecord(deadJob); rec.Resumer == nil || string(rec.Resumer.Phase) != "launching" {
+		t.Fatalf("claim after an ambiguous failure = %+v, want it left launching", rec.Resumer)
+	}
+	startResume = func([]string, string) (string, error) { *resumes++; return "x", nil }
+	if watchTick(promptIn("s2")); *resumes != 0 {
+		t.Fatalf("a second tick relaunched over a launching claim (%d launches)", *resumes)
+	}
+}
+
+// A cancelled dead job is not resumed: the watchdog goes through the one takeover gate.
+func TestWatchTickDoesNotResumeCancelledJob(t *testing.T) {
+	_, _, resumes := watchStubs(t, deadStale())
+	rec, err := agent.LoadRecord(deadJob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.FailKind = agent.FailCancelled
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := watchTick(promptIn("s1"))
+	if *resumes != 0 || !strings.Contains(got.Context, "not resumed") {
+		t.Fatalf("resumes %d context %q, want no resume of a cancelled job", *resumes, got.Context)
+	}
+	if _, err := os.Stat(agent.WatchMarker("resumed", deadJob)); !os.IsNotExist(err) {
+		t.Fatalf("marker after a refused claim: %v, want none", err)
 	}
 }
 

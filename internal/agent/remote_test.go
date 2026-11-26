@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
@@ -46,9 +47,10 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote line failed: %v", err)
 	}
-	want := []string{"agents", "ask", "--format", "stream-json", "--fallback", "none", "--stdin-framed", "--agent", "codex", "--model", hostile[0], "--profile", hostile[1],
-		"--overlay", `{"schema":2,"effort":"high"}`, "--session", hostile[3], "--system-prompt", hostile[4], "--append-system-prompt", hostile[5],
-		"--output-schema", hostile[6], "--workdir", "/w/" + hostile[7], "--timeout", "1m0s", "--env", "K=" + hostile[0] + hostile[5], "--tools"}
+	wantOverlay := `{"schema":2,"agent":"codex","tools":true,"systemPrompt":"x; touch ` + marker +
+		`","appendSystemPrompt":"l1\nl2 'q' \\","outputSchema":"-oProxyCommand=x","timeout":"1m0s","model":"a'b","effort":"high","fallback":"none","maxChildren":8,"maxTreeTokens":20000000,"maxDepth":5}`
+	want := []string{"agents", "ask", "--format", "stream-json", "--stdin-framed", "--profile", hostile[1],
+		"--overlay", wantOverlay, "--session", hostile[3], "--workdir", "/w/" + hostile[7], "--env", "K=" + hostile[0] + hostile[5]}
 	if got := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00"); !slices.Equal(got, want) {
 		t.Fatalf("argv mangled:\n got %q\nwant %q", got, want)
 	}
@@ -142,14 +144,14 @@ func TestRemoteRunDeadlineIsPerActivityNotWholeRun(t *testing.T) {
 	}
 }
 
-// A persona rides the single --agent value as vendor:persona.
+// A persona rides the overlay's agent key as vendor:persona.
 func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{Persona: &Schema{Name: "reviewer", Prompt: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(script, "--agent") != 1 || !strings.Contains(script, "--agent 'codex:reviewer'") || strings.Contains(script, "--persona") {
-		t.Fatalf("script = %s, want one --agent 'codex:reviewer' and no --persona", script)
+	if !strings.Contains(script, `"agent":"codex:reviewer"`) || strings.Contains(script, "--persona") || strings.Contains(script, "--agent") {
+		t.Fatalf("script = %s, want agent codex:reviewer in --overlay and no --persona/--agent", script)
 	}
 }
 
@@ -218,7 +220,7 @@ func TestRemoteScriptRelaysCoworker(t *testing.T) {
 	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 	t.Setenv("AGENT_ERROR_FALLBACK", "") // the ambient mode would join the document
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
-	if err != nil || !strings.Contains(script, ` --overlay '{"schema":2,"provider":"databricks","profile":"dev"}'`) {
+	if err != nil || !strings.Contains(script, `"provider":"databricks","profile":"dev"`) {
 		t.Fatalf("script = %s, err = %v; want the databricks:dev overlay relayed", script, err)
 	}
 }
@@ -233,11 +235,11 @@ func TestRemoteScriptRelaysEffortAsOverlayKey(t *testing.T) {
 	}
 }
 
-// --tools and --fleet must cross to the remote.
+// tools and fleet cross to the remote in the overlay document.
 func TestRemoteScriptRelaysToolsFlags(t *testing.T) {
 	script, err := remoteScript("claude-code", "copilot", "", RunOptions{Tools: true, Fleet: true})
-	if err != nil || !strings.Contains(script, " --tools") || !strings.Contains(script, " --fleet") || strings.Contains(script, "--read-only") {
-		t.Fatalf("script = %s, err = %v; want --tools and --fleet relayed, never --read-only", script, err)
+	if err != nil || !strings.Contains(script, `"tools":true`) || !strings.Contains(script, `"fleet":true`) || strings.Contains(script, "--read-only") {
+		t.Fatalf("script = %s, err = %v; want tools and fleet in --overlay, never --read-only", script, err)
 	}
 }
 
@@ -259,5 +261,22 @@ func TestResultFromEnvelopeKeepsFarProxy(t *testing.T) {
 	res := resultFromEnvelope(wire.Envelope{Status: wire.StatusOK, Transport: &wire.Transport{Attempts: 1, Proxy: "shared"}}, "pi", nil)
 	if got := wire.RanOn(res); !strings.HasSuffix(got, " · proxy shared") {
 		t.Fatalf("ran on %q lacks the far proxy label", got)
+	}
+}
+
+// A profile the registry places travels with its provider inside the overlay, never as a --profile flag.
+func TestRemoteScriptProfileRidesOverlay(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	line, err := remoteScript("cc", "codex", "", RunOptions{Provider: "copilot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(line, "--profile") || !strings.Contains(line, `"provider":"github"`) || !strings.Contains(line, `"profile":"copilot"`) {
+		t.Fatalf("script %q, want provider and profile in the overlay and no --profile", line)
+	}
+	line, err = remoteScript("cc", "codex", "", RunOptions{Provider: "no-such-profile"})
+	if err != nil || !strings.Contains(line, "--profile 'no-such-profile'") {
+		t.Fatalf("script %q, err %v, want the flag kept for an unplaced profile", line, err)
 	}
 }

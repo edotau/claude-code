@@ -26,12 +26,20 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 - A stage runs on `agent` = `claude` (in-context on the session profile, `model` = `haiku|sonnet|opus|fable`, or routed
   with `profile`/`provider` via an attachment brief on a `claude` leaf). Any other agent (`codex|copilot|gemini|
   opencode|pi`) is not a workflow stage — `stepOf` throws at script start; run it from the main session with
-  `claude-code agents ask --carry --agent <who>`. A routed `claude` stage runs
-  `claude-code agents ask --agent claude --fallback agents --format json --tools --effort <e> [--profile <p>]
-  [--overlay '<route>'] [--model <m>] --attach <file>`, and reports `ran on` (with hop count) or BLOCKED (`coworkers`
-  rows in the result). `profile`/`provider` (run args or per stage) become `--profile` or a provider/profile/model
-  `--overlay` route; after a 429/quota/auth failure, `--fallback agents` applies ([cost-routing.md](cost-routing.md) →
-  Fallback). Parser: `stepOf`, verbatim in `code-analyzer`, `code-looper`, `code-evaluator`, `code-workers` and
+  `claude-code agents ask --carry --overlay '{"agent":"<who>"}'`. A routed `claude` stage runs:
+
+  ```bash
+  claude-code agents ask --overlay '{"agent":"claude","provider":"<provider>","profile":"<p>","model":"<m>","effort":"<e>","fallback":"agents","tools":true}' --format json --attach <file>
+  ```
+
+  Omit `provider` and `profile` together when no route is supplied, omit `model` when unset, and merge any other route
+  keys into the same overlay. A provider-only input uses `profile: auto`; currently a profile-only input is passed as
+  `--profile <p>` outside the overlay, including `--profile session`, whose session-lead semantics must be preserved.
+  It reports `ran on` (with hop count) or BLOCKED (`coworkers` rows in the result).
+  `profile`/`provider` (run args or per stage) and an optional `model` become overlay keys; after a 429/quota/auth
+  failure, overlay `fallback: agents`
+  applies ([cost-routing.md](cost-routing.md) → Fallback). Parser: `stepOf`, verbatim in `code-analyzer`, `code-looper`,
+  `code-evaluator`, `code-workers` and
   `code-engineer` (enforced by `workflow lint`).
 - Stages: the `// ── stages:` block (`stageDetect`, `stageLoop`, `stageFix`, `stageRepair`, `stagePolish`), verbatim in
   `code-analyzer`, `code-looper`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
@@ -60,8 +68,8 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
   fixer's own green never decides it.
 - Arguments: an unknown top-level arg, an unknown `steps` stage (`steps.child` included) or an unknown stage field is
   refused at launch with an error naming it. `profile` reaches every child and every external stage's
-  `--profile`; with `--fallback agents` a failed lead route can still fall back to the agent's pin or other
-  agents (`ran on` shows it).
+  route (the legacy flag for profile-only input); with overlay `fallback: agents` a failed lead route can fall back
+  to the agent's pin or other agents (`ran on` shows it).
 - Under Claude quota pressure (`low`/`exhausted` from `claude-code gateway --agent claude`), the scripts step
   their own Claude pins down one alias (opus→sonnet→haiku), fail-open. `code-looper` takes `claudeState`
   (`ok|low|exhausted|unknown`) from its caller or reads it itself; `code-analyzer` runs its gate in-script and passes
@@ -80,7 +88,7 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
 A leaf has no `Workflow` tool, so it runs one through a headless Claude session, only when its brief names it:
 
 ```bash
-claude-code agents ask --agent claude --tools --timeout 20m \
+claude-code agents ask --overlay '{"agent":"claude","timeout":"20m","tools":true}' \
   "Run Workflow({scriptPath: \"~/.claude/workflows/<name>.js\", args: {…}}) and print the result"
 ```
 

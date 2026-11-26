@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -149,7 +150,7 @@ func RecoverJob(ctx context.Context, id string, boot time.Time) (bool, error) {
 		if err != nil {
 			return err
 		}
-		if !cur.recoverable(boot) {
+		if !cur.recoverable(boot) || cur.taken() { // a re-send claimed this holder: it is the one runner
 			return nil
 		}
 		if cur.Status == "lost" {
@@ -164,17 +165,20 @@ func RecoverJob(ctx context.Context, id string, boot time.Time) (bool, error) {
 		if err := markRecovery(cur); err != nil {
 			return err
 		}
+		if cur, err = cur.voidClaim(); err != nil {
+			return err
+		}
 		cur.Status, cur.Error, cur.Progress = "running", "", ""
 		cur.PID, cur.PPID, cur.PGID, cur.PIDStart = 0, 0, 0, ""
-		if err := cur.Save(); err != nil {
+		if err := cur.saveLocked(); err != nil {
 			return err
 		}
 		if err := spawnArgvContext(ctx, &cur, recoverArgv(cur), nil, true); err != nil {
 			cur.Status, cur.Error = "error", "reboot recovery: "+err.Error()
-			return errors.Join(err, cur.Save())
+			return errors.Join(err, cur.saveLocked())
 		}
 		recovered = true
-		return cur.Save()
+		return cur.saveLocked()
 	})
 	return recovered, err
 }
@@ -188,11 +192,16 @@ func markRecovery(r Record) error {
 	return errors.Join(err, f.Close())
 }
 
-// recoverArgv replays the flags askSpawn passed that the record keeps; --as is not recorded for a plain ask.
+// recoverArgv replays the record's fallback and native config as --overlay; --as keeps its own flag.
 func recoverArgv(r Record) []string {
-	argv := []string{"agents", "ask", "--job", r.ID, "--fallback", r.FallbackPolicy}
+	argv := []string{"agents", "ask", "--job", r.ID}
+	var ov agentconfig.Overlay
+	ov.Fallback = r.FallbackPolicy
 	if r.Request.Native {
-		argv = append(argv, "--native")
+		ov.Native = new(true)
+	}
+	if doc := childDoc(ov); doc != "" {
+		argv = append(argv, "--overlay", doc)
 	}
 	if r.Request.Identity != "" {
 		argv = append(argv, "--as", r.Request.Identity)
@@ -324,7 +333,14 @@ func cancel(rec *Record) (bool, error) {
 	if !proc.Alive(rec.PID) {
 		return failIfRunning(rec, "process gone", true)
 	}
+	token, err := MarkCancelling(rec.ID) // before the signal: a watchdog seeing the dead pid must find it cancelled
+	if err != nil {
+		return false, err
+	}
 	if err := stopJob(rec); err != nil {
+		if errors.Is(err, errNotSignalled) { // once signalled the cancel stays: the job may be dying
+			_ = ClearCancelling(rec.ID, token)
+		}
 		return false, err
 	}
 	if _, err := failIfRunning(rec, "cancelled by claude-code agents cancel", false); err != nil {
@@ -350,10 +366,13 @@ func failHeldContract(holder string) error {
 	return err
 }
 
+// errNotSignalled marks a stopJob failure before the cancel was recorded as signalled, the only one that rolls it back.
+var errNotSignalled = errors.New("no signal sent")
+
 // stopJob signals rec's verified job process until it is gone; tests swap it to settle the record in between.
 var stopJob = func(rec *Record) error {
 	if err := checkJobPID(rec); err != nil {
-		return err
+		return fmt.Errorf("%w: %w", errNotSignalled, err)
 	}
 	return escalate(rec.PID, rec.ID)
 }
@@ -399,7 +418,10 @@ var procTable = proc.List
 
 // escalate sends SIGINT, waits cancelGrace, then SIGKILL and waits killWait more; errors if pid's group outlives both.
 func escalate(pid int, id string) error {
-	if err := interrupt(pid); err != nil {
+	if err := signalCancel(id); err != nil { // before the signal: a death between the two must read as cancelled
+		return fmt.Errorf("%w: %w", errNotSignalled, err)
+	}
+	if err := interrupt(pid); err != nil { // signalled stays: nothing voids or clears it
 		return err
 	}
 	if waitGone(pid, cancelGrace) {
@@ -715,7 +737,7 @@ func toRow(r Record) Row {
 }
 
 // interrupt sends SIGINT to pid's process group and pid.
-func interrupt(pid int) error { return proc.SignalGroup(pid, syscall.SIGINT) }
+var interrupt = func(pid int) error { return proc.SignalGroup(pid, syscall.SIGINT) }
 
 // kill sends SIGKILL to pid's process group and pid; the caller verifies termination by polling.
 func kill(pid int) error { return proc.SignalGroup(pid, syscall.SIGKILL) }

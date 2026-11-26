@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -253,16 +254,62 @@ var removedFlags = map[string]string{
 	"--1m":       "was removed; 1M context is the base behavior on serving and anthropic endpoints",
 }
 
-// RemovedFlagHint returns the error for a removed flag in args, or nil; the scan stops at "--" or a bare word.
-func RemovedFlagHint(args []string) error {
-	for i, a := range args {
-		if a == "--" || (!strings.HasPrefix(a, "-") && (i == 0 || !strings.HasPrefix(args[i-1], "-"))) {
-			return nil
+// removedEverywhere are the entries RemovedFlagHint refuses on every verb that calls it; the rest are per command.
+var removedEverywhere = []string{"--provider", "--env", "--tier", "--1m"}
+
+// launcherValueFlags are non-bool flags known to consume the following token even if it starts with "-".
+var launcherValueFlags = []string{
+	"--profile", "--model", "--overlay", "--keep-env", "-f", "--file",
+	"--system-prompt", "--append-system-prompt", "-r", "--resume", "--session-id", "--add-dir", "--task",
+}
+
+// takesValue reports whether prev consumes next: fs decides when known, else only known value flags consume a "-" arg.
+func takesValue(fs *flag.FlagSet, prev, next string, names []string) bool {
+	if len(prev) < 2 || prev[0] != '-' || strings.Contains(prev, "=") {
+		return false
+	}
+	if fs != nil && fs.Lookup(strings.TrimLeft(prev, "-")) != nil {
+		return consumesValue(fs, prev)
+	}
+	if slices.Contains(names, prev) {
+		return false
+	}
+	return !strings.HasPrefix(next, "-") || slices.Contains(launcherValueFlags, prev)
+}
+
+// firstRemoved is the first of names typed before "--" that is not a flag value, or "".
+func firstRemoved(fs *flag.FlagSet, args, names []string) string {
+	prev := ""
+	for _, a := range args {
+		if takesValue(fs, prev, a, names) {
+			prev = ""
+			continue
 		}
-		name, _, _ := strings.Cut(a, "=")
-		if hint, ok := removedFlags[name]; ok {
-			return fmt.Errorf("%s %s", name, hint)
+		if a == "--" {
+			return ""
+		}
+		prev = a
+		if name, _, _ := strings.Cut(a, "="); slices.Contains(names, name) {
+			return name
 		}
 	}
+	return ""
+}
+
+// RemovedFlagHintFS is RemovedFlagHintIn that reads fs (may be nil) to know which flags take a value.
+func RemovedFlagHintFS(fs *flag.FlagSet, args []string, names ...string) error {
+	if name := firstRemoved(fs, args, names); name != "" {
+		return fmt.Errorf("%s %s", name, removedFlags[name])
+	}
 	return nil
+}
+
+// RemovedFlagHintIn is the error for the first of names typed before "--" and not a flag's value, or nil.
+func RemovedFlagHintIn(args []string, names ...string) error {
+	return RemovedFlagHintFS(nil, args, names...)
+}
+
+// RemovedFlagHint returns the error for a removed flag before "--" (not a flag value), or nil.
+func RemovedFlagHint(args []string) error {
+	return RemovedFlagHintFS(nil, args, removedEverywhere...)
 }

@@ -115,7 +115,7 @@ type Envelope struct {
 	Runner          string          `json:"runner,omitempty"`      // the runner that carried Agent's run, "pi"; absent when Agent ran itself
 	RanOn           string          `json:"ran_on,omitempty"`      // the one-line "ran on" summary of the dispatch that answered
 	Structured      json.RawMessage `json:"structured,omitempty"`  // --output-schema: the answer as JSON satisfying the schema
-	Verify          *VerifyResult   `json:"verify,omitempty"`      // --spec verify: what the harness ran after the answer
+	Verify          *VerifyResult   `json:"verify,omitempty"`      // --brief verify: what the harness ran after the answer
 	Handback        *Handback       `json:"handback,omitempty"`    // the run's typed outcome, from a pi run's handback call
 	BudgetKind      string          `json:"budget_kind,omitempty"` // the limit that ended the run (retry.Budget); never re-sent
 	StoppedAt       *StoppedAt      `json:"stopped_at,omitempty"`  // a budget end: the last event, tool calls and text streamed

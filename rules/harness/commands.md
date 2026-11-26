@@ -20,7 +20,7 @@ Moved from the README: install options, setup, agent and utility commands, the s
   (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
   installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
   `bin/<agent>`. Confirm with `<agent> --version`, the doctor
-  `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
+  `<agent> route:` line, or `claude-code agents ask --overlay '{"agent":"<agent>"}' "Reply with exactly: ok"`.
 - The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through `go install`,
   `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl are
   report-only, and `DEV_TOOLS=1` (default) also `go install`s three pinned linters (`DEV_TOOLS=0` skips). `claude-code
@@ -72,22 +72,22 @@ claude-code configure revert [--agent a,b]        # restore agent CLI configs fr
 
 ```bash
 claude-code agents list                                # agents and availability
-claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
+claude-code agents ask --overlay '{"agent":"codex"}' "Review this branch."    # one-shot; --format json, overlay tools and effort
 claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
-claude-code agents ask --spec task.json --dry-run   # resolved route and argv; no model call
+claude-code agents ask --overlay cfg.json --brief task.json --dry-run   # resolved route and argv; no model call
 claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
 claude-code agents wait <id> --progress              # stderr line per change: step, tools, last text; Pi: compacting 12s, retrying 4s
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code agents serve --start [--cap N] | --status | --restart | --stop   # queue --background jobs per pool
                                                  # make install restarts a running daemon, never starts one
-claude-code agents ask --agent pi "<q>"   # Pi on Databricks
+claude-code agents ask --overlay '{"agent":"pi"}' "<q>"   # Pi on Databricks
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code claude review --base main --overlay '{"cloud":true}'   # cloud ultrareview; sends the diff to Anthropic
 claude-code codex cloud exec "<task>" --env <id> --overlay '{"cloud":true}'   # Codex Cloud; status|list|diff|apply
-claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
-claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"
+claude-code agents ask --overlay '{"agent":"gemini","tools":true}' --dirs internal "<task>"  # one 1M-context sweep via agy
+claude-code agents ask --overlay '{"agent":"codex","provider":"databricks","profile":"auto","remote":"auto","tools":true}' "<task>"
                                                        # per-call config
 claude-code usage --days 7                             # subagent token usage
 claude-code usage --cost --days 7                      # adds an `est.` cost per profile and model
@@ -96,7 +96,8 @@ claude-code usage --context                          # where one session's conte
 
 `serve` admits a background `--carry` once before its child starts; foreground carry and Pi takeover are not gated.
 
-An agent's tools are on unless `--tools=false` or `--no-tools` (per agent: `rules/harness/agent.md`).
+For `agents ask`, tools are on unless the overlay sets `tools:false` or `noTools:true` (per agent:
+`rules/harness/agent.md`).
 `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
 and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
@@ -138,14 +139,15 @@ latest note, plus the free dirty files (`agents tree --files`; plain rows on an 
 | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Adopt, wipe or scope a `.claude/`                                                                                      | `claude-code install --setup adopt\|nuke\|workspace`                                                                                                                                                                |
 | Bash tab completion                                                                                                    | `claude-code completion --install`                                                                                                                                                                                  |
-| OpenCode reasoning effort                                                                                              | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high`                                                                                                                               |
+| OpenCode reasoning effort                                                                                              | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --overlay '{"effort":"high"}'`                                                                                                               |
 | Worktrees under `~/worktrees/<repo>/`                                                                                  | `claude-code worktree list\|create <n>\|gate\|commit\|merge <n>\|clean <n>\|clean-all`                                                                                                                              |
 | Subagent status and dispatches                                                                                         | `claude-code agents tree [--watch\|--detail]` · `agents cancel --lost [--dry-run]`                                                                                                                                  |
 | What an agent changed, including pre-dirty files touched outside --path with --verify, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]`                                                                                                                                                 |
 | Search repo code deterministically (tracked and new files, never ignored ones)                                         | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]`                                                                             |
-| Merge another machine's memory, try on a copy                                                                          | `claude-code memory import --host <peer>` · `memory sandbox`                                                                                                                                                        |
-| Sync memory with peers (off by default)                                                                                | `claude-code vault set env NETWORK_MEMORY on` to opt in · `claude-code memory import --sync [--host <peer>]`                                                                                                        |
-| Run an agent on another tailnet box                                                                                    | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status`                                                                                                              |
+| Try memory on a copy                                                                                                   | `claude-code memory sandbox`                                                                                                                                                                                        |
+| Sync memory with peers (off by default)                                                                                | `claude-code vault set env NETWORK_MEMORY on` to opt in · `claude-code memory sync [--host <peer>]`                                                                                                                 |
+| List or resolve memory sync conflicts                                                                                  | `claude-code memory conflicts [--resolve ID --keep ...]`                                                                                                                                                            |
+| Run an agent on another tailnet box                                                                                    | `claude-code agents ask --overlay '{"agent":"<a>","host":"<h>"}' "<task>"` · `network remote --host <h> --list --status`                                                                                            |
 | Browsers, web search                                                                                                   | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q`                                                                                                                               |
 | Tailnet status                                                                                                         | `claude-code tailscale` (modes below)                                                                                                                                                                               |
 | Read Databricks metadata (a GET, no `curl`)                                                                            | `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user\|sp]`                                                                                                                               |

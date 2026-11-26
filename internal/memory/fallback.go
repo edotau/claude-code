@@ -29,7 +29,7 @@ var StoreCopy = func(ctx context.Context) (string, func(), error) {
 	return dir, cleanup, nil
 }
 
-// CodeModeRun is the one code-mode Pi dispatch behind the typed-write and residue fallbacks; ask registers it.
+// CodeModeRun is the one code-mode Pi dispatch behind the typed-write fallback; ask registers it.
 var CodeModeRun func(ctx context.Context, prompt, workdir, schema, model string) (answer, who string, err error)
 
 // CodeFallback allows one CodeModeRun per job: a second call fails without dispatching.

@@ -22,9 +22,6 @@ Open plan tasks: {{.}}
 
 {{define "previous-session"}}{{/* fields: . */}} Previous session: {{.}}.{{end}}
 
-{{define "residue"}}{{/* fields: Rows */}}The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.
-{{.Rows}}Return only a typed Batch of ops that places them; write no files.{{end}}
-
 {{define "retry-note"}}{{/* fields: . */}}
 
 Your previous answer failed: {{.}}

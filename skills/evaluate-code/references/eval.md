@@ -47,9 +47,9 @@ Known confound (2026-10-24), procedural: the Workflow tool prepends the triggeri
 agent prompt (`[Workflow harness — user request] … this request wins`), so executors and judges see whatever the
 manager typed that turn (10/16 judges docked report_quality for executors mentioning it). Trigger the eval from a
 turn whose only text is the eval request, or headless from a scratch cwd:
-`claude-code agents ask --agent claude --tools --timeout 20m "Run Workflow({scriptPath: …, args: {…}}) and print
-the result JSON verbatim."` Run it from a cwd OUTSIDE this repo: under `~/.claude` executors load the harness's
-CLAUDE.md and rules, so the "control" cell is no control.
+`claude-code agents ask --overlay '{"agent":"claude","timeout":"20m","tools":true}' "Run Workflow({scriptPath: …,
+args: {…}}) and print the result JSON verbatim."` Run it from a cwd OUTSIDE this repo: under `~/.claude` executors load
+the harness's CLAUDE.md and rules, so the "control" cell is no control.
 
 n=2 per cell is a smoke test, not a benchmark; say which scenarios ran. Upstream's numbers live in upstream's
 eval/RESULTS.md.

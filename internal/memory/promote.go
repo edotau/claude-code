@@ -134,6 +134,70 @@ func docBlocks(d Doc, sections bool) (string, []string) {
 	return header, blocks
 }
 
+// partitionDoc removes overflow entries; the retained text is the Doc minus them, rendered as the store renders it.
+func partitionDoc(d Doc, keep []string) (string, []string) {
+	kept := keptEntries(d, keep)
+	retained, moved := d, []string(nil)
+	retained.Entries = nil
+	heading, group := "", -1
+	for i, e := range d.Entries {
+		raw := e.block()
+		if i+1 < len(d.Entries) {
+			raw += "\n"
+		}
+		if sectionFiles[d.Name] && e.Kind == KindHeading {
+			heading, group = e.Lines[0], -1
+		}
+		if kept[i] {
+			retained.Entries = append(retained.Entries, e)
+			continue
+		}
+		if !sectionFiles[d.Name] {
+			moved = append(moved, raw)
+			continue
+		}
+		if group < 0 {
+			group = len(moved)
+			moved = append(moved, overflowBlock(d.Name, heading, ""))
+		}
+		moved[group] += raw
+	}
+	return string(retained.Render()), moved // the import that moves those rows leaves exactly these bytes
+}
+
+// keptEntries marks the entries keep names, claiming duplicates in the order the split kept them: newest first.
+func keptEntries(d Doc, keep []string) map[int]bool {
+	wanted := map[string]int{}
+	for _, k := range entryKeys(ParseDoc(d.Name, []byte(strings.Join(keep, "\n")))) {
+		wanted[k]++
+	}
+	keys, order := entryKeys(d), d.OldestFirst(0, len(d.Entries))
+	slices.Reverse(order)
+	if sectionFiles[d.Name] {
+		order = slices.Sorted(slices.Values(order)) // sectionKeep keeps each section's top bullets
+	}
+	kept := map[int]bool{}
+	for _, i := range order {
+		if sectionFiles[d.Name] && d.Entries[i].Kind == KindHeading || wanted[keys[i]] > 0 {
+			wanted[keys[i]]--
+			kept[i] = true
+		}
+	}
+	return kept
+}
+
+// entryKeys is each entry's text without trailing blank lines, prefixed in section files by its section heading.
+func entryKeys(d Doc) []string {
+	keys, heading := make([]string, len(d.Entries)), ""
+	for i, e := range d.Entries {
+		if sectionFiles[d.Name] && e.Kind == KindHeading {
+			heading = e.Lines[0]
+		}
+		keys[i] = heading + "\x00" + strings.TrimRight(e.block(), "\n")
+	}
+	return keys
+}
+
 // docOverflow uses the Doc's age keys, not the physical position, for oldest-first eviction.
 func docOverflow(d Doc, capLines int) (header string, keep, overflow []string) {
 	if logicalLineCount(string(d.Render())) <= capLines {
@@ -160,7 +224,7 @@ func docOverflow(d Doc, capLines int) (header string, keep, overflow []string) {
 // archiveFile prunes the typed file name under the bank lock, archiving the oldest overflow first so nothing is lost.
 func archiveFile(name string, capLines int, now time.Time) (moved int, err error) {
 	path := Path(name)
-	err = withFlatLock(BankLockWait, func() error {
+	err = withBankLock(BankLockWait, func() error {
 		data, err := readFile(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -169,20 +233,21 @@ func archiveFile(name string, capLines int, now time.Time) (moved int, err error
 			return err
 		}
 		doc := normaliseSections(ParseDoc(name, data))
-		header, keep, overflow := docOverflow(doc, capLines)
+		_, keep, overflow := docOverflow(doc, capLines)
 		if len(overflow) == 0 {
 			if string(doc.Render()) != string(data) {
-				if err := paths.AtomicWrite(path, doc.Render(), 0o600); err != nil {
+				if ok, err := writeIfStill(path, data, true, doc.Render(), 0o600); err != nil || !ok {
 					return err
 				}
 				moved = 1 // report a normalization-only bank change to dream's changed probe
 			}
 			return nil
 		}
+		text, overflow := partitionDoc(doc, keep)
 		if err := appendArchiveOverflow(name, now, overflow); err != nil {
 			return err
 		}
-		if err := paths.AtomicWrite(path, []byte(rejoin(header, keep)), 0o600); err != nil {
+		if ok, err := writeIfStill(path, data, true, []byte(text), 0o600); err != nil || !ok {
 			return err
 		}
 		moved = len(overflow)

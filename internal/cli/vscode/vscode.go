@@ -92,11 +92,10 @@ func merge(dest string, overlay map[string]any, check bool) (mergeResult, error)
 	if check {
 		return mergeResult{Changed: true}, nil
 	}
-	body, err := json.MarshalIndent(merged, "", "  ")
+	body, err := marshalJSONC(merged, retainedComments(rawBase))
 	if err != nil {
 		return mergeResult{}, err
 	}
-	body = append(body, '\n')
 	return writeGuarded(dest, "settings", rawBase, body)
 }
 

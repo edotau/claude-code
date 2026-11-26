@@ -1,9 +1,12 @@
 package memory
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // extractRecallLimit is the share of served entries a batch may leave without a hit or successor.
@@ -49,7 +53,7 @@ func CheckExtractRecall(logs []string, ledger string, sources map[string][]byte,
 	}
 	total := report.Lost + prior
 	if report.Lost > 0 && float64(total)/float64(len(served)) > extractRecallLimit {
-		return report, fmt.Errorf("extract recall: %d of %d served entries lose their hit in 30 days (limit 2%%)", total, len(served))
+		return report, extractChecked{fmt.Errorf("extract recall: %d of %d served entries lose their hit in 30 days (limit 2%%)", total, len(served))}
 	}
 	return report, nil
 }
@@ -88,6 +92,9 @@ func extractLedgerLost(ledger string, now time.Time) (int, error) {
 	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
 		stamp, count, _ := strings.Cut(line, " ")
 		ts, tsErr := time.Parse(time.RFC3339, stamp)
+		if tsErr == nil && strings.HasPrefix(count, extractRefusedTag) {
+			continue
+		}
 		n, convErr := strconv.Atoi(count)
 		if line != "" && (tsErr != nil || convErr != nil) {
 			return 0, fmt.Errorf("extract recall ledger: malformed line %q", line)
@@ -101,12 +108,66 @@ func extractLedgerLost(ledger string, now time.Time) (int, error) {
 
 // RecordExtractLoss appends a batch's lost-hit count; the rewrite is fsynced with its directory before it returns.
 func RecordExtractLoss(ledger string, now time.Time, lost int) error {
+	return appendExtractLedger(ledger, fmt.Sprintf("%s %d\n", now.UTC().Format(time.RFC3339), lost))
+}
+
+func appendExtractLedger(ledger, line string) error {
 	data, err := os.ReadFile(ledger)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	line := fmt.Sprintf("%s %d\n", now.UTC().Format(time.RFC3339), lost)
-	return paths.AtomicWrite(ledger, append(data, line...), 0o600)
+	var kept strings.Builder
+	cutoff := time.Now().AddDate(0, 0, -accessRotateDays)
+	for row := range strings.SplitSeq(string(data), "\n") {
+		stamp, _, _ := strings.Cut(row, " ")
+		at, err := time.Parse(time.RFC3339, stamp)
+		if row != "" && (err != nil || !at.Before(cutoff)) {
+			kept.WriteString(row + "\n")
+		}
+	}
+	kept.WriteString(line)
+	return paths.AtomicWrite(ledger, []byte(kept.String()), 0o600)
+}
+
+// extractRefusedTag marks a ledger line "<RFC3339> refused <group hash> <reason>" for a group the checks refused.
+const extractRefusedTag = "refused "
+
+// RecordExtractRefusal notes that the checks refused the group with this source hash.
+func RecordExtractRefusal(ledger string, now time.Time, hash string, reason error) error {
+	why := strings.Join(strings.Fields(reason.Error()), " ")
+	return appendExtractLedger(ledger, fmt.Sprintf("%s %s%s %s\n", now.UTC().Format(time.RFC3339), extractRefusedTag, hash, why))
+}
+
+// ExtractRefusals maps each refused group hash to its latest reason.
+func ExtractRefusals(ledger string) (map[string]string, error) {
+	data, err := os.ReadFile(ledger)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("extract recall ledger: %w", err)
+	}
+	out := map[string]string{}
+	cutoff := time.Now().AddDate(0, 0, -accessRotateDays)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		stamp, rest, _ := strings.Cut(line, " ")
+		at, err := time.Parse(time.RFC3339, stamp)
+		if body, ok := strings.CutPrefix(rest, extractRefusedTag); ok && err == nil && !at.Before(cutoff) {
+			hash, reason, _ := strings.Cut(body, " ")
+			out[hash] = reason
+		}
+	}
+	return out, nil
+}
+
+// extractGroupHash fingerprints a group's sorted source set with each source's content.
+func extractGroupHash(sources map[string][]byte) string {
+	names := slices.Sorted(maps.Keys(sources))
+	hash := sha256.New()
+	for _, rel := range names {
+		fmt.Fprintf(hash, "%d:%s:%s\n", len(rel), rel, textutil.SHA256Hex(sources[rel]))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func extractServed(logs []string, now time.Time) (map[string]bool, error) {

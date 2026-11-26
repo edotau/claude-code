@@ -125,10 +125,10 @@ const stepExt = (name, v, d, f) => {
   const { who, effort, profile, provider } = f
   // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
   const edit = d.tools === 'edit'
-  // a named provider goes whole as --overlay; a bare profile stays sugar and ask fills the provider from the registry.
-  const route = provider ? ` --overlay '${JSON.stringify({ provider, profile: profile || 'auto', ...(v.model ? { model: v.model } : {}) })}'`
-    : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
-  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json --tools --effort ${effort}` + route
+  // one --overlay object; a bare profile stays --profile sugar because the overlay refuses a partial unit.
+  const ov = { agent: who, provider: provider || undefined, profile: provider ? profile || 'auto' : undefined, model: v.model || undefined, effort, fallback: 'agents', tools: true }
+  const json = JSON.stringify(Object.fromEntries(Object.entries(ov).filter(([, x]) => x !== undefined)))
+  const ask = `claude-code agents ask --format json${!provider && profile ? ` --profile ${profile}` : ''} --overlay '${json.replace(/'/g, "'\\''")}'`
   const how = `Run the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.`
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: 'claude' }, profile, provider,
@@ -317,9 +317,13 @@ const ST_MEASURER = { agent: 'claude', ext: false, model: 'haiku', effort: 'low'
 const ST_GW = { candidates: { type: 'array', items: { type: 'object', properties: { agent: { type: 'string' }, state: { type: 'string' } } } },
   skipped: { type: 'array', items: { type: 'object', properties: { agent: { type: 'string' }, gate: { type: 'string' } } } } }
 const stClaudeState = (w) => { const f = (k) => ((w && w[k]) || []).find((c) => c.agent === 'claude') || {}; return f('candidates').state || f('skipped').gate || 'unknown' }
-// stAction: a typed no-model `agents ask --spec` line run by a leaf; the envelope trio and `fields` of its answer.
+// stAction: a typed no-model `agents ask --brief` line run by a leaf; the envelope trio and `fields` of its answer.
 async function stAction(ctx, label, ph, spec, fields) {
-  const line = 'claude-code agents ask --format json --spec ' + stShq(JSON.stringify({ ...spec, workdir: ctx.cwd || '.', format: 'json' })) + ' </dev/null'
+  const briefKeys = new Set(['action', 'own', 'prompt', 'report', 'verify', 'contract'])
+  const brief = {}, ov = {}
+  for (const [k, v] of Object.entries(spec)) (briefKeys.has(k) ? brief : ov)[k] = v
+  const ovArg = Object.keys(ov).length ? ' --overlay ' + stShq(JSON.stringify(ov)) : ''
+  const line = 'claude-code agents ask --format json --workdir ' + stShq(ctx.cwd || '.') + ovArg + ' --brief ' + stShq(JSON.stringify(brief)) + ' </dev/null'
   const str = { type: 'string' }, schema = { type: 'object', required: ['dispatch_id', 'ran_on', 'status'], properties: { dispatch_id: str, ran_on: str, status: str, ...fields } }
   return stageAsk(ctx, ST_MEASURER, label, ph, ctx.cd + 'Run exactly this one line (a nonzero exit is expected for a red gate; set the Bash timeout to 600000 ms) ' +
     "and nothing else: " + line + " — return the envelope's dispatch_id, ran_on and status, and from its answer JSON only the schema's other fields verbatim (omit any it lacks).", schema)

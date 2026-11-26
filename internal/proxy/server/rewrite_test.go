@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/googletools"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -656,6 +658,230 @@ func TestClaudeCodeOwnIDsReachDatabricksEndpoints(t *testing.T) {
 		got := up.got()
 		if resp.StatusCode != http.StatusOK || len(got) != before+1 || !strings.Contains(got[before].body, `"model":"`+c.want+`"`) {
 			t.Errorf("%s: status %d, upstream %d requests, want model %s (last body %v)", c.sent, resp.StatusCode, len(got)-before, c.want, got)
+		}
+	}
+}
+
+func googleToolsSetup(t *testing.T, options string) (*rawUp, string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	up := newRawUp(t, okRaw)
+	t.Setenv("DBX_KEY", "dbx-token")
+	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
+		`/serving-endpoints/anthropic","routes":{"gemini":"` + up.URL + `/serving-endpoints/gemini"},` + options +
+		`"auth":{"type":"key","env":"DBX_KEY"}}`
+	srv := setup(t, `{"default":"dbx","providers":{"databricks":{"dbx":`+row+`}}}`)
+	return up, srv.URL + "/p/dbx/gemini/v1beta/models/gemini-3.8-flash:generateContent"
+}
+
+// The header is stripped, served tools are injected once, an unserved tool is a 400, an unprobed row sends as asked.
+func TestWithGoogleTools(t *testing.T) {
+	if http.CanonicalHeaderKey(googletools.Header) != googletools.Header {
+		t.Fatalf("%s is not canonical", googletools.Header)
+	}
+	served := `"options":{"google_tools":["url","code"]},`
+	t.Run("injects", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		hdr := map[string]string{googletools.Header: "url,code"}
+		resp := ptDo(t, http.MethodPost, url, `{"contents":[],"tools":[{"urlContext":{}}]}`, hdr)
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || g[0].hdr.Get(googletools.Header) != "" {
+			t.Fatalf("status %d hits %+v, want 200 and one hit with the header stripped", resp.StatusCode, g)
+		}
+		if want := `"tools":[{"urlContext":{}},{"codeExecution":{}}]`; !strings.Contains(g[0].body, want) {
+			t.Errorf("body = %s, want %s", g[0].body, want)
+		}
+	})
+	t.Run("refusals", func(t *testing.T) { googleToolsRefusals(t, served) })
+	t.Run("repeated header lines", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		req := testRequest(t, http.MethodPost, url, strings.NewReader(`{"contents":[]}`))
+		req.Header.Set("X-Api-Key", secret)
+		req.Header.Add(googletools.Header, "url")
+		req.Header.Add(googletools.Header, "code")
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || !strings.Contains(g[0].body, `{"urlContext":{}},{"codeExecution":{}}`) {
+			t.Errorf("status %d hits %+v, want both tools injected", resp.StatusCode, g)
+		}
+	})
+	t.Run("failover skips an unserving sibling", googleToolsFailover)
+}
+
+func googleToolsFailover(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	first := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(429) })
+	second, third := newRawUp(t, okRaw), newRawUp(t, okRaw)
+	for _, k := range []string{"GT_FIRST", "GT_SECOND", "GT_THIRD"} {
+		t.Setenv(k, "fake-"+k)
+	}
+	row := func(up *rawUp, key, tools string) string {
+		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + up.URL +
+			`/serving-endpoints/anthropic","routes":{"gemini":"` + up.URL + `/serving-endpoints/gemini"},` +
+			`"options":{"google_tools":` + tools + `},"auth":{"type":"key","env":"` + key + `"},"models":{"opus":"databricks-test-model"}}`
+	}
+	srv := setup(t, `{"default":"first","fallback":["second","third"],"providers":{"databricks":{"first":`+
+		row(first, "GT_FIRST", `["code"]`)+`,"second":`+row(second, "GT_SECOND", `["url"]`)+`,"third":`+
+		row(third, "GT_THIRD", `["url","code"]`)+`}}}`)
+	hdr := map[string]string{googletools.Header: "code"}
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/first/gemini/v1beta/models/databricks-test-model:generateContent",
+		`{"contents":[]}`, hdr)
+	if resp.StatusCode != 200 || len(second.got()) != 0 || len(third.got()) != 1 {
+		t.Errorf("status %d hits second=%d third=%d, want 200 via third only", resp.StatusCode,
+			len(second.got()), len(third.got()))
+	}
+	for _, up := range []*rawUp{first, third} {
+		for _, hit := range up.got() {
+			if strings.Count(hit.body, `"codeExecution"`) != 1 || hit.hdr.Get(googletools.Header) != "" {
+				t.Errorf("hop lost or duplicated tools or forwarded their header: %+v", hit)
+			}
+		}
+	}
+}
+
+func googleToolsRefusals(t *testing.T, served string) {
+	hdr := map[string]string{googletools.Header: "search"}
+	t.Run("unserved", func(t *testing.T) {
+		up, url := googleToolsSetup(t, served)
+		if resp := ptDo(t, http.MethodPost, url, `{"contents":[]}`, hdr); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("status %d, want 400", resp.StatusCode)
+		}
+		if len(up.got()) != 0 {
+			t.Error("an unserved tool reached the upstream")
+		}
+	})
+	t.Run("unprobed", func(t *testing.T) {
+		up, url := googleToolsSetup(t, "")
+		resp := ptDo(t, http.MethodPost, url, `{"contents":[]}`, hdr)
+		g := up.got()
+		if resp.StatusCode != 200 || len(g) != 1 || !strings.Contains(g[0].body, `"tools":[{"googleSearch":{}}]`) {
+			t.Errorf("status %d hits %+v", resp.StatusCode, g)
+		}
+	})
+}
+
+func TestWithGoogleToolsRefusesUnparsableBody(t *testing.T) {
+	for _, body := range []string{`[1]`, `not json`, `{"tools":"x"}`, `{"tools":{"a":1}}`} {
+		if _, err := decodeProxyBody([]byte(body)).withGoogleTools("url", nil); !errors.Is(err, errGoogleToolsBody) {
+			t.Errorf("body %s: err = %v, want errGoogleToolsBody", body, err)
+		}
+	}
+	if _, err := decodeProxyBody([]byte(`{"tools":[]}`)).withGoogleTools("url", nil); err != nil {
+		t.Errorf("valid body refused: %v", err)
+	}
+}
+
+func TestNativeGeminiGoogleTools(t *testing.T) {
+	for _, tc := range []struct {
+		name, options, header string
+		status, tools         int
+	}{
+		{"unprobed", "", "url,code", 200, 1},
+		{"served", `"options":{"google_tools":["url","code"]},`, "url,code", 200, 1},
+		{"unserved", `"options":{"google_tools":["url"]},`, "code", 400, 0},
+		{"title model", "", "code,model=other-model", 200, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newRawUp(t, okRaw)
+			t.Setenv("PT_KEY", "provider-credential")
+			overlay := strings.Replace(ptOverlay(up.URL), `"auth":`, tc.options+`"auth":`, 1)
+			srv := setup(t, overlay)
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/gemini/v1beta/models/gemini-3.8-flash:generateContent",
+				`{"contents":[],"tools":[{"urlContext":{}},{"functionDeclarations":[{"name":"keep"}]}]}`,
+				map[string]string{googletools.Header: tc.header})
+			if resp.StatusCode != tc.status {
+				t.Fatalf("status=%d, want %d", resp.StatusCode, tc.status)
+			}
+			for _, hit := range up.got() {
+				if strings.Count(hit.body, `"codeExecution"`) != tc.tools || strings.Count(hit.body, `"urlContext"`) != 1 ||
+					!strings.Contains(hit.body, `"name":"keep"`) || hit.hdr.Get(googletools.Header) != "" {
+					t.Errorf("tools lost, duplicated, or header leaked: %+v", hit)
+				}
+			}
+			if tc.status == 400 && len(up.got()) != 0 {
+				t.Fatal("unserved tools reached upstream")
+			}
+		})
+	}
+}
+
+func TestGoogleToolsRefusesMalformedAndOversizedRequests(t *testing.T) {
+	up, url := googleToolsSetup(t, "")
+	for _, bad := range []string{`null`, `[1]`, `not json`, `{"tools":"x"}`, `{} {}`} {
+		resp := ptDo(t, http.MethodPost, url, bad, map[string]string{googletools.Header: "code"})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("body %q: status=%d, want 400", bad, resp.StatusCode)
+		}
+	}
+	req := testRequest(t, http.MethodPost, url, io.LimitReader(zeroReader{}, maxBody+1))
+	req.Header.Set("X-Api-Key", secret)
+	req.Header.Set(googletools.Header, "code")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || len(up.got()) != 0 {
+		t.Fatalf("oversized status=%d upstream hits=%d, want 413 with no upstream calls", resp.StatusCode, len(up.got()))
+	}
+}
+
+func TestEffortRetryRefusesNullBody(t *testing.T) {
+	up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, "function tools with reasoning_effort")
+	})
+	t.Setenv("PT_KEY", "provider-credential")
+	srv := setup(t, ptOverlay(up.URL))
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", `null`, nil)
+	if resp.StatusCode != http.StatusBadRequest || len(up.got()) != 1 {
+		t.Fatalf("status=%d hits=%d, want the original 400 without retry", resp.StatusCode, len(up.got()))
+	}
+}
+
+func TestProxyHeaderFilteringAcrossFallbacks(t *testing.T) {
+	srv, tok, _, qa, _ := setupAutoFailoverRig(t)
+	for _, path := range []string{"v1/messages", "openai/chat/completions"} {
+		resp := ptDo(t, http.MethodPost, srv.URL+"/p/dev/"+path, `{"model":"databricks-claude-opus-5-5"}`,
+			map[string]string{proxy.ClientHeader: tok, "Authorization": "Bearer inbound-credential",
+				"X-Goog-Api-Key": "inbound-google-key", "Accept-Encoding": "inbound-encoding", googletools.Header: "code"})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status=%d", path, resp.StatusCode)
+		}
+	}
+	for _, hit := range qa.got() {
+		if hit.hdr.Get("Authorization") != "Bearer qa-tok" {
+			t.Error("fallback did not use its own credential")
+		}
+		for _, key := range []string{googletools.Header, proxy.ClientHeader, "X-Api-Key", "X-Goog-Api-Key"} {
+			if hit.hdr.Get(key) != "" {
+				t.Errorf("%s forwarded on fallback", key)
+			}
+		}
+		if hit.hdr.Get("Accept-Encoding") == "inbound-encoding" {
+			t.Error("client transport header forwarded on fallback")
+		}
+	}
+}
+
+func TestCopyClientHeadersStripsCredentialVariants(t *testing.T) {
+	for _, name := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Host", "Accept-Encoding", googletools.Header} {
+		for _, key := range []string{name, strings.ToLower(name)} {
+			in := httptest.NewRequest(http.MethodPost, "/", nil)
+			in.Header[key] = []string{"inbound-only"}
+			in.Header.Set("Content-Type", "application/json")
+			for _, copyHeaders := range []func(http.Header){copyClientHeaders(in), func(dst http.Header) {
+				copyRequestHeaders(dst, in.Header)
+			}} {
+				out := http.Header{}
+				copyHeaders(out)
+				if out.Get(name) != "" || out.Get("Content-Type") != "application/json" {
+					t.Errorf("copying %s leaked a blocked header or dropped Content-Type", key)
+				}
+			}
 		}
 	}
 }

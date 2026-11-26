@@ -125,15 +125,15 @@ func TestRelayCleansOutputWrappers(t *testing.T) {
 func TestOverlayArgsCarriesTheWholeRoute(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
-	want := `{"provider":"databricks","profile":"qa","model":"sonnet"}`
-	if got := OverlayArgs("qa", "sonnet", "", "acct"); !slices.Equal(got, []string{"--overlay", want}) {
+	want := `{"provider":"databricks","profile":"qa","agent":"codex","model":"sonnet"}`
+	if got := OverlayArgs("codex", "qa", "sonnet", "", "acct"); !slices.Equal(got, []string{"--overlay", want}) {
 		t.Errorf("OverlayArgs(qa, sonnet) = %q, want --overlay %s", got, want)
 	}
-	pool := []string{"--overlay", `{"provider":"databricks","profile":"auto"}`}
-	if got := OverlayArgs("databricks", "", "", ""); !slices.Equal(got, pool) {
+	pool := []string{"--overlay", `{"provider":"databricks","profile":"auto","agent":"codex"}`}
+	if got := OverlayArgs("codex", "databricks", "", "", ""); !slices.Equal(got, pool) {
 		t.Errorf("OverlayArgs(databricks) = %q, want %q", got, pool)
 	}
-	if got := OverlayArgs("nope", "m", "", ""); !slices.Equal(got, []string{"--profile", "nope", "--overlay", `{"model":"m"}`}) {
+	if got := OverlayArgs("codex", "nope", "m", "", ""); !slices.Equal(got, []string{"--profile", "nope", "--overlay", `{"agent":"codex","model":"m"}`}) {
 		t.Errorf("OverlayArgs(unknown row) = %q", got)
 	}
 }

@@ -188,17 +188,23 @@ func cmdPlanTick(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if fs.NArg() != 0 {
+		return helptext.FailUsage("plan tick: takes no positional arguments")
+	}
 	if (*all || *archive) && !*audit {
 		return helptext.FailUsage("plan tick: --all and --archive require --audit")
 	}
 	if *audit && (*rng != "" || *plan != "" || *verify) {
 		return helptext.FailUsage("plan tick: --audit takes neither --range, --plan nor --verify")
 	}
+	if *verify && (*rng != "" || *dryRun) {
+		return helptext.FailUsage("plan tick: --verify takes neither --range nor --dry-run")
+	}
 	if *verify {
 		return runTickVerify(*plan, *sha, tasks, *session)
 	}
 	if *rng == "" && !*audit {
-		return helptext.Fail("plan tick: --range <a>..<b> is required")
+		return helptext.FailUsage("plan tick: --range <a>..<b> is required")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -424,16 +430,14 @@ func cmdPlanTask(args []string) int {
 	reason := fs.String("reason", "", "strike with this reason: "+strings.Join(plans.StrikeReasons, "|")+" (needs --evidence)")
 	evidence := fs.String("evidence", "", "with --reason: the cite, decision:<id>, commit:<sha> or note:<path>")
 	add, newTask := addFlags(fs)
-	id, args := leadingID(args)
-	if code, stop := helptext.Parse(fs, args); stop {
-		return code
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
-	if id == "" && fs.NArg() == 1 {
-		id = fs.Arg(0)
-	}
+	id, one := oneID("", pos)
 	byID := *reason != "" || *evidence != ""
-	if id == "" || taskModes(*done, *reopen, *strike != "", byID, *add) != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
-		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why>, --reason with --evidence or --add")
+	if !one || id == "" || taskModes(*done, *reopen, *strike != "", byID, *add) != 1 || (*sha != "" && !*done) {
+		return helptext.FailUsage("plan task: give <id> and exactly one of --done, --reopen, --strike <why>, --reason with --evidence or --add")
 	}
 	if *add {
 		return addTask(*plan, newTask(id))

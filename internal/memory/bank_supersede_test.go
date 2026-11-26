@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,97 @@ func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 		t.Fatalf("second settle changed the file (err %v)", err)
 	}
 	assertRecallFollows(t)
+}
+
+// Settle's strike rewrites only the replaced block; unformatted blocks and the header keep their bytes.
+func TestSettleSupersedePreservesOtherBlocks(t *testing.T) {
+	tempConfig(t)
+	long := strings.Repeat("unrelated text with irregular   spaces ", 5)
+	keep := []string{"# Log\n>  keep   header\n\n", "## New <!-- id:bbbbbbbb -->\nSupersedes aaaaaaaa.\n\n\n",
+		"## Other <!-- id:cccccccc -->\n" + long + "\n\n\n"}
+	path := Path("decisionLog.md")
+	write(t, path, strings.Join(keep, "")+"## Old <!-- id:aaaaaaaa -->\nOld body.\n")
+	if _, err := settleBank(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after := mustRead(t, path)
+	if !strings.HasPrefix(after, strings.Join(keep, "")) {
+		t.Errorf("untouched bytes changed:\n%s", after)
+	}
+	if !strings.Contains(after, "~~Old~~ <!-- id:aaaaaaaa -->\nReplaced by bbbbbbbb.") {
+		t.Errorf("old entry was not marked: %s", after)
+	}
+}
+
+// A struck conventions title that wraps keeps its id on line 0 and its pointer readable; neighbours keep their bytes.
+func TestSettleSupersedeWrappedConventionKeepsPointer(t *testing.T) {
+	tempConfig(t)
+	old := "- User: " + strings.TrimSpace(strings.Repeat("abcd ", 18)) + " <!-- id:aaaa1111 -->\n" // fits until struck
+	other := "- User:   odd " + strings.Repeat("legacy  text ", 14) + "<!-- id:cccc3333 -->\n"
+	path := Path("conventions.md")
+	write(t, path, "# C\n\n"+old+"\n"+other+"\n- User: new rule <!-- id:bbbb2222 -->\n  Supersedes aaaa1111.\n")
+	if _, err := settleBank(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	after := mustRead(t, path)
+	if !strings.Contains(after, "\n"+other+"\n- User: new rule") {
+		t.Errorf("untouched entry changed:\n%s", after)
+	}
+	d := ParseDoc("conventions.md", []byte(after))
+	i := slices.IndexFunc(d.Entries, func(e DocEntry) bool { return e.ID == "aaaa1111" })
+	if i < 0 {
+		t.Fatalf("struck entry lost its id:\n%s", after)
+	}
+	block := strings.TrimRight(d.Entries[i].block(), "\n")
+	if replacedBy(block) != "bbbb2222" || len(d.Entries[i].Lines) < 3 {
+		t.Errorf("pointer unreadable or title not wrapped: %q", block)
+	}
+	assertLintClean(t, block)
+	if _, err := settleBank(time.Now()); err != nil || mustRead(t, path) != after {
+		t.Errorf("second settle changed the file (err %v)", err)
+	}
+}
+
+// setBlock splices at the loaded offsets: fenced look-alikes, CRLF, blank runs and a final unterminated block survive.
+func TestSetBlockSplicesInPlace(t *testing.T) {
+	head := "# C\r\n\n```\n- not an entry\n```\n\n"
+	blocks := []string{"- one\r\n  more", "- two", "- three"}
+	text := head + blocks[0] + "\n\n\n" + blocks[1] + "\n" + blocks[2]
+	d := newBankDoc(Path("conventions.md"), text)
+	if len(d.blocks) != 3 || d.blocks[0] != blocks[0] {
+		t.Fatalf("blocks = %q", d.blocks)
+	}
+	d.setBlock(0, "- ONE, longer now")
+	d.setBlock(2, "- THREE")
+	d.setBlock(1, "- SECOND, longer")
+	d.setBlock(0, "- FIRST")
+	want := head + "- FIRST\n\n\n- SECOND, longer\n- THREE"
+	if d.text != want || !d.dirty {
+		t.Errorf("text = %q\nwant  %q", d.text, want)
+	}
+}
+
+func TestSupersedePreservesInlineIDExample(t *testing.T) {
+	text := "- before ``<!-- id:11111111 -->`` after <!-- id:12345678 -->\n"
+	d := ParseDoc("conventions.md", []byte(text))
+	out, rs := Apply(d, Batch{Ops: []Op{{Op: "supersede", ID: "12345678", Read: contentRef(d.Entries[0].block()), Text: "new"}}}, testEnv())
+	old := out.Entries[0].block()
+	if rs[0].Outcome != DreamOK || replacedBy(old) != rs[0].ID || !strings.Contains(old, "~~before ``<!-- id:11111111 -->`` after~~") {
+		t.Fatalf("inline example confused strike or pointer: %+v\n%s", rs, out.Render())
+	}
+}
+
+func TestWriteOffsetsSkipFrontmatter(t *testing.T) {
+	head := "---\nname: example\n## fake <!-- id:11111111 -->\n---\n\n# Log\n\n"
+	entry := "## Real <!-- id:12345678 -->\nbody"
+	d := newBankDoc("decisionLog.md", head+entry)
+	if len(d.blocks) != 1 || insertionOffset("decisionLog.md", head+entry) != len(head) {
+		t.Fatalf("frontmatter comment became an entry: %q, %v", d.blocks, d.starts)
+	}
+	d.setBlock(0, "## Changed <!-- id:12345678 -->\nbody")
+	if !strings.HasPrefix(d.text, head) || strings.HasSuffix(d.text, "\n") {
+		t.Errorf("header changed or trailing newline added: %q", d.text)
+	}
 }
 
 // assertRecallFollows: recall serves the new entry for the old one's terms; review reports the two bad refs.
@@ -158,30 +250,6 @@ func TestReviseBlockPosition(t *testing.T) {
 				t.Fatalf("wrong block edited:\n%s", d.text)
 			}
 		})
-	}
-}
-
-func TestSettleRecoversPendingJournal(t *testing.T) {
-	tempConfig(t)
-	path := Path("decisionLog.md")
-	write(t, path, reviseLog)
-	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
-	rel, err := filepath.Rel(paths.MemoryStoreDir(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	j, err := newJournal(StoreRepo(), "pending fixture", []storeChange{{Rel: filepath.ToSlash(rel), Data: []byte(recovered)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := j.save(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = settleBank(time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(mustRead(t, path), "Recovered journal payload.") {
-		t.Fatal("pending journal payload lost")
 	}
 }
 

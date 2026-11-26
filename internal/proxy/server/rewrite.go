@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/googletools"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -495,4 +496,70 @@ func stripLauncherHeaders(h http.Header) {
 	for _, k := range launcherHeaders {
 		h.Del(k)
 	}
+}
+
+// googleToolsHeader joins the tool tokens; a model= token limits them to that model (agy's title tier gets none).
+func googleToolsHeader(in *http.Request) string {
+	var tools []string
+	named := ""
+	for _, tok := range textutil.SplitCSV(strings.Join(in.Header.Values(googletools.Header), ",")) {
+		if m, ok := strings.CutPrefix(tok, googletools.ModelPrefix); ok {
+			named = m
+		} else {
+			tools = append(tools, tok)
+		}
+	}
+	if named != "" && named != geminiPathModel(in.URL.Path, providers.ProtocolGemini) {
+		return ""
+	}
+	return strings.Join(tools, ",")
+}
+
+// servesGoogleTools is false when p's probed list lacks a tool the request asked for; unprobed serves any.
+func servesGoogleTools(p *providers.Provider, header string) bool {
+	asked, err := googletools.Parse(textutil.SplitCSV(header))
+	if err != nil {
+		return false
+	}
+	if p.Options.GoogleTools == nil {
+		return true
+	}
+	ok, _ := googletools.Parse(p.Options.GoogleTools)
+	return len(googletools.Unserved(ok, asked)) == 0
+}
+
+// errGoogleToolsBody refuses a google-tools request whose body cannot carry tools[], never sending it ungrounded.
+var errGoogleToolsBody = errors.New("proxy: google tools need a JSON body with tools[]")
+
+// withGoogleTools appends the header's built-in tools to a native generateContent tools[]; unserved is an error.
+func (b proxyBody) withGoogleTools(header string, served []string) ([]byte, error) {
+	asked, err := googletools.Parse(textutil.SplitCSV(header))
+	if err != nil {
+		return nil, err
+	}
+	if len(asked) == 0 {
+		return b.raw, nil
+	}
+	if b.top == nil {
+		return nil, errGoogleToolsBody
+	}
+	if served != nil { // nil = unprobed row: send as asked, the upstream answers
+		ok, _ := googletools.Parse(served)
+		if miss := googletools.Unserved(ok, asked); len(miss) > 0 {
+			return nil, fmt.Errorf("google tool %s is not served on this profile; served: %s",
+				googletools.Join(miss), strings.Join(served, ","))
+		}
+	}
+	var have []map[string]json.RawMessage
+	if raw, ok := b.top["tools"]; ok && json.Unmarshal(raw, &have) != nil {
+		return nil, errGoogleToolsBody
+	}
+	for _, t := range asked {
+		key := googletools.WireKey(t)
+		if !slices.ContainsFunc(have, func(e map[string]json.RawMessage) bool { _, ok := e[key]; return ok }) {
+			have = append(have, map[string]json.RawMessage{key: json.RawMessage(`{}`)})
+		}
+	}
+	b.top["tools"], _ = json.Marshal(have)
+	return b.marshalTop(), nil
 }

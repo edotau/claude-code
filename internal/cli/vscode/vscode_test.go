@@ -89,6 +89,49 @@ func TestSyncMergesJSONCAndBacksUp(t *testing.T) {
 	}
 }
 
+func TestSettingsRetainsInlineAndFooterComments(t *testing.T) {
+	_, tmpl, dest := jsoncMergeFixture(t)
+	writeFile(t, dest, "// header\n{\n\"local.only\":true, // local\n\"nested\":{/* nested */\"local\":1},\n\"url\":\"https://example.com//literal\"\n}\n// footer\n")
+	if _, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, comment := range []string{"// header", "// local", "/* nested */", "// footer"} {
+		if strings.Count(string(body), comment) != 1 {
+			t.Errorf("lost or duplicated %q: %s", comment, body)
+		}
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(textutil.StripJSONC(body), &merged); err != nil || merged["url"] != "https://example.com//literal" {
+		t.Fatalf("merged settings = %v, %v", merged, err)
+	}
+	if result, err := syncSettings(tmpl, dest, "/opt/claude", "/opt/claude/bin", false); err != nil || result.Changed {
+		t.Fatalf("second merge = %+v, %v", result, err)
+	}
+}
+
+func TestKeybindingsRetainsInlineAndFooterComments(t *testing.T) {
+	tmpl, dest := keybindingsFixture(t, "// header\n[\n{\"key\":\"ctrl+k\",/* binding */\"command\":\"myExtension.doThing\"} // note\n]\n// footer\n")
+	if _, err := syncKeybindings(tmpl, dest, false); err != nil {
+		t.Fatal(err)
+	}
+	entries, body := readKeybindingEntries(t, dest)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %v", entries)
+	}
+	for _, comment := range []string{"// header", "/* binding */", "// note", "// footer"} {
+		if strings.Count(string(body), comment) != 1 {
+			t.Errorf("lost or duplicated %q: %s", comment, body)
+		}
+	}
+	if result, err := syncKeybindings(tmpl, dest, false); err != nil || result.Changed {
+		t.Fatalf("second merge = %+v, %v", result, err)
+	}
+}
+
 // A second sync against the now-merged file has nothing left to change.
 func TestSyncJSONCIsIdempotent(t *testing.T) {
 	_, tmpl, dest := jsoncMergeFixture(t)

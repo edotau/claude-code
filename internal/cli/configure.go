@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/cli/menu"
+	"github.com/edotau/claude-code/internal/cli/vscode"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -20,9 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/ui/vscode"
 )
 
 // hookSpec is the completion node for the hook verb.

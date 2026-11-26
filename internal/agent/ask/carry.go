@@ -149,6 +149,7 @@ func (r *askRun) carryRecord(prompt string) (agent.Record, error) {
 	if err := r.fs.Set("agent", f.name); err != nil { // the inner line names the agent
 		return agent.Record{}, err
 	}
+	r.retypeRoute() // flagUnit folded the route off the flags; the child types it again
 	folded := foldedArgv(r.fs, r.ov)
 	argv := canonicalArgv(r.fs, f.listValues(), prompt, true, nil, "carry", "background")
 	_, values := agent.RunValues(r.ctx, nil)

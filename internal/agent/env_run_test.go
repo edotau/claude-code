@@ -23,6 +23,23 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+func TestRunValuesDoesNotRetainResumeNonce(t *testing.T) {
+	t.Setenv(ResumeNonceEnv, "one-hop")
+	for _, snapshot := range []proc.Values{nil, {ResumeNonceEnv: "one-hop", "KEEP": "yes"}} {
+		ctx, values := RunValues(t.Context(), snapshot)
+		if values[ResumeNonceEnv] != "" || os.Getenv(ResumeNonceEnv) != "one-hop" {
+			t.Fatal("run snapshot retained the nonce or consumed the adopter's ambient nonce")
+		}
+		if err := proc.Unsetenv(ResumeNonceEnv); err != nil {
+			t.Fatal(err)
+		}
+		if got := proc.LastEnv((EnvSpec{Mode: EnvClaude}).Environ(ctx), ResumeNonceEnv); got != "" {
+			t.Fatal("a child inherited an already-consumed adoption nonce")
+		}
+		t.Setenv(ResumeNonceEnv, "one-hop")
+	}
+}
+
 // Given a real child under ChildCmd with a grandchild, When ctx is cancelled, Then no process stays in the group.
 func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 	if runtime.GOOS == "windows" {

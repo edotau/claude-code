@@ -23,7 +23,7 @@ func isAskLessEdit(in *core.Input) bool {
 	return in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") && !core.SupportsAsk(in.Agent())
 }
 
-// Scan denies a settings.json deny match and an AI-attribution footer, and gates a subagent's instruction-file write.
+// Scan denies a settings.json deny match, an AI-attribution footer and an agent's suite run; gates instruction files.
 func Scan(in *core.Input) core.Result {
 	if isAskLessEdit(in) { // a protected path's block names its own rule, ahead of the instruction-file one
 		if r := protectedEdit(in); r.Decision != core.Allow {
@@ -31,6 +31,9 @@ func Scan(in *core.Input) core.Result {
 		}
 	}
 	if r := suppressVerdict(in); r.Decision != core.Allow {
+		return r
+	}
+	if r := suiteVerdict(in); r.Decision != core.Allow {
 		return r
 	}
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))

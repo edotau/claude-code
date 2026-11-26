@@ -27,7 +27,7 @@ var (
 		return regexp.MustCompile(`^(\s*)(\d+\. )(.*)$`)
 	})
 	bankFmtSpan = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile("`[^`\n]*`" + `|\[[^\]\n]*\]\([^)\n]*\)` + `|<!--.*?-->`)
+		return regexp.MustCompile(`\[[^\]\n]*\]\([^)\n]*\)|<!--.*?-->`)
 	})
 )
 
@@ -62,7 +62,7 @@ func formatBank(check bool) (changed []string, err error) {
 	if check {
 		return formatBankLocked(true)
 	}
-	err = withFlatLock(BankLockWait, func() error {
+	err = withBankLock(BankLockWait, func() error {
 		changed, err = formatBankLocked(false)
 		return err
 	})
@@ -121,7 +121,13 @@ func formatBankMarkdown(text string) string {
 			out = append(out, line)
 			continue
 		}
-		out = append(out, wrapBankLine(line)...)
+		ending := ""
+		if content, ok := strings.CutSuffix(line, "\r"); ok {
+			line, ending = content, "\r"
+		}
+		for _, wrapped := range wrapBankLine(line) {
+			out = append(out, wrapped+ending)
+		}
 	}
 	return strings.Join(out, "\n")
 }
@@ -227,33 +233,54 @@ func wrapBankLine(line string) []string {
 	if utf8.RuneCountInString(line) <= mdlint.Width {
 		return []string{line}
 	}
+	hardBreak := strings.HasSuffix(line, "  ")
+	text, id := trailingMarker(strings.TrimRight(line, " \t"))
 	var indent, marker, rest string
 	contentCol := 0
-	if m := listItem(line); m != nil {
+	if m := listItem(text); m != nil {
 		indent, marker, rest = m[1], m[2], m[3]
 		contentCol = len(indent) + len(marker)
 	} else { // a plain paragraph, or an already-wrapped continuation line: keep its own leading indent
-		lead := len(line) - len(strings.TrimLeft(line, " "))
-		indent, rest = line[:lead], line[lead:]
+		lead := len(text) - len(strings.TrimLeft(text, " "))
+		indent, rest = text[:lead], text[lead:]
 		contentCol = lead
 	}
 	tokens := bankFmtTokenize(rest)
 	if len(tokens) == 0 {
 		return []string{line}
 	}
+	if hardBreak {
+		tokens[len(tokens)-1] += "  "
+	}
 	contIndent := strings.Repeat(" ", contentCol)
-	firstPrefix := indent + marker
-	out := bankFmtPack(tokens, firstPrefix, contIndent)
-	if strings.HasSuffix(line, "  ") { // a trailing double space is a Markdown hard break: keep it on the last line
-		out[len(out)-1] += "  "
+	reserve := 0
+	if id != "" {
+		reserve = 1 + utf8.RuneCountInString(id)
+	}
+	out := bankFmtPack(tokens, indent+marker, contIndent, reserve)
+	if id != "" {
+		if len(out) == 1 && hardBreak {
+			out[0] = strings.TrimSuffix(out[0], "  ") + " " + id + "  "
+		} else {
+			out[0] += " " + id
+		}
 	}
 	return out
+}
+
+// trailingMarker extracts the id for line 0's suffix, even when the input has text after its marker.
+func trailingMarker(line string) (text, id string) {
+	r, lo, hi, ok := marker(line)
+	if !ok || r.Derived || strings.TrimSpace(line[:lo]+line[hi:]) == "" {
+		return line, ""
+	}
+	return strings.TrimRight(line[:lo]+line[hi:], " "), line[lo:hi]
 }
 
 // bankFmtTokenize splits s on bare spaces; spaces inside a code span, link or HTML comment stay glued.
 func bankFmtTokenize(s string) []string {
 	protected := make([]bool, len(s))
-	for _, sp := range bankFmtSpan().FindAllStringIndex(s, -1) {
+	for _, sp := range append(codeSpans(s), bankFmtSpan().FindAllStringIndex(s, -1)...) {
 		for i := sp[0]; i < sp[1]; i++ {
 			protected[i] = true
 		}
@@ -274,17 +301,17 @@ func bankFmtTokenize(s string) []string {
 	return tokens
 }
 
-// bankFmtPack greedily fills lines ≤ mdlint.Width runes; a single over-width token is kept whole.
-func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
+// bankFmtPack greedily fills lines ≤ mdlint.Width runes, the first reserve runes less; an over-width token stays whole.
+func bankFmtPack(tokens []string, firstPrefix, contIndent string, reserve int) []string {
 	var lines []string
 	prefix, row := firstPrefix, []string(nil)
-	width := utf8.RuneCountInString(prefix)
+	width, limit := utf8.RuneCountInString(prefix), mdlint.Width-reserve
 	for _, t := range tokens {
 		nextWidth := width + 1 + utf8.RuneCountInString(t)
 		if len(row) == 0 {
 			nextWidth = utf8.RuneCountInString(prefix + t)
 		}
-		if len(row) == 0 || nextWidth <= mdlint.Width {
+		if len(row) == 0 || nextWidth <= limit {
 			width = nextWidth
 			row = append(row, t)
 			continue
@@ -302,11 +329,13 @@ func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 			continue
 		}
 		lines = append(lines, prefix+strings.Join(row[:keep], " "))
-		prefix, row = contIndent, append(slices.Clone(row[keep:]), t)
+		prefix, row, limit = contIndent, append(slices.Clone(row[keep:]), t), mdlint.Width
 		width = utf8.RuneCountInString(prefix + strings.Join(row, " "))
 	}
 	return append(lines, prefix+strings.Join(row, " "))
 }
 
-// bankFmtMarker reports whether tok, opening a continuation line, would read as a list marker.
-func bankFmtMarker(contIndent, tok string) bool { return listItem(contIndent+tok+" x") != nil }
+// bankFmtMarker reports whether tok, opening a continuation line, would read as a list marker, heading or fence.
+func bankFmtMarker(contIndent, tok string) bool {
+	return listItem(contIndent+tok+" x") != nil || bankFmtHeading().MatchString(tok+" ") || nextFence("", tok) != ""
+}

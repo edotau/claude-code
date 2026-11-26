@@ -12,11 +12,13 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ExeHash is the sha256 of this process's executable, "" when it cannot be read.
-func ExeHash() string {
-	exe, err := paths.SelfBinary()
-	if err != nil {
-		return ""
+// ExeHash is the sha256 of this process's executable (or path when given), "" when it cannot be read.
+func ExeHash(path ...string) string {
+	exe := ""
+	if len(path) > 0 {
+		exe = path[0]
+	} else if self, err := paths.SelfBinary(); err == nil {
+		exe = self
 	}
 	f, err := os.Open(exe)
 	if err != nil {
@@ -30,12 +32,13 @@ func ExeHash() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// cachedExeHash is ExeHash memoized on disk by the binary's path, size and mtime, so a status line can afford it.
+// cachedExeHash is the target proxy executable's sha256 memoized on disk by path, size and mtime.
 func cachedExeHash() string {
 	exe, err := paths.SelfBinary()
 	if err != nil {
 		return ""
 	}
+	exe = sharedProxyExe(exe)
 	fi, err := os.Stat(exe)
 	if err != nil {
 		return ""
@@ -47,7 +50,7 @@ func cachedExeHash() string {
 			return h
 		}
 	}
-	h := ExeHash()
+	h := ExeHash(exe)
 	if h != "" {
 		_ = paths.AtomicWrite(file, []byte(key+h), 0o600) // best effort: a miss only rehashes
 	}

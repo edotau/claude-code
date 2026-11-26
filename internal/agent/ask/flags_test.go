@@ -135,7 +135,7 @@ func newAskTarget() *askTarget {
 		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
 		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
 		Host: s(), Fallback: s(), Codemode: s(), Runner: s(), GoogleTools: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
-		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema)}
+		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema), Coworker: new(route.Route)}
 }
 
 // A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
@@ -182,14 +182,14 @@ func TestDefaultToolsOn(t *testing.T) {
 	}
 }
 
-// --read-only is gone: ask, a --spec key and a batch line key fail as unknown.
+// --read-only is gone: ask, a --brief key and a batch line key fail as unknown.
 func TestReadOnlyFlagIsGone(t *testing.T) {
 	fs, _ := askFlagSet()
 	if err := fs.Parse([]string{"--read-only"}); err == nil {
 		t.Error("ask accepted --read-only")
 	}
-	if argv, _, _, err := specParts(`{"read-only":true,"prompt":"x"}`, strings.NewReader("")); err == nil {
-		t.Errorf("spec accepted read-only: %v", argv)
+	if _, _, err := briefParts(`{"read-only":true,"prompt":"x"}`, strings.NewReader("")); err == nil {
+		t.Error("brief accepted read-only")
 	}
 	lines, err := readTaskLines(strings.NewReader(`{"prompt":"p","read-only":true}` + "\n"))
 	if err != nil || len(lines) != 1 {
@@ -300,6 +300,99 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			}
 			if got := f.profile + f.provider; got != tc.wantRoute {
 				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
+			}
+		})
+	}
+}
+
+// A lead that fell back from dev to qa replays as a qa lead: the request records the profile the retry leads on.
+func TestRetryLeadFollowsAnsweringRoute(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}},`+
+		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "x", Provider: "dev", Lead: "dev"}, time.Now())
+	rec.RanRoute = route.Route{Provider: "databricks", Profile: "qa"}
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--retry", rec.ID}
+	fs, f := askFlagSet()
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	r := &askRun{ctx: t.Context(), fs: fs, f: f}
+	if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+		t.Fatalf("loadAskRetry = %d, %v", code, done)
+	}
+	if got, _ := r.request(r.prompt); got.Lead != "qa" || got.Provider != "qa" {
+		t.Fatalf("replayed lead %q profile %q, want qa for both", got.Lead, got.Provider)
+	}
+}
+
+// A retried run keeps the recorded --as into its own record; a typed --as replaces it.
+func TestRetryKeepsRecordedIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"recorded --as", nil, "sp"},
+		{"typed --as", []string{"--as", "user"}, "user"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cliEnv(t)
+			cliFakes(t)
+			rec := agent.NewRecord("claude", agent.RunOptions{Fallback: route.FallbackNone, Prompt: "reply ok",
+				Identity: "sp", WorkDir: t.TempDir()}, time.Now())
+			rec.FallbackPolicy, rec.Status = route.FallbackNone, "error"
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			code, out, stderr := runCLI(t, append([]string{"ask", "--retry", rec.ID, "--format", "json"}, tc.args...)...)
+			if code != 0 {
+				t.Fatalf("retry: %d, %s, %s", code, out, stderr)
+			}
+			if got := agent.RecentRecords(5)[0]; got.ID == rec.ID || got.Request.Identity != tc.want {
+				t.Fatalf("retried record %s identity %q, want %q", got.ID, got.Request.Identity, tc.want)
+			}
+		})
+	}
+}
+
+// The record's identity replays as --as, the flag that reaches the credentials; typed keys keep their precedence.
+func TestRecordOverlayReplaysIdentity(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	for _, tc := range []struct {
+		name, asked string
+		args        []string
+		typed       agentconfig.Overlay
+		flagRoute   bool
+		want        string
+	}{
+		{"unit identity", "", nil, agentconfig.Overlay{}, false, "sp"},
+		{"recorded --as", "user", nil, agentconfig.Overlay{}, false, "user"},
+		{"typed --as", "user", []string{"--as", "auto"}, agentconfig.Overlay{}, false, "auto"},
+		{"typed overlay identity", "user", nil, agentconfig.Overlay{Provider: "databricks", Profile: "qa", Identity: "auto"}, false, "auto"},
+		{"typed route drops the unit's", "", nil, agentconfig.Overlay{}, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "x", Identity: tc.asked}, time.Now())
+			rec.Overlay = &agent.StoredOverlay{Provider: "databricks", Profile: "qa", Identity: "sp"}
+			fs, f := askFlagSet()
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			r := &askRun{ctx: t.Context(), fs: fs, f: f, typedOv: tc.typed, ovTyped: !tc.typed.Route().IsZero(), flagRoute: tc.flagRoute}
+			if err := r.mergeRecordOverlay(rec); err != nil {
+				t.Fatal(err)
+			}
+			if f.as != tc.want {
+				t.Fatalf("replayed --as %q, want %q", f.as, tc.want)
 			}
 		})
 	}
@@ -676,6 +769,21 @@ func TestRecoverClaimReleasedOnlyByHolder(t *testing.T) {
 	}
 }
 
+// A live holder is refused with checkResumable's own text, so the message is the one users already see.
+func TestClaimRecoverLiveHolderKeepsMessage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("t", agent.RunOptions{Prompt: "x"}, time.Now())
+	rec.PID = os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), recoverKey{}, &recoverClaim{from: rec.ID})
+	want := checkResumable(rec)
+	if err := claimRecover(ctx); err == nil || want == nil || err.Error() != want.Error() {
+		t.Fatalf("claimRecover of a live holder = %v, want %v", err, want)
+	}
+}
+
 func TestValidateCodemodeTable(t *testing.T) {
 	cases := []struct {
 		mode, ag string
@@ -721,13 +829,26 @@ func TestCodemodeLineAndDirectRoute(t *testing.T) {
 }
 
 func TestReplayCodemode(t *testing.T) {
-	f := &askFlags{name: "claude", codemode: "on", tools: true, retry: "x", profile: "dev"}
-	if err := replayCodemode(f); err != nil || f.codemode != "off" || f.codemodeReason == "" {
-		t.Errorf("replayed claude code mode on a gateway profile: %v %q %q", err, f.codemode, f.codemodeReason)
-	}
-	f = &askFlags{name: "claude", codemode: "on", tools: true, profile: "dev"}
-	if err := replayCodemode(f); err != nil || f.codemode != "on" {
-		t.Errorf("non-replay run rechecked: %v %q", err, f.codemode)
+	anthropic := route.Route{Provider: "anthropic", Profile: "my-anthropic"}
+	for _, tc := range []struct {
+		name string
+		f    askFlags
+		r    askRun
+		want string
+	}{
+		{"a gateway profile", askFlags{profile: "dev", retry: "x"}, askRun{}, "off"},
+		{"not a replay", askFlags{profile: "dev"}, askRun{}, "on"},
+		{"the overlay's direct route", askFlags{profile: "my-anthropic", retry: "x"}, askRun{ov: agentconfig.Overlay{Provider: "anthropic", Profile: "my-anthropic"}}, "on"},
+		{"the record's route alone", askFlags{profile: "my-anthropic", retry: "x"}, askRun{recCoworker: anthropic}, "on"},
+		{"the record's route under --job", askFlags{profile: "my-anthropic", job: "x"}, askRun{recCoworker: anthropic}, "on"},
+		{"a typed route drops the record's", askFlags{profile: "my-anthropic", retry: "x"}, askRun{recCoworker: anthropic, flagRoute: true}, "off"},
+	} {
+		f, r := tc.f, tc.r
+		f.name, f.codemode, f.tools = "claude", "on", true
+		r.f = &f
+		if err := r.replayCodemode(); err != nil || f.codemode != tc.want {
+			t.Errorf("%s: code mode %q (%v), want %s", tc.name, f.codemode, err, tc.want)
+		}
 	}
 }
 

@@ -443,7 +443,7 @@ func spawnCatchup(cwd, sessionID string) bool {
 }
 
 func spawnSync(cwd string) bool {
-	return spawnSelf([]string{"memory", "import", "--sync"}, cwd, "sync-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
+	return spawnSelf([]string{"memory", "sync"}, cwd, "sync-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
 }
 
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.

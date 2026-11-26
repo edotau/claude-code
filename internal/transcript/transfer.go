@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -136,7 +137,10 @@ func clipBytes(s string, limit int) string {
 
 // TransferArgs builds the `ask` argv for a transfer: --tools for edits, --background unless wait.
 func TransferArgs(agentName, cwd, prompt string, wait bool) []string {
-	args := []string{"--agent", agentName, "--tools", "--workdir", cwd}
+	tools := true
+	ov := agentconfig.Overlay{}
+	ov.Agent, ov.Tools = agentName, &tools
+	args := []string{"--overlay", ov.Doc(), "--workdir", cwd}
 	if !wait {
 		args = append(args, "--background")
 	}

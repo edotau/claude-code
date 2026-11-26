@@ -200,8 +200,8 @@ func (r *Router) hopBlocked(state router.State, t providers.Target) bool {
 	return r.modelCooling(t) || r.isDead(t) || !r.credentialPresent(t.Provider)
 }
 
-// tpmHop is the next usable workspace after cur in vault order that ok accepts; it may leave a session's profile scope.
-func (r *Router) tpmHop(cur providers.Target, ok func(providers.Target) bool) (providers.Target, bool) {
+// TPM hops honor the same token scope as ordinary fallbacks, including an auto-failover group.
+func (r *Router) tpmHop(in *http.Request, cur providers.Target, ok func(providers.Target) bool) (providers.Target, bool) {
 	reg, err := r.registry()
 	if err != nil || cur.Provider.Preset != providers.PresetDatabricks || cur.Model == "" {
 		return providers.Target{}, false
@@ -215,7 +215,7 @@ func (r *Router) tpmHop(cur providers.Target, ok func(providers.Target) bool) (p
 			continue
 		}
 		t := providers.Target{Provider: p, Model: cur.Model, ContextTokens: cur.ContextTokens}
-		if r.hopBlocked(state, t) || !ok(t) {
+		if len(confineLadder(in, []providers.Target{t})) == 0 || r.hopBlocked(state, t) || !ok(t) {
 			continue
 		}
 		return t, true
@@ -271,11 +271,11 @@ func (l attemptLadder) lacks(now time.Time) func(providers.Target) bool {
 }
 
 // tpmFront starts a ladder whose first row holds a per-minute-token cool on its model on the next workspace instead.
-func (r *Router) tpmFront(l *attemptLadder) bool {
+func (r *Router) tpmFront(in *http.Request, l *attemptLadder) bool {
 	if len(l.rows) == 0 || !r.modelCooling(l.rows[0]) {
 		return false
 	}
-	next, ok := r.tpmHop(l.rows[0], l.lacks(r.now()))
+	next, ok := r.tpmHop(in, l.rows[0], l.lacks(r.now()))
 	if !ok {
 		return false
 	}

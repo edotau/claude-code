@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 type extractFactsFixture struct {
@@ -743,9 +745,15 @@ func TestExtractApplyCommitFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+		{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths},
+		{Title: "Shared Handoffs", Text: "Also preserved", Sources: group.Paths[:2]},
+	}, Purge: []string{}}
 	if sha, err := ApplyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)); err == nil || sha != "" {
 		t.Fatalf("failed commit sha=%q err=%v", sha, err)
+	}
+	if status, err := repo.Status(); err != nil || len(status) != 0 {
+		t.Fatalf("failed shared-source apply left dirty tree: %v, %v", status, err)
 	}
 	assertExtractOriginal(t, repo, original)
 	if count, err := repo.run("rev-list", "--count", "HEAD"); err != nil || count != countBefore {
@@ -883,7 +891,11 @@ func TestExtractLossProtectedAndSearchTerms(t *testing.T) {
 
 func TestExtractLossLiveSHAAndSingleQuote(t *testing.T) {
 	repo, _, _, _ := extractApplyFixture(t)
-	live := extractLiveSHA(repo)
+	live, err := extractLiveSHA(repo)
+	extractRunOK(t, err)
+	if _, err := extractLiveSHA(storeRepo{Dir: t.TempDir()}); err == nil {
+		t.Fatal("an unreadable object inventory must not pass the loss check")
+	}
 	if !live("a1b2c3d4e5f6") || live("deadbee") {
 		t.Fatalf("live digit=%v unresolved letters=%v, want true false", live("a1b2c3d4e5f6"), live("deadbee"))
 	}
@@ -962,5 +974,337 @@ func TestExtractLossMarkdownAndTimestamps(t *testing.T) {
 				t.Fatalf("retained item: %v", err)
 			}
 		})
+	}
+}
+
+func TestExtractSharedSourceValidatesAndAppliesOnce(t *testing.T) {
+	allowed := map[string]bool{"handoffs/a.md": true, "handoffs/b.md": true}
+	shared := `{"entries":[{"title":"a","text":"x","sources":["handoffs/a.md","handoffs/b.md"]},{"title":"b","text":"y","sources":["handoffs/a.md"]}],"purge":[]}`
+	if _, err := decodeExtractRewrite(shared, allowed); err != nil {
+		t.Fatalf("shared source refused: %v", err)
+	}
+	uncovered := `{"entries":[{"title":"a","text":"x","sources":["handoffs/a.md"]},{"title":"b","text":"y","sources":["handoffs/a.md"]}],"purge":[]}`
+	if _, err := decodeExtractRewrite(uncovered, allowed); err == nil || !strings.Contains(err.Error(), "unaccounted") {
+		t.Fatalf("uncovered source err=%v", err)
+	}
+	repo, group, _, original := extractApplyFixture(t)
+	before, err := repo.run("rev-parse", "HEAD^{tree}")
+	extractRunOK(t, err)
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+		{Title: "One", Text: "decision and open task", Sources: group.Paths},
+		{Title: "Two", Text: "decision and open task", Sources: group.Paths[:2]},
+	}, Purge: []string{}}
+	sha, err := ApplyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC))
+	if err != nil || sha == "" {
+		t.Fatalf("apply sha=%q err=%v", sha, err)
+	}
+	assertExtractSourcesRemoved(t, repo, group.Paths)
+	for _, name := range []string{"one", "two"} {
+		assertExtractNoteContains(t, repo, "notes/extract-2026-11-26-"+name+".md", "decision and open task")
+	}
+	// Shared source links and commit mappings use the last citing entry.
+	linked, err := os.ReadFile(filepath.Join(repo.Dir, "notes/idx.md"))
+	if err != nil || strings.Contains(string(linked), "handoffs/") || strings.Contains(string(linked), "extract-2026-11-26-one.md") || !strings.Contains(string(linked), "extract-2026-11-26-two.md") {
+		t.Fatalf("shared source links=%q err=%v", linked, err)
+	}
+	message, err := repo.run("log", "-1", "--format=%B")
+	extractRunOK(t, err)
+	for _, source := range group.Paths[:2] {
+		if !strings.Contains(message, source+" -> notes/extract-2026-11-26-two.md") {
+			t.Errorf("shared source mapping missing from %q", message)
+		}
+	}
+	if _, err := repo.run("revert", "--no-edit", sha); err != nil {
+		t.Fatal(err)
+	}
+	assertExtractOriginal(t, repo, original)
+	if after, err := repo.run("rev-parse", "HEAD^{tree}"); err != nil || after != before {
+		t.Fatalf("revert tree=%q want %q err=%v", after, before, err)
+	}
+	if status, err := repo.Status(); err != nil || len(status) != 0 {
+		t.Fatalf("revert left dirty tree: %v, %v", status, err)
+	}
+}
+
+func TestExtractLossSeesUnionOfEntries(t *testing.T) {
+	const source = "reports/run.md"
+	sources := map[string][]byte{source: []byte("see 2026-11-26 and `term-x`\n")}
+	split := ExtractRewriteAnswer{Entries: []ExtractEntry{
+		{Title: "a", Text: "date 2026-11-26", Sources: []string{source}},
+		{Title: "b", Text: "search `term-x`", Sources: []string{source}},
+	}, Purge: []string{}}
+	// Validate too, so reverting shared-source acceptance fails this test.
+	encoded, err := json.Marshal(split)
+	if err != nil {
+		t.Fatal(err)
+	}
+	split, err = decodeExtractRewrite(string(encoded), map[string]bool{source: true})
+	if err != nil {
+		t.Fatalf("split facts refused: %v", err)
+	}
+	if err := CheckExtractLoss(sources, split, func(string) bool { return false }); err != nil {
+		t.Fatalf("union should keep both facts: %v", err)
+	}
+	split.Entries = split.Entries[:1]
+	if err := CheckExtractLoss(sources, split, func(string) bool { return false }); err == nil {
+		t.Fatal("dropped fact not refused")
+	}
+}
+
+func TestExtractSharedSourceConflicts(t *testing.T) {
+	allowed := map[string]bool{"handoffs/a.md": true, "handoffs/b.md": true}
+	for _, tc := range []struct{ name, answer string }{
+		{"repeated-citation", `{"entries":[{"title":"a","text":"x","sources":["handoffs/a.md","handoffs/a.md"]},{"title":"b","text":"y","sources":["handoffs/b.md"]}],"purge":[]}`},
+		{"shared-and-purged", `{"entries":[{"title":"a","text":"x","sources":["handoffs/a.md"]},{"title":"b","text":"y","sources":["handoffs/a.md"]}],"purge":["handoffs/a.md","handoffs/b.md"]}`},
+		{"repeated-purge", `{"entries":[{"title":"a","text":"x","sources":["handoffs/a.md"]},{"title":"b","text":"y","sources":["handoffs/a.md"]}],"purge":["handoffs/b.md","handoffs/b.md"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := decodeExtractRewrite(tc.answer, allowed); err == nil || !strings.Contains(err.Error(), "repeated") {
+				t.Fatalf("source conflict err=%v", err)
+			}
+		})
+	}
+}
+
+func TestExtractSharedSourceRecallCountsUnion(t *testing.T) {
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	log, ledger := filepath.Join(dir, "access.log"), filepath.Join(dir, "loss.log")
+	var lines strings.Builder
+	// The fixture includes repeated accesses and a shared source's ID alias.
+	for _, source := range []string{"reports/a.md", "reports/a.md", "abc12345", "reports/b.md", "reports/c.md"} {
+		fmt.Fprintf(&lines, "%s -- %s -- %s\n", now.Add(-time.Hour).Format(time.RFC3339), source, AccessSearch)
+	}
+	if err := os.WriteFile(log, []byte(lines.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sources := map[string][]byte{
+		"reports/a.md":        []byte("---\nid: abc12345\n---\na\n"),
+		"reports/b.md":        []byte("b\n"),
+		"reports/c.md":        []byte("c\n"),
+		"reports/unserved.md": []byte("not recalled\n"),
+	}
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+		{Title: "a", Text: "a", Sources: []string{"reports/a.md", "reports/b.md"}},
+		{Title: "b", Text: "b", Sources: []string{"reports/a.md", "reports/c.md"}},
+	}, Purge: []string{"reports/unserved.md"}}
+	report, err := CheckExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err != nil || report.Queried != 3 || report.Lost != 0 {
+		t.Fatalf("shared union: report=%+v err=%v", report, err)
+	}
+	ans.Entries[1].Sources = []string{"reports/a.md"}
+	ans.Purge = append(ans.Purge, "reports/c.md")
+	report, err = CheckExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err == nil || !strings.Contains(err.Error(), "limit 2%") || report.Queried != 3 || report.Lost != 1 {
+		t.Fatalf("purged distinct source: report=%+v err=%v", report, err)
+	}
+	// A source retained by only the later entry must not be skipped either.
+	ans.Entries[0].Sources = []string{"reports/b.md"}
+	ans.Entries[1].Sources = []string{"reports/a.md", "reports/c.md"}
+	ans.Purge = []string{"reports/unserved.md"}
+	report, err = CheckExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err != nil || report.Queried != 3 || report.Lost != 0 {
+		t.Fatalf("later successor: report=%+v err=%v", report, err)
+	}
+}
+
+// dreamExtractLossy answers every prompt with entries that drop their first three files, so the 6.5 loss check refuses.
+func dreamExtractLossy(t *testing.T, calls *int) {
+	t.Helper()
+	old := CodeModeRun
+	CodeModeRun = func(_ context.Context, prompt, _, _, _ string) (string, string, error) {
+		*calls++
+		_, data, _ := strings.Cut(prompt, "Files: ")
+		var files []extractPromptFile
+		if err := json.Unmarshal([]byte(data), &files); err != nil {
+			t.Fatal(err)
+		}
+		entry, purge := ExtractEntry{Title: "Handoffs"}, []string{}
+		for i, f := range files {
+			if i < 3 {
+				purge = append(purge, f.Path)
+				continue
+			}
+			entry.Text += f.Text + "\n"
+			entry.Sources = append(entry.Sources, f.Path)
+		}
+		answer, err := json.Marshal(ExtractRewriteAnswer{Entries: []ExtractEntry{entry}, Purge: purge})
+		return string(answer), "fake-pi", err
+	}
+	t.Cleanup(func() { CodeModeRun = old })
+}
+
+func dreamExtractLossyStore(t *testing.T) (root string, calls *int) {
+	t.Helper()
+	t.Setenv("HARNESS_KEYRING", "off")
+	isolatedConfig(t)
+	initStore(t)
+	root = paths.MemoryStoreDir()
+	extractQuietRepo(t, storeRepo{Dir: root})
+	dreamSeedHandoffs(t, root)
+	var log strings.Builder
+	for i := range 62 {
+		fmt.Fprintf(&log, "%s -- handoffs/%03d.md -- %s\n", time.Now().UTC().Format(time.RFC3339), i, AccessSearch)
+	}
+	if err := os.MkdirAll(filepath.Dir(accessLogPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(accessLogPath(), []byte(log.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls = new(int)
+	dreamExtractLossy(t, calls)
+	return root, calls
+}
+
+func TestDreamExtractSkipsRefusedGroupUntilSourceChanges(t *testing.T) {
+	root, calls := dreamExtractLossyStore(t)
+	var first strings.Builder
+	dreamExtract(dreamOptions{Out: &first}, nil)
+	if *calls != 1 || !strings.Contains(first.String(), "extract refused:") {
+		t.Fatalf("first run: calls=%d out=%q", *calls, first.String())
+	}
+	var second strings.Builder
+	dreamExtract(dreamOptions{Out: &second}, nil)
+	if !strings.Contains(second.String(), "extract skipped handoffs group (") || !strings.Contains(second.String(), "): refused earlier: extract recall:") {
+		t.Fatalf("second run must skip the refused group: %q", second.String())
+	}
+	before := *calls
+	data, err := os.ReadFile(filepath.Join(root, "handoffs/001.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "handoffs/001.md"), append(data, "more\n"...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var third strings.Builder
+	dreamExtract(dreamOptions{Out: &third}, nil)
+	if *calls <= before {
+		t.Fatalf("a changed source must re-admit its group: out=%q", third.String())
+	}
+}
+
+func TestDreamExtractBusyRefusalIsNotRecorded(t *testing.T) {
+	_, calls := dreamExtractLossyStore(t)
+	t.Setenv(DetachedEnv, "")
+	old := updateLockWait
+	updateLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { updateLockWait = old })
+	var out strings.Builder
+	_, err := paths.TryFileLock(lockPathOf()+".lock", time.Second, func() error {
+		dreamExtract(dreamOptions{Out: &out}, nil)
+		return nil
+	})
+	if err != nil || *calls != 1 || !strings.Contains(out.String(), ErrBankBusy.Error()) {
+		t.Fatalf("busy run: err=%v calls=%d out=%q", err, *calls, out.String())
+	}
+	refused, err := ExtractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
+	if err != nil || len(refused) != 0 {
+		t.Fatalf("a busy refusal must not be recorded: %v %v", refused, err)
+	}
+}
+
+func TestDreamExtractTemporaryFailureIsNotRecorded(t *testing.T) {
+	root, calls := dreamExtractLossyStore(t)
+	dreamExtractFake(t, calls)
+	run := CodeModeRun
+	var edited string
+	CodeModeRun = func(ctx context.Context, prompt, workdir, schema, model string) (string, string, error) {
+		answer, who, err := run(ctx, prompt, workdir, schema, model)
+		_, data, _ := strings.Cut(prompt, "Files: ")
+		var files []extractPromptFile
+		extractRunOK(t, json.Unmarshal([]byte(data), &files))
+		edited = filepath.Join(root, files[0].Path)
+		write(t, edited, "an uncommitted owner edit\n")
+		return answer, who, err
+	}
+	var out strings.Builder
+	dreamExtract(dreamOptions{Out: &out}, nil)
+	if *calls != 1 || !strings.Contains(out.String(), "sources changed while the model ran") {
+		t.Fatalf("temporary failure: calls=%d out=%q", *calls, out.String())
+	}
+	refused, err := ExtractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
+	if err != nil || len(refused) != 0 {
+		t.Fatalf("a temporary failure must not block a future attempt: %v %v", refused, err)
+	}
+	if got := mustRead(t, edited); got != "an uncommitted owner edit\n" {
+		t.Fatalf("owner edit changed: %q", got)
+	}
+}
+
+func TestExtractApplyRefusesEditedLink(t *testing.T) {
+	repo, group, _, original := extractApplyFixture(t)
+	file := filepath.Join(repo.Dir, "notes/idx.md")
+	write(t, file, "owner edit: handoffs/000.md\n")
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	if _, err := ApplyExtractRewrite(repo, group, ans, time.Now()); err == nil || !strings.Contains(err.Error(), "uncommitted source edits") {
+		t.Fatalf("edited link accepted: %v", err)
+	}
+	if got := mustRead(t, file); got != "owner edit: handoffs/000.md\n" {
+		t.Fatalf("owner edit overwritten: %q", got)
+	}
+	for _, rel := range group.Paths {
+		if got := mustRead(t, filepath.Join(repo.Dir, rel)); got != string(original[rel]) {
+			t.Fatalf("source changed: %s", rel)
+		}
+	}
+}
+
+func TestExtractRollbackKeepsLaterEdit(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	extractRunOK(t, err)
+	defer root.Close()
+	file := filepath.Join(dir, "note.md")
+	write(t, file, "before\n")
+	extractRunOK(t, os.Chmod(file, 0o664))
+	beforeMode, err := os.Stat(file)
+	extractRunOK(t, err)
+	written := map[string]appliedWrite{}
+	extractRunOK(t, extractWriteChanges(root, map[string][]byte{"note.md": []byte("batch\n")}, map[string][]byte{"note.md": []byte("before\n")}, written))
+	mode, err := os.Stat(file)
+	if err != nil || mode.Mode().Perm() != beforeMode.Mode().Perm() {
+		t.Fatalf("extract narrowed file mode: %v, %v", mode, err)
+	}
+	write(t, file, "owner edit\n")
+	err = extractApplyRollback(written, errors.New("commit failed"))
+	if refused(err) || mustRead(t, file) != "owner edit\n" {
+		t.Fatalf("rollback overwrote an owner edit or reported a retryable failure: %v", err)
+	}
+}
+
+func TestExtractRepointKeepsOtherPaths(t *testing.T) {
+	body := "1000.md x/handoffs/000.md handoffs/000.md.old [rel](000.md) [full](handoffs/000.md#entry) see handoffs/000.md. ./handoffs/000.md [dot](./000.md)"
+	want := "1000.md x/handoffs/000.md handoffs/000.md.old [rel](../notes/new.md) [full](notes/new.md#entry) see notes/new.md. ./notes/new.md [dot](./../notes/new.md)"
+	if got := extractRepoint("handoffs/idx.md", body, map[string]string{"handoffs/000.md": "notes/new.md"}); got != want {
+		t.Fatalf("repoint = %q, want %q", got, want)
+	}
+}
+
+func TestDreamExtractFailedApplyRefundsLoss(t *testing.T) {
+	isolatedConfig(t)
+	repo, group, _, _ := extractApplyFixture(t)
+	var log strings.Builder
+	now := time.Now()
+	for i := range 100 {
+		rel := fmt.Sprintf("reports/%03d.md", i)
+		if i == 0 {
+			rel = group.Paths[0]
+		}
+		fmt.Fprintf(&log, "%s -- %s -- %s\n", now.UTC().Format(time.RFC3339), rel, AccessSearch)
+	}
+	write(t, accessLogPath(), log.String())
+	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
+	extractRunOK(t, RecordExtractLoss(ledger, now, 1))
+	before := mustRead(t, ledger)
+	ref, err := repo.run("symbolic-ref", "HEAD")
+	extractRunOK(t, err)
+	write(t, filepath.Join(repo.Dir, ".git", ref+".lock"), "")
+	seen, err := dreamReadSources(repo.Dir, group.Paths)
+	extractRunOK(t, err)
+	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths[1:]}}, Purge: group.Paths[:1]}
+	_, err = dreamApplyChecked(repo.Dir, group, ans, seen, ExtractOptions{AccessLogs: []string{accessLogPath()}})
+	if err == nil || !refused(err) || mustRead(t, ledger) != before {
+		t.Fatalf("failed apply kept a debit: %v, ledger=%q", err, mustRead(t, ledger))
 	}
 }

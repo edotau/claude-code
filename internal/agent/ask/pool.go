@@ -21,6 +21,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -51,30 +52,34 @@ type batchOpts struct {
 	Auto            string // the workspace databricks:auto picked for the batch; "" when the confinement was not an auto pick
 	Identity        string
 	Swap            bool // --fallback was typed and allows another model
+	TimeoutHeld     bool // a typed --timeout or an overlay timeout holds the deadline: no tools default
 	Reg             *providers.Registry
 	Pending         map[string]int // lines already given a workspace: the load the in-flight markers do not show yet
 }
 
 // buildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
-func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool, cwd string,
+func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOptions, cwd string,
 	seen map[string]bool, newClient func() *agent.Client) (batchTask, error) {
-	t, err := parseTask(l, o.Agent, base, timeoutSet, cwd, seen)
+	base.Fallback, base.Native = o.Fallback, o.Native
+	t, err := parseTask(l, o.Agent, base, o.TimeoutHeld, cwd, seen)
 	if err != nil {
 		return t, err
 	}
 	req := t.Req
-	req.Agent, req.Fallback, req.Native = t.Agent, o.Fallback, o.Native
+	req.Agent = t.Agent
 	if req, err = confineLine(ctx, t.Agent, req); err != nil {
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	req = agent.MarkReviewLoop(req) // the line's own agent, tools and permissions decide
-	if o.Auto != "" && l.Task.Profile == "" && base.Provider == "" {
+	if o.Auto != "" && l.Task.Profile == "" && base.Provider == "" && req.Route.IsZero() {
+		o.Swap = !req.FallbackDefaulted && req.Fallback != route.FallbackNone
 		pick, err := linePick(t.Agent, req.Model, o)
 		if err != nil {
 			return t, fmt.Errorf("line %d: %w", l.N, err)
 		}
 		req.AutoArm, req.Lead, req.Provider = true, "", ""
-		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{pick}}
+		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: req.Fallback,
+			strict: !o.Swap && typedModel(req.Model), tried: []string{pick}}
 		req = t.arm.probe(req)
 	}
 	t.Req = req
@@ -106,7 +111,7 @@ func linePick(agentName, model string, o batchOpts) (string, error) {
 
 // runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; code 0 if all
 // ok, 2 when every line was refused for its model string, else 1.
-func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool,
+func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions,
 	newClient func() *agent.Client, out io.Writer) (id string, code int) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
 	cwd, err := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
@@ -118,7 +123,7 @@ func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.R
 	tasks := make([]batchTask, 0, len(lines))
 	usage := 0
 	for _, l := range lines {
-		t, err := buildTask(ctx, l, o, base, timeoutSet, cwd, seen, newClient)
+		t, err := buildTask(ctx, l, o, base, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
@@ -437,7 +442,7 @@ func runAskBatchInput(ctx context.Context, fs *flag.FlagSet, src string, o batch
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
-	id, code := runBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
+	id, code := runBatch(ctx, lines, o, base, newClient, os.Stdout)
 	if code != 0 {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
 	}

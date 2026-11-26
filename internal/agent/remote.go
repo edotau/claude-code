@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -74,7 +75,8 @@ func remoteTarget(agentName string, req RunOptions) string {
 
 // remoteScript is the single-quoted POSIX sh line run remotely, never the prompt; --env values show in both `ps`.
 func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
-	doc, err := remoteDoc(req)
+	unit := remoteUnit(req.Provider)
+	doc, directFlag, timeoutFlag, err := remoteDoc(agentName, fallback, req, unit)
 	if err != nil {
 		return "", err
 	}
@@ -85,44 +87,24 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("remote ask: %w", err)
 	}
-	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--fallback", textutil.ShellQuote(cmp.Or(fallback, route.FallbackNone)),
-		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
-	w = appendOpt(w, "--model", req.Model)
-	w = appendOpt(w, "--profile", req.Provider)
+	w := []string{execBin, "agents", "ask", "--format", "stream-json", "--stdin-framed"}
+	if unit.IsZero() { // a profile the local registry cannot place has no provider to travel with
+		w = appendOpt(w, "--profile", req.Provider)
+	}
 	w = appendOpt(w, "--as", req.Identity)
-	w = appendOpt(w, "--overlay", doc) // ApplyRouteOverlay exports the confinement as env, which ssh does not carry
+	w = appendOpt(w, "--overlay", doc) // carries confinement and per-run config across ssh
 	w = appendOpt(w, "--session", req.SessionID)
-	w = appendOpt(w, "--system-prompt", req.SystemPrompt)
-	w = appendOpt(w, "--append-system-prompt", req.AppendSystemPrompt)
-	w = appendOpt(w, "--output-schema", req.OutputSchema)
 	if req.WorkDir != "" {
 		w = append(w, "--workdir", textutil.QuotePath(remote.HomePath(req.WorkDir)))
 	}
-	if req.Timeout > 0 {
-		w = appendOpt(w, "--timeout", req.Timeout.String())
-	}
+	w = appendOpt(w, "--timeout", timeoutFlag)
 	for _, kv := range req.Env {
 		w = appendOpt(w, "--env", kv)
 	}
-	return strings.Join(append(w, remoteScriptTail(req)...), " "), nil
-}
-
-// remoteScriptTail is remoteScript's codemode and switch flags, each value single-quoted.
-func remoteScriptTail(req RunOptions) []string {
-	w := appendOpt(nil, "--codemode", req.Codemode)
-	for _, b := range []struct {
-		on   bool
-		flag string
-	}{{req.Tools, "--tools"}, {req.NoTools, "--no-tools"}, {req.Autonomous, "--autonomous"}, {req.Fleet, "--fleet"}, {req.EnableMemory, "--enable-memory"},
-		{req.NoPersist, "--no-persist"}, {req.Direct, "--direct"}, {req.Native, "--native"}} {
-		if b.on {
-			w = append(w, b.flag)
-		}
+	if directFlag {
+		w = append(w, "--direct")
 	}
-	if !req.Tools && !req.NoTools {
-		w = append(w, "--tools=false") // the remote ask defaults tools on
-	}
-	return w
+	return strings.Join(w, " "), nil
 }
 
 // appendOpt appends flag and its single-quoted value to w; an empty value appends nothing.
@@ -133,21 +115,78 @@ func appendOpt(w []string, flag, v string) []string {
 	return append(w, flag, textutil.ShellQuote(v))
 }
 
-// remoteDoc is the --overlay document of a remote ask: the confinement plus effort; the other keys wait for 3.1a.
-func remoteDoc(req RunOptions) (string, error) {
-	if req.Effort == "" {
-		return confinementDoc(req), nil
-	}
+// remoteDoc builds the --overlay document for a remote ask from confinement plus all per-run config keys.
+func remoteDoc(agentName, fallback string, req RunOptions, unit route.Route) (doc string, directFlag bool, timeoutFlag string, err error) {
 	o := confinementOverlay(valuesContext(context.Background(), req.Values))
-	o.Fallback = "" // remoteScript always passes --fallback, and a flag and the overlay may not differ
-	if req.Codemode != "" {
-		o.Codemode = "" // --codemode crosses as its own flag
+	add := agentconfig.Overlay{
+		Agent:              remoteTarget(agentName, req),
+		Model:              req.Model,
+		Effort:             req.Effort,
+		Fallback:           cmp.Or(fallback, route.FallbackNone),
+		Codemode:           req.Codemode,
+		SystemPrompt:       req.SystemPrompt,
+		AppendSystemPrompt: req.AppendSystemPrompt,
+		OutputSchema:       req.OutputSchema,
 	}
-	o, err := o.Derive(agentconfig.Overlay{Effort: req.Effort}, agentconfig.HopAppend)
-	if err != nil {
-		return "", fmt.Errorf("remote ask: overlay: %w", err)
+	add.Provider, add.Profile = unit.Provider, unit.Profile
+	add.Tools, add.NoTools = remoteTools(req)
+	setOptBool(&add.Autonomous, req.Autonomous)
+	setOptBool(&add.Fleet, req.Fleet)
+	setOptBool(&add.EnableMemory, req.EnableMemory)
+	setOptBool(&add.NoPersist, req.NoPersist)
+	setOptBool(&add.Native, req.Native)
+	if req.Timeout > 0 {
+		if req.Timeout <= 24*time.Hour {
+			add.Timeout = req.Timeout.String()
+		} else {
+			timeoutFlag = req.Timeout.String()
+		}
 	}
-	return childDoc(o), nil
+	if req.Direct {
+		if cmp.Or(unit.Provider, o.Provider) != "" && cmp.Or(unit.Profile, o.Profile) != "" {
+			add.Endpoint = "direct"
+		} else {
+			directFlag = true
+		}
+	}
+	if o, err = o.Derive(add, agentconfig.HopAppend); err != nil {
+		return "", false, "", fmt.Errorf("remote ask: overlay: %w", err)
+	}
+	return childDoc(o), directFlag, timeoutFlag, nil
+}
+
+// remoteUnit is the provider and profile a --profile word names, together; zero when the registry cannot place it.
+func remoteUnit(word string) route.Route {
+	r := route.FromWord(word)
+	switch {
+	case r.Provider != "":
+		r.Profile = route.AutoArm
+	case r.Profile != "":
+		reg, err := providers.Load()
+		row := reg.Row(r.Profile)
+		if err != nil || row == nil || row.Provider == "" {
+			return route.Route{}
+		}
+		r.Provider = row.Provider
+	}
+	return r
+}
+
+func remoteTools(req RunOptions) (tools, noTools *bool) {
+	switch {
+	case req.NoTools:
+		return nil, new(true)
+	case req.Tools:
+		return new(true), nil
+	default:
+		return new(false), nil // the remote ask defaults tools on
+	}
+}
+
+func setOptBool(dst **bool, on bool) {
+	if on {
+		*dst = new(true)
+	}
 }
 
 func validateRemoteScript(bin, agentName, doc string, req RunOptions) error {

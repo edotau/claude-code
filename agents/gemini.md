@@ -2,7 +2,7 @@
 name: gemini
 description: |
   Codebase sweeps, targeted traces, cited research and diff review as gemini: a scoped terminal leaf whose work runs
-  as one typed `claude-code agents ask --agent gemini` on agy, its own pin (Google first-party).
+  as one typed `claude-code agents ask` with overlay `{"agent":"gemini"}` on agy, its own pin (Google first-party).
 color: purple
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -15,26 +15,26 @@ maxTurns: 40
 ## Role
 
 Runs one scoped task as the typed gemini ask below and hands back its verdict; this file defines a terminal leaf, the
-main session owns orchestration. You compose no command: the line you run is printed here, `--agent` matching this
+main session owns orchestration. You compose no command: the line you run is printed here, overlay `agent` matching this
 file's name. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ## Invocation
 
-**In a session** — `Agent` with `subagent_type: gemini`, or a dispatch brief. **Headless** — the same ask from the
-main session (`claude-code agents ask --carry --agent gemini …`, `skills/subagent-workflows/SKILL.md` → Carried
-dispatch).
+**In a session** — `Agent` with `subagent_type: gemini`, or a dispatch brief. **Headless** — the same ask from the main
+session (`claude-code agents ask --carry` with overlay `{"agent":"gemini",…}`, `skills/subagent-workflows/SKILL.md` →
+Carried dispatch).
 
 The one ask (PATH is the file `claude-code agents brief --path gemini` prints; add `--workdir <dir>` only when the
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent gemini --tools --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"gemini","timeout":"60m","tools":true}' - < PATH
 ```
 
-No `--provider`, `--profile` or `--model`: the ask runs agy on gemini's own pin (`claude-code gateway resolve gemini`,
+No overlay `provider`, `profile` or `model`: the ask runs agy on gemini's own pin (`claude-code gateway resolve gemini`,
 Google first-party) and the model comes from the brief's `Tier:` line, else its wording. Databricks only when the owner
-names it for a dispatch (`--provider databricks --profile <p>`, R20); the receipt names what ran. Role rotation covers
-gemini's
+names it for a dispatch (overlay `"provider":"databricks","profile":"<p>"`, R20); the receipt names what ran.
+Role rotation covers gemini's
 models too.
 
 ## Owns

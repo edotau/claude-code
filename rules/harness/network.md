@@ -14,7 +14,7 @@ paths:
 | Restart the proxy only when its binary changed (`make install` and the status line run it when idle)       | `claude-code gateway proxy --restart --if-changed`                                                                                                                                                                                                                              |
 | List teams and standing proxies, or stop them                                                              | `claude-code gateway proxy --status` · `--stop` (stops the daemon and every standing scope)                                                                                                                                                                                     |
 | Run any harness verb on a tailnet host                                                                     | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port, or `--host-browser` opens the host's browser                                                                                                                     |
-| Least-busy Databricks workspace, requests through the other machine                                        | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"`; `--host auto` runs the whole ask on that machine                                                                                                  |
+| Least-busy Databricks workspace, requests through the other machine                                        | `claude-code agents ask --overlay '{"agent":"<a>","provider":"databricks","profile":"auto","remote":"auto","tools":true}' "<task>"`; overlay `host: "auto"` runs the whole ask on that machine                                                                                  |
 | Send Databricks requests out through a host                                                                | `claude-code --remote <host> <verb …>`: the verb runs here, workspace HTTPS leaves via `ssh -N -D` on `<host>`; `gateway proxy --restart --if-changed` (add `--force` with requests in flight) stops the tunnels after an actual restart; plain `--restart` leaves them running |
 
 ## Corporate CA (`network pki`)
@@ -47,9 +47,9 @@ traverse `state/certs/` (for example when `state/` is `0700`). Other harness-man
 - `--host <h>` or `--remote <h>` naming this machine (tailnet DNS name, OS hostname, or either one's first label) runs
   the verb here with no ssh hop or tunnel.
 - Memory sync is off unless this machine's process or vault env has `NETWORK_MEMORY=on`. When on, every 30 minutes
-  and only while the machine is in use, it connects over ssh to each host in `CLAUDE_REMOTE_HOST` and sends and
-  fetches only the memory store's files and the plans home. A machine that is only a peer never connects for sync.
-  `claude-code doctor` shows the state on the `memory sync` rows.
+  and only while the machine is in use, it connects over ssh to each host in `CLAUDE_REMOTE_HOST`, pulls the peer's
+  change envelopes past its own watermarks, then pushes the ones the peer lacks; `claude-code memory sync` runs one
+  pass by hand. A machine that is only a peer never connects for sync.
 - Overlay `profile: auto` picks, among Databricks serving rows passing the local checks (stored credential, no auth
   mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
   workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked

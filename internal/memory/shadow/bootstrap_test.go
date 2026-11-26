@@ -39,7 +39,7 @@ func readTree(t *testing.T, dir string) map[string]string {
 // bootstrapSource builds a db-truth source with two entries and returns its db path and exported Markdown.
 func bootstrapSource(t *testing.T) (string, map[string]string) {
 	t.Helper()
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	truthAdd(t, e, "first")
 	e.step++
 	truthAdd(t, e, "second")
@@ -95,7 +95,8 @@ func TestBootstrapFreshDestinationIsDBTruth(t *testing.T) {
 	if _, err := BootstrapCopy(context.Background(), src, dst); err != nil {
 		t.Fatal(err)
 	}
-	envOK(t, memory.Truth() == "db", "truth = %q, want db", memory.Truth())
+	tb, _ := os.ReadFile(filepath.Join(paths.StateDir(), "memory", "truth"))
+	envOK(t, strings.TrimSpace(string(tb)) == "db", "truth file = %q, want db", tb)
 	got := readTree(t, paths.MemoryStoreDir())
 	for _, name := range memory.BankFiles() {
 		envOK(t, want[name] != "" && got[name] == want[name], "%s differs: want %q, got %q", name, want[name], got[name])
@@ -222,7 +223,8 @@ func TestBootstrapRefusesDestinationSidecars(t *testing.T) {
 func TestBootstrapDBTruthAndUnsupportedLink(t *testing.T) {
 	src, _ := bootstrapSource(t)
 	dst := freshDest(t)
-	envOK(t, memory.SetTruth("db") == nil, "set db truth")
+	tp := filepath.Join(paths.StateDir(), "memory", "truth")
+	envOK(t, os.MkdirAll(filepath.Dir(tp), 0o755) == nil && os.WriteFile(tp, []byte("db\n"), 0o644) == nil, "set db truth")
 	orig := linkNoReplace
 	t.Cleanup(func() { linkNoReplace = orig })
 	linkNoReplace = func(_, _ string) error { return errors.ErrUnsupported }

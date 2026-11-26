@@ -79,7 +79,9 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
   reported with the `--drop <id> --apply` command to run by hand.
 - The proxy also drops a model by itself when real traffic gets "This endpoint <id> is deprecated" (no extra call;
   the auto pool honours it). Lift it with `--undrop <id> --apply`.
-  Still finish with a real call: `claude-code agents ask --agent <a> --profile dev --model <id> -- "say pong"`.
+  Still finish with a real call:
+  `claude-code agents ask --overlay '{"agent":"<a>","provider":"databricks","profile":"dev","model":"<id>"}'
+  -- "say pong"`.
 - Do not hand-edit generated agent menus: Codex catalog, OpenCode menu, Copilot catalog, Pi `models.json`.
   Change the source (discover, drop, the vault overlay), then `claude-code configure restore --agent all`
   (one agent: `--agent <a>`). Codex and Pi also rebuild theirs at launch from the cached listing.

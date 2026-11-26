@@ -763,3 +763,14 @@ func TestGatewayProxyPortFormsParseAlike(t *testing.T) {
 		}
 	}
 }
+
+// A provider and profile that are not one registry unit are refused before the pick, naming both.
+func TestGatewayRouteMismatchedUnitRefused(t *testing.T) {
+	vaulttest.Use(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+		return gatewayRoute([]string{"--overlay", `{"provider":"openai","profile":"ultra"}`})
+	})
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "openai") || !strings.Contains(stderr, "ultra") {
+		t.Fatalf("want exit 2 naming both; got exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+}

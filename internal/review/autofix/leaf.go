@@ -51,8 +51,14 @@ type Attempt struct {
 
 // LeafArgs is the one `agents ask` line, the brief on stdin, run in the lane.
 func LeafArgs(req LeafRequest) []string {
+	// A struct, not a map, so the keys keep the documented order.
+	overlay, _ := json.Marshal(struct {
+		Provider string `json:"provider"`
+		Profile  string `json:"profile"`
+		Tools    bool   `json:"tools"`
+	}{"databricks", "auto", true})
 	return []string{"agents", "ask", "--background", "--format", "json", "--workdir", req.Lane,
-		"--overlay", `{"provider":"databricks","profile":"auto"}`, "--tools", "-"}
+		"--overlay", string(overlay), "-"}
 }
 
 // LocalFindings drops findings whose path is not a plain repo-relative file name; dropped counts them.

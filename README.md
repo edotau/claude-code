@@ -45,7 +45,7 @@ claude-code configure                 # guided setup; reuses existing logins and
 claude-code vault set                 # store a credential in the encrypted vault (guided on a terminal)
 claude-code anthropic --model opus    # Claude Code on Anthropic; also sonnet, haiku, fable
 claude-code agents list               # which agent CLIs are installed
-claude-code agents ask --agent codex "Review this branch."   # one-shot task, tools off unless you add --tools
+claude-code agents ask --overlay '{"agent":"codex"}' "Review this branch."   # one-shot task, tools on by default
 claude-code memory search <terms>     # search the memory bank
 ```
 
@@ -68,9 +68,10 @@ The full map is `CLAUDE.md` → Where things live. State formats, backups, `cont
 
 ## Agents and dispatch
 
-`claude-code agents ask --agent <name> "<task>"` runs a task on another agent CLI and prints an envelope; without
-`--tools` its tools are off (how that is enforced differs per agent, see Safety). Batches, retries, remote hosts and
-reviews: `claude-code agents ask -h` and [`rules/harness/agent.md`](rules/harness/agent.md). Examples:
+`claude-code agents ask --overlay '{"agent":"<name>"}' "<task>"` runs a task on another agent CLI and prints an
+envelope; tools are on by default; `"tools":false` turns them off (how that is enforced differs per agent, see
+Safety). Batches, retries, remote hosts and reviews: `claude-code agents ask -h` and
+[`rules/harness/agent.md`](rules/harness/agent.md). Examples:
 [`rules/harness/commands.md`](rules/harness/commands.md) → Agents. In-session fan-out:
 [`rules/workflows/master-workflow.md`](rules/workflows/master-workflow.md).
 
@@ -104,7 +105,7 @@ For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-mess
 | `claude-code vault get --key --secret` (the vault master key)                                                             | Ask in main; blocked in a leaf                                                                                                                         | main, leaves           |
 | `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context                                           | Ask in main; blocked in a leaf                                                                                                                         | main, leaves           |
 | `make audit`, `make install`, `make fmt` inside this repository                                                           | Blocked for a leaf; `make lint` stays open to all                                                                                                      | leaves                 |
-| `agents ask --tools=false` or `--no-tools`                                                                                | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents      |
+| `agents ask` overlay `"tools":false` or `"noTools":true`                                                                  | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents      |
 | Unsetting or overriding the `HARNESS_DISPATCH_*` variables                                                                | Blocked, so a nested dispatch keeps its limits                                                                                                         | leaves                 |
 | Writing `settings.json` from Bash or a leaf                                                                               | Blocked                                                                                                                                                | main (Bash) and leaves |
 

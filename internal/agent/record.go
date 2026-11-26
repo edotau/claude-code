@@ -17,12 +17,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/route"
-
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -84,6 +84,8 @@ type Record struct {
 	PPID           int         `json:"ppid,omitempty"`          // parent pid at launch or claim, before reparenting
 	PGID           int         `json:"pgid,omitempty"`          // process group at launch or claim
 	PIDStart       string      `json:"pid_start,omitempty"`     // proc.StartTime of PID at spawn: tells a reused pid apart
+	Cancel         *CancelInfo `json:"cancel,omitempty"`        // the cancel state machine; changes only through its transitions
+	Resumer        *Claim      `json:"resumer,omitempty"`       // the re-send claim state machine; changes only through its transitions
 	Background     bool        `json:"background,omitempty"`    // set only by the `ask --background` spawn
 	Log            string      `json:"log,omitempty"`           // absolute path of the job's combined stdout+stderr log
 	Activity       *Activity   `json:"activity,omitempty"`      // running only: usage, tool calls and last event time so far
@@ -108,12 +110,13 @@ type Record struct {
 	Jev            *JevShadow  `json:"jev,omitempty"`           // shadow tier pick of Open-Jev beside the keyword one; routes nothing
 	JevPairs       []JevPair   `json:"jev_pairs,omitempty"`     // shadow "does B need A" answers for a batch's tasks; orders nothing
 
-	Parent        string      `json:"parent,omitempty"`
-	Depth         int         `json:"depth,omitempty"`
-	MaxDepth      *int        `json:"max_depth,omitempty"`    // the depth cap this dispatch ran under (0 = none); nil: a legacy record, default cap
-	MaxChildren   *int        `json:"max_children,omitempty"` // the caps its children inherit; an env-wiped child reads them here
-	MaxTreeTokens *int        `json:"max_tree_tokens,omitempty"`
-	Usage         *wire.Usage `json:"usage,omitempty"`
+	Parent        string         `json:"parent,omitempty"`
+	Depth         int            `json:"depth,omitempty"`
+	MaxDepth      *int           `json:"max_depth,omitempty"`    // the depth cap this dispatch ran under (0 = none); nil: a legacy record, default cap
+	MaxChildren   *int           `json:"max_children,omitempty"` // the caps its children inherit; an env-wiped child reads them here
+	MaxTreeTokens *int           `json:"max_tree_tokens,omitempty"`
+	Overlay       *StoredOverlay `json:"overlay,omitempty"` // registry row names and typed limits the run replays; nil on an old record
+	Usage         *wire.Usage    `json:"usage,omitempty"`
 
 	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"` // files dirty before the run that differ after it; advisory
 
@@ -215,60 +218,6 @@ const DefaultMaxDispatchDepth = 5
 
 const maxDispatchDepthEnv = "HARNESS_DISPATCH_MAX_DEPTH"
 
-// isCarrier: rec is id's, carries (request.carry), runs top level, and its live process is this one's ancestor.
-func isCarrier(id string, rec Record) bool {
-	return rec.ID == id && rec.Request.Carry && rec.Status == "running" && rec.Depth == 0 && rec.Parent == "" && liveAncestor(rec.PID, rec.PIDStart, id)
-}
-
-// ancestorWalkCap bounds the parent walk from this process to the carrier.
-const ancestorWalkCap = 64
-
-// liveAncestor: pid (start time start) is on this process's parent chain with no running dispatch's pid between.
-func liveAncestor(pid int, start, id string) bool {
-	if !liveAs(pid, start) {
-		return false
-	}
-	var between map[int]bool // a direct child reads no record: read only when the walk passes a process
-	for p, n := proc.Parent(os.Getpid()), 0; p > 1 && n < ancestorWalkCap; p, n = proc.Parent(p), n+1 {
-		if p == pid {
-			return true
-		}
-		if between == nil {
-			between = runningPIDsSince(id)
-		}
-		if between[p] { // a dispatch's descendant is that dispatch's, even with a forged carrier id
-			return false
-		}
-	}
-	return false
-}
-
-// liveAs reports pid (never pid 1) alive with start time start.
-func liveAs(pid int, start string) bool {
-	if pid <= 1 || start == "" || !proc.Alive(pid) {
-		return false
-	}
-	got, err := proc.StartTime(pid)
-	return err == nil && got == start
-}
-
-// runningPIDsSince is the pids of running records stamped in or after id's millisecond, id's own excluded.
-func runningPIDsSince(id string) map[int]bool {
-	stamp, _, _ := strings.Cut(id, "-")
-	dir := paths.DispatchDir()
-	names, _ := recordNames(dir)
-	pids := map[int]bool{}
-	for _, n := range slices.Backward(names) {
-		if n < stamp {
-			break
-		}
-		if r, err := readRecord(filepath.Join(dir, n)); err == nil && r.ID != id && r.Status == "running" && r.PID > 1 {
-			pids[r.PID] = true
-		}
-	}
-	return pids
-}
-
 // LatestChild is the newest record whose parent is id; only records stamped no earlier than id are read.
 func LatestChild(parent string) (Record, bool) {
 	dir := paths.DispatchDir()
@@ -301,9 +250,11 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.OverlayRoute(ctx)
 	children, treeTokens := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren), dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens)
-	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
+	rec := Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
 		Parent: parent, Depth: depth, MaxDepth: &maxDepth, MaxChildren: &children, MaxTreeTokens: &treeTokens,
 		Route: route.Route{Provider: provider, Profile: profile}, Experiment: experimentOf(name, req), Role: string(dispatchRole(context.Background(), req.Prompt))}
+	rec.Overlay = storeOverlay(rec)
+	return rec
 }
 
 // Experimenter is an optional Driver method: the trial a run of req carries, for the record.
@@ -317,49 +268,6 @@ func experimentOf(name string, req RunOptions) string {
 		return x.Experiment(req)
 	}
 	return ""
-}
-
-// lineage is the depth and cap from the parent's record; the env may tighten both, never loosen (cap 0 = none).
-func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
-	env, set := envDepthCap(ctx)
-	if parent == "" {
-		return 0, env
-	}
-	inherited, _ := strconv.Atoi(proc.Value(ctx, proc.DispatchDepthEnv))
-	depth, maxDepth = max(inherited, 0)+1, DefaultMaxDispatchDepth
-	pr, ok := parentRecord(parent)
-	switch {
-	case !ok: // a reaped or stale parent gets the default cap, never uncapped
-		fmt.Fprintf(NoticeOut, "claude-code: parent dispatch %s has no readable record; default depth cap applies\n", parent)
-	case isCarrier(parent, pr):
-		depth = 0 // a carried call has a direct call's depth
-	default:
-		depth = max(depth, pr.Depth+1)
-	}
-	if ok && pr.MaxDepth != nil {
-		maxDepth = *pr.MaxDepth
-	}
-	if set && env > 0 && (maxDepth == 0 || env < maxDepth) {
-		maxDepth = env
-	}
-	return depth, maxDepth
-}
-
-// envDepthCap is the tighter of the overlay's maxDepth and HARNESS_DISPATCH_MAX_DEPTH; none is the default, not set.
-func envDepthCap(ctx context.Context) (int, bool) {
-	if n := dispatchLimit(ctx, maxDispatchDepthEnv, -1); n >= 0 {
-		return n, true
-	}
-	return DefaultMaxDispatchDepth, false
-}
-
-// parentRecord is the dispatch record named exactly id, read from disk rather than trusted from the caller's env.
-func parentRecord(id string) (Record, bool) {
-	if id == "" || id != filepath.Base(id) || strings.Contains(id, "..") {
-		return Record{}, false
-	}
-	rec, err := readRecord(filepath.Join(paths.DispatchDir(), id+".json"))
-	return rec, err == nil
 }
 
 // ClaimRecord is NewRecord with its id reserved on disk: the allocator for every new dispatch (ask, batch, job).
@@ -430,12 +338,19 @@ func ClaimJob(id string) (Record, error) {
 		}
 		// spawned: the spawner noted this pid and no runner has claimed it yet (a claim stamps PPID)
 		spawned := r.PID == process.PID && r.PPID == 0
-		if r.Status != "running" || (r.PID != 0 && !spawned && r.Alive()) { // a dead pid is a runner that died mid-claim
+		underLockHook("claim-job")
+		if r.taken() {
+			return fmt.Errorf("--job %s: already taken over by a re-send, %w", r.ID, ErrJobNotFresh)
+		}
+		if r.Status != "running" || r.cancelled() || (r.PID != 0 && !spawned && holderLive(r)) {
 			return fmt.Errorf("--job %s: record is %s (pid %d), %w", r.ID, r.Status, r.PID, ErrJobNotFresh)
+		}
+		if r, lerr = r.voidClaim(); lerr != nil {
+			return lerr
 		}
 		r.PID, r.PIDStart = process.PID, ""
 		r.PPID, r.PGID = process.PPID, process.PGID
-		return r.Save()
+		return r.saveLocked()
 	})
 	return r, err
 }
@@ -546,20 +461,22 @@ func noteAccount(ctx context.Context, account string, notify func(string)) {
 	}
 }
 
+// updateRecord is the one record-update path: fix runs under the record lock; cancel and claim carry over from disk.
 func updateRecord(id string, fix func(Record) (Record, bool)) (Record, bool, error) {
 	path := filepath.Join(paths.DispatchDir(), id+".json")
 	var r Record
 	var applied bool
 	err := paths.WithFileLock(path, func() error {
-		var lerr error
-		if r, lerr = readRecord(path); lerr != nil {
+		prev, lerr := readRecord(path)
+		if lerr != nil {
 			return lerr
 		}
-		r, applied = fix(r)
-		if !applied {
+		underLockHook("update")
+		if r, applied = fix(prev); !applied {
 			return nil
 		}
-		return r.Save()
+		r = carryState(prev, r)
+		return r.saveLocked()
 	})
 	return r, applied, err
 }
@@ -575,8 +492,24 @@ func (r Record) encode() ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
 }
 
-// Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
+// Save writes the record (0600) under its lock; cancel and claim come from the record on disk, never this snapshot.
 func (r Record) Save() error {
+	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(paths.DispatchDir(), r.ID+".json")
+	return paths.WithFileLock(path, func() error {
+		if cur, err := readRecord(path); err == nil {
+			r = carryState(cur, r)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return r.saveLocked()
+	})
+}
+
+// saveLocked writes r under the record lock (keeping prompt verbatim for retry) and prunes past dispatchKeep.
+func (r Record) saveLocked() error {
 	r.stampOwnStart()
 	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -661,7 +594,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Usage = &u
 	}
 	r.RanRoute = ranRoute(res)
-	r.RanIdentity = ranIdentityOf(r.ID)
+	r.RanIdentity = proxy.ReadRanIdentity(r.ID)
 	r.Attempts = nil
 	if len(res.Hops) > 1 {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
@@ -672,12 +605,17 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.RanAs = res.Agent
 	}
 	r.DurationMs = took.Milliseconds()
-	r.FirstEventMs, r.Proxy = 0, ""
+	r.FirstEventMs = 0
 	if res.Transport != nil {
 		r.FirstEventMs, r.Proxy = res.Transport.FirstEventMs, res.Transport.Proxy
+	} else if r.ID != "" {
+		// NoteProxy updates the running file, not this copy; keep the latest attempt's label (empty on direct fallback).
+		if current, readErr := readRecord(filepath.Join(paths.DispatchDir(), r.ID+".json")); readErr == nil && current.Status == "running" {
+			r.Proxy = current.Proxy
+		}
 	}
 	if err != nil {
-		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
+		r.Status, r.Error, r.FailKind = "error", redact.TextSecrets(err.Error()), failKind(err) // stderrTails can hold the env master key
 		r.Cutoff = CutoffOf(err)
 		r.settleBudget(err)
 		if slices.Contains([]string{wire.StatusPartial, wire.StatusStalled, wire.StatusQuota}, res.Status) {
@@ -704,6 +642,22 @@ func ranRoute(res wire.Result) route.Route {
 // MarshalJSON stores the answering route whole: provider and profile from the hops, identity from the proxy.
 func (r Record) MarshalJSON() ([]byte, error) {
 	type plain Record
+	if r.Request.InheritedOverlay != "" {
+		var inherited map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(r.Request.InheritedOverlay), &inherited); err != nil {
+			return nil, errors.New("record: unreadable inherited overlay")
+		}
+		for key := range inherited {
+			if strings.EqualFold(key, "set") || strings.EqualFold(key, "tokenCommand") {
+				delete(inherited, key) // provenance needs the route and fence, never env values or command arguments
+			}
+		}
+		doc, err := json.Marshal(inherited)
+		if err != nil {
+			return nil, err
+		}
+		r.Request.InheritedOverlay = string(doc)
+	}
 	r.RanRoute = cmp.Or(r.RanRoute, route.Route{Profile: r.Provider})
 	if r.RanRoute.Provider == "" || r.RanRoute.Provider == "databricks" { // only a Databricks row has an identity
 		r.RanRoute.Identity = cmp.Or(r.RanRoute.Identity, r.RanIdentity)
@@ -784,8 +738,10 @@ func isPolicyRefusal(err error) bool {
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {
 	r.Error = ""
 	r.Finish(res, err, took)
-	r.NoteHealth(err) // before the terminal record is visible: a reader of it sees this failure counted
 	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
+		if r.Status == "ok" || !current.cancelled() { // a vetoed failure is no attempt
+			r.NoteHealth(err) // before the terminal record is visible: a reader of it sees this failure counted
+		}
 		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
 		if err != nil && current.Failed() && current.Error != "" && current.Error != r.Error {
 			r.Error += "; " + current.Error

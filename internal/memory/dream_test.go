@@ -405,7 +405,7 @@ func dreamTestRunner(t *testing.T, answer string, refs []string, race bool) Agen
 			}
 		}
 		// Taking the same store lock in the runner proves the model is not run under it.
-		if err := withFlatLock(BankLockWait, func() error {
+		if err := withBankLock(BankLockWait, func() error {
 			if race {
 				write(t, Path("progress.md"), "# Progress\n\n## In Progress\n\n- Concurrent work\n- Completed work\n")
 				write(t, Path("conventions.md"), "# Conventions\n\n- Concurrent rule <!-- id:1234abcd -->\n")
@@ -481,7 +481,7 @@ func dreamTestPostCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: string(base["1234abcd"]), Text: "New rule"}}}
+	batch := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: contentRefs(docs)["1234abcd"], Text: "New rule"}}}
 	duplicate := dreamRan{base: Versions{"1234abcd": ""}, files: map[string]string{"1234abcd": ""}}
 	if err := duplicate.checkBatch(batch); err == nil {
 		t.Fatal("ambiguous snapshot ref accepted")
@@ -493,7 +493,7 @@ func dreamTestPostCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 	runBatchOps(planned, based, now)
-	results, err := ApplyBatch(batch, base, now)
+	results, err := newBankStore(false).Apply(batch, base, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ func dreamTestListingText(t *testing.T, listing string) {
 	}
 }
 
-// initTypedStore makes a temp store stamped flat 4, the only layout the typed dream path runs on.
+// initTypedStore makes a temp store with the current layout stamp.
 func initTypedStore(t *testing.T) {
 	t.Helper()
 	if _, err := Init(); err != nil {
@@ -587,8 +587,8 @@ func initTypedStore(t *testing.T) {
 	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), fmt.Sprintf("flat %d\n", storeVersion))
 }
 
-// An older store keeps the in-place legacy run, never receives a typed schema, and its log names the upgrade verb.
-func TestDreamLegacyStoreKeepsLegacyPath(t *testing.T) {
+// A store stamped flat 3 still runs the typed path: the stamp is ignored.
+func TestDreamIgnoresOlderLayoutStamp(t *testing.T) {
 	isolatedConfig(t)
 	t.Setenv(UpdateChildEnv, "")
 	t.Setenv(dreamChildEnv, "")
@@ -609,9 +609,6 @@ func TestDreamLegacyStoreKeepsLegacyPath(t *testing.T) {
 	if !typed {
 		t.Error("a store without the current stamp must run the typed path")
 	}
-	if strings.Contains(out.String(), "claude-code memory upgrade") {
-		t.Errorf("typed run logged the legacy upgrade note: %s", out.String())
-	}
 }
 
 func TestDreamApplySideProposesCandidatesAndTests(t *testing.T) {
@@ -626,8 +623,11 @@ func TestDreamApplySideProposesCandidatesAndTests(t *testing.T) {
 	bad.ID, bad.Kind = "fc-b", "nonsense"
 	var out strings.Builder
 	var r dreamRan
-	r.applySide(Batch{Candidates: []candidate{bad, good}, TestProposals: []testProposal{
+	err := r.applySide(Batch{Candidates: []candidate{bad, good}, TestProposals: []testProposal{
 		{Pkg: "internal/x", Case: "empty input", Reason: "nil path"}, {Pkg: "internal/x", Case: "no reason"}}}, &out)
+	if err == nil || !strings.Contains(err.Error(), "not written: [candidate fc-b, test proposal no reason]") {
+		t.Errorf("partial side result: %v", err)
+	}
 	data := mustRead(t, filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 	if !strings.Contains(data, `"fc-a"`) || strings.Contains(data, "fc-b") {
 		t.Errorf("candidates file: %s", data)
@@ -689,11 +689,6 @@ func TestDreamPlanTaskClosedByPeerIsNotOurs(t *testing.T) {
 	if _, err := plans.MarkDone(plan, "Phase 1.1", "abc1234"); err != nil { // the peer, after the prompt listed it
 		t.Fatal(err)
 	}
-	wrote, err := plans.MarkDone(plan, "Phase 1.1", "abc1234")
-	if wrote || err != nil {
-		t.Fatalf("MarkDone on a closed task = %v, %v; want false, nil", wrote, err)
-	}
-	r.plan.open = []plans.OpenTask{{Plan: plan, ID: "Phase 1.1"}} // stale list, as after a peer's write
 	var out strings.Builder
 	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}, &out)
 	if len(r.plan.wrote) != 0 || len(r.changed) != 0 {
@@ -709,7 +704,6 @@ func TestDreamFinishLeavesPeerPlanEdits(t *testing.T) {
 	write(t, plan, "# P\n\n- [ ] Phase 1.1 One\n- [ ] Phase 1.2 Two\n- [ ] Phase 1.3 Three\n- [ ] Phase 1.4 Four\n")
 	plan = plans.OpenTasks(work)[0].Plan
 	d := startPlanPhase(work)
-	d.typed = true
 	r := dreamRan{plan: d}
 	var out strings.Builder
 	r.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}, &out)
@@ -721,7 +715,6 @@ func TestDreamFinishLeavesPeerPlanEdits(t *testing.T) {
 		t.Errorf("peer edit or own write was reverted (want both left, logged as flagged):\n%s\n%s", body, out.String())
 	}
 	r2 := dreamRan{plan: startPlanPhase(work)}
-	r2.plan.typed = true
 	r2.applySide(Batch{PlanTasks: []PlanTaskOp{{Plan: plan, ID: "Phase 1.3", Action: "done", Sha: "abc1234"}, {Plan: plan, ID: "Phase 1.4", Action: "done", Sha: "abc1234"}}}, &out)
 	r2.dropReverted(r2.plan.finish(&out))
 	if slices.Contains(r2.changed, "plans/"+filepath.Base(plan)) {
@@ -736,7 +729,7 @@ func TestDreamBatchSchemaCarriesSideArrays(t *testing.T) {
 	if strings.Contains(BatchSchema(), "plan_tasks") || !strings.Contains(DreamBatchSchema(), "plan_tasks") {
 		t.Error("only the dream schema carries the side arrays")
 	}
-	typed := dreamProcedure(true)
+	typed := dreamProcedure()
 	for _, phase := range []string{"## Phase 5b", "## Phase 5c", "## Phase 5d"} {
 		if strings.Count(typed, phase) != 1 {
 			t.Errorf("typed procedure lacks %q exactly once", phase)
@@ -799,7 +792,7 @@ func sideRollbackFixture(t *testing.T) (dreamRan, Batch, []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: string(base["1234abcd"]), Text: "New rule"}},
+	b := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: contentRefs(docs)["1234abcd"], Text: "New rule"}},
 		Candidates:    []candidate{{ID: "fc-a", Evidence: []string{"feedback/feedback-a.md", "notes/note-c.md"}, Repeats: 1, Change: "Add a hook.", Target: "unknown", Kind: "hook", Size: "small"}},
 		TestProposals: []testProposal{{Pkg: "internal/x", Case: "empty input", Reason: "nil path"}},
 		PlanTasks:     []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}
@@ -926,21 +919,35 @@ func TestDreamPeerCandidateWithSameIDIsNotOurs(t *testing.T) {
 	}
 }
 
+// failedStore refuses every call with err.
+type failedStore struct{ err error }
+
+func (f failedStore) Load() (map[string]Doc, Versions, error) { return nil, nil, f.err }
+func (f failedStore) Apply(Batch, Versions, time.Time) ([]OpResult, error) {
+	return nil, f.err
+}
+
 func TestDreamUncertainCommitAttemptsNoSideEntry(t *testing.T) {
-	_, b, names := sideRollbackFixture(t)
-	before := mustRead(t, names[0])
+	r, b, names := sideRollbackFixture(t)
+	before := make([]string, len(names))
+	for i, name := range names {
+		before[i] = mustRead(t, name)
+	}
 	unsure := &AfterCommitError{errors.New("roll back the write: failed")}
-	if _, confirmed := errors.AsType[*committedErr](unsure); confirmed {
-		t.Fatal("an uncertain commit read as confirmed")
+	old := OpenBankStore
+	OpenBankStore = func(bool) (BankStore, func() error, error) {
+		return failedStore{unsure}, func() error { return nil }, nil
 	}
-	if _, confirmed := errors.AsType[*committedErr](&AfterCommitError{&committedErr{errors.New("settle")}}); !confirmed {
-		t.Fatal("a settle-after-commit failure must read as confirmed")
+	t.Cleanup(func() { OpenBankStore = old })
+	write(t, truthPath(), "db\n")
+	err := r.applyChecked(b, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "side entries not attempted") || !strings.Contains(err.Error(), "candidate fc-a") {
+		t.Fatalf("uncertain commit result: %v", err)
 	}
-	if got := strings.Join(sideLabels(b), ", "); !strings.Contains(got, "candidate fc-a") || !strings.Contains(got, "test proposal internal/x/empty input") {
-		t.Errorf("labels: %s", got)
-	}
-	if mustRead(t, names[0]) != before {
-		t.Error("labels wrote a side file")
+	for i, name := range names {
+		if got := mustRead(t, name); got != before[i] {
+			t.Errorf("uncertain commit changed %s", name)
+		}
 	}
 }
 
@@ -1080,11 +1087,26 @@ func TestTypedDreamAndUpdateRunWithoutLayoutStamp(t *testing.T) {
 	}
 	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
 	_ = os.Remove(stamp)
-	if !dreamTyped() || !typedStoreReady() {
-		t.Fatal("typed mode must be on without a layout stamp")
+	calls := 0
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		calls++
+		if JobAnswerSchema(ctx) == "" {
+			t.Error("run without a layout stamp did not request a typed answer")
+		}
+		AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`)
+		return "stub", nil
 	}
-	if _, err := os.Stat(stamp); !os.IsNotExist(err) {
-		t.Fatalf("no stamp may be written back: %v", err)
+	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Forced: true}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) != layoutFlat { // writers restamp for peers
+		t.Fatalf("stamp written back as %q, want %q", b, layoutFlat)
+	}
+	if err := update(updateOptions{CWD: t.TempDir(), Run: run, Session: "no-layout-stamp"}); err != nil {
+		t.Fatal(err)
+	}
+	if result, ok := readUpdateResult("no-layout-stamp"); !ok || result.Typed != "ok" || calls != 2 {
+		t.Errorf("update without a stamp: result=%+v ok=%v calls=%d", result, ok, calls)
 	}
 }
 

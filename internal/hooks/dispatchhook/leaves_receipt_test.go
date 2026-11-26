@@ -440,7 +440,7 @@ func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
 	repo, _ := planRepo(t)
 	rec := agent.Record{ID: "j1", Agent: "codex", Time: time.Now(), PlanTask: "1.2"}
 	lead, _ := heldInfo(repo, leafRead{}, rec)
-	if !strings.HasPrefix(lead, "Info: Task 1.2 running (codex, ") || !strings.HasSuffix(lead, "): claude-code agents ask --agent codex; hand-back waits.") {
+	if !strings.HasPrefix(lead, "Info: Task 1.2 running (codex, ") || !strings.HasSuffix(lead, "): claude-code agents ask '--overlay' '{\"agent\":\"codex\"}'; hand-back waits.") {
 		t.Errorf("task form: %q", lead)
 	}
 	rec.PlanTask = ""
@@ -458,16 +458,49 @@ func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
 
 func TestBashTimeoutMs(t *testing.T) {
 	for cmd, want := range map[string]int{
-		"claude-code agents result -f abc":              600000,
-		"claude-code agents wait abc --timeout 30s":     40000,
-		"rtk claude-code agents wait abc --timeout=20m": 600000,
-		"claude-code agents ask --agent pi - < BRIEF":   600000,
-		"claude-code agents ask --background - < BRIEF": 0,
-		"claude-code agents result abc":                 0,
-		"go test ./internal/hooks":                      0,
+		"claude-code agents result -f abc":                       600000,
+		"claude-code agents wait abc --timeout 30s":              40000,
+		"rtk claude-code agents wait abc --timeout=20m":          600000,
+		"claude-code agents ask --agent pi - < BRIEF":            600000,
+		"claude-code agents ask --background - < BRIEF":          0,
+		`claude-code agents ask --overlay '{"timeout":"30s"}' -`: 40000,
+		`claude-code agents ask --overlay='{"timeout":"30s"}' -`: 40000,
+		"claude-code agents ask --overlay f.json -":              600000,
+		"claude-code agents result abc":                          0,
+		"go test ./internal/hooks":                               0,
 	} {
 		if got, ok := BashTimeoutMs(cmd); got != want || ok != (want > 0) {
 			t.Errorf("%q: got %d,%v want %d", cmd, got, ok, want)
 		}
 	}
+}
+
+func TestAskWordsReadOverlay(t *testing.T) {
+	for _, c := range []struct{ name, line, agent, provider, profile string }{
+		{"flags", "--agent pi --provider databricks --profile qa -", "pi", "databricks", "qa"},
+		{"inline", `--overlay {"agent":"pi","provider":"databricks","profile":"qa"} -`, "pi", "databricks", "qa"},
+		{"equals", `--overlay={"agent":"pi","profile":"qa"} -`, "pi", "", "qa"},
+		{"falls back to flag", `--agent pi --overlay {"profile":"qa"} -`, "pi", "", "qa"},
+		{"flags win", `--agent codex --provider google --profile login --overlay {"agent":"pi","provider":"databricks","profile":"qa"} -`, "codex", "google", "login"},
+		{"empty flag wins", `--agent= --overlay {"agent":"pi"} -`, "", "", ""},
+		{"file is unknown", "--overlay f.json -", "", "", ""},
+		{"stdin is unknown", "--overlay - ", "", "", ""},
+	} {
+		a, ok := ParseAskWords(strings.Fields(c.line))
+		if !ok || a.Value("agent") != c.agent || a.Value("provider") != c.provider || a.Value("profile") != c.profile {
+			t.Errorf("%s: got %q %q %q ok=%v", c.name, a.Value("agent"), a.Value("provider"), a.Value("profile"), ok)
+		}
+	}
+}
+
+func TestHeldInfoOverlayCommandRoundTrip(t *testing.T) {
+	rec := agent.Record{ID: "j1", Agent: "codex", Time: time.Now()}
+	rec.Request.Model = `a'b"c\d`
+	lead, _ := heldInfo(t.TempDir(), leafRead{}, rec)
+	_, cmd, found := strings.Cut(lead, "): ")
+	cmd = strings.TrimSuffix(cmd, "; hand-back waits.")
+	if !found || !strings.HasPrefix(cmd, "claude-code agents ask '--overlay' ") {
+		t.Fatalf("held command missing: %s", lead)
+	}
+	assertAskReaders(t, strings.TrimPrefix(cmd, "claude-code agents ask "), askLine{Agent: "codex", Model: rec.Request.Model}, "")
 }

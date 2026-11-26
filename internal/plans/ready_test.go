@@ -76,9 +76,9 @@ func TestReadyClaimedOwns(t *testing.T) {
 func TestReadyDispatchCommand(t *testing.T) {
 	brief := "/tmp/b.md"
 	for leaf, want := range map[string]string{
-		"pi":     "claude-code agents ask --background --agent pi - < '/tmp/b.md'",
-		"codex":  "claude-code agents ask --carry --background --agent codex --tools - < '/tmp/b.md'",
-		"claude": "claude-code agents ask --background --agent claude --tools - < '/tmp/b.md'",
+		"pi":     `claude-code agents ask --background --overlay '{"agent":"pi"}' - < '/tmp/b.md'`,
+		"codex":  `claude-code agents ask --carry --background --overlay '{"agent":"codex","tools":true}' - < '/tmp/b.md'`,
+		"claude": `claude-code agents ask --background --overlay '{"agent":"claude","tools":true}' - < '/tmp/b.md'`,
 	} {
 		if got := dispatchCommand(ReadyTask{Leaf: leaf, Brief: brief}); got != want {
 			t.Errorf("%s: %q, want %q", leaf, got, want)

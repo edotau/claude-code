@@ -12,11 +12,12 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
   an old benchmark (the 2026-11-01 system-prompt audit under `memory/reports/` is one machine and date): verify a
   representative task.
 - OpenCode catalog changes use `catalog add|remove|import|reset|check` or `catalog sync --profile <p> [--apply]`;
-  a dispatch uses the current pin unless the task names `--model` or `--profile`. A model outside the menu is refused.
+  a dispatch uses the current pin unless the task names overlay `model` or `profile`. A model outside the menu
+  is refused.
 
 ## OpenCode task guidance
 
-- `--tools` allows code and docs edits; `safety-scan` applies the `settings.json` Edit/Write deny globs.
+- Overlay `"tools":true` allows code and docs edits; `safety-scan` applies the `settings.json` Edit/Write deny globs.
 - For DOC-UPDATE, map entry points and exports, update existing guides from code, and validate links, examples and
   freshness. Do not hand-author generated docs.
 - For DOC-LOOKUP, check installed docs first (`go doc`, CLI help, `pydoc`), then search official docs. Cite a
@@ -28,16 +29,17 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
   `SHIP | FIX REQUIRED | BLOCK` first, then each issue with file, line and fix; adversarial lists CRITICAL→LOW or
   `VERDICT: no actionable findings`. Hunt what a same-family review waves through (a plausible rationale over
   a wrong assumption, convention drift, scope creep) and the frauds in `skills/evaluate-code/references/judge.md`.
-- Plan or brief vetting: `claude-code agents ask --agent codex` with `skills/evaluate-code/references/task-review.md`.
-  Skill or plugin audit: `claude-code agents ask --agent codex` with
-  `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate run: `claude-code agents ask --agent codex
-  --tools` with the chain of `skills/problem-solving/references/verify.md`, scoped to the touched packages; never a
-  gate it did not run. Handing a session over: `claude-code codex transfer`.
+- Plan or brief vetting: `claude-code agents ask --overlay '{"agent":"codex"}'` with
+  `skills/evaluate-code/references/task-review.md`.
+  Skill or plugin audit: `claude-code agents ask --overlay '{"agent":"codex"}'` with
+  `skills/evaluate-code/references/codex-skill-plugin-review.md`. Gate run: `claude-code agents ask --overlay
+  '{"agent":"codex","tools":true}'` with the chain of `skills/problem-solving/references/verify.md`, scoped to the
+  touched packages; never a gate it did not run. Handing a session over: `claude-code codex transfer`.
 - Account and pin: `claude-code configure agents --agent codex`, model ids from `codex debug models`; `codex profile
   <p>` pins the profile (`--off` stops routing, `--clear` returns to its own login); `doctor --agent codex` checks.
-- `--tools` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault readable; empty
-  means `workspace-write`, which blocks sockets, `ps` and the vault; no allow rule changes that). An invalid value is
-  refused before launch; a nested `--tools` Codex dispatch inherits it.
+- Overlay `"tools":true` runs in the record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault
+  readable; empty means `workspace-write`, which blocks sockets, `ps` and the vault; no allow rule changes that).
+  An invalid value is refused before launch; a nested `"tools":true` Codex dispatch inherits it.
   Under `workspace-write` overlay `{"codexNetwork":true}` opens only network (refused inside a dispatch), and the launch
   points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp dir unless set.
 - Deltas: resume with `codex resume <id>`; `--profile <p>` is the harness profile; `-f <config.toml>` rides as `-c`
@@ -47,10 +49,11 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 ## Copilot task guidance
 
 - Test repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
-  `rules/standards/worktree-git.md` → LAST-MILE. Run carried with `--tools`.
+  `rules/standards/worktree-git.md` → LAST-MILE. Run carried with overlay `"tools":true`.
 - `ask --fleet` uses Copilot's experimental SDK subagents for requested scans; verify the diff.
-- `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt flags and
-  `--env` are native; no `cost_usd`. `copilot --docs` prints vendor help; `copilot -- <native args>` forces passthrough.
+- `ask --session <id>` resumes a session; the native CLI uses `copilot --resume <id>`. Both system-prompt keys and
+  overlay `set` are native; no `cost_usd`. `copilot --docs` prints vendor help;
+  `copilot -- <native args>` forces passthrough.
 - Account and pin: `claude-code configure agents --agent copilot` picks the account, `configure github` signs in;
   `copilot profile <p>` pins (`--off` stops routing, `--clear` resumes its own login), `doctor --agent copilot` checks.
   An unbillable account temporarily disables the agent without changing its pin. Routes and quota handoffs:
@@ -75,7 +78,7 @@ package when a task depends on a boundary.
 ## Per-call routes
 
 `--overlay '{"provider":"databricks","profile":"<profile>"}'` selects the Databricks arm without changing the pin
-(`auto`, `--remote`, `--host`: `rules/harness/network.md`); `--provider databricks --profile <p>`
+(`auto`, `--remote`, `--host`: `rules/harness/network.md`); `"provider":"databricks","profile":"<p>"`
 is the same with the profile
 picked ([cost-routing.md](cost-routing.md) → Databricks and local routes). Report the actual run receipt, not a
 planned model.

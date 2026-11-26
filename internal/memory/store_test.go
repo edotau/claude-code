@@ -206,9 +206,6 @@ func TestMain(m *testing.M) {
 	if storeTmpl.dir != "" {
 		_ = os.RemoveAll(storeTmpl.dir)
 	}
-	for _, d := range seedSnaps.dir {
-		_ = os.RemoveAll(d)
-	}
 	os.Exit(code)
 }
 
@@ -674,5 +671,33 @@ func TestDatedNameAndStripRepoPrefix(t *testing.T) {
 	}
 	if rest, key := StripRepoPrefix("plain.md"); rest != "plain.md" || key != "" {
 		t.Errorf("StripRepoPrefix plain = %q, %q", rest, key)
+	}
+}
+
+// TestCommitCapturesDirtyNativeEditsBeforeOverwrite pins the native capture commit before a batch overwrites.
+func TestCommitCapturesDirtyNativeEditsBeforeOverwrite(t *testing.T) {
+	store, _ := storeFixture(t)
+	commit := func(subject, data string) {
+		t.Helper()
+		err := WithBankLock(BankLockWait, func() error {
+			_, err := commitChangesLocked(subject, []storeChange{{Rel: "r/a.md", Data: []byte(data)}})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("seed", "v1\n")
+	write(t, filepath.Join(store, "r", "a.md"), "native edit\n")
+	commit("batch", "v2\n")
+	log, err := StoreRepo().run("log", "--format=%s", "-n", "3")
+	if err != nil || !strings.Contains(log, "native: before batch") {
+		t.Fatalf("no native capture commit: %q, %v", log, err)
+	}
+	if out, err := StoreRepo().run("show", "HEAD~1:r/a.md"); err != nil || strings.TrimSpace(out) != "native edit" {
+		t.Errorf("the native bytes were not kept in history: %q, %v", out, err)
+	}
+	if readStore(t, "r/a.md") != "v2\n" {
+		t.Error("the batch did not land")
 	}
 }

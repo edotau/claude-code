@@ -351,21 +351,30 @@ func gatewayRoute(args []string) int {
 	if fs.NArg() > 0 {
 		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
 	}
+	ctx := context.Background()
+	ov, prov, err := gatewayOverlay(ctx, fs, q, *overlay)
+	if err == nil && prov.Typed("unit") {
+		if k := previewDrops(ov.Route()); k != "" {
+			err = fmt.Errorf("overlay %s does not change the preview; the route unit it takes is provider and profile", k)
+		}
+	}
+	if err != nil {
+		return helptext.FailUsage(name+": %v", err)
+	}
 	if err := refuseModelPrefix(q.Model); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	if !helptext.Explicit(fs, "fallback") {
-		q.Fallback, _ = router.EffectiveFallback(context.Background(), "", providers.CustomEnv())
+	if q.Fallback == "" {
+		q.Fallback, _ = router.EffectiveFallback(ctx, "", providers.CustomEnv())
 		if !router.ValidFallback(q.Fallback) {
 			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(route.FallbackModes, "|"))
 		}
 	}
-	ctx := context.Background()
-	ov, err := gatewayOverlay(ctx, fs, *overlay)
-	if err != nil {
-		return helptext.FailUsage(name+": %v", err)
+	confinement := cmp.Or(ov.Confinement(), ask.TypedWorkspace(q.Profile))
+	if prov.Of("unit") == agentconfig.OriginFlag {
+		confinement = ask.TypedWorkspace(q.Profile) // a typed flag unit starts the pick; it fences nothing
 	}
-	ctx, code := checkOverlayFlags(ctx, name, cmp.Or(ov.Confinement(), ask.TypedWorkspace(q.Profile)), q.Profile, *format, q.Fallback, q.Agent, q.Model)
+	ctx, code := checkOverlayFlags(ctx, name, confinement, q.Profile, *format, q.Fallback, q.Agent, q.Model)
 	if code != 0 {
 		return code
 	}
@@ -404,17 +413,77 @@ func resolveGatewayRoute(ctx context.Context, q agent.RouteReq, format string) i
 	return renderGatewayRoute(ctx, name, res, format)
 }
 
-// gatewayOverlay loads the overlay and folds its model and fallback under the typed flags; the rest is not previewed.
-func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, value string) (agentconfig.Overlay, error) {
+// gatewayOverlay applies the typed flags, --overlay and the inherited overlay through ApplyOverlay and sets q from it.
+func gatewayOverlay(ctx context.Context, fs *flag.FlagSet, q *agent.RouteReq, value string) (agentconfig.Overlay, agentconfig.Provenance, error) {
 	busy := ""
 	if proc.IsTerminal(os.Stdin) {
 		busy = "stdin is a terminal; pipe the JSON document in, or pass a file"
 	}
-	cfg, err := ask.LoadOverlay(ctx, value, busy)
-	if err == nil {
-		cfg.Fold(fs)
+	_, typed, inherited, err := ask.LoadOverlays(ctx, value, busy)
+	if err != nil {
+		return agentconfig.Overlay{}, nil, err
 	}
-	return cfg, err
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return agentconfig.Overlay{}, nil, fmt.Errorf("provider registry: %w", err)
+	}
+	flags, keys, err := gatewayFlagOverlay(reg, fs, q)
+	if err != nil {
+		return agentconfig.Overlay{}, nil, err
+	}
+	ov, prov, err := agentconfig.ApplyOverlay(reg, keys, flags, typed, inherited)
+	if err != nil {
+		return ov, prov, err
+	}
+	q.Model, q.Agent, q.Fallback = ov.Model, ov.Agent, ov.Fallback
+	if !prov.Typed("unit") {
+		return ov, prov, nil
+	}
+	q.Provider, q.Profile = ov.Provider, ov.Profile
+	if ov.Profile == route.AutoArm && !helptext.Explicit(fs, "profile") { // a bare --provider leads on that provider
+		q.Profile = ""
+	}
+	return ov, prov, nil
+}
+
+// gatewayFlagOverlay is the typed route flags as overlay keys; a lone --profile takes its registry row's provider.
+func gatewayFlagOverlay(reg *providers.Registry, fs *flag.FlagSet, q *agent.RouteReq) (ov agentconfig.Overlay, keys []string, err error) {
+	for _, k := range []struct {
+		key string
+		dst *string
+		val string
+	}{{"model", &ov.Model, q.Model}, {"agent", &ov.Agent, q.Agent}, {"fallback", &ov.Fallback, q.Fallback}} {
+		if helptext.Explicit(fs, k.key) {
+			*k.dst, keys = k.val, append(keys, k.key)
+		}
+	}
+	if helptext.Explicit(fs, "tools") {
+		ov.Tools = new(fs.Lookup("tools").Value.(flag.Getter).Get().(bool))
+		keys = append(keys, "tools")
+	}
+	profile, provider := q.Profile, q.Provider
+	if !helptext.Explicit(fs, "profile") && !helptext.Explicit(fs, "provider") || profile == agent.LeadSession {
+		return ov, keys, nil
+	}
+	if profile != "" && provider == "" {
+		if row := reg.Row(profile); row != nil {
+			provider = row.Provider
+		} else if profile != route.AutoArm {
+			return ov, keys, fmt.Errorf("unknown profile %q (see vault ls providers)", profile)
+		}
+	}
+	ov.Provider, ov.Profile = provider, cmp.Or(profile, route.AutoArm)
+	return ov, append(keys, "unit"), nil
+}
+
+// previewDrops names the first route key the pick cannot honor (it only takes provider and profile), else "".
+func previewDrops(r route.Route) string {
+	for _, k := range []struct{ name, v string }{{"endpoint", r.Endpoint}, {"identity", r.Identity}, {"account", r.Account}} {
+		if k.v != "" {
+			return k.name
+		}
+	}
+	return ""
 }
 
 // checkOverlayFlags applies the overlay's confinement to ctx and validates the flags; nonzero is the exit.

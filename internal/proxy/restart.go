@@ -114,5 +114,5 @@ func spawnClaimed(args ...string) bool {
 	if err != nil {
 		return false
 	}
-	return proc.SpawnDetached(exe, append([]string{"gateway", "proxy"}, args...), "", nil)
+	return proc.SpawnDetached(sharedProxyExe(exe), append([]string{"gateway", "proxy"}, args...), "", nil)
 }

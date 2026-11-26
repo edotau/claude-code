@@ -167,3 +167,11 @@ func TestFixLeafBudget(t *testing.T) {
 		t.Fatalf("attempt record after refusal: %v", err)
 	}
 }
+
+func TestLeafArgsOverlay(t *testing.T) {
+	want := []string{"agents", "ask", "--background", "--format", "json", "--workdir", "/l",
+		"--overlay", `{"provider":"databricks","profile":"auto","tools":true}`, "-"}
+	if got := LeafArgs(LeafRequest{Lane: "/l"}); !slices.Equal(got, want) {
+		t.Fatalf("LeafArgs = %q, want %q", got, want)
+	}
+}

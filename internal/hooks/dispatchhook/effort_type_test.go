@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // The allowed types are the agents/ files plus the built-ins: adding or removing a file changes the set.
@@ -182,4 +183,168 @@ func TestAskLineRoutePicksAgentLineAcrossContinuations(t *testing.T) {
 	if prov, prof := askLineRoute(text, "pi"); prov != "databricks" || prof != "qa" {
 		t.Errorf("route = %q %q, want databricks qa", prov, prof)
 	}
+}
+
+func TestAskLineRouteReadsOverlayAndFlags(t *testing.T) {
+	cases := []struct{ name, text, prov, prof string }{
+		{"flags", "claude-code agents ask --agent pi --provider databricks --profile qa -", "databricks", "qa"},
+		{"overlay", `claude-code agents ask --carry --overlay '{"agent":"pi","provider":"databricks","profile":"qa","model":"m","tier":"fast"}' -`, "databricks", "qa"},
+		{"flag over overlay", `claude-code agents ask --agent pi --overlay '{"agent":"codex","provider":"databricks","profile":"qa"}' -`, "databricks", "qa"},
+		{"overlay other agent", `claude-code agents ask --overlay '{"agent":"codex","provider":"a","profile":"b"}' -`, "", ""},
+		{"malformed overlay", `claude-code agents ask --agent pi --provider databricks --profile qa --overlay '{"agent":' -`, "", ""},
+		{"non-string value", `claude-code agents ask --overlay '{"agent":"pi","provider":3}' -`, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if prov, prof := askLineRoute(c.text, "pi"); prov != c.prov || prof != c.prof {
+				t.Errorf("route = %q %q, want %q %q", prov, prof, c.prov, c.prof)
+			}
+		})
+	}
+}
+
+func TestReadAskLineFields(t *testing.T) {
+	l, ok := readAskLine(quotedFields(`--overlay '{"agent":"pi","provider":"p","profile":"q","model":"m","tier":"t"}' -`))
+	if want := (askLine{"pi", "p", "q", "m", "t"}); !ok || l != want {
+		t.Errorf("line = %+v %v, want %+v", l, ok, want)
+	}
+}
+
+func TestAskReadersFlagPrecedence(t *testing.T) {
+	const overlay = `{"agent":"pi","provider":"databricks","profile":"qa","model":"sonnet","tier":"fast","timeout":"30s"}`
+	for _, c := range []struct {
+		name, flags string
+		want        askLine
+		timeout     string
+	}{
+		{"overlay", "", askLine{"pi", "databricks", "qa", "sonnet", "fast"}, "30s"},
+		{"flags before", "--agent codex --model opus --tier deep --timeout 2m ", askLine{"codex", "databricks", "qa", "opus", "deep"}, "2m"},
+		{"last flag", "--agent gemini --agent codex ", askLine{"codex", "databricks", "qa", "sonnet", "fast"}, "30s"},
+		{"empty flag", "--model '' ", askLine{"pi", "databricks", "qa", "", "fast"}, "30s"},
+		{"same route", "--provider databricks --profile qa ", askLine{"pi", "databricks", "qa", "sonnet", "fast"}, "30s"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for _, line := range []string{c.flags + "--overlay '" + overlay + "' -", "--overlay '" + overlay + "' " + c.flags + "-"} {
+				assertAskReaders(t, line, c.want, c.timeout)
+			}
+		})
+	}
+	assertAskReaders(t, `--agent codex --provider databricks --profile dev --timeout 1m --overlay '{"model":"opus"}' -`,
+		askLine{"codex", "databricks", "dev", "opus", ""}, "1m")
+	assertAskReaders(t, `--overlay '{"Agent":"codex","AGENT":"pi","Provider":"databricks","Profile":"qa","TIMEOUT":"2m"}' -`,
+		askLine{"pi", "databricks", "qa", "", ""}, "2m")
+	assertAskReaders(t, `--overlay '{"AGENT":"pi","agent":"codex","Provider":"databricks","Profile":"qa","Timeout":"2m"}' -`,
+		askLine{"codex", "databricks", "qa", "", ""}, "2m")
+}
+
+func assertAskReaders(t *testing.T, line string, want askLine, timeout string) {
+	t.Helper()
+	a, ok := ParseAskWords(relayWords(line))
+	if got := (askLine{a.Value("agent"), a.Value("provider"), a.Value("profile"), a.Value("model"), a.Value("tier")}); !ok || got != want || a.Value("timeout") != timeout {
+		t.Errorf("receipt reader %q = %+v, timeout %q, ok %v; want %+v, timeout %q", line, got, a.Value("timeout"), ok, want, timeout)
+	}
+	if got, ok := readAskLine(quotedFields(line)); !ok || got != want {
+		t.Errorf("label reader %q = %+v, ok %v; want %+v", line, got, ok, want)
+	}
+}
+
+func TestAskLineUnreadableOverlay(t *testing.T) {
+	for _, value := range []string{
+		"file.json", "-", "", "null", "[]", `{"agent":`, `{"agent":"pi"} {}`, `{"agent":null}`, `{"timeout":3}`,
+		`{"model":3,"model":"x"}`, `{"MODEL":3,"model":"x"}`, `{"agent":"pi","Agent":null}`,
+	} {
+		line := `--agent pi --provider databricks --profile qa --overlay ` + textutil.ShellQuote(value) + ` -`
+		if got, ok := readAskLine(quotedFields(line)); ok {
+			t.Errorf("%q read as %+v, want unreadable", line, got)
+		}
+	}
+}
+
+func TestAskReadersShellQuoting(t *testing.T) {
+	for _, model := range []string{`a'b`, `a"b`, `a\b`, `a b`, `a'b"c\d`, `a$(exit 1);b`} {
+		raw, err := json.Marshal(map[string]string{"agent": "pi", "model": model, "timeout": "2m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range []string{
+			textutil.ShellJoin([]string{"--overlay", string(raw)}),
+			textutil.ShellQuote("--overlay") + " " + textutil.ShellQuote(string(raw)),
+			"--overlay=" + textutil.ShellQuote(string(raw)),
+			"--overlay " + `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`, "`", "\\`").Replace(string(raw)) + `"`,
+		} {
+			assertAskReaders(t, line, askLine{Agent: "pi", Model: model}, "2m")
+		}
+	}
+	for _, line := range []string{`--overlay '{"agent":"pi"}`, `--agent pi\`} {
+		if got := quotedFields(line); got != nil {
+			t.Errorf("unterminated %q = %q", line, got)
+		}
+	}
+}
+
+func TestAskLineTrailingComments(t *testing.T) {
+	for _, tail := range []string{" # don't", ` # "unfinished`, ` # trailing\`, " # --agent codex"} {
+		line := `claude-code agents ask --overlay '{"agent":"pi","provider":"databricks","profile":"qa"}' -` + tail
+		if provider, profile := askLineRoute(line, "pi"); provider != "databricks" || profile != "qa" {
+			t.Errorf("%q: route = %q/%q, want databricks/qa", line, provider, profile)
+		}
+	}
+	line := `claude-code agents ask --overlay '{"agent":"pi","model":"a#b"}' - # don't`
+	if got, ok := readAskLine(quotedFields(strings.TrimPrefix(line, "claude-code agents ask "))); !ok || got.Model != "a#b" {
+		t.Errorf("quoted hash: %+v, %v; want model a#b", got, ok)
+	}
+}
+
+func TestBakedAgentAskLines(t *testing.T) {
+	for _, c := range []struct{ file, agent, profiles string }{
+		{"codex", "codex", "dev"}, {"copilot", "copilot", "qa"}, {"coworker", "pi", "prod"},
+		{"gemini", "gemini", ""}, {"opencode", "opencode", "dev,qa"},
+	} {
+		lines := bakedAskLines(t, "agents", c.file)
+		profiles := strings.Split(c.profiles, ",")
+		if len(lines) != len(profiles) {
+			t.Fatalf("%s: %d baked lines, want %d", c.file, len(lines), len(profiles))
+		}
+		for i, line := range lines {
+			want := askLine{Agent: c.agent, Profile: profiles[i]}
+			if want.Profile != "" {
+				want.Provider = "databricks"
+			}
+			assertAskReaders(t, strings.TrimPrefix(line, "claude-code agents ask "), want, "60m")
+			if provider, profile := askLineRoute(line, c.agent); provider != want.Provider || profile != want.Profile {
+				t.Errorf("%s: baked route = %q/%q, want %q/%q", c.file, provider, profile, want.Provider, want.Profile)
+			}
+		}
+	}
+}
+
+func TestBakedCommandAskLines(t *testing.T) {
+	for _, name := range []string{"codex", "copilot", "coworker", "gemini", "opencode"} {
+		lines := bakedAskLines(t, "commands", name)
+		if len(lines) != 1 {
+			t.Fatalf("%s: %d baked lines, want 1", name, len(lines))
+		}
+		line := strings.TrimPrefix(lines[0], "claude-code agents ask ")
+		want := askLine{Agent: name}
+		if name == "coworker" { // its baked line names the Databricks pool route
+			want = askLine{Agent: "pi", Provider: "databricks", Profile: "auto"}
+		}
+		assertAskReaders(t, line, want, "")
+	}
+}
+
+func bakedAskLines(t *testing.T, dir, name string) []string {
+	t.Helper()
+	file := filepath.Join("..", "..", "..", dir, name+".md")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "claude-code agents ask ") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }

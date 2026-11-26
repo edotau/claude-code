@@ -912,10 +912,6 @@ line two
 
 
 Also write a handoff to exactly /h.md (this name, not another): first line exactly <!-- session: s -->; then ## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it.
-== MemoryResiduePrompt ==
-The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.
-- a: b
-Return only a typed Batch of ops that places them; write no files.
 == MemoryRetryNote ==
 
 

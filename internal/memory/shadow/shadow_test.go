@@ -102,13 +102,10 @@ func TestShadowRoundTrip(t *testing.T) {
 	wantShadowMatch(t, db, "zebrafish", "decisionLog.md", "0123abcd")
 }
 
-func TestShadowImportRegistration(t *testing.T) {
+func TestShadowImportEditedFile(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := paths.MemoryStoreDir()
-	if memory.ShadowImport == nil {
-		t.Fatal("shadow import not registered")
-	}
-	if docs, changed, err := memory.ShadowImport(); err != nil || changed || len(docs) != 0 {
+	if docs, changed, err := importShadow(); err != nil || changed || len(docs) != 0 {
 		t.Fatalf("missing db import = %v, %v, %v", docs, changed, err)
 	}
 	if _, err := os.Stat(ShadowDBPath()); !errors.Is(err, os.ErrNotExist) {
@@ -122,17 +119,22 @@ func TestShadowImportRegistration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(newBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+	if docs, _, err := importShadow(); err != nil || len(docs) != 0 {
 		t.Fatalf("edited file import = %v, %v", docs, err)
 	}
+	wantShadowRender(t, "conventions.md", newBody)
+}
+
+func wantShadowRender(t *testing.T, doc, want string) {
+	t.Helper()
 	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	got, err := renderShadowDoc(context.Background(), db, "conventions.md")
-	if err != nil || string(got) != newBody {
-		t.Fatalf("imported render = %q, %v; want %q", got, err, newBody)
+	got, err := renderShadowDoc(context.Background(), db, doc)
+	if err != nil || string(got) != want {
+		t.Fatalf("imported render = %q, %v; want %q", got, err, want)
 	}
 }
 
@@ -153,7 +155,7 @@ func TestShadowImportIncremental(t *testing.T) {
 	execShadow(t, db, `CREATE TRIGGER skew AFTER INSERT ON entries WHEN new.doc = 'conventions.md'
 		BEGIN UPDATE entries SET lines = lines || 'x' WHERE rowid = new.rowid; END`)
 	before := dumpShadow(t, db)
-	if docs, changed, err := memory.ShadowImport(); err != nil || changed || len(docs) != 0 {
+	if docs, changed, err := importShadow(); err != nil || changed || len(docs) != 0 {
 		t.Fatalf("unchanged import = %v, %v", docs, err)
 	}
 	if dumpShadow(t, db) != before {
@@ -163,7 +165,7 @@ func TestShadowImportIncremental(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range 2 { // a divergent doc is never recorded, so it is reported again, but changed only the first time
-		docs, changed, err := memory.ShadowImport()
+		docs, changed, err := importShadow()
 		if err != nil || !slices.Equal(docs, []string{"conventions.md"}) || changed != (i == 0) {
 			t.Fatalf("divergent import %d = %v, %v, %v", i, docs, changed, err)
 		}
@@ -174,7 +176,7 @@ func TestShadowImportIncremental(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "reports", "r.md")); err != nil {
 		t.Fatal(err)
 	}
-	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+	if docs, _, err := importShadow(); err != nil || len(docs) != 0 {
 		t.Fatalf("settled import = %v, %v", docs, err)
 	}
 	var n int
@@ -197,7 +199,7 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
 		t.Fatal(err)
 	}
-	if docs, changed, err := memory.ShadowImport(); err != nil || !changed || len(docs) != 0 { // the set cleared
+	if docs, changed, err := importShadow(); err != nil || !changed || len(docs) != 0 { // the set cleared
 		t.Fatalf("vanished divergent doc import = %v, %v, %v", docs, changed, err)
 	}
 	var entries, live int
@@ -218,7 +220,7 @@ func wantFullOnMovedSchema(t *testing.T, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
 	execShadow(t, db, "UPDATE meta SET value = '0' WHERE key = 'imported_schema'", "UPDATE entries SET lines = 'tampered' WHERE doc = 'progress.md'")
-	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+	if docs, _, err := importShadow(); err != nil || len(docs) != 0 {
 		t.Fatalf("full import = %v, %v", docs, err)
 	}
 	var tampered int
@@ -347,7 +349,7 @@ func TestShadowRebuildAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	execShadow(t, db, "INSERT INTO vectors VALUES(1, 'm', 1, x'00', 't')",
-		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't', 'u')")
+		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't', 'u', NULL)")
 	before := dumpShadow(t, db)
 	if _, err := shadowRebuild(ctx, db, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("rebuild from a missing root succeeded")

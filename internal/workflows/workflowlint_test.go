@@ -831,8 +831,10 @@ for (const tools of ['edit', 'run', undefined]) {
     const stage = stepOf({fix: inherited ? {} : {agent:'claude', ...route}}, 'fix', {tools},
       inherited ? {...opt, ...route} : opt)
     const task = stage.task('work')
-    assert(stage.ext && task.includes('claude-code agents ask --agent claude'), 'profile ignored')
-    assert(task.includes('--overlay \'{"provider":"databricks","profile":"qa"}\'') && task.includes('--tools'), 'route/tools lost')
+    const m = task.match(/claude-code agents ask --format json --overlay '([^']*)'/)
+    assert(stage.ext && m, 'profile ignored')
+    const ov = JSON.parse(m[1])
+    assert(ov.agent === 'claude' && ov.provider === 'databricks' && ov.profile === 'qa' && ov.tools === true, 'route/tools lost')
     assert(task.includes('task is to report') === (tools !== 'edit'), 'edit tier changed')
     assert(stage.done('fix', {coworker:'ok', status:'ok', hops:[{agent:'claude'}], ran_on:'claude qa:model'}) !== null, 'receipt lost')
   }

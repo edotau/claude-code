@@ -60,8 +60,6 @@ live-request | wire | 1 | - | internal/agent/wire | keep
 login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/providers | keep
 memory-catchup-heads | cache | 1 | state/harness/memory/catchup-heads.json | internal/memory | keep
 memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/memory | keep
-memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
-memory-sync | cache | 2 | state/harness/memory/sync.json | internal/memory | keep
 model-prices | cache | 1 | state/harness/router/prices.json | internal/catalog | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/usage | keep

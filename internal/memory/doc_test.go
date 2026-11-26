@@ -208,6 +208,73 @@ func TestRefMarker(t *testing.T) {
 	}
 }
 
+func TestIDMarkersIgnoreCodeSpans(t *testing.T) {
+	for _, span := range []string{"`<!-- id:11111111 -->`", "``a ` <!-- id:11111111 -->``", "``<!-- id:11111111 -->``"} {
+		line := "- example " + span
+		if id := entryID([]string{line}); id != "" {
+			t.Errorf("example became id %s: %q", id, line)
+		}
+		out, n := stampIDs("conventions.md", "- ", line+"\n", testEnv().Now)
+		if n != 1 || !strings.Contains(out, span) || entryID(strings.Split(out, "\n")) == "11111111" {
+			t.Errorf("example prevented stamping or changed: %d %q", n, out)
+		}
+		if stripID(line) != line || ownerID(line) != "" {
+			t.Errorf("display or ownership consumed example: %q", line)
+		}
+	}
+}
+
+func TestMarkerOutsideEscapedBackticks(t *testing.T) {
+	for _, line := range []string{
+		"- literal \\` <!-- id:12345678 --> \\`",
+		"- example `<!-- id:11111111 --> \\` after <!-- id:12345678 -->",
+	} {
+		if id := entryID([]string{line}); id != "12345678" {
+			t.Errorf("escaped ticks changed the owner to %q: %q", id, line)
+		}
+	}
+}
+
+func TestStampIDsKeepsHeadingBlocks(t *testing.T) {
+	keep := "## Existing section\n\n" + strings.Repeat("old   words ", 20) + "\n\n\n"
+	in := "# C\n\n- needs id\n\n" + keep + "- has id <!-- id:12345678 -->\n"
+	out, n := stampIDs("conventions.md", "- ", in, testEnv().Now)
+	if n != 1 || !strings.Contains(out, keep) {
+		t.Fatalf("stamping changed the next heading block: %d\n%s", n, out)
+	}
+}
+
+func TestStampCRLFAndFencedMarkers(t *testing.T) {
+	for _, hard := range []string{"", "  "} {
+		in := "- example" + hard + "\r\n  ```md\r\n  <!-- id:11111111 -->\r\n  ```\r\n"
+		out, n := stampIDs("conventions.md", "- ", in, testEnv().Now)
+		lines := strings.Split(out, "\n")
+		id := entryID(lines)
+		if n != 1 || id == "" || id == "11111111" || !strings.HasSuffix(lines[0], hard+"\r") {
+			t.Errorf("bad CRLF stamp or fenced example became id: %d %q", n, out)
+		}
+		if strings.Contains(strings.TrimSuffix(lines[0], "\r"), "\r") || !strings.Contains(out, in[strings.Index(in, "  ```"):]) {
+			t.Errorf("embedded carriage return or changed fence: %q", out)
+		}
+	}
+}
+
+func TestCleanNewBlockNestedList(t *testing.T) {
+	in := "para\n  - one\n    - two\nend"
+	want := "para\n\n  - one\n    - two\n\nend"
+	if got := cleanNewBlock(in); got != want {
+		t.Fatalf("nested list gaps: got %q want %q", got, want)
+	}
+}
+
+func TestArchiveAppendPreservesCleanSeparators(t *testing.T) {
+	before := "# A\n\n## Old <!-- id:12345678 -->\n\nbody\n\n"
+	block := "## New <!-- id:23456789 -->\n\nnew body\n\n"
+	if got := appendedText("archive.md", before, []string{block}); got != before+block {
+		t.Fatalf("append introduced blank lines: %q", got)
+	}
+}
+
 type splitCase struct {
 	name       string
 	in         string
@@ -296,7 +363,7 @@ func TestAppendBlocksPreservesBytes(t *testing.T) {
 		{name: "empty", create: true, want: "# topic (archived)\n"},
 		{name: "whitespace", create: true, existing: " \t\n", blocks: []string{""}, want: "# topic (archived)\n\n\n"},
 		{name: "header without newline", create: true, existing: "# Existing", blocks: []string{"- first", "- second"}, want: "# Existing\n\n- first\n\n- second\n"},
-		{name: "header with newlines", create: true, existing: "# Existing\n\n", blocks: []string{"- first\n", "", "## Heading\nbody\n\n"}, want: "# Existing\n\n\n- first\n\n\n\n\n## Heading\nbody\n\n\n"},
+		{name: "header with newlines", create: true, existing: "# Existing\n\n", blocks: []string{"- first\n", "", "## Heading\nbody\n\n"}, want: "# Existing\n\n- first\n\n\n\n## Heading\nbody\n\n"},
 		{name: "no blocks", create: true, existing: "# Existing\n\n", want: "# Existing\n\n"},
 		{name: "no blocks adds newline", create: true, existing: "# Existing", want: "# Existing\n"},
 	}
@@ -690,6 +757,16 @@ func TestShowBlockRefForms(t *testing.T) {
 			}
 		}
 	})
+}
+
+// Every list marker kind gets a blank line before and after its list in new text.
+func TestCleanNewBlockListMarkers(t *testing.T) {
+	for _, m := range []string{"- ", "* ", "+ ", "1. ", "2) "} {
+		in := "before\n" + m + "first\n" + m + "second\nafter"
+		if got, want := cleanNewBlock(in), "before\n\n"+m+"first\n"+m+"second\n\nafter"; got != want {
+			t.Errorf("%q: got %q, want %q", m, got, want)
+		}
+	}
 }
 
 func assignIDsT(now time.Time) (int, error) {

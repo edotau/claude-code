@@ -19,10 +19,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/googletools"
 	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -49,7 +49,7 @@ type askFlags struct {
 	runner                                                                                                                                                                             string
 	provider                                                                                                                                                                           string
 	env                                                                                                                                                                                []string
-	spec, verify, action                                                                                                                                                               string
+	brief, verify, action                                                                                                                                                              string
 	actionOwn                                                                                                                                                                          []string
 	contract                                                                                                                                                                           *contractOpen
 	planTask                                                                                                                                                                           string
@@ -58,13 +58,14 @@ type askFlags struct {
 	waves                                                                                                                                                                              string
 	loopPlanner, loopResume                                                                                                                                                            string
 	loopRounds, loopBudget                                                                                                                                                             int
+	cli                                                                                                                                                                                []string
 }
 
-// CompletionFlags lists ask's flags for tab completion; choice flags offer the spec's Choices lists.
+// CompletionFlags lists ask's flags for tab completion; choice flags offer the schema's Choices lists.
 func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
 	values := map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames}
-	for _, f := range askSchema().Fields {
+	for _, f := range allFlagSchema().Fields {
 		if len(f.Choices) > 0 {
 			values[f.Name] = func() []string { return f.Choices }
 		}
@@ -91,7 +92,7 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
-	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the record's plan_task and a spec brief's Task: line")
+	fs.StringVar(&f.planTask, "plan-task", "", "plan task id this one ask implements: the record's plan_task and a brief's Task: line")
 	fs.StringVar(&f.tier, "tier", "", "task tier: "+strings.Join(agent.TierNames(), "|")+"; heads the brief with a Tier: line, sized under --model auto")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
 	fs.StringVar(&f.workdir, "workdir", "", "working directory for the agent")
@@ -154,7 +155,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.IntVar(&f.loopBudget, "loop-budget-tokens", 0, "loop: stop past this many tokens (0 = none)")
 	fs.StringVar(&f.loopResume, "loop-resume", "", "continue the saved loop <id>")
 	registerOverlayFlag(fs, f)
-	fs.StringVar(&f.spec, "spec", "", "the whole ask as JSON: file, inline {...} or -")
+	fs.StringVar(&f.brief, "brief", "", "the task as JSON (prompt, own, report, verify, contract, action): file, inline {...} or -")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print route and argv; no model call")
 	registerWavesFlags(fs, f)
 }
@@ -414,7 +415,7 @@ func dropGoogleTools(name string, tools *[]string) {
 
 // googleToolNames is the validated --google-tools list, ready for RunOptions.
 func googleToolNames(csv string) ([]string, error) {
-	tools, err := translate.ParseGoogleTools(strings.Split(csv, ","))
+	tools, err := googletools.Parse(strings.Split(csv, ","))
 	out := make([]string, len(tools))
 	for i, t := range tools {
 		out[i] = string(t)
@@ -523,9 +524,14 @@ type askTarget struct {
 	Attach, KeepEnv                                           *[]string
 }
 
-// Apply copies a logged dispatch's request onto this ask invocation's flags; the env-names note goes to errw.
-func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
-	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, rec.Request.Provider, rec.Request.Model, rec.Request.Effort
+// Apply copies a logged dispatch's request onto this ask invocation's flags via ReplayOverlay; env notes go to errw.
+func (t *askTarget) Apply(rec agent.Record, errw io.Writer) error {
+	ov, _, err := rec.ReplayOverlay(nil, agentconfig.Overlay{})
+	if err != nil {
+		return err
+	}
+	u := ov.Route()
+	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, replayedProfile(rec.Request.Provider, u), cmp.Or(ov.Model, rec.Request.Model), rec.Request.Effort
 	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
 	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
 	*t.KeepEnv, *t.Direct, *t.NoTools = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools
@@ -542,15 +548,62 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 		*t.Verify = rec.Request.Verify
 	}
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
-	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
-		*t.Fallback = rec.FallbackPolicy
+	if fb := cmp.Or(ov.Fallback, rec.FallbackPolicy); fb != "" { // records from before the field keep this run's default
+		*t.Fallback = fb
 	}
-	if rec.Route.Provider != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
-		*t.Coworker = route.Route{Provider: rec.Route.Provider, Profile: rec.Route.Profile}
+	if !u.IsZero() { // the workspace the run was confined to; an overlay provider still wins (checkArm)
+		*t.Coworker = u
 	}
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
+	return nil
+}
+
+// replayedProfile is the profile a replay leads on: a recorded one follows the unit that answered, unset stays unset.
+func replayedProfile(recorded string, u route.Route) string {
+	if recorded == "" || u.Profile == "" || u.Profile == route.AutoArm {
+		return recorded
+	}
+	return u.Profile
+}
+
+// mergeRecordOverlay replays rec's stored overlay limits and unit under any keys typed on this command line.
+func (r *askRun) mergeRecordOverlay(rec agent.Record) error {
+	typed := agentconfig.Overlay{}
+	if r.ovTyped {
+		typed = r.typedOv
+	}
+	ov, _, err := rec.ReplayOverlay(r.flagOverlayKeys(), typed)
+	if err != nil {
+		return err
+	}
+	limits := agentconfig.Overlay{MaxChildren: ov.MaxChildren, MaxTreeTokens: ov.MaxTreeTokens,
+		MaxDepth: ov.MaxDepth, BudgetUSD: ov.BudgetUSD, BudgetCredits: ov.BudgetCredits}
+	if r.ov, err = r.ov.Derive(limits, agentconfig.HopFallback); err != nil {
+		return err
+	}
+	if !r.flagRoute && (!r.ovTyped || r.typedOv.Route().IsZero()) {
+		r.ov.Endpoint = cmp.Or(r.ov.Endpoint, ov.Endpoint)
+		r.ov.Account = cmp.Or(r.ov.Account, ov.Account)
+	}
+	if !helptext.Explicit(r.fs, "as") { // --as is what reaches the credentials: a typed overlay's beats the record's
+		r.f.as = cmp.Or(typed.Identity, rec.Request.Identity)
+		if !r.flagRoute { // a typed route is a new unit: the recorded unit's identity stays with it
+			r.f.as = cmp.Or(r.f.as, ov.Identity)
+		}
+	}
+	return nil
+}
+
+func (r *askRun) flagOverlayKeys() []string {
+	var keys []string
+	for _, name := range r.f.cli {
+		if k, ok := askKeys[name]; ok {
+			keys = append(keys, k)
+		}
+	}
+	return keys
 }
 
 // askState is the askTarget plus the flag pointers --retry resets or --job clears.
@@ -561,16 +614,22 @@ type askState struct {
 	modelTyped   *bool   // --model typed on this command line or in the --job/--retry record
 	timeoutTyped *bool   // --timeout typed on this command line or in the --job/--retry record
 	lead         *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	retype       func()  // sets the typed --overlay's keys again: a --retry re-parse put the record's values there
 	// the --job/--retry record's request: its rotation and fallback-default marks
 	replayed *agent.RunOptions
 }
 
-// askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
-func askTimeout(fs *flag.FlagSet, timeout time.Duration, retry, job string, tools bool) time.Duration {
-	if retry == "" && job == "" && tools && !helptext.Explicit(fs, "timeout") {
+// askTimeout is the deadline: a fresh --tools run with neither --timeout nor an overlay timeout gets 15m.
+func askTimeout(fs *flag.FlagSet, ov agentconfig.Overlay, timeout time.Duration, retry, job string, tools bool) time.Duration {
+	if retry == "" && job == "" && tools && !timeoutHeld(fs, ov) {
 		return agent.DefaultToolsTimeout
 	}
 	return timeout
+}
+
+// timeoutHeld reports a typed --timeout or an overlay timeout: the tools default never replaces it.
+func timeoutHeld(fs *flag.FlagSet, ov agentconfig.Overlay) bool {
+	return ov.Timeout != "" || helptext.Explicit(fs, "timeout")
 }
 
 // loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
@@ -585,7 +644,9 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	if err != nil {
 		return nil, failAsk(format, *s.Name, err), true
 	}
-	s.Apply(r, os.Stderr)
+	if err := s.Apply(r, os.Stderr); err != nil {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
 	*s.modelTyped, *s.timeoutTyped = r.Request.ModelTyped, r.Request.TimeoutTyped
 	*s.lead, *s.replayed = r.Request.Lead, r.Request // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
@@ -603,12 +664,17 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 		return ctx, failAsk(format, *s.Name, err), true
 	}
 	// The logged request wins; only flags typed on this command line override it.
-	s.Apply(rec, os.Stderr)
+	if err := s.Apply(rec, os.Stderr); err != nil {
+		return ctx, failAskCode(format, *s.Name, err, 2), true
+	}
 	*s.modelTyped, *s.timeoutTyped = rec.Request.ModelTyped, rec.Request.TimeoutTyped
-	*s.lead, *s.replayed = rec.Request.Lead, rec.Request // the routed lead is not a flag: the replay leads with it
+	*s.lead, *s.replayed = replayedProfile(rec.Request.Lead, *s.Coworker), rec.Request // the routed lead is not a flag: the replay leads with it
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return ctx, failAskCode(format, *s.Name, err, 2), true
+	}
+	if s.retype != nil { // before the cut-off move and the plan read them, like the flags just re-parsed
+		s.retype()
 	}
 	if err := retryWorkdir(fs, s.Workdir, *s.Host, rec); err != nil {
 		return ctx, failAskCode(format, *s.Name, err, 2), true
@@ -784,13 +850,9 @@ func resolveOverlay(ov agentconfig.Overlay, env, keep []string, background bool)
 	return agentconfig.ResolveOverlay(ov)
 }
 
-// overlayLocal refuses an overlay's env layer or budget on --live or --host; routing keys and limits pass.
+// overlayLocal refuses an overlay's env layer, budget, codexNetwork or cloud on --live or --host; the rest pass.
 func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
 	if !live && host == "" {
-		return nil
-	}
-	ov.MaxChildren, ov.MaxTreeTokens, ov.MaxDepth, ov.Fence, ov.Codemode = nil, nil, nil, nil, "" // these bind nested dispatches, which a remote run still gets
-	if ov.Empty() {
 		return nil
 	}
 	var keys []string
@@ -805,6 +867,9 @@ func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
 	}
 	if ov.BudgetUSD != nil || ov.BudgetCredits != nil {
 		keys = append(keys, "budgetUSD/budgetCredits")
+	}
+	if len(keys) == 0 {
+		return nil
 	}
 	return errors.New("overlay " + strings.Join(keys, "/") + " cannot reach --live or --host: run the agent locally")
 }
@@ -864,7 +929,7 @@ func checkTypedRoute(f *askFlags, envOverlay string) error {
 	if strings.Contains(f.provider+f.profile, ":") || route.ColonForm(f.overlay) || route.ColonForm(envOverlay) {
 		return errors.New("the provider:profile form is not accepted: " + routeForms)
 	}
-	if cmp.Or(f.overlay, envOverlay, f.spec, f.host, f.job, f.retry, f.batchSrc) != "" || f.native {
+	if cmp.Or(f.overlay, envOverlay, f.host, f.job, f.retry, f.batchSrc) != "" || f.native {
 		return nil
 	}
 	reg, err := providers.Load()
@@ -885,8 +950,13 @@ func checkRoutePair(reg *providers.Registry, provider, profile string) error {
 	return nil
 }
 
-// flagConflict refuses a typed flag setting a key of the --overlay on the same command line to another value.
+// flagConflict refuses a typed flag setting a key of a batch line's overlay to another value.
 func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
+	return cmp.Or(unitConflict(f, fr, ov), settingConflict(fs, ov))
+}
+
+// unitConflict refuses a typed route flag naming another unit than the --overlay; a per-run flag beats its key instead.
+func unitConflict(f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
 	or := ov.Route()
 	name, val := "--profile", f.profile
 	if f.profile == "" {
@@ -901,7 +971,7 @@ func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.
 			return fmt.Errorf("%s %s conflicts with overlay %s %s", c.flag, c.val, c.key, c.ov)
 		}
 	}
-	return settingConflict(fs, ov)
+	return nil
 }
 
 // settingConflict refuses a typed --model, --effort, --fallback, --host or --runner that differs from its overlay key.
@@ -927,8 +997,10 @@ func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
 type recoverKey struct{}
 
 type recoverClaim struct {
-	from string
-	held bool
+	from  string
+	nonce string // the claim's attempt: this run's own, or the watchdog's, handed down in ResumeNonceEnv
+	held  bool
+	err   error // a failed adoption: the run must not start (startAsk reads it)
 }
 
 func recoverOf(ctx context.Context) *recoverClaim {
@@ -936,7 +1008,7 @@ func recoverOf(ctx context.Context) *recoverClaim {
 	return c
 }
 
-// claimRecover takes the one recovery claim on dispatch id (an O_EXCL marker); the loser learns the winner's id.
+// claimRecover takes the one recovery claim on a dispatch, or joins the watchdog's launching one by its nonce.
 func claimRecover(ctx context.Context) error {
 	c := recoverOf(ctx)
 	if c == nil {
@@ -946,52 +1018,36 @@ func claimRecover(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if rec.Alive() {
-		return checkResumable(rec)
-	}
-	if _, err := agent.ResendGate(rec.ID); err != nil { // the gate every automatic re-send passes, re-read at launch
-		return err
-	}
-	marker := agent.WatchMarker("resumed", rec.ID)
-	if marker == "" {
-		return fmt.Errorf("dispatch id %q cannot be claimed", rec.ID)
-	}
-	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		if id, _ := agent.ResumedAs(rec.ID); id != "" {
-			return fmt.Errorf("dispatch %s already recovered as %s", rec.ID, id)
+	if nonce := os.Getenv(agent.ResumeNonceEnv); nonce != "" {
+		_ = proc.Unsetenv(agent.ResumeNonceEnv) // this run adopts it once; its children never inherit it
+		if !rec.ClaimedBy(nonce) {
+			return fmt.Errorf("dispatch %s: the watchdog's claim is gone", c.from)
 		}
-		return fmt.Errorf("dispatch %s is already being recovered by another session", rec.ID)
+		c.nonce, c.held = nonce, true
+		return nil
+	}
+	got, nonce, err := agent.ClaimResend(rec.ID) // gate and claim in one record-lock section (10.4)
+	if errors.Is(err, agent.ErrHolderLive) {
+		return cmp.Or(checkResumable(got), err)
 	}
 	if err != nil {
 		return err
 	}
-	c.held = true
-	return f.Close()
+	c.nonce, c.held = nonce, true
+	return nil
 }
 
-// finishRecover records the new dispatch id in the claim marker of a --recover run.
+// finishRecover adopts the claim as the new dispatch id before anything starts; a failure is kept in c.err.
 func finishRecover(ctx context.Context, id string) {
 	if c := recoverOf(ctx); c != nil && c.held {
-		if m := agent.WatchMarker("resumed", c.from); m != "" {
-			_ = os.WriteFile(m, []byte(id+"\n"), 0o600)
-		}
+		c.err = agent.AdoptResend(c.from, c.nonce, id)
 	}
 }
 
-// releaseRecover drops a --recover claim that never got a dispatch id, so a failed start can be retried.
+// releaseRecover drops a --recover claim this run took and never adopted, so a failed start can be retried.
 func releaseRecover(ctx context.Context) {
-	c := recoverOf(ctx)
-	if c == nil || !c.held {
-		return
-	}
-	if m := agent.WatchMarker("resumed", c.from); m != "" {
-		if b, err := os.ReadFile(m); err == nil && len(strings.TrimSpace(string(b))) == 0 {
-			_ = os.Remove(m)
-		}
+	if c := recoverOf(ctx); c != nil && c.held {
+		_ = agent.ReleaseResend(c.from, c.nonce) // an adopted or watchdog-launching claim is not this run's to drop
 	}
 }
 
@@ -1043,7 +1099,7 @@ func planTaskCheck(f *askFlags) error {
 // contractHostCheck refuses a spec contract on --host: its lane, gate and proxy terms are observed on this machine.
 func contractHostCheck(f *askFlags) error {
 	if f.contract != nil && f.host != "" {
-		return errors.New("spec key contract cannot run with --host: its terms are observed on this machine")
+		return errors.New("brief key contract cannot run with --host: its terms are observed on this machine")
 	}
 	return nil
 }

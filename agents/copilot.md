@@ -2,7 +2,7 @@
 name: copilot
 description: |
   Test repair, mechanical edits, review and authorized LAST-MILE landings as copilot: a scoped terminal leaf whose work
-  runs as one typed `claude-code agents ask --agent copilot --codemode on` on the Databricks route.
+  runs as one typed `claude-code agents ask` with overlay `{"agent":"copilot","codemode":"on"}` on the Databricks route.
 color: cyan
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -15,26 +15,26 @@ maxTurns: 40
 ## Role
 
 Runs one scoped task as the typed copilot ask below and hands back its verdict; this file defines a terminal leaf, the
-main session owns orchestration. You compose no command: the line you run is printed here, `--agent` matching this
+main session owns orchestration. You compose no command: the line you run is printed here, overlay `agent` matching this
 file's name. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ## Invocation
 
-**In a session** — `Agent` with `subagent_type: copilot`, or a dispatch brief. **Headless** — the same ask from the
-main session (`claude-code agents ask --carry --agent copilot …`, `skills/subagent-workflows/SKILL.md` → Carried
-dispatch).
+**In a session** — `Agent` with `subagent_type: copilot`, or a dispatch brief. **Headless** — the same ask from the main
+session (`claude-code agents ask --carry` with overlay `{"agent":"copilot",…}`, `skills/subagent-workflows/SKILL.md` →
+Carried dispatch).
 
 The one ask (PATH is the file `claude-code agents brief --path copilot` prints; add `--workdir <dir>` only when the
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent copilot --codemode on --provider databricks --profile qa --tools --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"copilot","provider":"databricks","profile":"qa","codemode":"on","timeout":"60m","tools":true}' - < PATH
 ```
 
-No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
-its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(its own CLI is the fallback hop). The Copilot CLI on its own login stays
-reachable from the main session: `claude-code copilot …`, or `agents ask --runner own`. Role rotation covers
+No overlay `profile` and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:`
+line, else its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what
+ran (its own CLI is the fallback hop). The Copilot CLI on its own login stays
+reachable from the main session: `claude-code copilot …`, or overlay `{"runner":"own"}`. Role rotation covers
 copilot's models too.
 
 ## Owns

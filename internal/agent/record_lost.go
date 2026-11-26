@@ -49,14 +49,7 @@ func (r Record) processGone() bool {
 	if r.Status != "running" || r.PID <= 0 {
 		return false
 	}
-	if !r.Alive() {
-		return true
-	}
-	if r.PIDStart == "" {
-		return false
-	}
-	got, err := proc.StartTime(r.PID)
-	return err == nil && got != r.PIDStart
+	return !identityLive(r.PID, r.PIDStart)
 }
 
 // reapLost marks a dead running record as lost under its lock.
@@ -74,7 +67,9 @@ func reapLost(r Record) Record {
 				c.Error += "; worker " + rc
 			}
 		}
-		c.NoteHealth(nil) // a lost run is a failed attempt, counted before its record is visible
+		if !c.cancelled() { // a deliberate cancel is no failed attempt
+			c.NoteHealth(nil) // a lost run is a failed attempt, counted before its record is visible
+		}
 		return c, true
 	})
 	if err != nil {

@@ -437,17 +437,25 @@ func bareArm(ctx context.Context, profile string) string {
 	return ""
 }
 
+// flagFence refuses a --profile, --provider or --direct that leaves the inherited overlay, naming the flag.
+func flagFence(ctx context.Context, profile, provider string, direct bool) error {
+	if arm := router.ArmProfileContext(ctx); arm != "" {
+		return armFlags(arm, profile, provider, direct)
+	}
+	return confineFlags(ctx, profile, provider)
+}
+
 // CheckArm refuses a prefixed model, and a flag taking the dispatch out of an overlay's provider[:profile].
 func CheckArm(ctx context.Context, agentName, profile, provider, model string, direct bool) error {
 	if err := providers.CheckModelShared(model); err != nil { // every typed, spec, batch-line and --retry model meets it
 		return err
 	}
+	if err := flagFence(ctx, profile, provider, direct); err != nil {
+		return err
+	}
 	arm := router.ArmProfileContext(ctx)
 	if arm == "" {
-		return confineFlags(ctx, profile, provider)
-	}
-	if err := armFlags(arm, profile, provider, direct); err != nil {
-		return err
+		return nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
@@ -555,7 +563,7 @@ func overlayEgress(ctx context.Context, h string) (context.Context, error) {
 
 // carryOverlay is ctx with the loaded document for --job relaunches as JSON, its remote and confinement resolved.
 func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context, error) {
-	if !ov.Routed() && ov.Empty() {
+	if !ov.Routed() && ov.Empty() && proc.Value(ctx, route.OverlayVar) == "" { // an emptied overlay still replaces the old document
 		return ctx, nil
 	}
 	if ov.Remote != "" {
@@ -607,5 +615,9 @@ func recoveryFence(ctx context.Context, id string) (context.Context, error) {
 	if pf := parent.RoutePlan; pf != nil { // a recorded fence is restored as is, a closed empty one stays closed
 		return proxy.WithFence(ctx, pf.Fence.Profiles, pf.Fence.Open), nil
 	}
-	return ApplyRoute(ctx, parent.Route, "", rec.Agent, "", route.FallbackAgents)
+	ov, _, err := parent.ReplayOverlay(nil, agentconfig.Overlay{})
+	if err != nil {
+		return ctx, fmt.Errorf("recovery parent %s: %w", rec.Parent, err)
+	}
+	return ApplyRoute(ctx, ov.Route(), "", rec.Agent, "", route.FallbackAgents)
 }

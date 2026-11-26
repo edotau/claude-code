@@ -360,8 +360,10 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 
 // AskWords is an ask command line parsed by helptext.ParseArgs, the parser `agents ask` itself runs.
 type AskWords struct {
-	fs  *flag.FlagSet
-	Pos []string // the task words
+	fs        *flag.FlagSet
+	Pos       []string // the task words
+	overlay   map[string]any
+	overlayOK bool
 }
 
 // askBoolFlags are ask's boolean flags; every other registered flag takes a value (a test pins both lists to ask's).
@@ -379,11 +381,48 @@ func ParseAskWords(words []string) (AskWords, bool) {
 		fs.String(n, "", "")
 	}
 	pos, err := helptext.ParseArgs(fs, words)
-	return AskWords{fs, pos}, err == nil
+	a := AskWords{fs: fs, Pos: pos}
+	raw := strings.TrimSpace(a.last("overlay"))
+	a.overlayOK = strings.HasPrefix(raw, "{") && json.Valid([]byte(raw))
+	if a.overlayOK {
+		dec := json.NewDecoder(strings.NewReader(raw))
+		if _, err := dec.Token(); err != nil {
+			return a, false
+		}
+		a.overlay = map[string]any{}
+		for dec.More() {
+			key, err := dec.Token()
+			var value any
+			if err != nil || dec.Decode(&value) != nil {
+				return a, false
+			}
+			for _, name := range overlayRead {
+				if strings.EqualFold(key.(string), name) {
+					_, isString := value.(string)
+					a.overlayOK = a.overlayOK && isString
+					a.overlay[name] = value
+					break
+				}
+			}
+		}
+	}
+	return a, err == nil
 }
 
-// Value is the last typed value of flag name, "" when untyped.
+// overlayRead are the flags whose value a hook may also read from an inline --overlay key of the same name.
+var overlayRead = []string{"agent", "timeout", "profile", "provider", "model", "tier"}
+
+// Value keeps a typed flag over its overlay key, including an explicitly empty flag.
 func (a AskWords) Value(name string) string {
+	if a.Has(name) {
+		return a.last(name)
+	}
+	v, _ := a.overlay[name].(string)
+	return v
+}
+
+// last is the last typed value of flag name, "" when untyped.
+func (a AskWords) last(name string) string {
 	v := ""
 	a.fs.Visit(func(f *flag.Flag) {
 		if f.Name == name {
@@ -410,7 +449,7 @@ func (a AskWords) Prompt() string {
 
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
 	"attach keep-env env overlay system-prompt append-system-prompt output-schema timeout host " +
-	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec " +
+	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec brief " +
 	"loop-rounds loop-planner loop-budget-tokens loop-resume waves wave gate profiles codemode runner tier plan-task google-tools")
 
 // MaxBashTimeout is the host's Bash tool ceiling; waitMargin lets `agents wait` exit 4 before the tool kills it.
@@ -495,8 +534,8 @@ func timeoutFlag(words []string) time.Duration {
 	return d
 }
 
-// OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
-func OverlayArgs(profile, model, identity, account string) []string {
+// OverlayArgs is the ask argv for an agent, profile and plain model: one --overlay, plus --profile when unknown.
+func OverlayArgs(agent, profile, model, identity, account string) []string {
 	t := overlayTarget(profile, model)
 	switch t.Provider {
 	case "databricks":
@@ -505,10 +544,10 @@ func OverlayArgs(profile, model, identity, account string) []string {
 		t.Account = account
 	case "":
 		if t.Profile != "" { // no registry row: ask resolves the name and refuses it if unknown
-			return append([]string{"--profile", t.Profile}, overlayFlag(route.Target{Model: t.Model})...)
+			return append([]string{"--profile", t.Profile}, overlayFlag(agent, route.Target{Model: t.Model})...)
 		}
 	}
-	return overlayFlag(t)
+	return overlayFlag(agent, t)
 }
 
 // overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
@@ -525,9 +564,11 @@ func overlayTarget(profile, model string) route.Target {
 	return t
 }
 
-func overlayFlag(t route.Target) []string {
-	if t.IsZero() && t.Model == "" {
-		return nil
+func overlayFlag(agent string, t route.Target) []string {
+	o := agentconfig.OverlayOf(t.Route, t.Model)
+	o.Agent = agent
+	if doc := o.Doc(); doc != "" {
+		return []string{"--overlay", doc}
 	}
-	return []string{"--overlay", agentconfig.OverlayOf(t.Route, t.Model).Doc()}
+	return nil
 }

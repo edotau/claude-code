@@ -102,6 +102,11 @@ func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.V
 	if fromEnv {
 		values = withAncestorDispatch(values) // an env wipe inside a leaf must not make a top-level dispatch
 	}
+	for name := range values {
+		if proc.EnvNameEqual(name, ResumeNonceEnv) {
+			delete(values, name) // adoption reads the ambient capability once; run snapshots must not re-inject it
+		}
+	}
 	return proc.WithValues(ctx, values), values.Merge(nil)
 }
 

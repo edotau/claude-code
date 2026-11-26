@@ -48,6 +48,12 @@ func dropLaunchOwned(env []string) []string {
 }
 
 func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
+	if reg, rerr := providers.Load(); rerr == nil {
+		var err error
+		if ctx, err = agent.ApplyLaunchOverlay(ctx, reg, &o, true); err != nil {
+			return agent.Plan{}, err
+		}
+	}
 	reg, sel, err := agent.SessionSelection(o, true)
 	if err != nil {
 		return agent.Plan{}, err
@@ -69,7 +75,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
-	proxied := sel.NeedsRouter(reg) || armedHop(ctx, p, args)
+	proxied := useRouter(ctx, reg, sel, args)
 	helper, overlayPath, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
@@ -202,13 +208,16 @@ func typesEffort(args []string) bool {
 	return false
 }
 
-// keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution
+// keepShellEndpoint lets a fresh shell ANTHROPIC_MODEL or ANTHROPIC_BASE_URL win over the vault resolution.
 func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOptions) {
+	if o.Resumed {
+		return // a resumed session keeps its saved launch overlay, never the opening terminal's env
+	}
 	keep := []string{proc.EnvAnthropicBaseURL}
 	if o.Model == "" && proc.Value(ctx, providers.EnvSessionProfile) == "" { // a parent session's own model is not the user's
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
-	if o.Dispatch && o.Asked { // a profile the dispatch named owns the endpoint; the caller's own base never overrides it
+	if o.Dispatch && (o.Asked || o.Route.Endpoint != "") { // a dispatch unit owns the endpoint; caller base never overrides
 		keepShellKeys(ctx, plan, keep[1:], false)
 		return
 	}
@@ -563,6 +572,14 @@ func sessionProviders(sel providers.Selection) []*providers.Provider {
 	return out
 }
 
+// useRouter: the unit's proxy endpoint, else the row's need (an empty endpoint keeps the row's default).
+func useRouter(ctx context.Context, reg *providers.Registry, sel providers.Selection, args []string) bool {
+	if unit, err := agent.RunUnit(ctx); err == nil && unit.Endpoint == agent.EndpointProxy {
+		return true
+	}
+	return sel.NeedsRouter(reg) || armedHop(ctx, sel.Provider, args)
+}
+
 // armedHop: a headless launch on the armed profile uses /p/<p> even when NeedsRouter would leave it direct.
 func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
 	arm := router.ArmProfileContext(ctx)
@@ -587,7 +604,15 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 			name += "-as-" + id
 		}
 	}
-	if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
+	if unit, uerr := agent.RunUnit(ctx); uerr == nil && unit.Endpoint != "" {
+		ep, eerr := agent.EndpointURL(ctx, p, unit, providers.ProtocolAnthropic)
+		if eerr != nil {
+			return "", "", eerr
+		}
+		if ep.Base != "" && ep.Base != defaultAnthropicBase {
+			plan.Set[proc.EnvAnthropicBaseURL] = ep.Base
+		}
+	} else if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
 		plan.Set[proc.EnvAnthropicBaseURL] = route
 	}
 	if h := providers.HeaderLines(p.Headers); h != "" {

@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -106,25 +104,17 @@ func TestMemoryShadowRebuild(t *testing.T) {
 
 func TestMemoryStore(t *testing.T) {
 	memCfg(t)
-	oldExp := memory.ExportBeforeFlip
-	t.Cleanup(func() { memory.ExportBeforeFlip = oldExp })
-	memory.ExportBeforeFlip = nil
-	if out := memCLIOK(t, "store"); out != "truth: db\n" {
-		t.Fatalf("show = %q", out)
-	}
-	if out := memCLIOK(t, "store", "--truth", "db"); out != "truth: db\n" {
-		t.Fatalf("set db = %q", out)
+	for _, args := range [][]string{{"store"}, {"store", "--truth", "db"}} {
+		if out := memCLIOK(t, args...); out != "truth: db\n" {
+			t.Fatalf("%v = %q", args, out)
+		}
 	}
 	code, _, stderr := memCLI(t, "store", "--truth", "files")
-	if code != 1 || !strings.Contains(stderr, "export unavailable") || memory.Truth() != "db" {
-		t.Fatalf("set files without exporter: code %d stderr %q truth %s", code, stderr, memory.Truth())
-	}
-	memory.ExportBeforeFlip = func() error { return nil }
-	if out := memCLIOK(t, "store", "--truth", "files"); out != "truth: files\n" {
-		t.Fatalf("set files = %q", out)
+	if code != 1 || !strings.Contains(stderr, "retired") {
+		t.Fatalf("set files: code %d stderr %q, want a refusal", code, stderr)
 	}
 	for _, bad := range []string{"bogus", ""} {
-		if code, _, stderr := memCLI(t, "store", "--truth="+bad); code != 2 || !strings.Contains(stderr, "want files or db") {
+		if code, _, stderr := memCLI(t, "store", "--truth="+bad); code != 2 || !strings.Contains(stderr, "want db") {
 			t.Fatalf("bad value %q: code %d stderr %q", bad, code, stderr)
 		}
 	}
@@ -729,39 +719,33 @@ func TestMemoryUpdateCatchupDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestSyncOffExitsUsage(t *testing.T) {
+func TestRetiredMemoryVerbsExitUsage(t *testing.T) {
+	memCfg(t)
+	for _, verb := range []string{"import", "fetch"} {
+		code, _, stderr := memCLI(t, verb, "--from", t.TempDir())
+		if code != 2 || !strings.Contains(stderr, "memory "+verb+": retired") || !strings.Contains(stderr, "memory syncs with `claude-code memory sync`") {
+			t.Errorf("memory %s: code %d, stderr %q; want 2 naming memory sync", verb, code, stderr)
+		}
+	}
+}
+
+func TestMemorySyncOffExitsUsage(t *testing.T) {
 	memCfg(t)
 	t.Setenv("NETWORK_MEMORY", "")
-	if code, _, stderr := memCLI(t, "import", "--sync", "--host", "peer.example"); code != 2 || !strings.Contains(stderr, memory.SyncOffMsg) {
+	if code, _, stderr := memCLI(t, "sync", "--host", "peer.example"); code != 2 || !strings.Contains(stderr, memory.SyncOffMsg) {
 		t.Fatalf("code %d, stderr %q; want 2 and the opt-in hint", code, stderr)
 	}
 }
 
-func TestImportReplaceFile(t *testing.T) {
+func TestMemorySyncServeIsHiddenAndTyped(t *testing.T) {
 	memCfg(t)
-	t.Setenv("HOME", t.TempDir())
-	memInit(t)
-	memMust(t, memory.StoreRepo().Ensure())
-	note := filepath.Join(paths.MemoryStoreDir(), "notes", "local.md")
-	memMust(t, os.MkdirAll(filepath.Dir(note), 0o700))
-	memMust(t, os.WriteFile(note, []byte("local\n"), 0o600))
-	src := t.TempDir()
-	memMust(t, os.WriteFile(filepath.Join(src, ".layout"), []byte("flat 4\n"), 0o600))
-	memMust(t, os.MkdirAll(filepath.Join(src, "notes"), 0o700))
-	memMust(t, os.WriteFile(filepath.Join(src, "notes", "local.md"), []byte("remote\n"), 0o600))
-	list := filepath.Join(t.TempDir(), "replace")
-	for _, c := range []struct{ seen, want string }{
-		{"stale\n", "conflict notes/local.md: kept local"},
-		{"local\n", "replace notes/local.md"},
-	} {
-		sum := sha256.Sum256([]byte(c.seen))
-		memMust(t, os.WriteFile(list, []byte(hex.EncodeToString(sum[:])+"  notes/local.md\n"), 0o600))
-		if out := memCLIOK(t, "import", "--from", src, "--topics", "--replace", list); !strings.Contains(out, c.want) {
-			t.Fatalf("seen %q: output %q; want %q", c.seen, out, c.want)
-		}
+	if _, _, help := memCLI(t, "sync", "-h"); strings.Contains(help, "serve") || strings.Contains(help, "since") {
+		t.Errorf("help lists the hidden serve flags: %q", help)
 	}
-	if b, _ := os.ReadFile(note); string(b) != "remote\n" {
-		t.Fatalf("after a matching hash the note holds %q, want the source's", b)
+	for _, args := range [][]string{{"--serve", "bogus"}, {"--serve", "export", "--since", "a=1;rm -rf /"}, {"--serve", "import", "--since", "a=1"}} {
+		if code, _, _ := memCLI(t, append([]string{"sync"}, args...)...); code != 2 {
+			t.Errorf("sync %v: code %d, want 2", args, code)
+		}
 	}
 }
 
@@ -1079,5 +1063,34 @@ func TestMemorySearchRecallTiming(t *testing.T) {
 				t.Fatalf("disabled run printed timing: %q %q", out2, stderr2)
 			}
 		})
+	}
+}
+
+func TestMemoryUpgradeIsGoneAndExitsTwo(t *testing.T) {
+	memCfg(t)
+	code, _, stderr := memCLI(t, "upgrade")
+	if code != 2 || !strings.Contains(stderr, "the store is the database now") {
+		t.Errorf("memory upgrade: code=%d stderr=%q, want exit 2 naming the database", code, stderr)
+	}
+	if helpPageHasCommand(memoryPage, "upgrade") || strings.Contains(memoryPage.Hint, "upgrade") {
+		t.Error("memoryPage still lists upgrade")
+	}
+}
+
+func TestMemoryServeImportReportsBusyBeforeReading(t *testing.T) {
+	memCfg(t)
+	memInit(t)
+	old := memory.BankLockWait
+	memory.BankLockWait = 20 * time.Millisecond
+	t.Cleanup(func() { memory.BankLockWait = old })
+	err := memory.WithBankLock(time.Second, func() error {
+		code, _, stderr := memCLI(t, "sync", "--serve", "import")
+		if code != memory.ImportBusyExit || !strings.Contains(stderr, "busy") {
+			t.Errorf("busy serve: exit %d, stderr %q", code, stderr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

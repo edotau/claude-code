@@ -22,11 +22,17 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// launchFacts is what a session was launched on, kept per session id so a resume comes back on it.
-type launchFacts struct {
+// legacyLaunchFacts reads pre-5.1 session-launch files where fence was stored as a JSON string.
+type legacyLaunchFacts struct {
 	Profile string `json:"profile"`
 	Model   string `json:"model,omitempty"`
-	Fence   string `json:"fence,omitempty"` // the confinement doc in force at launch, a leaf's fence
+	Fence   string `json:"fence,omitempty"`
+}
+
+// sessionRecord is the launch overlay saved per session id, plus any legacy fence doc from pre-5.1 files.
+type sessionRecord struct {
+	ov       agentconfig.Overlay
+	fenceDoc string
 }
 
 var sessionIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -83,41 +89,85 @@ func newSessionID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
-// prepareSession fills opts from a resume's record (typed flags win), else names a new id; gap: --opt --resume
-func prepareSession(opts *agent.LaunchOptions, args []string) (rest []string, id string, pin *launchFacts) {
+// prepareSession derives opts from a resume's saved launch overlay (typed flags win), else names a new id.
+func prepareSession(opts *agent.LaunchOptions, args []string) (rest []string, id string, pin *sessionRecord, err error) {
 	if rid := flagArg(args, "-r", "--resume"); rid != "" {
-		if f, ok := readFacts(rid); ok {
-			typed := opts.Provider != "" || opts.Model != "" || opts.Overlay != ""
-			if opts.Provider == "" {
-				opts.Provider = f.Profile
-				opts.Model = cmp.Or(opts.Model, f.Model)
-			}
-			if !typed {
-				pin = &f
-			}
+		rec, readErr := readSessionRecord(rid)
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return args, "", nil, &agent.UsageError{Msg: "session launch record: " + readErr.Error(), Err: readErr}
 		}
-		return args, flagArg(args, "--session-id"), pin // a fork names its own id
+		if readErr == nil {
+			eff, deriveErr := resumeOverlay(rec.ov, *opts)
+			if deriveErr != nil {
+				return args, "", nil, &agent.UsageError{Msg: "session launch record: " + deriveErr.Error(), Err: deriveErr}
+			}
+			opts.Route, opts.Provider, opts.Model, opts.Resumed = eff.Route(), eff.Profile, eff.Model, true
+			rec.ov, rec.fenceDoc = eff, sessionFenceDoc(eff, rec.fenceDoc)
+			pin = &rec
+		}
+		return args, flagArg(args, "--session-id"), pin, nil // a fork names its own id
 	}
 	if id := flagArg(args, "--session-id"); id != "" {
-		return args, id, nil
+		return args, id, nil, nil
 	}
 	if agent.IsHeadless(args) || slices.ContainsFunc(args, func(a string) bool {
 		name, _, _ := strings.Cut(a, "=")
 		return slices.Contains(noFreshID, name) || shortAttached(a, noFreshID) != ""
 	}) {
-		return args, "", nil
+		return args, "", nil, nil
 	}
-	id, err := newSessionID()
+	id, err = newSessionID()
 	if err != nil {
-		return args, "", nil
+		return args, "", nil, nil
 	}
-	return append([]string{"--session-id", id}, args...), id, nil
+	return append([]string{"--session-id", id}, args...), id, nil, nil
 }
 
-// sessionPlan is claudePlan for an interactive launch: a resume comes back on its record, a fresh launch is recorded.
+func resumeOverlay(base agentconfig.Overlay, opts agent.LaunchOptions) (agentconfig.Overlay, error) {
+	var typed, flags agentconfig.Overlay
+	var err error
+	if opts.Overlay != "" {
+		typed, err = agentconfig.LoadOverlayFrom(context.Background(), opts.Overlay, nil, true)
+		if err != nil {
+			return agentconfig.Overlay{}, err
+		}
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return agentconfig.Overlay{}, err
+	}
+	if opts.ProfileFlag {
+		row := reg.Row(opts.Provider)
+		if row == nil {
+			return agentconfig.Overlay{}, fmt.Errorf("unknown profile %q", opts.Provider)
+		}
+		flags.Provider, flags.Profile = row.Provider, row.Name
+	}
+	if opts.ModelFlag {
+		flags.Model = opts.Model
+	}
+	eff, err := base.Derive(typed, agentconfig.HopResume)
+	if err == nil {
+		eff, _, err = agentconfig.ApplyOverlay(reg, nil, flags, agentconfig.Overlay{}, eff)
+	}
+	return eff, err
+}
+
+// sessionPlan builds an interactive launch: a resume derives from its overlay, fresh launches save it.
 func sessionPlan(as string, opts *agent.LaunchOptions, args []string) (agent.Plan, error) {
-	args, id, pin := prepareSession(opts, args)
+	args, id, pin, err := prepareSession(opts, args)
+	if err != nil {
+		return agent.Plan{}, err
+	}
 	ctx := providers.WithIdentity(context.Background(), as)
+	if opts.Resumed {
+		if opts.Route.Endpoint != "" {
+			ctx = agent.WithEndpoint(ctx, opts.Route.Endpoint)
+		}
+		if as == "" && opts.Route.Identity != "" {
+			ctx = providers.WithIdentity(ctx, opts.Route.Identity)
+		}
+	}
 	if pin != nil {
 		opts.Values = pin.env()
 		ctx = proc.WithValues(ctx, opts.Values)
@@ -130,17 +180,73 @@ func sessionPlan(as string, opts *agent.LaunchOptions, args []string) (agent.Pla
 		plan.Values = opts.Values // withOverlay hands the child this snapshot's fence, not the shell's
 	}
 	if id != "" && !opts.PrintEnv {
-		writeFacts(id, launchFacts{Profile: plan.Set[providers.EnvSessionProfile], Model: cmp.Or(opts.Model, agent.MainAlias(*opts)), Fence: fenceOf(ctx)})
+		model := plan.Set["ANTHROPIC_MODEL"]
+		if slices.Contains(plan.Keep, "ANTHROPIC_MODEL") {
+			model = proc.Value(ctx, "ANTHROPIC_MODEL")
+		}
+		savedCtx, err := sessionOverlayContext(ctx, opts.Overlay)
+		if err != nil {
+			return agent.Plan{}, err
+		}
+		r := opts.Route
+		if as != "" {
+			r.Identity = as
+		}
+		if err := writeLaunchOverlay(id, buildSessionOverlay(savedCtx, plan.Set[providers.EnvSessionProfile], cmp.Or(model, opts.Model, agent.MainAlias(*opts)), r)); err != nil {
+			return agent.Plan{}, fmt.Errorf("save session launch record: %w", err)
+		}
 	}
 	return plan, nil
 }
 
+func sessionOverlayContext(ctx context.Context, typed string) (context.Context, error) {
+	if typed == "" {
+		return ctx, nil
+	}
+	base, err := agentconfig.LoadOverlayFrom(ctx, "", nil, false)
+	if err != nil {
+		return ctx, err
+	}
+	add, err := agentconfig.LoadOverlayFrom(ctx, typed, nil, true)
+	if err != nil {
+		return ctx, err
+	}
+	merged, err := base.Derive(add, agentconfig.HopAppend)
+	if err != nil {
+		return ctx, err
+	}
+	return proc.WithValues(ctx, proc.Values{route.OverlayVar: merged.Doc()}), nil
+}
+
+// buildSessionOverlay builds the saved launch overlay: resolved unit, model, and inherited fence/caps.
+func buildSessionOverlay(ctx context.Context, profile, model string, r route.Route) agentconfig.Overlay {
+	ov := agentconfig.Overlay{Model: model}
+	ov.Endpoint, ov.Provider, ov.Profile, ov.Identity, ov.Account = r.Endpoint, r.Provider, profile, r.Identity, r.Account
+	if ov.Provider == "" && profile != "" {
+		if reg, err := providers.Load(); err == nil {
+			if row := reg.Row(profile); row != nil {
+				ov.Provider = row.Provider
+			}
+		}
+	}
+	if inh, err := agentconfig.LoadOverlayContext(ctx, "", nil); err == nil {
+		ov.MaxChildren, ov.MaxTreeTokens, ov.MaxDepth, ov.Runner = inh.MaxChildren, inh.MaxTreeTokens, inh.MaxDepth, inh.Runner
+		if inh.Fence != nil {
+			f := *inh.Fence
+			ov.Fence = &f
+		} else if p, prof, _ := router.OverlayRoute(ctx); p != "" && prof != "" {
+			ov.Fence = &route.Fence{Profiles: []string{prof}}
+		}
+	}
+	return ov
+}
+
 // env drops the terminal's endpoint and swaps its overlay for the record's fence; a live dispatch's overlay stays.
-func (f launchFacts) env() proc.Values {
+func (f sessionRecord) env() proc.Values {
 	v := proc.ValuesFromEnv(os.Environ())
 	v[proc.EnvAnthropicBaseURL] = ""
 	if v[proc.DispatchIDEnv] == "" || v[route.OverlayVar] == "" {
-		v[route.OverlayVar] = f.Fence
+		v[route.OverlayVar] = f.fenceDoc
 	}
 	if v[route.OverlayVar] == "" {
 		delete(v, route.OverlayVar)
@@ -148,53 +254,123 @@ func (f launchFacts) env() proc.Values {
 	return v
 }
 
-// fenceOf is the confinement doc ctx carries (provider, profile and inherited caps, never the env layer).
-func fenceOf(ctx context.Context) string {
-	provider, profile, _ := router.OverlayRoute(ctx)
-	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
-	return agentconfig.Overlay{Provider: provider, Profile: profile, MaxChildren: o.MaxChildren, MaxTreeTokens: o.MaxTreeTokens, Runner: o.Runner}.Doc()
-}
-
-// NoteSession records the launch facts of a session the launcher never named (/clear, a fork) from the hook's env.
+// NoteSession records the launch overlay of a session the launcher never named (/clear, a fork) from the hook's env.
 func NoteSession(id string) {
 	profile := os.Getenv(providers.EnvSessionProfile)
 	if profile == "" || !sessionIDRE.MatchString(id) {
 		return
 	}
-	writeFacts(id, launchFacts{Profile: profile, Model: os.Getenv("ANTHROPIC_MODEL"), Fence: fenceOf(context.Background())})
+	if err := writeLaunchOverlay(id, buildSessionOverlay(context.Background(), profile, os.Getenv("ANTHROPIC_MODEL"), route.Route{})); err != nil {
+		fmt.Fprintf(os.Stderr, "save session launch record: %v\n", err)
+	}
 }
 
-// readFacts is id's record when it names a profile still in the registry; anything else falls back to today's launch.
-func readFacts(id string) (launchFacts, bool) {
-	var f launchFacts
+// readFacts returns id's saved launch overlay when its profile is still in the registry.
+func readFacts(id string) (agentconfig.Overlay, bool) {
+	rec, err := readSessionRecord(id)
+	return rec.ov, err == nil
+}
+
+func readSessionRecord(id string) (sessionRecord, error) {
 	data, err := os.ReadFile(factsPath(id))
-	if err != nil || json.Unmarshal(data, &f) != nil || f.Profile == "" {
-		return f, false
+	if err != nil {
+		return sessionRecord{}, err
+	}
+	var ov agentconfig.Overlay
+	var fenceDoc string
+	var header struct {
+		Provider string          `json:"provider"`
+		Endpoint json.RawMessage `json:"endpoint"`
+		Identity json.RawMessage `json:"identity"`
+		Account  json.RawMessage `json:"account"`
+		Fence    json.RawMessage `json:"fence"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return sessionRecord{}, err
+	}
+	if header.Provider == "" && (len(header.Endpoint) > 0 || len(header.Identity) > 0 || len(header.Account) > 0) {
+		return sessionRecord{}, fmt.Errorf("provider is missing from the recorded route")
+	}
+	if header.Provider == "" || len(header.Fence) > 0 && header.Fence[0] == '"' {
+		ov, fenceDoc, err = readLegacyLaunch(data)
+	} else {
+		ov, err = agentconfig.LoadOverlayFrom(context.Background(), string(data), nil, false)
+	}
+	if err != nil {
+		return sessionRecord{}, err
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return f, false
+		return sessionRecord{}, err
 	}
-	_, err = reg.Get(f.Profile)
-	return f, err == nil
+	row, err := reg.Get(ov.Profile)
+	if err != nil {
+		return sessionRecord{}, err
+	}
+	if ov.Provider == "" {
+		ov.Provider = row.Provider
+	} else if ov.Provider != row.Provider {
+		return sessionRecord{}, fmt.Errorf("profile %s no longer belongs to provider %s", ov.Profile, ov.Provider)
+	}
+	return sessionRecord{ov: ov, fenceDoc: sessionFenceDoc(ov, fenceDoc)}, nil
 }
 
-// writeFacts stores what a session was started on; best effort, a failed write only costs the resume pin.
-func writeFacts(id string, f launchFacts) {
+func readLegacyLaunch(data []byte) (agentconfig.Overlay, string, error) {
+	var legacy legacyLaunchFacts
+	if err := json.Unmarshal(data, &legacy); err != nil || legacy.Profile == "" {
+		return agentconfig.Overlay{}, "", fmt.Errorf("invalid legacy record")
+	}
+	ov := agentconfig.Overlay{Profile: legacy.Profile, Model: legacy.Model}
+	if legacy.Fence == "" {
+		return ov, "", nil
+	}
+	old, err := agentconfig.LoadOverlayFrom(context.Background(), legacy.Fence, nil, false)
+	if err != nil {
+		return ov, "", err
+	}
+	ov.MaxChildren, ov.MaxTreeTokens, ov.MaxDepth, ov.Runner = old.MaxChildren, old.MaxTreeTokens, old.MaxDepth, old.Runner
+	ov.Fence = old.Fence
+	if ov.Fence == nil && old.Profile != "" {
+		ov.Fence = &route.Fence{Profiles: []string{old.Profile}}
+	}
+	return ov, legacy.Fence, nil
+}
+
+func sessionFenceDoc(ov agentconfig.Overlay, legacy string) string {
+	if ov.Fence == nil && ov.MaxChildren == nil && ov.MaxTreeTokens == nil && ov.MaxDepth == nil && ov.Runner == "" {
+		return legacy
+	}
+	child := agentconfig.Overlay{Fence: ov.Fence, MaxChildren: ov.MaxChildren, MaxTreeTokens: ov.MaxTreeTokens,
+		MaxDepth: ov.MaxDepth, Runner: ov.Runner}
+	if ov.Fence != nil {
+		child.Provider, child.Profile = ov.Provider, ov.Profile
+	}
+	return child.Doc()
+}
+
+// writeLaunchOverlay keeps the first recorded launch for a session.
+func writeLaunchOverlay(id string, ov agentconfig.Overlay) error {
 	path := factsPath(id)
-	if f.Profile == "" {
-		return
+	if ov.Profile == "" {
+		return fmt.Errorf("profile is empty")
 	}
-	if _, err := os.Stat(path); err == nil { // the first launch's facts stay the session's
-		return
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-	data, err := json.Marshal(f)
-	if err != nil || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
-		return
+	data, err := json.Marshal(ov)
+	if err != nil {
+		return err
 	}
-	if paths.AtomicWrite(path, data, 0o600) == nil {
-		pruneFacts(filepath.Dir(path))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
 	}
+	if err := paths.AtomicWrite(path, data, 0o600); err != nil {
+		return err
+	}
+	pruneFacts(filepath.Dir(path))
+	return nil
 }
 
 // pruneEvery spaces the sweeps and is the grace a record gets before its transcript must exist.

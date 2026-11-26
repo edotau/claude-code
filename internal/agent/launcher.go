@@ -13,7 +13,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -219,7 +221,7 @@ func ParseLaunchArgs(args []string, claude bool) (LaunchOptions, []string, error
 
 // RunPlan applies the launch overlay to plan, then prints it (--print-env) or execs it; a *UsageError exits 2.
 func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
-	plan.Agent = name
+	plan.Agent, plan.Unit = name, cmp.Or(plan.Unit, opts.Route)
 	if opts.Values == nil {
 		opts.Values = plan.Values
 	}
@@ -258,8 +260,9 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	if err != nil {
 		return agentconfig.Resolved{}, err
 	}
-	if p, prof, _ := router.OverlayRoute(valuesContext(context.Background(), opts.Values)); opts.Overlay == "" && p != "" && o.Provider == p && o.Profile == prof {
-		o.Provider, o.Profile = "", "" // the inherited confinement, not this launch's routing (withOverlay hands it on)
+	inherited, _, _ := route.ReadDoc(proc.Value(valuesContext(context.Background(), opts.Values), route.OverlayVar)) // auto arm included
+	if opts.Overlay == "" && inherited.Provider != "" && o.Provider == inherited.Provider && o.Profile == inherited.Profile {
+		o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account = "", "", "", "", "" // the inherited unit, not this launch's route
 	}
 	if o.BudgetUSD != nil || o.BudgetCredits != nil { // a budget needs the ask loop to meter it
 		return agentconfig.Resolved{}, errors.New("overlay budgetUSD/budgetCredits apply to agents ask only")
@@ -387,6 +390,83 @@ func profileHintOr(spec Schema, o LaunchOptions, err error) error {
 	return err
 }
 
+// ApplyLaunchOverlay applies --overlay and typed launch flags through ApplyOverlay, updating ctx and o.
+func ApplyLaunchOverlay(ctx context.Context, reg *providers.Registry, o *LaunchOptions, claude bool) (context.Context, error) {
+	if o.Overlay == "" && !o.ProfileFlag && !o.ModelFlag && !o.Direct {
+		return ctx, nil
+	}
+	var typed agentconfig.Overlay
+	if o.Overlay != "" {
+		var err error
+		if typed, err = agentconfig.LoadOverlayContext(valuesContext(ctx, o.Values), o.Overlay, os.Stdin); err != nil {
+			return ctx, &UsageError{Msg: err.Error(), Err: err}
+		}
+	}
+	flags, flagKeys := launchFlagOverlay(reg, *o)
+	eff, _, err := agentconfig.ApplyOverlay(reg, flagKeys, flags, typed, agentconfig.Overlay{})
+	if err != nil {
+		return ctx, &UsageError{Msg: err.Error(), Err: err}
+	}
+	return applyLaunchFields(ctx, reg, o, eff, claude)
+}
+
+func launchFlagOverlay(reg *providers.Registry, o LaunchOptions) (agentconfig.Overlay, []string) {
+	var flags agentconfig.Overlay
+	var keys []string
+	if o.ProfileFlag || o.Direct {
+		keys = append(keys, "unit")
+		flags.Profile = o.Provider
+		if row := reg.Row(o.Provider); row != nil {
+			flags.Provider = row.Provider
+		}
+		if o.Direct {
+			flags.Endpoint = EndpointDirect
+		}
+	}
+	if o.ModelFlag {
+		keys = append(keys, "model")
+		flags.Model = o.Model
+	}
+	return flags, keys
+}
+
+func applyLaunchFields(ctx context.Context, reg *providers.Registry, o *LaunchOptions, eff agentconfig.Overlay, claude bool) (context.Context, error) {
+	if u := eff.Route(); !u.IsZero() {
+		o.Route = u
+		if u.Account != "" && (u.Profile == "" || u.Profile == route.AutoArm) {
+			row := accountRow(reg, u.Account)
+			if row == nil || (u.Provider != "" && row.Provider != u.Provider) {
+				return ctx, &UsageError{Msg: fmt.Sprintf("overlay account %s: no matching provider row", u.Account)}
+			}
+			o.Provider, o.Route.Profile = row.Name, row.Name
+		} else if u.Profile != "" {
+			o.Provider = u.Profile
+		}
+		if u.Endpoint != "" {
+			if claude && u.Endpoint == EndpointDirect {
+				return ctx, &UsageError{Msg: "overlay endpoint direct applies to external agents, not claude"}
+			}
+			ctx, o.Direct = WithEndpoint(ctx, u.Endpoint), u.Endpoint == EndpointDirect
+		}
+		if u.Identity != "" && providers.IdentityFrom(ctx) == "" {
+			ctx = providers.WithIdentity(ctx, u.Identity)
+		}
+	}
+	if eff.Remote != "" {
+		h, err := remote.ResolveAuto(eff.Remote)
+		if err == nil {
+			err = egress.Valid(h)
+		}
+		if err != nil {
+			return ctx, &UsageError{Msg: "overlay remote: " + err.Error(), Err: err}
+		}
+		o.Values = o.Values.With(egress.EnvHost, h)
+		ctx = proc.WithValues(ctx, o.Values)
+	}
+	o.Model = cmp.Or(o.Model, eff.Model)
+	return ctx, nil
+}
+
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	if agentid.Routing(name).NoOwnLogin { // fail closed: such an agent runs only as a guarded dispatch
 		return Plan{}, &UsageError{Msg: name + " has no interactive launch; dispatch with `claude-code agents ask --agent " + name + "`"}
@@ -397,6 +477,11 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	}
 	if authArgs(args) {
 		return plainPlan(spec, args) // signing in needs no model route; resolving one first blocks the very login it needs
+	}
+	if reg, rerr := providers.Load(); rerr == nil {
+		if ctx, err = ApplyLaunchOverlay(ctx, reg, &o, false); err != nil {
+			return Plan{}, err
+		}
 	}
 	args, err = checkedLaunchArgs(spec, o.File, args)
 	if err != nil {
@@ -421,7 +506,9 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	if err != nil {
 		return Plan{}, profileHintOr(spec, o, err)
 	}
-	return cliLaunch(ctx, spec, name, o, args, flagModel, reg, sel)
+	plan, err := cliLaunch(ctx, spec, name, o, args, flagModel, reg, sel)
+	plan.Unit = o.Route // resolved by the overlay and flags here; the caller's copy predates them
+	return plan, err
 }
 
 // routeTyped resolves the typed --model once; every launch below spells from that route.
@@ -469,7 +556,11 @@ func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, a
 		return Plan{}, err
 	}
 	if spec.Eng().NativeRegistry(ctx, target) {
-		plan, err := registryPlan(ctx, spec, reg, target, note, withFlagModel(args, flagModel), o.PrintEnv)
+		rargs := append([]string{"--"}, args...)
+		if flagModel != "" {
+			rargs = append([]string{"--model", flagModel, "--"}, args...)
+		}
+		plan, err := registryPlan(ctx, spec, reg, target, note, rargs, o.PrintEnv)
 		plan.Profile = o.Provider
 		return plan, err
 	}

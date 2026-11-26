@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -173,7 +172,7 @@ func TestApplyOps(t *testing.T) {
 	}
 }
 
-// keepsUntouched requires every entry no result names to keep its bytes (the last may gain a separator).
+// keepsUntouched requires every entry no result names to keep its bytes; only the file's final newline may move.
 func keepsUntouched(t *testing.T, in, out Doc, res []OpResult) {
 	t.Helper()
 	named := map[string]bool{}
@@ -181,10 +180,10 @@ func keepsUntouched(t *testing.T, in, out Doc, res []OpResult) {
 		named[r.ID], named[r.Op.ID] = true, true
 	}
 	for i, e := range in.Entries {
-		if named[e.Ref()] || i == len(in.Entries)-1 {
+		if named[e.Ref()] {
 			continue
 		}
-		if !slices.ContainsFunc(out.Entries, func(o DocEntry) bool { return slices.Equal(o.Lines, e.Lines) }) {
+		if !slices.ContainsFunc(out.Entries, func(o DocEntry) bool { return sameButFinalNewline(o.Lines, e.Lines) }) {
 			t.Errorf("untouched entry %d changed: %q", i, e.Lines)
 		}
 	}
@@ -492,15 +491,6 @@ func toFloat(v any) float64 {
 	return 0
 }
 
-func TestValidateRejectsUpgradeOnlyOps(t *testing.T) {
-	for _, name := range upgradeOnlyOps {
-		err := Batch{Ops: []Op{{Op: name}}}.Validate()
-		if err == nil || !strings.Contains(err.Error(), "upgrade-only") || !strings.Contains(err.Error(), name) {
-			t.Errorf("%s: err = %v", name, err)
-		}
-	}
-}
-
 const legacyB = "## 2026-11-24 — ~~b~~ <!-- id:1a1b2c3d -->\nReplaced by 0a1b2c3d.\n\nbody b\n"
 
 func closeLegacy(t *testing.T, tail, by string) (string, OpResult) {
@@ -548,101 +538,6 @@ func batchStore(t *testing.T) {
 
 var batchAdd = Op{Op: "add", Target: "decisionLog", Title: "n", Text: "t"}
 
-func TestApplyBatchWritesChangedFilesOnly(t *testing.T) {
-	batchStore(t)
-	now := testEnv().Now
-	bad := Op{Op: "update", ID: "ffffffff", Read: "z00000000", Text: "x"}
-	add := batchAdd
-	if _, err := ApplyBatch(Batch{Ops: []Op{add, bad}}, nil, now); err == nil {
-		t.Fatal("want error for failing op")
-	}
-	if got := mustRead(t, Path("decisionLog.md")); got != datedIn {
-		t.Errorf("decisionLog changed on failure:\n%s", got)
-	}
-	rs, err := ApplyBatch(Batch{Ops: []Op{add}}, nil, now)
-	if err != nil || len(rs) != 1 || rs[0].Outcome != DreamOK {
-		t.Fatalf("rs=%+v err=%v", rs, err)
-	}
-	if got := mustRead(t, Path("decisionLog.md")); got == datedIn || !strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("decisionLog not written:\n%s", got)
-	}
-	if got := mustRead(t, Path("conventions.md")); got != bulletsIn {
-		t.Errorf("conventions changed:\n%s", got)
-	}
-}
-
-func TestApplyBatchRollsBackOnDivergence(t *testing.T) {
-	batchStore(t)
-	orig := beforeBatchCommit
-	t.Cleanup(func() { beforeBatchCommit = orig })
-	beforeBatchCommit = func() { write(t, Path("conventions.md"), "edited\n") }
-	conv := Op{Op: "add", Target: "conventions", Text: "three"}
-	if _, err := ApplyBatch(Batch{Ops: []Op{batchAdd, conv}}, nil, testEnv().Now); err == nil {
-		t.Fatal("want an error when conventions.md diverges")
-	}
-	if got := mustRead(t, Path("decisionLog.md")); got != datedIn {
-		t.Errorf("decisionLog kept the aborted write:\n%s", got)
-	}
-	if got := mustRead(t, Path("conventions.md")); got != "edited\n" {
-		t.Errorf("the editor's bytes were overwritten:\n%s", got)
-	}
-	if left, _ := filepath.Glob(filepath.Join(JournalDir(), "*.json")); len(left) > 0 {
-		t.Errorf("journal left for replay: %v", left)
-	}
-	// the dirty fixture forces a native capture commit ahead of the batch's; only the batch's may go
-	if head, err := StoreRepo().run("show", "HEAD:decisionLog.md"); err != nil || head+"\n" != datedIn {
-		t.Errorf("HEAD keeps the aborted batch (err %v):\n%s", err, head)
-	}
-}
-
-func TestApplyBatchKeepsCommittedBatchWhenSettleFails(t *testing.T) {
-	batchStore(t)
-	write(t, filepath.Join(JournalDir(), "00000000-stuck.json"), "{") // every settle refuses while it is stuck
-	_, err := ApplyBatch(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
-	if err == nil || !strings.Contains(err.Error(), "batch committed") {
-		t.Fatalf("want the settle failure reported after the commit, got %v", err)
-	}
-	head, herr := StoreRepo().run("show", "HEAD:decisionLog.md")
-	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") || herr != nil || head+"\n" != got {
-		t.Errorf("the committed batch was undone or left uncommitted (err %v):\n%s", herr, got)
-	}
-}
-
-func TestApplyBatchReplaysPendingJournalFirst(t *testing.T) {
-	batchStore(t)
-	edited := strings.Replace(datedIn, "body b", "body B", 1)
-	j, err := newJournal(StoreRepo(), "pending", []storeChange{{Rel: "decisionLog.md", Data: []byte(edited)}})
-	if err == nil {
-		err = j.save()
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyBatch(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil {
-		t.Fatalf("pending journal made the apply fail: %v", err)
-	}
-	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, "body B") || !strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("want the journal's edit and the new entry:\n%s", got)
-	}
-}
-
-func TestApplyBatchFillsReadFromBase(t *testing.T) {
-	batchStore(t)
-	ref := contentRef(ParseDoc("decisionLog.md", []byte(datedIn)).Entries[0].block())
-	upd := Op{Op: "update", Target: "decisionLog", ID: "0a1b2c3d", Text: "new body"} // conventions.md shares the id
-	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, Versions{"0a1b2c3d": Version(ref)}, testEnv().Now); err != nil {
-		t.Fatalf("base did not fill read: %v", err)
-	}
-	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, "new body") {
-		t.Errorf("update not written:\n%s", got)
-	}
-	upd.Read = "z00000000"
-	if _, err := ApplyBatch(Batch{Ops: []Op{upd}}, Versions{"0a1b2c3d": Version(ref)}, testEnv().Now); err == nil ||
-		!strings.Contains(err.Error(), "disagrees") {
-		t.Errorf("a read that disagrees with base: err = %v", err)
-	}
-}
-
 func TestBatchMintAvoidsOtherFilesIDs(t *testing.T) {
 	now := testEnv().Now
 	taken := blockID(freshID("decisionLog.md", 0, "## 2026-11-26 — n", now))
@@ -678,17 +573,85 @@ func TestCloseSupersededWrappedBulletKeepsBytes(t *testing.T) {
 	}
 }
 
-func TestApplyBatchLockedUnderHeldLock(t *testing.T) {
-	batchStore(t)
-	shortBankWait(t)
-	err := withFlatLock(BankLockWait, func() error {
-		_, err := applyBatchLocked(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
-		return err
-	})
+// A typed batch wraps the entries it adds, updates and supersedes and they read back; the rest keeps its bytes.
+func TestApplyDocsFormatsOnlyWrittenEntries(t *testing.T) {
+	long := strings.Repeat("legacy  text ", 14)
+	untouched := map[string]string{
+		"conventions.md": "- prior   odd " + long + "<!-- id:0a1b2c3d -->\n\n",
+		"decisionLog.md": "## 2026-11-25 — a <!-- id:2a1b2c3d -->\n\n" + long + "\n\n",
+		"progress.md":    "## What Works\n\n- kept   odd " + long + "\n",
+	}
+	docs := map[string]Doc{
+		"conventions.md": ParseDoc("conventions.md", []byte("# Conv\n\n"+untouched["conventions.md"]+"- edit me <!-- id:1a1b2c3d -->\n")),
+		"decisionLog.md": ParseDoc("decisionLog.md", []byte("# D\n\n"+untouched["decisionLog.md"]+"## 2026-11-24 — b <!-- id:3a1b2c3d -->\n\nbody b\n")),
+		"progress.md":    ParseDoc("progress.md", []byte("# P\n\n"+untouched["progress.md"])),
+	}
+	fresh := strings.Repeat("fresh words ", 14)
+	out, rs, err := ApplyDocs(docs, Batch{Ops: []Op{
+		{Op: "add", Target: "conventions", Text: fresh + "\n* star\n+ plus\n1. one\n2) two"},
+		{Op: "update", ID: "1a1b2c3d", Text: fresh},
+		{Op: "supersede", ID: "3a1b2c3d", Title: "c", Text: "para\n- item\n~~~go\nx\n~~~\n" + fresh},
+		{Op: "add", Target: "progress", Section: "In Progress", Text: fresh},
+	}}, testEnv().Now)
 	if err != nil {
-		t.Fatalf("applyBatchLocked under the held lock: %v", err)
+		t.Fatalf("batch: %v %+v", err, rs)
 	}
-	if got := mustRead(t, Path("decisionLog.md")); !strings.Contains(got, " — n <!-- id:") {
-		t.Errorf("not written:\n%s", got)
+	for name, kept := range untouched {
+		if !strings.Contains(string(out[name].Render()), kept) {
+			t.Errorf("%s: untouched entry changed:\n%s", name, out[name].Render())
+		}
 	}
+	for _, r := range append(rs, OpResult{ID: "3a1b2c3d"}) { // the struck entry is written too
+		assertWrapped(t, writtenEntry(t, out, r.ID))
+	}
+	if b := writtenEntry(t, out, rs[2].ID); !strings.Contains(b, "para\n\n- item\n\n~~~go\nx\n~~~\n\nfresh") {
+		t.Errorf("new text lacks blank lines around its list and fence:\n%s", b)
+	}
+}
+
+// writtenEntry is the block answering to ref once docs are rendered and parsed again, trailing blank lines dropped.
+func writtenEntry(t *testing.T, docs map[string]Doc, ref string) string {
+	t.Helper()
+	r, _ := ParseRef(ref)
+	for name, d := range docs {
+		for _, e := range ParseDoc(name, d.Render()).Entries {
+			if e.matches(r) {
+				return strings.TrimRight(e.block(), "\n")
+			}
+		}
+	}
+	t.Errorf("no entry reads back as %s", ref)
+	return ""
+}
+
+// sameButFinalNewline reports equal lines, or lines that differ only by the file's final "" moving onto or off them.
+func sameButFinalNewline(a, b []string) bool {
+	return slices.Equal(a, b) || slices.Equal(a, append(slices.Clone(b), "")) || slices.Equal(b, append(slices.Clone(a), ""))
+}
+
+// Append and close keep earlier bytes, a tight list tight and the final newline, and re-parse to the rows they wrote.
+func TestApplyPreservesUntouchedFinalEntry(t *testing.T) {
+	for _, tail := range []string{"", "\n", "\n\n", "\n\n\n"} {
+		text := "# C\n\n- keep <!-- id:12345678 -->" + tail
+		in := ParseDoc("conventions.md", []byte(text))
+		out, rs := Apply(in, Batch{Ops: []Op{{Op: "add", Text: "new"}}}, testEnv())
+		got := string(out.Render())
+		added, kept := strings.CutPrefix(got, text)
+		if rs[0].Outcome != DreamOK || !kept || tail != "" && strings.HasPrefix(added, "\n") || // no blank line inserted
+			out.Entries[0].Ref() != "12345678" || !rowsRoundTrip(out) {
+			t.Errorf("append after %q: %q", tail, got)
+		}
+		d := ParseDoc("conventions.md", []byte(text+"\n- remove <!-- id:23456789 -->\n"))
+		out, rs = Apply(d, Batch{Ops: []Op{{Op: "close", ID: "23456789", Read: contentRef(d.Entries[1].block()), Reason: "done"}}}, testEnv())
+		want := "# C\n\n- keep <!-- id:12345678 -->" + max(tail, "\n") // the newline before the closed entry goes with it
+		if got := string(out.Render()); rs[0].Outcome != DreamOK || got != want || !rowsRoundTrip(out) {
+			t.Errorf("close after %q: got %q want %q", tail, got, want)
+		}
+	}
+}
+
+// rowsRoundTrip reports whether d's rendered bytes parse back to exactly d's entry lines, as a store re-import does.
+func rowsRoundTrip(d Doc) bool {
+	back := ParseDoc(d.Name, d.Render()).Entries
+	return slices.EqualFunc(back, d.Entries, func(a, b DocEntry) bool { return slices.Equal(a.Lines, b.Lines) })
 }

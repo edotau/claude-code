@@ -402,7 +402,7 @@ func (d *driver) fixLeaf(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	env, err := d.ask(ctx, c.lane, brief, "--overlay", `{"provider":"databricks","profile":"auto"}`, "--tools")
+	env, err := d.ask(ctx, c.lane, brief, benchOverlay{Tools: true})
 	c.fixID = env.DispatchID
 	d.spend(env.DispatchID)
 	return err
@@ -549,7 +549,7 @@ func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
 	if err != nil {
 		return d.hold(c, "prepare review brief: "+err.Error())
 	}
-	env, err := d.ask(ctx, c.lane, brief, "--overlay", `{"provider":"databricks","profile":"auto"}`, "--model", "opus", "--fallback", "none")
+	env, err := d.ask(ctx, c.lane, brief, benchOverlay{Model: "opus", Fallback: "none"})
 	d.spend(env.DispatchID)
 	verdict := strings.TrimSpace(firstLine(env.Answer))
 	switch {
@@ -601,10 +601,24 @@ func (d *driver) clean(ctx context.Context, c candidate) error {
 	return err
 }
 
+// benchOverlay is the run configuration of a bench leaf; field order is the documented key order.
+type benchOverlay struct {
+	Provider string `json:"provider"`
+	Profile  string `json:"profile"`
+	Model    string `json:"model,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+	Tools    bool   `json:"tools,omitempty"`
+}
+
 // ask runs one background dispatch in dir, waits for it and returns its envelope.
-func (d *driver) ask(ctx context.Context, dir, brief string, flags ...string) (askEnvelope, error) {
+func (d *driver) ask(ctx context.Context, dir, brief string, cfg benchOverlay) (askEnvelope, error) {
 	var env askEnvelope
-	args := append([]string{"agents", "ask", "--background", "--format", "json", "--workdir", dir}, flags...)
+	cfg.Provider, cfg.Profile = "databricks", "auto"
+	overlay, err := json.Marshal(cfg)
+	if err != nil {
+		return env, err
+	}
+	args := []string{"agents", "ask", "--background", "--format", "json", "--workdir", dir, "--overlay", string(overlay)}
 	out, _, err := d.run(ctx, d.top, brief, d.exe, append(args, "-")...)
 	if err != nil {
 		return env, err

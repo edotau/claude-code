@@ -931,15 +931,18 @@ func guardScopeFlags(fs *flag.FlagSet) *string {
 	return repeated
 }
 
+var transferAgent = ask.Transfer
+
 // agentTransfer is `<v> transfer [--source f] [--wait] [note…]`.
 func agentTransfer(name string, args []string) int {
 	fs := newAgentFlags(name, "transfer")
 	source := fs.String("source", "", "transcript .jsonl (default: newest session for this repo)")
 	wait := fs.Bool("wait", false, "block for the answer instead of detaching")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
 	}
-	return ask.Transfer(name, *source, strings.Join(fs.Args(), " "), *wait)
+	return transferAgent(name, *source, strings.Join(pos, " "), *wait)
 }
 
 // firstPositional is pos[0], or "" when there is none.

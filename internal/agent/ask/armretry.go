@@ -311,7 +311,7 @@ func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunO
 		_, req.Values = agent.RunValues(ctx, nil)
 	}
 	for {
-		values, err := armRetryValues(ctx, req.Values, a.current())
+		values, err := armRetryValues(ctx, req.Values, a.current(), claim)
 		if err != nil {
 			return nil, err
 		}
@@ -349,15 +349,25 @@ func ranOn(res wire.Result) string {
 	return line + " · tried " + strings.Join(tried, " → ")
 }
 
-// armRetryValues moves the confinement without dropping the overlay's fallback or runner provenance.
-func armRetryValues(ctx context.Context, values proc.Values, profile string) (proc.Values, error) {
+// armRetryValues moves the unit to profile on the replayed overlay while keeping its model, fallback, and limits.
+func armRetryValues(ctx context.Context, values proc.Values, profile string, claim *agent.Record) (proc.Values, error) {
 	ctx, values = agent.RunValues(ctx, values)
 	ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
 	if err != nil {
 		return nil, err
 	}
+	var rec agent.Record // no claim: nothing stored, so the document alone
+	if claim != nil {
+		rec = *claim
+	}
+	moved := ov.WithoutRoute()
+	moved.Provider, moved.Profile = router.RouteDatabricks, profile
+	eff, _, err := rec.ReplayOverlay([]string{"unit"}, moved)
+	if err != nil {
+		return nil, err
+	}
 	values = values.Merge(armValues(ctx, profile))
-	ctx, err = carryOverlay(proc.WithValues(ctx, values), ov)
+	ctx, err = carryOverlay(proc.WithValues(ctx, values), eff)
 	if err != nil {
 		return nil, err
 	}

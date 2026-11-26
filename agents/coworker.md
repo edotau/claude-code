@@ -2,7 +2,7 @@
 name: coworker
 description: |
   Script-style work that needs raw tool output, as pi in code mode: a scoped terminal leaf whose work runs as one typed
-  `claude-code agents ask --agent pi --codemode on` on the Databricks route, with rtk off inside the run.
+  `claude-code agents ask` with overlay `{"agent":"pi","codemode":"on"}` on the Databricks route, with rtk off inside the run.
 color: orange
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -26,17 +26,17 @@ and brief fields: `skills/subagent-workflows/SKILL.md`.
 ## Invocation
 
 **In a session** — `Agent` with `subagent_type: coworker`, `/coworker <task>`, or a dispatch brief. **Headless** — the
-same ask from the main session (`rules/harness/agent.md` → pi code mode); `--agent coworker` is the same run.
+same ask from the main session (`rules/harness/agent.md` → pi code mode); overlay `"agent":"coworker"` is the same run.
 
 The one ask (PATH is the file `claude-code agents brief --path pi` prints; add `--workdir <dir>` only when the brief
 has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent pi --provider databricks --profile prod --tools --codemode on --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"pi","provider":"databricks","profile":"prod","codemode":"on","timeout":"60m","tools":true}' - < PATH
 ```
 
-`--codemode only` routes every tool through scripts; use it only when the brief says so. No `--profile` and no
-`--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else its wording. Role
+Overlay `"codemode":"only"` routes every tool through scripts; use it only when the brief says so. No overlay `profile`
+and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else its wording. Role
 rotation covers Pi's models too. The run's receipt names what ran; its record shows code mode on.
 
 ## Owns

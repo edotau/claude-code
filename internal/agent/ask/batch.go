@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -89,22 +88,22 @@ var perLineKeys = sync.OnceValue(func() []string {
 
 // checkLineKeys names the nearest valid key for a mistyped one and refuses a batch-wide spec key on the line.
 func checkLineKeys(line []byte) error {
-	s, ok := askspec.Current()
+	s := askSchema()
 	var doc map[string]json.RawMessage
-	if !ok || json.Unmarshal(line, &doc) != nil {
+	if json.Unmarshal(line, &doc) != nil {
 		return nil // the strict decode reports what is wrong
 	}
 	for _, k := range slices.Sorted(maps.Keys(doc)) {
 		if slices.Contains(perLineKeys(), k) {
 			continue
 		}
-		if _, inSchema := s.Lookup(k); inSchema {
-			return fmt.Errorf("%q is batch-wide: put --%s on the --batch command", k, k)
+		if field, inSchema := s.Lookup(k); inSchema {
+			return fmt.Errorf("%q is batch-wide: put --%s on the --batch command", k, field.FlagName())
 		}
 		if n, ok := lineKeyNear(k); ok {
-			return fmt.Errorf("spec key %q unknown: did you mean %q?", k, n)
+			return fmt.Errorf("batch key %q unknown: did you mean %q?", k, n)
 		}
-		return fmt.Errorf("spec key %q unknown (keys: %s)", k, strings.Join(perLineKeys(), ", "))
+		return fmt.Errorf("batch key %q unknown (keys: %s)", k, strings.Join(perLineKeys(), ", "))
 	}
 	return nil
 }
@@ -218,25 +217,26 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 // lineRequest is base with the line's prompt, route, model and tools over it, plus the agent it selects.
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
-	prompt, err := lineBrief(tl, agentName, base)
-	if err != nil {
-		return req, "", fmt.Errorf("line %d: %w", l.N, err)
-	}
-	req.Prompt, req.Provider, req.Model = prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
+	req.Agent = agentName
 	auto := agent.IsAuto(tl.Model)
 	req.ModelTyped = (tl.Model != "" && !auto) || (tl.Model == "" && base.ModelTyped) // a line's model wins, auto too
 	if err := lineRoute(l, &req); err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
-	name, err := agent.SelectAndOverlay(agentName, base.Agents, &req) // explicit line/base options win over the definition
+	name, err := agent.SelectAndOverlay(cmp.Or(tl.Agent, req.Agent), req.Agents, &req)
 	if err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
-	req.Tools, req.Verify = *cmp.Or(tl.Tools, &base.Tools), tl.Verify
+	req.Tools, req.Verify = *cmp.Or(tl.Tools, &req.Tools), tl.Verify
 	if req.Tools && req.NoTools {
 		return req, name, fmt.Errorf("line %d: tools and --no-tools are mutually exclusive", l.N)
 	}
 	if err := lineCapable(name, &req); err != nil {
+		return req, name, fmt.Errorf("line %d: %w", l.N, err)
+	}
+	tl.Prompt = req.Prompt
+	if req.Prompt, err = lineBrief(tl, name, req); err != nil {
 		return req, name, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return req, name, nil
@@ -267,7 +267,7 @@ func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, e
 		argv = append(argv, "--codemode", base.Codemode)
 	}
 	argv = append(argv, "--tools="+strconv.FormatBool(*cmp.Or(tl.Tools, &base.Tools)))
-	brief, _, err := specBrief(tl.Prompt, argv, askspec.Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
+	brief, _, err := specBrief(tl.Prompt, argv, Task{Own: tl.Own, Report: tl.Report, Verify: tl.Verify})
 	return brief, err
 }
 
@@ -316,31 +316,74 @@ func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr r
 	}
 	if ov.Provider != "" {
 		req.Route, req.Provider, req.Account = ov.Route(), ov.Profile, ov.Account
+		req.Direct = ov.Endpoint == endpointDirect
 		req.Lead = ""
 	}
 	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
+	if ov.Fallback != "" {
+		req.Fallback, req.FallbackDefaulted = ov.Fallback, false
+	}
 	if f.model == "" && ov.Model != "" {
 		req.ModelTyped = !agent.IsAuto(ov.Model) // the line overlay's model won: typed unless auto, so no fallback swaps it
 	}
-	if ov.Runner == "" {
-		return nil
+	if err := lineRunOptions(req, settleTools(ov)); err != nil {
+		return err
 	}
-	req.Runner = ov.Runner // an explicit runner on the line, seen by the re-pick guards
+	req.Runner = cmp.Or(ov.Runner, req.Runner)
 	req.Values = req.Values.Merge(nil)
 	var held agentconfig.Overlay
 	var err error
 	if doc := req.Values[route.OverlayVar]; doc != "" {
-		held, err = agentconfig.LoadOverlayContext(context.Background(), doc, nil)
+		held, err = agentconfig.LoadOverlayFrom(context.Background(), doc, nil, false) // the carried doc is stored, not typed
 	}
 	if err != nil {
 		return err
 	}
-	held, err = held.Derive(agentconfig.Overlay{Runner: ov.Runner}, agentconfig.HopAppend) // the other keys stay
+	held, err = held.Derive(ov, agentconfig.HopAppend)
 	if err != nil {
 		return err
 	}
 	req.Values[route.OverlayVar] = held.Doc()
 	return nil
+}
+
+// lineRunOptions applies the line's per-run keys before agent selection, capabilities and timeout defaults.
+func lineRunOptions(req *agent.RunOptions, ov agentconfig.Overlay) error {
+	strs, bools := runKeyFields(&ov)
+	for name, dst := range map[string]*string{"agent": &req.Agent, "host": &req.Host, "codemode": &req.Codemode,
+		"debug-file": &req.DebugFile, "system-prompt": &req.SystemPrompt, "append-system-prompt": &req.AppendSystemPrompt} {
+		if v := *strs[name]; v != "" {
+			*dst = v
+		}
+	}
+	for name, dst := range map[string]*bool{"tools": &req.Tools, "no-tools": &req.NoTools, "no-persist": &req.NoPersist,
+		"native": &req.Native, "autonomous": &req.Autonomous, "fleet": &req.Fleet, "enable-memory": &req.EnableMemory} {
+		if v := *bools[name]; v != nil {
+			*dst = *v
+		}
+	}
+	var err error
+	if ov.Timeout != "" {
+		if req.Timeout, err = time.ParseDuration(ov.Timeout); err != nil {
+			return err
+		}
+		req.TimeoutTyped = true
+	}
+	if len(ov.Agents) > 0 {
+		if req.Agents, err = parseAgentDefs(string(ov.Agents), req.Host); err != nil {
+			return err
+		}
+	}
+	if ov.OutputSchema != "" {
+		if req.OutputSchema, err = resolveOutputSchema(ov.OutputSchema); err != nil {
+			return err
+		}
+	}
+	if ov.GoogleTools != "" {
+		req.GoogleTools, err = googleToolNames(ov.GoogleTools)
+	}
+	req.Prompt = agent.WithTier(req.Prompt, ov.Tier)
+	return err
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {
@@ -351,7 +394,7 @@ func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, base
 			return req, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, l.Task.Timeout)
 		}
 		req.Timeout, req.TimeoutTyped = d, true
-	case req.Tools && !timeoutSet:
+	case req.Tools && !timeoutSet && !req.TimeoutTyped:
 		req.Timeout = agent.DefaultToolsTimeout
 	}
 	req.WorkDir = cmp.Or(l.Task.Workdir, baseWorkdir, cwd)

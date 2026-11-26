@@ -3,5 +3,4 @@ internal/hooks/dispatchhook/effort_dispatchlabel.go:dispatchLabelsLine	unversion
 internal/hooks/dispatchhook/leaves.go:saveHeldJob	unversioned: text: the job ids a leaf's holds named, one per line, so a repeat hold is short
 internal/hooks/dispatchhook/leaves_receipt.go:markHeld	unversioned: marker: a held leaf, so its later stop attaches finished jobs
 internal/hooks/dispatchhook/leaves_receipt.go:preserveReport	unversioned: text: a held leaf hand-back report, saved verbatim to the reports home
-internal/hooks/dispatchhook/leaves_watch.go:resumeOnce	unversioned: marker: the resumed job id, written atomically over the claim
 internal/hooks/dispatchhook/leaves_watch.go:writeWatch	unversioned: marker: stuck-leaf watchdog tick, seen, resumed and collected files

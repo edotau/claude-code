@@ -193,7 +193,7 @@ func TestExportGuardRecordsDeletedOutside(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := RebuildShadow(context.Background()); err != nil {
+	if _, err := shadowRebuild(context.Background(), db.(*exportDB).db, root); err != nil { // RebuildShadow refuses on conflicts
 		t.Fatal(err)
 	}
 	var n int
@@ -399,7 +399,7 @@ func seedHistory(t *testing.T, text string) {
 }
 
 func TestExportDoesNotTriggerReimport(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	id := truthAdd(t, e, "first")
 	v1 := truthVersions(t)
 	if err := truthUpdate(t, e, id, "second", v1); err != nil {
@@ -427,7 +427,7 @@ func TestExportDoesNotTriggerReimport(t *testing.T) {
 }
 
 func TestOutsideEditAfterExportIsStillSeen(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	truthAdd(t, e, "exported")
 	body := activeMarkdown(t)
 	if err := os.WriteFile(memory.Path("activeContext.md"), []byte(body+"- sneaked in outside\n"), 0o600); err != nil {
@@ -462,7 +462,7 @@ func activeMarkdown(t *testing.T) string {
 }
 
 func TestDBWriteReachesMarkdownAtOnce(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	truthAdd(t, e, "written under db truth")
 	if !strings.Contains(activeMarkdown(t), "written under db truth") {
 		t.Fatal("a db write did not reach the Markdown")
@@ -470,7 +470,7 @@ func TestDBWriteReachesMarkdownAtOnce(t *testing.T) {
 }
 
 func TestRebuildUnderDBTruthKeepsDBOnlyChange(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	old := memory.OpenExportDB
 	t.Cleanup(func() { memory.OpenExportDB = old })
 	memory.OpenExportDB = nil // leave the write db-only, as a crash before export would
@@ -488,7 +488,7 @@ func TestRebuildUnderDBTruthKeepsDBOnlyChange(t *testing.T) {
 }
 
 func TestOutsideEditWinsAfterDBWrite(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	truthAdd(t, e, "db write")
 	body := activeMarkdown(t)
 	if !strings.Contains(body, "db write") {
@@ -547,7 +547,7 @@ func wantStamped(t *testing.T, rel string) {
 }
 
 func TestRebuildUnderDBTruthRefusesOnExportConflict(t *testing.T) {
-	e := newParityEnv(t, "db")
+	e := newParityEnv(t)
 	truthAdd(t, e, "base")
 	old := memory.OpenExportDB
 	t.Cleanup(func() { memory.OpenExportDB = old })

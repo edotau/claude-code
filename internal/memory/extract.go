@@ -1,13 +1,16 @@
 package memory
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"path"
@@ -166,23 +169,14 @@ func extractLossTokens(source, body, entry string, purged bool, live func(string
 	return nil
 }
 
-// extractLiveSHA is true for a token with a digit, or a prefix of an object in the repo (one batch listing, lazy).
-func extractLiveSHA(repo storeRepo) func(string) bool {
-	var names []string
-	var loaded bool
+// extractLiveSHA is true for a token with a digit, or a prefix of an object in the repo.
+func extractLiveSHA(repo storeRepo) (func(string) bool, error) {
+	out, err := repo.run("cat-file", "--batch-all-objects", "--batch-check=%(objectname)")
+	names := splitLines(out)
 	return func(item string) bool {
-		if strings.ContainsAny(item, "0123456789") {
-			return true
-		}
-		if !loaded {
-			loaded = true
-			out, err := repo.run("cat-file", "--batch-all-objects", "--batch-check=%(objectname)")
-			if err == nil {
-				names = splitLines(out)
-			}
-		}
-		return slices.ContainsFunc(names, func(name string) bool { return strings.HasPrefix(name, item) })
-	}
+		return strings.ContainsAny(item, "0123456789") ||
+			slices.ContainsFunc(names, func(name string) bool { return strings.HasPrefix(name, item) })
+	}, err
 }
 
 func extractLossItem(body string, match []int, kind string) string {
@@ -392,10 +386,12 @@ func validateExtractRewrite(result ExtractRewriteAnswer, allowed map[string]bool
 		if strings.TrimSpace(entry.Title) == "" || strings.TrimSpace(entry.Text) == "" || len(entry.Sources) == 0 {
 			return errors.New("extract rewrite entry needs title, text, and sources")
 		}
+		entrySeen := make(map[string]bool, len(entry.Sources))
 		for _, source := range entry.Sources {
-			if err := checkExtractSource(source, allowed, seen); err != nil {
+			if err := checkExtractSource(source, allowed, entrySeen); err != nil {
 				return err
 			}
+			seen[source] = true
 		}
 	}
 	for _, source := range result.Purge {
@@ -434,13 +430,13 @@ func ApplyExtractRewrite(repo storeRepo, group ExtractGroup, ans ExtractRewriteA
 	if err != nil {
 		return "", err
 	}
-	created := make(map[string]bool)
-	if err := extractWriteChanges(root, after, before, created); err != nil {
-		return "", errors.Join(err, extractApplyRollback(root, before, created))
+	written := make(map[string]appliedWrite)
+	if err := extractWriteChanges(root, after, before, written); err != nil {
+		return "", extractApplyRollback(written, err)
 	}
 	sha, committed, err := extractCommit(repo, after, group.Paths, notes, successors)
 	if err != nil && !committed {
-		return "", errors.Join(err, extractApplyRollback(root, before, created))
+		return "", extractApplyRollback(written, err)
 	}
 	return sha, err
 }
@@ -451,17 +447,21 @@ func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans 
 		return nil, nil, nil, nil, err
 	}
 	if len(ans.Entries) == 0 || ans.Purge == nil {
-		return nil, nil, nil, nil, errors.New("extract rewrite needs entries and purge")
+		return nil, nil, nil, nil, extractChecked{errors.New("extract rewrite needs entries and purge")}
 	}
 	if err := validateExtractRewrite(ans, allowed); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, extractChecked{err}
 	}
 	sources := make(map[string][]byte, len(files))
 	for _, file := range files {
 		sources[file.Path] = []byte(file.Text)
 	}
-	if err := CheckExtractLoss(sources, ans, extractLiveSHA(repo)); err != nil {
+	live, err := extractLiveSHA(repo)
+	if err != nil {
 		return nil, nil, nil, nil, err
+	}
+	if err := CheckExtractLoss(sources, ans, live); err != nil {
+		return nil, nil, nil, nil, extractChecked{err}
 	}
 	notes, successors, err := extractNotePaths(repo, root, ans.Entries, now)
 	if err != nil {
@@ -469,6 +469,9 @@ func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans 
 	}
 	before, after, err := extractApplyChanges(repo, root, group.Paths, successors)
 	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if err := extractCleanSources(repo, slices.Collect(maps.Keys(before))); err != nil {
 		return nil, nil, nil, nil, err
 	}
 	for i, entry := range ans.Entries {
@@ -654,38 +657,78 @@ func extractRepoint(rel, body string, successors map[string]string) string {
 		if err != nil {
 			continue
 		}
-		body = strings.ReplaceAll(body, source, target)
-		body = strings.ReplaceAll(body, filepath.ToSlash(relSource), filepath.ToSlash(relTarget))
+		body = replaceExtractPath(body, source, target)
+		body = replaceExtractPath(body, filepath.ToSlash(relSource), filepath.ToSlash(relTarget))
 	}
 	return body
 }
 
-func extractApplyRollback(root *os.Root, before map[string][]byte, created map[string]bool) error {
-	changes := make(map[string][]byte, len(before))
-	for rel, data := range before {
-		if data != nil || created[rel] {
-			changes[rel] = data
-		}
+func replaceExtractPath(body, from, to string) string {
+	pathByte := func(b byte) bool {
+		return b >= 128 || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' ||
+			strings.ContainsRune("_./-~%+$", rune(b))
 	}
-	return extractWriteChanges(root, changes, nil, nil)
+	var out strings.Builder
+	for start := 0; ; {
+		at := strings.Index(body[start:], from)
+		if at < 0 {
+			out.WriteString(body[start:])
+			return out.String()
+		}
+		at += start
+		end := at + len(from)
+		out.WriteString(body[start:at])
+		left := at == 0 || !pathByte(body[at-1]) ||
+			at >= 2 && body[at-2:at] == "./" && (at == 2 || !pathByte(body[at-3]))
+		right := end == len(body) || !pathByte(body[end]) ||
+			body[end] == '.' && (end+1 == len(body) || !pathByte(body[end+1]))
+		if left && right {
+			out.WriteString(to)
+		} else {
+			out.WriteString(from)
+		}
+		start = end
+	}
 }
 
-func extractWriteChanges(root *os.Root, changes, before map[string][]byte, created map[string]bool) error {
+func extractApplyRollback(written map[string]appliedWrite, cause error) error {
+	var rollbackErr error
+	for _, w := range written {
+		rollbackErr = errors.Join(rollbackErr, w.restoreIfOurs())
+	}
+	if rollbackErr != nil {
+		return &AfterCommitError{errors.Join(cause, rollbackErr)}
+	}
+	return cause
+}
+
+func extractWriteChanges(root *os.Root, changes, before map[string][]byte, written map[string]appliedWrite) error {
 	rels := make([]string, 0, len(changes))
 	for rel := range changes {
 		rels = append(rels, rel)
 	}
 	slices.Sort(rels)
 	for _, rel := range rels {
-		if err := extractWriteOne(root, rel, changes[rel], before, created); err != nil {
+		if err := extractWriteOne(root, rel, changes[rel], before, written); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][]byte, created map[string]bool) error {
+func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][]byte, written map[string]appliedWrite) (err error) {
+	snap, err := snapshotFile(filepath.Join(root.Name(), rel))
+	if err != nil {
+		return err
+	}
+	if snap.existed != (before[rel] != nil) || !bytes.Equal(snap.prev, before[rel]) {
+		return fmt.Errorf("extract: %s changed before write", rel)
+	}
+	written[rel] = appliedWrite{change: storeChange{Rel: rel, Data: data, Delete: data == nil}, snap: snap}
 	if data == nil {
+		if cur, err := root.ReadFile(rel); err != nil || !bytes.Equal(cur, snap.prev) {
+			return errors.Join(fmt.Errorf("extract: %s changed before removal", rel), err)
+		}
 		if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("extract remove %s: %w", rel, err)
 		}
@@ -694,22 +737,32 @@ func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][
 	if err := root.MkdirAll(path.Dir(rel), 0o700); err != nil {
 		return fmt.Errorf("extract mkdir %s: %w", rel, err)
 	}
-	if before != nil && before[rel] == nil {
-		f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err != nil {
-			return fmt.Errorf("extract create %s: %w", rel, err)
-		}
-		created[rel] = true
-		_, writeErr := f.Write(data)
-		if err := errors.Join(writeErr, f.Close()); err != nil {
-			return fmt.Errorf("extract write %s: %w", rel, err)
-		}
-		return nil
-	}
-	if err := root.WriteFile(rel, data, 0o600); err != nil {
+	mode := cmp.Or(snap.mode, os.FileMode(0o600))
+	tmp := rel + ".tmp-" + rand.Text()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
 		return fmt.Errorf("extract write %s: %w", rel, err)
 	}
-	return nil
+	defer func() {
+		if removeErr := root.Remove(tmp); !errors.Is(removeErr, fs.ErrNotExist) {
+			err = errors.Join(err, removeErr)
+		}
+	}()
+	_, writeErr := f.Write(data)
+	if err := errors.Join(writeErr, f.Chmod(mode), f.Sync(), f.Close()); err != nil {
+		return err
+	}
+	cur, readErr := root.ReadFile(rel)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		return readErr
+	}
+	if (readErr == nil) != snap.existed || !bytes.Equal(cur, snap.prev) {
+		return fmt.Errorf("extract: %s changed before install", rel)
+	}
+	if !snap.existed {
+		return root.Link(tmp, rel)
+	}
+	return root.Rename(tmp, rel)
 }
 
 type ExtractTotal struct {

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -254,16 +255,18 @@ const markerOpen, markerClose = "<!-- id:", " -->"
 
 // marker finds the last "<!-- id:REF -->" outside a backtick code span in one forward scan; lo and hi bound it.
 func marker(line string) (r Ref, lo, hi int, ok bool) {
-	ticks, pos, closeAt := 0, 0, -1
+	spans, pos, closeAt := codeSpans(line), 0, -1
 	for {
 		i := strings.Index(line[pos:], markerOpen)
 		if i < 0 {
 			return r, lo, hi, ok
 		}
 		start := pos + i
-		ticks += strings.Count(line[pos:start], "`")
 		pos = start + len(markerOpen)
-		if ticks%2 == 1 {
+		for len(spans) > 0 && spans[0][1] <= start {
+			spans = spans[1:]
+		}
+		if len(spans) > 0 && spans[0][0] <= start {
 			continue
 		}
 		if closeAt < pos {
@@ -277,6 +280,37 @@ func marker(line string) (r Ref, lo, hi int, ok bool) {
 			r, lo, hi, ok = ref, start, closeAt+len(markerClose), true
 		}
 	}
+}
+
+var backtickRuns = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("`+") })
+
+// codeSpans pairs equal-length backtick runs; differing runs inside a span are literal code.
+func codeSpans(line string) [][]int {
+	runs := backtickRuns().FindAllStringIndex(line, -1)
+	next, last := make([]int, len(runs)), map[int]int{}
+	for i := len(runs) - 1; i >= 0; i-- {
+		n := runs[i][1] - runs[i][0]
+		next[i] = -1
+		if j, ok := last[n]; ok {
+			next[i] = j
+		}
+		last[n] = i
+	}
+	var spans [][]int
+	for i := 0; i < len(runs); i++ {
+		slashes := 0
+		for j := runs[i][0] - 1; j >= 0 && line[j] == '\\'; j-- {
+			slashes++
+		}
+		if slashes%2 != 0 {
+			continue
+		}
+		if j := next[i]; j >= 0 {
+			spans = append(spans, []int{runs[i][0], runs[j][1]})
+			i = j
+		}
+	}
+	return spans
 }
 
 // splitKey splits a top-level "key: value" line; ok is false for indented, comment or non-key lines.
@@ -335,12 +369,15 @@ const indexLineMax = 120
 
 // entryBlocks splits by the grammar the file NAME implies: dated logs on "## " only, others also on "- ".
 func entryBlocks(base, body string) (header string, blocks []string) {
+	return splitOn(body, entryStart(base))
+}
+
+// entryStart is the line test that opens an entry block in the file named base.
+func entryStart(base string) func(string) bool {
 	if base == "decisionLog.md" || base == "sessionHistory.md" {
-		return splitHeadingBlocks(body)
+		return func(ln string) bool { return strings.HasPrefix(ln, "## ") }
 	}
-	return splitOn(body, func(ln string) bool {
-		return strings.HasPrefix(ln, "- ") || strings.HasPrefix(ln, "## ")
-	})
+	return func(ln string) bool { return strings.HasPrefix(ln, "- ") || strings.HasPrefix(ln, "## ") }
 }
 
 // splitHeadingBlocks splits a newest-first log into its header and "## " entries (bodies may hold bullets).
@@ -379,29 +416,37 @@ func fenceCloses(trimmed, open string) bool {
 
 // splitOn is the fence-aware splitter: a marker-shaped line inside a fence never starts a block.
 func splitOn(body string, isMarker func(string) bool) (header string, blocks []string) {
-	var hdr, cur []string
-	inBlock := false
-	fence := "" // marker run of the open fence, "" outside one
-	flush := func() {
-		if len(cur) > 0 {
-			blocks = append(blocks, strings.TrimRight(strings.Join(cur, "\n"), "\n"))
-			cur = nil
-		}
+	starts := blockOffsets(body, isMarker)
+	header = body
+	if len(starts) > 0 {
+		header = body[:starts[0]]
 	}
-	for ln := range strings.SplitSeq(body, "\n") {
-		if fence == "" && isMarker(ln) {
-			flush()
-			inBlock = true
+	for i, s := range starts {
+		end := len(body)
+		if i+1 < len(starts) {
+			end = starts[i+1]
 		}
-		fence = nextFence(fence, ln)
-		if inBlock {
-			cur = append(cur, ln)
-		} else {
-			hdr = append(hdr, ln)
-		}
+		blocks = append(blocks, strings.TrimRight(body[s:end], "\n"))
 	}
-	flush()
-	return strings.TrimRight(strings.Join(hdr, "\n"), "\n"), blocks
+	return strings.TrimRight(header, "\n"), blocks
+}
+
+// blockOffsets is the byte offset in body of each block splitOn returns, so blocks[i] is a prefix of body[starts[i]:].
+func blockOffsets(body string, isMarker func(string) bool) []int {
+	var starts []int
+	lines := strings.Split(body, "\n")
+	front := frontEnd(lines)
+	fence, off := "", 0 // fence: marker run of the open fence, "" outside one
+	for i, ln := range lines {
+		if i >= front && fence == "" && isMarker(ln) {
+			starts = append(starts, off)
+		}
+		if i >= front {
+			fence = nextFence(fence, ln)
+		}
+		off += len(ln) + 1
+	}
+	return starts
 }
 
 // rejoin reassembles a bank file from its header and kept blocks.
@@ -429,7 +474,17 @@ func appendBlocks(path string, blocks []string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err // never overwrite an archive we could not read
 	}
-	return paths.AtomicWrite(path, []byte(appendedText(path, string(existing), blocks)), 0o600)
+	if fenceOpenAtEnd(string(existing)) {
+		return fmt.Errorf("archive %s ends inside a code fence", path)
+	}
+	ok, werr := writeIfStill(path, existing, err == nil, []byte(appendedText(path, string(existing), blocks)), 0o600)
+	if werr != nil {
+		return werr
+	}
+	if !ok {
+		return fmt.Errorf("archive %s changed outside the bank lock; append kept in the conflict copy", path)
+	}
+	return nil
 }
 
 // appendedText is body with blocks appended, under a minimal header when body is blank.
@@ -442,12 +497,112 @@ func appendedText(path, body string, blocks []string) string {
 	}
 	var b strings.Builder
 	b.WriteString(body)
+	tail := body
 	for _, block := range blocks {
-		b.WriteByte('\n')
+		if !strings.HasSuffix(tail, "\n\n") {
+			b.WriteByte('\n')
+		}
 		b.WriteString(block)
-		b.WriteByte('\n')
+		tail = block
+		if !strings.HasSuffix(block, "\n") {
+			b.WriteByte('\n')
+			tail += "\n"
+		}
 	}
 	return b.String()
+}
+
+// cleanNewBlock puts a blank line around each ATX heading, list and fence in new text; fence and comment bodies stay.
+func cleanNewBlock(block string) string {
+	lines := strings.Split(block, "\n")
+	out := make([]string, 0, len(lines)+4)
+	fence, inList, inCmt, closed := "", false, false, false
+	for _, ln := range lines {
+		wasFence := fence
+		inFence := fence != "" || inCmt
+		if !inCmt {
+			fence = nextFence(fence, ln)
+		}
+		opens := !inFence && fence != ""
+		if fence == "" {
+			inCmt = openComment(inCmt, ln)
+		}
+		prevBlank := len(out) == 0 || strings.TrimSpace(out[len(out)-1]) == ""
+		if (opens && !prevBlank) || (closed && !prevBlank && strings.TrimSpace(ln) != "") ||
+			(!inFence && !closed && len(out) > 0 && gapBefore(out[len(out)-1], ln, inList)) {
+			out = append(out, "")
+		}
+		closed = wasFence != "" && fence == ""
+		out = append(out, ln)
+		switch {
+		case inFence:
+		case strings.TrimSpace(ln) == "":
+			inList = false
+		case isListItem(ln):
+			inList = true
+		case !continuesItem(ln):
+			inList = false
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// openComment reports whether an HTML comment is still open after ln.
+func openComment(open bool, ln string) bool {
+	for {
+		if open {
+			_, rest, ok := strings.Cut(ln, "-->")
+			if !ok {
+				return true
+			}
+			ln, open = rest, false
+			continue
+		}
+		_, rest, ok := strings.Cut(ln, "<!--")
+		if !ok {
+			return false
+		}
+		ln, open = rest, true
+	}
+}
+
+// gapBefore reports whether new text needs a blank line between prev and ln (MD022, MD032).
+func gapBefore(prev, ln string, inList bool) bool {
+	switch {
+	case strings.TrimSpace(prev) == "" || strings.TrimSpace(ln) == "":
+		return false
+	case isATXHeading(prev) || isATXHeading(ln):
+		return true
+	case isListItem(ln):
+		return !inList
+	}
+	return inList && !continuesItem(ln)
+}
+
+func isATXHeading(ln string) bool {
+	rest := strings.TrimLeft(ln, "#")
+	n := len(ln) - len(rest)
+	return n >= 1 && n <= 6 && strings.HasPrefix(rest, " ")
+}
+
+func isListItem(ln string) bool {
+	ln = strings.TrimLeft(ln, " \t")
+	if len(ln) < 2 {
+		return false
+	}
+	if strings.ContainsRune("-*+", rune(ln[0])) {
+		return ln[1] == ' '
+	}
+	n := 0
+	for n < len(ln) && ln[n] >= '0' && ln[n] <= '9' {
+		n++
+	}
+	return n > 0 && n+1 < len(ln) && (ln[n] == '.' || ln[n] == ')') && ln[n+1] == ' '
+}
+
+// continuesItem reports whether ln stays inside the list item above: an indented line or an HTML comment.
+func continuesItem(ln string) bool {
+	return strings.HasPrefix(ln, " ") || strings.HasPrefix(ln, "\t") || strings.HasPrefix(ln, "<!--")
 }
 
 // entriesWithPrefix returns every line starting with prefix, prefix stripped and truncated, in file order.
@@ -527,15 +682,15 @@ var idFiles = map[string]string{"decisionLog.md": "## ", "sessionHistory.md": "#
 
 // blockID is the persisted ID on line ("" when it has none).
 func blockID(line string) string {
-	if m := idMarker().FindStringSubmatch(line); m != nil {
-		return m[1]
+	if spans := idSpans(line); len(spans) > 0 {
+		return lastIDMarker(line[spans[0][0]:spans[0][1]])
 	}
 	return ""
 }
 
 // ownerID is the id a block answers to: its last unfenced marker, which may be wrapped or stacked below the first line.
 func ownerID(block string) string {
-	if !strings.Contains(block, "```") && !strings.Contains(block, "~~~") { // no fence: the last marker is the owner
+	if !strings.ContainsAny(block, "`~") {
 		return lastIDMarker(block)
 	}
 	lines := strings.Split(block, "\n")
@@ -561,7 +716,22 @@ func lastIDMarker(text string) string {
 }
 
 // stripID removes the ID marker for display.
-func stripID(s string) string { return idMarker().ReplaceAllString(s, "") }
+func stripID(s string) string { return stripMarkers(s, false, nil) }
+
+// idSpans excludes inline code examples from the legacy marker grammar used by settle.
+func idSpans(line string) [][]int {
+	spans, code := idMarker().FindAllStringIndex(line, -1), codeSpans(line)
+	out := spans[:0]
+	for _, sp := range spans {
+		for len(code) > 0 && code[0][1] <= sp[0] {
+			code = code[1:]
+		}
+		if len(code) == 0 || code[0][0] >= sp[1] {
+			out = append(out, sp)
+		}
+	}
+	return out
+}
 
 // assignIDTexts stamps unmarked blocks, collapses stacked markers to the oldest and returns each id file's text.
 func assignIDTexts(now time.Time) (int, map[string]string, error) {
@@ -591,7 +761,6 @@ func assignFileIDs(name, prefix string, now time.Time) (int, string, error) {
 		return 0, "", err
 	}
 	res, n := stampIDs(name, prefix, string(data), now)
-	res = formatBankMarkdown(res) // wrapped here, in memory, so settle never re-reads the file to wrap it
 	if res != string(data) {
 		ok, err := writeIfStill(path, data, true, []byte(res), 0o600)
 		if err != nil || !ok {
@@ -601,7 +770,7 @@ func assignFileIDs(name, prefix string, now time.Time) (int, string, error) {
 	return n, res, nil
 }
 
-// stampIDs is assignFileIDs on text in memory: the settled text and how many blocks it stamped.
+// stampIDs is assignFileIDs on text in memory: the settled text (changed blocks wrapped) and the blocks it stamped.
 func stampIDs(name, prefix, text string, now time.Time) (string, int) {
 	n := 0
 	lines := strings.Split(text, "\n")
@@ -617,22 +786,33 @@ func stampIDs(name, prefix, text string, now time.Time) (string, int) {
 		if k+1 < len(starts) {
 			end = starts[k+1]
 		}
+		if !strings.HasPrefix(lines[i], prefix) {
+			out = append(out, lines[i:end]...)
+			continue
+		}
 		block, stamped := settleBlockID(name, i, lines[i:end], now)
-		for salt := len(lines); stamped == 1 && strings.Contains(text, block[0][len(lines[i])+1:]); salt++ {
+		for salt := len(lines); stamped == 1 && strings.Contains(text, "<!-- id:"+blockID(block[0])+" -->"); salt++ {
 			block, _ = settleBlockID(name, salt, lines[i:end], now) // an id text already carries: redraw past its end
 		}
 		n += stamped
+		if !slices.Equal(block, lines[i:end]) { // only a block settle changed is wrapped; the rest keeps its bytes
+			block = strings.Split(formatBankMarkdown(strings.Join(block, "\n")), "\n")
+		}
 		out = append(out, block...)
 	}
 	return strings.Join(out, "\n"), n
 }
 
-// blockStarts returns the index of each non-empty prefix line outside code fences.
+// blockStarts includes unstamped heading boundaries, so stamping cannot format the next entry's body.
 func blockStarts(lines []string, prefix string) []int {
 	var starts []int
+	front := frontEnd(lines)
 	fence := ""
 	for i, l := range lines {
-		if fence == "" && strings.HasPrefix(l, prefix) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
+		if i < front {
+			continue
+		}
+		if fence == "" && (strings.HasPrefix(l, "## ") || strings.HasPrefix(l, prefix)) && strings.TrimSpace(strings.TrimPrefix(l, prefix)) != "" {
 			starts = append(starts, i)
 		}
 		fence = nextFence(fence, l)
@@ -657,7 +837,14 @@ func settleBlockID(name string, idx int, block []string, now time.Time) ([]strin
 	fenced := fencedLines(block)
 	keepLine, keepSpan, total := lastMarker(block, fenced)
 	if total == 0 {
-		return append([]string{block[0] + freshID(name, idx, block[0], now)}, block[1:]...), 1
+		first, ending := strings.TrimSuffix(block[0], "\r"), ""
+		if strings.HasSuffix(first, "  ") {
+			first, ending = strings.TrimRight(first, " "), "  "
+		}
+		if strings.HasSuffix(block[0], "\r") {
+			ending += "\r"
+		}
+		return append([]string{first + freshID(name, idx, block[0], now) + ending}, block[1:]...), 1
 	}
 	if total == 1 {
 		return block, 0
@@ -693,7 +880,7 @@ func lastMarker(block []string, fenced []bool) (keepLine int, keepSpan []int, to
 		if fenced[i] {
 			continue
 		}
-		for _, sp := range idMarker().FindAllStringIndex(l, -1) {
+		for _, sp := range idSpans(l) {
 			keepLine, keepSpan, total = i, sp, total+1
 		}
 	}
@@ -710,7 +897,7 @@ func freshID(name string, idx int, line string, now time.Time) string {
 func stripMarkers(l string, keepHere bool, keepSpan []int) string {
 	var b strings.Builder
 	prev := 0
-	for _, sp := range idMarker().FindAllStringIndex(l, -1) {
+	for _, sp := range idSpans(l) {
 		b.WriteString(l[prev:sp[0]])
 		if keepHere && sp[0] == keepSpan[0] {
 			b.WriteString(l[sp[0]:sp[1]])

@@ -558,3 +558,104 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	denyBankAccess(t, dir)
 	return fs.ErrPermission
 }
+
+// A wrapped line keeps its closing id marker on line 0, the only line entryID reads; no line opens as heading or fence.
+func TestWrapKeepsIDOnFirstLine(t *testing.T) {
+	t.Parallel()
+	for n := 16; n < 26; n++ { // slide "##" and "~~~" across the break column
+		in := "- " + strings.Repeat("word ", n) + "## not a heading ~~~ not a fence " + strings.Repeat("tail ", 14) +
+			"<!-- id:0a1b2c3d -->"
+		out := formatBankMarkdown(in)
+		lines := strings.Split(out, "\n")
+		if len(lines) < 2 || entryID(lines) != "0a1b2c3d" || !strings.HasSuffix(lines[0], " <!-- id:0a1b2c3d -->") {
+			t.Fatalf("marker left line 0:\n%s", out)
+		}
+		for _, ln := range lines[1:] {
+			if t0 := strings.TrimSpace(ln); strings.HasPrefix(t0, "#") || strings.HasPrefix(t0, "~~~") {
+				t.Errorf("continuation opens as structure: %q", ln)
+			}
+		}
+		assertLintClean(t, out)
+	}
+}
+
+// assertLintClean fails unless block is a fixed point of the bank renderer and fits mdlint.Width.
+func assertLintClean(t *testing.T, block string) {
+	t.Helper()
+	if cleanNewBlock(block) != block {
+		t.Errorf("block lacks a blank line around a heading, list or fence:\n%s", block)
+	}
+	assertWrapped(t, block)
+}
+
+// assertWrapped fails unless the wrap leaves block as it is and every line fits mdlint.Width.
+func assertWrapped(t *testing.T, block string) {
+	t.Helper()
+	if formatBankMarkdown(block) != block {
+		t.Errorf("block is not wrapped:\n%s", block)
+	}
+	for ln := range strings.SplitSeq(block, "\n") {
+		if utf8RuneCount(ln) > mdlint.Width {
+			t.Errorf("line over %d runes: %q", mdlint.Width, ln)
+		}
+	}
+}
+
+func TestWrapIDBoundaryAndLineEndings(t *testing.T) {
+	for _, ending := range []string{"", "  ", "\r", "  \r"} {
+		for _, n := range []int{mdlint.Width - 1, mdlint.Width, mdlint.Width + 1, 2 * mdlint.Width} {
+			prefix, suffix := "- word ", " <!-- id:12345678 -->"
+			width := n - len(prefix+suffix)
+			in := prefix + strings.Repeat("x ", width/2) + strings.Repeat("x", width%2) + suffix + ending
+			out := formatBankMarkdown(in)
+			lines := strings.Split(out, "\n")
+			if entryID(lines) != "12345678" || !strings.HasSuffix(out, ending) {
+				t.Errorf("lost id or line ending: %q => %q", in, out)
+			}
+			if formatBankMarkdown(out) != out {
+				t.Errorf("not idempotent: %q", out)
+			}
+			for _, line := range lines {
+				if utf8RuneCount(strings.TrimSuffix(line, "\r")) > mdlint.Width {
+					t.Errorf("line exceeds width: %q", line)
+				}
+				if strings.HasSuffix(ending, "\r") && !strings.HasSuffix(line, "\r") {
+					t.Errorf("mixed line endings: %q", out)
+				}
+			}
+		}
+	}
+}
+
+func TestWrapWideTokenAndNestedList(t *testing.T) {
+	for _, line := range []string{
+		"- " + strings.Repeat("x", mdlint.Width+1) + " <!-- id:12345678 -->",
+		"    - " + strings.Repeat("nested words ", 25) + "<!-- id:12345678 -->",
+		"- " + strings.Repeat("before ", 20) + "``literal ` <!-- id:11111111 --> code`` after <!-- id:12345678 -->",
+	} {
+		out := formatBankMarkdown(line)
+		if entryID(strings.Split(out, "\n")) != "12345678" || formatBankMarkdown(out) != out {
+			t.Errorf("lost identity or not idempotent: %q", out)
+		}
+		if !strings.Contains(out, strings.Repeat("x", mdlint.Width+1)) && strings.Contains(line, "xxxxx") {
+			t.Error("wide token was split")
+		}
+		if strings.Contains(line, "``literal") && !strings.Contains(out, "``literal ` <!-- id:11111111 --> code``") {
+			t.Errorf("split the code span: %q", out)
+		}
+		for i, row := range strings.Split(out, "\n") {
+			if i > 0 && strings.HasPrefix(line, "    - ") && !strings.HasPrefix(row, "      ") {
+				t.Errorf("lost nested-list indent: %q", row)
+			}
+		}
+	}
+}
+
+func TestWrapKeepsInlineIDOnFirstLine(t *testing.T) {
+	in := "- " + strings.Repeat("before ", 25) + "<!-- id:12345678 --> trailing words"
+	out := formatBankMarkdown(in)
+	if entryID(strings.Split(out, "\n")) != "12345678" || !strings.Contains(out, "trailing words") {
+		t.Fatalf("non-final marker left line 0 or lost text: %q", out)
+	}
+	assertWrapped(t, out)
+}

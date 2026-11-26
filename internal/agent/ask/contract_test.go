@@ -112,6 +112,28 @@ func TestRetryTakesOverContract(t *testing.T) {
 	}
 }
 
+// TestRetryTakeOverRefusesCancelled: a plain --retry of a cancelled holder leaves its contract and marker alone.
+func TestRetryTakeOverRefusesCancelled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	openSaved(t, contract.Facts{}, "", "")
+	old := agent.Record{ID: "d-1", Status: wire.StatusStalled, FailKind: agent.FailCancelled, Time: time.Now()}
+	if err := old.Save(); err != nil {
+		t.Fatal(err)
+	}
+	o := &contractOpen{Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+		Owner: contract.Party{Role: contract.RoleOwner, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1}}
+	ctx := agent.WithRetried(withContract(t.Context(), o), agent.Retried{ID: "d-1"})
+	if took, err := retryTakeOver(ctx, "d-2"); took || err != nil {
+		t.Fatalf("retryTakeOver of a cancelled holder = %v, %v; want false, nil", took, err)
+	}
+	if c, err := contract.Load("d-1"); err != nil || !reflect.DeepEqual(c.Holders, []string{"d-1"}) {
+		t.Fatalf("contract d-1 holders %v, %v; want [d-1]", c.Holders, err)
+	}
+	if _, err := os.Stat(agent.WatchMarker("resumed", "d-1")); err == nil {
+		t.Fatal("a refused takeover left a resumed marker")
+	}
+}
+
 // TestRetryRollbackAndCrashRecovery: a failed spawn rolls the takeover back; a crash is retaken by the next retry.
 func TestRetryRollbackAndCrashRecovery(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -144,6 +166,46 @@ func TestRetryRollbackAndCrashRecovery(t *testing.T) {
 	}
 	step(retry("d-1"), "d-2", false, "d-1", "d-2") // d-2 then crashes: no rollback
 	step(retry("d-2"), "d-3", false, "d-1", "d-3")
+}
+
+// A --recover adopted with no contract: a failed spawn or a refused contract open still rolls the adoption back.
+func TestRecoverRollbackWithoutContract(t *testing.T) {
+	for _, viaStart := range []bool{false, true} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		from := agent.NewRecord("t", agent.RunOptions{Prompt: "x"}, time.Now().Add(-time.Minute))
+		from.Status = "error"
+		if err := from.Save(); err != nil {
+			t.Fatal(err)
+		}
+		recoverCtx := func() context.Context {
+			return agent.WithRetried(context.WithValue(t.Context(), recoverKey{}, &recoverClaim{from: from.ID}), agent.Retried{ID: from.ID})
+		}
+		ctx := recoverCtx()
+		if err := claimRecover(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if finishRecover(ctx, "d-2"); recoverOf(ctx).err != nil {
+			t.Fatal(recoverOf(ctx).err)
+		}
+		if won, adopted := agent.ResumedAs(from.ID); won != "d-2" || !adopted {
+			t.Fatalf("fixture: resumed as %q adopted %v", won, adopted)
+		}
+		if viaStart { // the refused open: a fleet parent that does not exist
+			o := &contractOpen{Scope: contract.Scope{Unit: "func x", Kind: contract.KindFunction, Own: []string{"a.go"}},
+				Owner: contract.Party{Role: contract.RoleFleet, Agent: "pi"}, Limits: contract.Limits{Depth: 1, Leaves: 1}, Parent: "no-such"}
+			if err := startAsk(withContract(ctx, o), nil, &agent.Record{ID: "d-2"}); err == nil {
+				t.Fatal("startAsk under a missing fleet parent succeeded")
+			}
+		} else {
+			rollbackRetry(ctx, "d-2")
+		}
+		if won, adopted := agent.ResumedAs(from.ID); adopted {
+			t.Fatalf("viaStart=%v: adoption by %q survived the failed start", viaStart, won)
+		}
+		if err := claimRecover(recoverCtx()); err != nil {
+			t.Fatalf("viaStart=%v: holder not resumable after rollback: %v", viaStart, err)
+		}
+	}
 }
 
 // TestSettleContractFailsOnRedGate: a red gate fails the saved contract (reason term); the rest pass.

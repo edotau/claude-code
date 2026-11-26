@@ -1,7 +1,6 @@
 package vscode
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -79,7 +78,7 @@ func mergeKeybindings(dest string, overlay []map[string]any, check bool) (mergeR
 	if check {
 		return mergeResult{Changed: true}, nil
 	}
-	body, err := marshalKeybindings(merged, leadingComment(rawBase))
+	body, err := marshalJSONC(merged, retainedComments(rawBase))
 	if err != nil {
 		return mergeResult{}, err
 	}
@@ -115,33 +114,20 @@ func keybindingMatch(a, b map[string]any) bool {
 	return reflect.DeepEqual(a["args"], b["args"])
 }
 
-// leadingComment captures the header comment before the array's opening bracket so a merge keeps it.
-func leadingComment(raw []byte) string {
-	rest := bytes.TrimLeft(raw, " \t\r\n")
-	end := 0
-	for {
-		var n int
-		switch {
-		case bytes.HasPrefix(rest[end:], []byte("//")):
-			n = bytes.IndexByte(rest[end:], '\n') + 1
-			if n == 0 {
-				n = len(rest) - end
-			}
-		case bytes.HasPrefix(rest[end:], []byte("/*")):
-			i := bytes.Index(rest[end+2:], []byte("*/")) // after "/*", so "/*/" is not its own close
-			if i < 0 {
-				return ""
-			}
-			n = i + 4
-		default:
-			return strings.TrimSpace(string(rest[:end]))
+// Rebuilt JSON keeps every original comment in order in its header, including comments inside replaced entries.
+func retainedComments(raw []byte) string {
+	var comments []string
+	for i := 0; i < len(raw); {
+		next := skipToken(raw, i)
+		if raw[i] == '/' && next > i {
+			comments = append(comments, string(raw[i:next]))
 		}
-		end += n
-		end += len(rest[end:]) - len(bytes.TrimLeft(rest[end:], " \t\r\n"))
+		i = max(i+1, next)
 	}
+	return strings.Join(comments, "\n")
 }
 
-func marshalKeybindings(entries []map[string]any, leading string) ([]byte, error) {
+func marshalJSONC(entries any, leading string) ([]byte, error) {
 	arr, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return nil, err

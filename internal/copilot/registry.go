@@ -514,10 +514,14 @@ func prepareRegistry(r copilotRegistry, token string, pid int) (agent.LaunchFile
 	return agent.LaunchFile{Path: CopilotRegistryFile(dir, pid), Data: data}, nil
 }
 
-// splitModelFlags removes every --model <v> / --model=<v> from args and returns the values in order.
+// splitModelFlags removes --model flags before "--" and keeps passthrough args after "--" untouched.
 func splitModelFlags(args []string) (models, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		if a == "--" {
+			rest = append(rest, args[i+1:]...)
+			return models, rest
+		}
 		switch {
 		case a == "--model" && i+1 < len(args):
 			models = append(models, args[i+1])

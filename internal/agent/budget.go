@@ -12,6 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // handbackFiles caps the files a take-over line names.
@@ -55,7 +58,7 @@ func (r Record) LostBudgetEnd(now time.Time) bool {
 
 // NoResend reports a dead run no automatic path may re-send: cancelled by the user, or a budget end.
 func (r Record) NoResend(now time.Time) bool {
-	return r.FailKind == FailCancelled || r.LostBudgetEnd(now)
+	return r.cancelled() || r.LostBudgetEnd(now)
 }
 
 // SettleLostPastDeadline marks a dead run that ran past its attempt timeout a deadline budget end; true when it is one.
@@ -200,7 +203,8 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	who := cmp.Or(res.Agent, rec.Agent)
 	next := "continue with: claude-code agents ask --retry " + rec.ID
 	if res.SessionID != "" {
-		next = "continue with: claude-code agents ask --agent " + who + " --session " + res.SessionID + " 'finish from what you have'"
+		next = "continue with: claude-code agents ask --session " + res.SessionID + " --overlay " +
+			textutil.ShellQuote(agentconfig.Overlay{Agent: who}.Doc()) + " 'finish from what you have'"
 	}
 	reason := rec.degradedReason() // R34: a degraded task offers no resend, only the notice
 	if reason != "" {
@@ -213,7 +217,7 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; %s",
 		who, kind, took.Round(time.Second), t.toolCount(), lost, next)
 	if rec.RanIdentity == "" {
-		rec.RanIdentity = ranIdentityOf(rec.ID)
+		rec.RanIdentity = proxy.ReadRanIdentity(rec.ID)
 	}
 	if rec.RanIdentity != "" {
 		hint += "; ran as the " + rec.RanIdentity + " identity"

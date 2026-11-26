@@ -37,33 +37,37 @@ All are owner-only (`disable-model-invocation: true`); each launcher specifies i
 
 - `/codex` · `/copilot` · `/gemini` · `/opencode` `[--host <h>] [--provider <p>] [--profile <p>] [--model <m>]
   [--effort <e>] [--fallback <mode>] <task>` — the session
-  runs `agents ask --carry --background --agent <type> [flags] --tools - < brief`,
+  runs `agents ask --carry --background --overlay '{"agent":"<type>","tools":true}' - < brief`, adding supplied
+  settings to that object,
   then `agents result -f <id>`. With `--host`, omit both `--carry` and `--background` and relay the foreground result.
   There is no `/claude`: the name could collide.
 - `/coworker` (same flags plus `[--codemode on|only]`) — Pi in code mode: the session runs `agents ask --background
-  --agent pi --provider databricks --profile <p> --codemode on [flags] --tools --autonomous - < brief`
-  plain (`--carry` refuses
-  pi), then `agents result -f <id>`; `--provider`/`--profile` replace the Databricks default. The run is typed
-  `coworker` (receipt `coworker`), the same run as the `coworker` Agent type and `agents ask --agent coworker`.
+  --overlay '<object>' - < brief` with the object
+  `{"agent":"pi","provider":"databricks","profile":"<p>","autonomous":true,"codemode":"on","tools":true}`
+  (one object, flags as keys) plain (`--carry` refuses
+  pi), then `agents result -f <id>`; `provider`/`profile` replace the Databricks default. The run is typed
+  `coworker` (receipt `coworker`), the same run as the `coworker` Agent type and
+  `agents ask --overlay '{"agent":"coworker"}'`.
   There is no `/pi`. A route that travels whole (provider, profile, host, remote) is `agents ask --overlay`; workflow
   steps take it from one source and pass `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`; what
   `auto` resolves to: `rules/harness/network.md`.
-- `--model auto` (or overlay `model: auto`, a record pin `auto`; model strings carry no profile: `providers.md`)
+- Overlay `model: auto` (or a record pin `auto`; model strings carry no profile: `providers.md`)
   ranks the models that one profile serves by the brief's tier from `internal/assets/files/catalog/ranks.json`, over a
   pinned model; the label shows the pick.
   `auto`, typed or pinned, replaces a ladder cell's model on that cell's row; with nothing to rank it runs the
-  agent's untyped default with a note, and it is never refused (`--fallback none` refuses only a typed concrete
+  agent's untyped default with a note, and it is never refused (overlay `fallback: none` refuses only a typed concrete
   model).
 - `/discover-models [--profile p] [--dry-run]` runs `claude-code models discover --apply` (`--dry-run`: no `--apply`).
 - External work agents run directly from the main session via carried asks
-  (`claude-code agents ask --carry --agent <a> …`; Pi as a plain ask; Databricks arm, R20), or as the Agent tool's
+  (`claude-code agents ask --carry --overlay '{"agent":"<a>"}' …`; Pi as a plain ask; Databricks arm, R20), or as the
+  Agent tool's
   `codex`, `copilot`, `gemini`, `opencode`, `coworker` types: a Haiku worker that runs the one typed
-  `agents ask --agent <type> --provider databricks --profile <p>` its file bakes,
+  `agents ask --overlay '{"agent":"<type>","provider":"databricks","profile":"<p>"}'` its file bakes,
   waits and checks the result; the vendor verbs
   (`claude-code codex …`) and overlay `{"runner":"own"}` keep each CLI on its own login;
   an unnamed `claude` code leaf runs Pi first, and a typed `claude` ask on a Databricks route runs through the pi
   runner (`rules/harness/agent.md` → pi runner; `runner: own` opts out); the owner layer opens through `agents ask
-  --spec` (`skills/subagent-workflows/SKILL.md` → Owner layer);
+  --brief` (`skills/subagent-workflows/SKILL.md` → Owner layer);
   `dispatch-effort` rewrites a missing or wrong `<model>:` description prefix on Agent leaves, never denies it.
 
 ## Agent and command files

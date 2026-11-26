@@ -1,6 +1,7 @@
 package shadow
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -75,158 +76,13 @@ func entryUIDV5(tx *sql.Tx) (string, error) {
 	return "entry uid, tombstones, local change capture", nil
 }
 
-// priorEntry is a live entry's identity as an import found it: uid, version and the change it was last at.
-type priorEntry struct {
-	uid, id, lines, origin string
-	doc                    string
-	version, originSeq     int
-	capture                bool // a synced entry edited in its file: recorded as a local change after the insert
-}
-
-var idMarkRE = regexp.MustCompile(`\s*<!-- id:[0-9a-f]{8} -->`)
-
-// canonText is an entry's content without id markers, whitespace or line wrapping: what a real edit changes.
-func canonText(s string) string {
-	return strings.Join(strings.Fields(idMarkRE.ReplaceAllString(s, "")), " ")
-}
-
-// shadowIdentity matches re-imported entries to prior ones: by (doc, id) when that id is unique, else by (doc, seq).
-type shadowIdentity struct {
-	byID    map[[2]string]priorEntry
-	bySeq   map[string]priorEntry
-	byText  map[[3]string][]priorEntry // unedited entries keep their uid when a neighbour shifts their position
-	byCanon map[[3]string][]priorEntry // the same by canonText: an id stamp or a re-wrap keeps the uid too
-	used    map[string]bool
-	adopt   bool // a full rebuild reconstructs the db from files: it captures nothing
-}
-
-func seqKey(doc string, seq int) string { return doc + "\x00" + strconv.Itoa(seq) }
-
-func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
-	ids := shadowIdentity{byID: map[[2]string]priorEntry{}, bySeq: map[string]priorEntry{},
-		byText: map[[3]string][]priorEntry{}, byCanon: map[[3]string][]priorEntry{}, used: map[string]bool{}}
-	rows, err := tx.QueryContext(ctx, `SELECT doc, id, seq, uid, lines, version, origin, origin_seq,
-		COUNT(*) OVER (PARTITION BY doc, id) FROM entries WHERE deleted = 0 AND uid IS NOT NULL`)
-	if err != nil {
-		return ids, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var doc string
-		var seq, dup int
-		var p priorEntry
-		if err := rows.Scan(&doc, &p.id, &seq, &p.uid, &p.lines, &p.version, &p.origin, &p.originSeq, &dup); err != nil {
-			return ids, err
-		}
-		p.doc = doc
-		if p.id != "" && dup == 1 {
-			ids.byID[[2]string{doc, p.id}] = p
-		}
-		ids.bySeq[seqKey(doc, seq)] = p
-		key := [3]string{doc, p.id, p.lines}
-		ids.byText[key] = append(ids.byText[key], p)
-		canon := [3]string{doc, p.id, canonText(p.lines)}
-		ids.byCanon[canon] = append(ids.byCanon[canon], p)
-	}
-	return ids, rows.Err()
-}
-
-// assign gives doc's entries their prior identity (id matches first, then seq); changed lines bump the version.
-func (s shadowIdentity) assign(doc string, entries []shadowEntry) []priorEntry {
-	out := make([]priorEntry, len(entries))
-	s.takeSameText(doc, entries, out)
-	for _, pick := range []func(shadowEntry) priorEntry{ // byID never holds an empty id
-		func(e shadowEntry) priorEntry { return s.byID[[2]string{doc, e.id}] },
-		func(e shadowEntry) priorEntry { return s.bySeq[seqKey(doc, e.seq)] },
-	} {
-		for i, e := range entries {
-			p := pick(e)
-			if p.id != e.id {
-				continue // another id (or none) at the same position is a different entry: never inherit its uid
-			}
-			if out[i].uid == "" && p.uid != "" && !s.used[p.uid] {
-				out[i], s.used[p.uid] = p, true
-			}
-		}
-	}
-	for i := range out {
-		out[i] = out[i].reimported(doc, entries[i].lines, s.adopt)
-	}
-	return out
-}
-
-// takeSameText first: an insert above an unedited entry must not shift uids down the file.
-func (s shadowIdentity) takeSameText(doc string, entries []shadowEntry, out []priorEntry) {
-	s.takeByKey(entries, out, s.byText, func(e shadowEntry) [3]string { return [3]string{doc, e.id, e.lines} })
-	s.takeByKey(entries, out, s.byCanon, func(e shadowEntry) [3]string { return [3]string{doc, e.id, canonText(e.lines)} })
-	// an unstamped prior matches after exact-id canon matches, so a re-wrapped entry keeps its own uid
-	s.takeByKey(entries, out, s.byCanon, func(e shadowEntry) [3]string { return [3]string{doc, "", canonText(e.lines)} })
-}
-
-func (s shadowIdentity) takeByKey(entries []shadowEntry, out []priorEntry, m map[[3]string][]priorEntry, key func(shadowEntry) [3]string) {
-	for i, e := range entries {
-		for _, p := range m[key(e)] {
-			if out[i].uid == "" && !s.used[p.uid] {
-				out[i], s.used[p.uid] = p, true
-			}
-		}
-	}
-}
-
-// tombstoneGone files a tombstone for each prior live entry the sync dropped without re-inserting its uid.
-func (s shadowIdentity) tombstoneGone(ctx context.Context, tx *sql.Tx) error {
-	for _, p := range s.bySeq {
-		if s.used[p.uid] {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO tombstones(uid, origin, origin_seq, at)
-			SELECT ?1, ?2, ?3, NULL WHERE NOT EXISTS (SELECT 1 FROM entries WHERE uid = ?1)`, p.uid, p.origin, p.originSeq); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// reimported is p after its file gave it lines in doc: a fresh entry is version 1, a real edit or move a local change.
-func (p priorEntry) reimported(doc, lines string, adopt bool) priorEntry {
-	switch {
-	case p.uid == "":
-		p.version = 1 // a fresh uid comes from the entries_uid_ai trigger
-	case !adopt && (canonText(p.lines) != canonText(lines) || p.doc != doc):
-		p.capture = true // inserted at its old base (empty origin: base ""), then bumped so the trigger records it
-	case p.lines != lines || p.doc != doc:
-		p.version++
-	}
-	return p
-}
-
-// claimMoved lets an entry with an id marker keep its uid when its file moved it to another doc (rotation, sweeps).
-func (s shadowIdentity) claimMoved(docs []shadowDoc) {
-	holders, stay, count := map[string][]string{}, map[string]bool{}, map[string]int{}
-	for _, d := range docs {
-		stay[d.path] = d.same
-		for _, e := range d.entries {
-			holders[e.id] = append(holders[e.id], d.path)
-		}
-	}
-	for _, p := range s.bySeq {
-		count[p.id]++
-	}
-	for _, p := range s.bySeq {
-		hs := holders[p.id]
-		if p.id == "" || count[p.id] > 1 || stay[p.doc] || len(hs) != 1 || hs[0] == p.doc {
-			continue
-		}
-		s.byID[[2]string{hs[0], p.id}] = p
-	}
-}
-
 // sqlEnvelopeStore applies envelopes to the db truth; lock and truthDB are seams so tests never touch the live store.
 type sqlEnvelopeStore struct {
 	db      *sql.DB
 	lock    func(func() error) error
 	truthDB func() (bool, error)
 	export  func() error // markdown export after a commit, under the same lock; nil in tests
+	schema  int          // 0 means memory.EnvelopeMaxSchema; tests set EnvelopeSchema to simulate an older peer
 }
 
 var _ memory.EnvelopeStore = sqlEnvelopeStore{}
@@ -239,7 +95,7 @@ func openEnvelopeStore() (memory.EnvelopeStore, error) {
 		return nil, err
 	}
 	lock := func(f func() error) error { return memory.WithBankLock(memory.BankLockWait, f) }
-	truth := func() (bool, error) { t, err := memory.TruthErr(); return t == "db", err }
+	truth := func() (bool, error) { return true, nil } // the db is the only store since 7.2 H1
 	return sqlEnvelopeStore{db: db, lock: lock, truthDB: truth, export: exportAfterWrite}, nil
 }
 
@@ -277,7 +133,7 @@ func (s sqlEnvelopeStore) ChangesAfter(origin string, afterSeq int64, limit int)
 		return nil, errors.New("memory envelopes: limit must be positive")
 	}
 	rows, err := s.db.QueryContext(context.Background(), `SELECT origin, origin_seq, schema, COALESCE(entry_uid, ''),
-		COALESCE(base_version, ''), op, COALESCE(payload, ''), COALESCE(at, '') FROM changes
+		COALESCE(doc_ref, ''), COALESCE(base_version, ''), op, COALESCE(payload, ''), COALESCE(at, '') FROM changes
 		WHERE origin = ? AND origin_seq > ? ORDER BY origin_seq LIMIT ?`, origin, afterSeq, limit)
 	if err != nil {
 		return nil, err
@@ -287,7 +143,7 @@ func (s sqlEnvelopeStore) ChangesAfter(origin string, afterSeq int64, limit int)
 	for rows.Next() {
 		var e memory.Envelope
 		var payload string
-		if err := rows.Scan(&e.Origin, &e.Seq, &e.Schema, &e.EntryRef, &e.BaseVersion, &e.Op, &payload, &e.At); err != nil {
+		if err := rows.Scan(&e.Origin, &e.Seq, &e.Schema, &e.EntryRef, &e.DocRef, &e.BaseVersion, &e.Op, &payload, &e.At); err != nil {
 			return nil, err
 		}
 		if payload != "" {
@@ -310,15 +166,19 @@ func (s sqlEnvelopeStore) Watermark(origin string) (int64, int, error) {
 
 var entryUIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// ApplyEnvelope is one transaction: apply or file a conflict, record the changes row, advance the watermark.
-func (s sqlEnvelopeStore) ApplyEnvelope(e memory.Envelope) (bool, error) {
-	if e.Origin == "" || strings.Contains(e.Origin, "/") || e.Seq <= 0 || e.Schema != memory.EnvelopeSchema {
-		return false, fmt.Errorf("memory envelopes: invalid envelope %q/%d schema %d", e.Origin, e.Seq, e.Schema)
+func validEnvelope(e memory.Envelope) error {
+	if e.Op == memory.EnvelopeOpOrder {
+		return validOrder(e)
 	}
 	if !entryUIDRE.MatchString(e.EntryRef) {
-		return false, fmt.Errorf("memory envelopes: invalid entry ref %q", e.EntryRef)
+		return fmt.Errorf("memory envelopes: invalid entry ref %q", e.EntryRef)
 	}
-	if err := validEnvelopeOp(e); err != nil {
+	return validEnvelopeOp(e)
+}
+
+// ApplyEnvelope is one transaction: apply or file a conflict, record the changes row, advance the watermark.
+func (s sqlEnvelopeStore) ApplyEnvelope(e memory.Envelope) (bool, error) {
+	if err := checkApply(e); err != nil {
 		return false, err
 	}
 	var conflict bool
@@ -327,6 +187,14 @@ func (s sqlEnvelopeStore) ApplyEnvelope(e memory.Envelope) (bool, error) {
 		return err
 	})
 	return conflict, err
+}
+
+// checkApply refuses an envelope this store cannot apply before any transaction opens.
+func checkApply(e memory.Envelope) error {
+	if e.Origin == "" || strings.Contains(e.Origin, "/") || e.Seq <= 0 || e.Schema != memory.OpSchema(e.Op) {
+		return fmt.Errorf("memory envelopes: invalid envelope %q/%d schema %d", e.Origin, e.Seq, e.Schema)
+	}
+	return validEnvelope(e)
 }
 
 func applyEnvelopeTx(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, error) {
@@ -355,6 +223,9 @@ func applyEnvelopeTx(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, 
 
 // applyVerdict applies e, stamps an entry already in e's state, or files the conflict that keeps e apart.
 func applyVerdict(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, error) {
+	if e.Op == memory.EnvelopeOpOrder {
+		return applyOrder(ctx, tx, e)
+	}
 	kind, r, err := envelopeVerdict(ctx, tx, e)
 	switch {
 	case err != nil:
@@ -493,15 +364,15 @@ func validDoc(doc string) error {
 }
 
 func insertEnvelopeChange(ctx context.Context, tx *sql.Tx, e memory.Envelope) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO changes(origin, origin_seq, schema, entry_rowid, entry_uid, base_version, op, payload, at)
-		VALUES(?, ?, ?, COALESCE((SELECT rowid FROM entries WHERE uid = ?), 0), ?, ?, ?, ?, ?)`,
-		e.Origin, e.Seq, e.Schema, e.EntryRef, e.EntryRef, e.BaseVersion, e.Op, string(e.Payload), e.At)
+	_, err := tx.ExecContext(ctx, `INSERT INTO changes(origin, origin_seq, schema, entry_rowid, entry_uid, doc_ref, base_version,
+		op, payload, at) VALUES(?1, ?2, ?3, COALESCE((SELECT rowid FROM entries WHERE uid = ?4), 0), NULLIF(?4, ''), NULLIF(?5, ''),
+		?6, ?7, ?8, ?9)`, e.Origin, e.Seq, e.Schema, e.EntryRef, e.DocRef, e.BaseVersion, e.Op, string(e.Payload), e.At)
 	return err
 }
 
 func recordAck(ctx context.Context, tx *sql.Tx, e memory.Envelope) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO peers(origin, acked_seq, schema) VALUES(?, ?, ?)
-		ON CONFLICT(origin) DO UPDATE SET acked_seq = MAX(acked_seq, excluded.acked_seq), schema = excluded.schema`, e.Origin, e.Seq, e.Schema)
+		ON CONFLICT(origin) DO UPDATE SET acked_seq = MAX(acked_seq, excluded.acked_seq), schema = MAX(schema, excluded.schema)`, e.Origin, e.Seq, e.Schema)
 	return err
 }
 
@@ -516,13 +387,13 @@ func ackedSeq(ctx context.Context, tx *sql.Tx, origin string) (int64, error) {
 
 // duplicateEnvelope compares a repeat with its stored change; a different change under the same seq is a conflict.
 func duplicateEnvelope(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, error) {
-	var uid, base, op, payload string
-	err := tx.QueryRowContext(ctx, `SELECT COALESCE(entry_uid, ''), COALESCE(base_version, ''), op, COALESCE(payload, '')
-		FROM changes WHERE origin = ? AND origin_seq = ?`, e.Origin, e.Seq).Scan(&uid, &base, &op, &payload)
+	var uid, doc, base, op, payload string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(entry_uid, ''), COALESCE(doc_ref, ''), COALESCE(base_version, ''), op,
+		COALESCE(payload, '') FROM changes WHERE origin = ? AND origin_seq = ?`, e.Origin, e.Seq).Scan(&uid, &doc, &base, &op, &payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
-	if err != nil || uid == e.EntryRef && base == e.BaseVersion && op == e.Op && samePayload(payload, e.Payload) {
+	if err != nil || uid == e.EntryRef && doc == e.DocRef && base == e.BaseVersion && op == e.Op && samePayload(payload, e.Payload) {
 		return false, err
 	}
 	return true, insertEnvelopeConflict(ctx, tx, e, conflictSeqMismatch)
@@ -539,6 +410,9 @@ func samePayload(old string, p json.RawMessage) bool {
 
 // insertEnvelopeConflict files each distinct variant once; only an equal repeat (op, base, payload) files nothing.
 func insertEnvelopeConflict(ctx context.Context, tx *sql.Tx, e memory.Envelope, kind string) error {
+	if e.Op == memory.EnvelopeOpOrder {
+		return insertOrderConflict(ctx, tx, e, kind)
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO conflicts(entry_rowid, entry_uid, peer_origin, peer_seq, payload, at, kind, op,
 		base_version, doc) SELECT NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, COALESCE(CASE WHEN json_valid(?4)
 		THEN json_extract(?4, '$.doc') END, (SELECT doc FROM entries WHERE uid = ?1)) WHERE NOT EXISTS (SELECT 1 FROM
@@ -561,7 +435,18 @@ func applyEnvelopeEntry(ctx context.Context, tx *sql.Tx, r entryState, e memory.
 	if e.Op == memory.EnvelopeOpDelete {
 		return deleteEnvelopeEntry(ctx, tx, r, e)
 	}
-	return upsertEnvelopeEntry(ctx, tx, r, e)
+	if err := upsertEnvelopeEntry(ctx, tx, r, e); err != nil {
+		return err
+	}
+	var p envelopePayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil {
+		return err
+	}
+	o, err := loadOrder(ctx, tx, p.Doc)
+	if err != nil || o.uids == nil {
+		return err
+	}
+	return projectOrder(ctx, tx, p.Doc, o.uids)
 }
 
 // stampEntry records that uid now stands at origin/seq without a version bump, so no local change is captured.
@@ -653,8 +538,8 @@ func deleteEnvelopeEntry(ctx context.Context, tx *sql.Tx, r entryState, e memory
 
 // Conflicts lists envelope conflicts (export conflicts are `memory shadow --conflicts`), oldest first.
 func (s sqlEnvelopeStore) Conflicts(openOnly bool) ([]memory.ConflictRow, error) {
-	query := `SELECT rowid, entry_uid, peer_origin, peer_seq, COALESCE(payload, ''), COALESCE(at, ''), resolved, kind,
-		COALESCE(doc, ''), op FROM conflicts WHERE entry_uid IS NOT NULL`
+	query := `SELECT rowid, COALESCE(entry_uid, ''), peer_origin, peer_seq, COALESCE(payload, ''), COALESCE(at, ''), resolved, kind,
+		COALESCE(doc, ''), op FROM conflicts WHERE (entry_uid IS NOT NULL OR op = 'order')`
 	if openOnly {
 		query += ` AND resolved = 0`
 	}
@@ -688,6 +573,9 @@ func (s sqlEnvelopeStore) ResolveConflict(id int64, keep string) error {
 		if err != nil {
 			return err
 		}
+		if e.Op == memory.EnvelopeOpOrder {
+			return resolveOrder(ctx, tx, id, keep, e)
+		}
 		if keep == "peer" {
 			if err := keepPeer(ctx, tx, id, e); err != nil {
 				return err
@@ -704,9 +592,9 @@ func (s sqlEnvelopeStore) ResolveConflict(id int64, keep string) error {
 func openConflict(ctx context.Context, tx *sql.Tx, id int64) (memory.Envelope, error) {
 	var e memory.Envelope
 	var payload string
-	err := tx.QueryRowContext(ctx, `SELECT entry_uid, COALESCE(payload, ''), peer_origin, peer_seq, op, COALESCE(at, '')
-		FROM conflicts WHERE rowid = ? AND resolved = 0 AND entry_uid IS NOT NULL`, id).
-		Scan(&e.EntryRef, &payload, &e.Origin, &e.Seq, &e.Op, &e.At)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(entry_uid, ''), COALESCE(payload, ''), peer_origin, peer_seq, op, COALESCE(at, ''),
+		COALESCE(doc, '') FROM conflicts WHERE rowid = ? AND resolved = 0 AND (entry_uid IS NOT NULL OR op = 'order')`, id).
+		Scan(&e.EntryRef, &payload, &e.Origin, &e.Seq, &e.Op, &e.At, &e.DocRef)
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, fmt.Errorf("memory conflicts: no open conflict %d", id)
 	}
@@ -752,7 +640,7 @@ func keepReplaced(ctx context.Context, tx *sql.Tx, r entryState, uid string) err
 	return err
 }
 
-func mustJSON(p envelopePayload) []byte {
+func mustJSON(p any) []byte {
 	b, _ := json.Marshal(p) // a struct of strings and an int always marshals
 	return b
 }
@@ -783,6 +671,475 @@ func emitResolution(ctx context.Context, tx *sql.Tx, uid, base string) error {
 		return err
 	}
 	return stampEntry(ctx, tx, uid, me, seq)
+}
+
+// orderV6 adds the per-document published entry order, shared as one order change per document.
+func orderV6(tx *sql.Tx) (string, error) {
+	for _, q := range []string{
+		`CREATE TABLE doc_orders(doc TEXT PRIMARY KEY, uids TEXT NOT NULL, origin TEXT NOT NULL DEFAULT '',
+		origin_seq INTEGER NOT NULL DEFAULT 0)`,
+		`ALTER TABLE changes ADD COLUMN doc_ref TEXT`,
+		`INSERT INTO doc_orders(doc, uids) SELECT doc, json_group_array(uid) FROM (SELECT doc, uid FROM entries
+		WHERE deleted = 0 AND origin <> '' ORDER BY doc, seq) GROUP BY doc`,
+	} {
+		if _, err := tx.ExecContext(context.Background(), q); err != nil {
+			return "", err
+		}
+	}
+	return "document entry order", nil
+}
+
+// orderState is a document's last accepted published order and the change that set it.
+type orderState struct {
+	uids   []string
+	origin string
+	seq    int64
+}
+
+func (o orderState) base() string { return baseOf(o.origin, o.seq) }
+
+func cmpStamp(a, b orderState) int {
+	return cmp.Or(cmp.Compare(a.origin, b.origin), cmp.Compare(a.seq, b.seq))
+}
+
+func loadOrder(ctx context.Context, tx *sql.Tx, doc string) (orderState, error) {
+	var o orderState
+	var raw string
+	err := tx.QueryRowContext(ctx, `SELECT uids, origin, origin_seq FROM doc_orders WHERE doc = ?`, doc).Scan(&raw, &o.origin, &o.seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return o, nil
+	}
+	if err != nil {
+		return o, err
+	}
+	return o, json.Unmarshal([]byte(raw), &o.uids)
+}
+
+func saveOrder(ctx context.Context, tx *sql.Tx, doc string, o orderState) error {
+	b, err := json.Marshal(slices.Concat([]string{}, o.uids))
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO doc_orders(doc, uids, origin, origin_seq) VALUES(?, ?, ?, ?) ON CONFLICT(doc)
+		DO UPDATE SET uids = excluded.uids, origin = excluded.origin, origin_seq = excluded.origin_seq`, doc, string(b), o.origin, o.seq)
+	return err
+}
+
+// docUIDs is a document's live uids: all of them, and the published ones (a content origin) in seq order.
+type docUIDs struct {
+	live map[string]bool
+	pub  []string
+}
+
+func readDocUIDs(ctx context.Context, tx *sql.Tx, doc string) (docUIDs, error) {
+	d := docUIDs{live: map[string]bool{}}
+	rows, err := tx.QueryContext(ctx, `SELECT uid, origin <> '' FROM entries WHERE doc = ? AND deleted = 0
+		AND uid IS NOT NULL ORDER BY seq`, doc)
+	if err != nil {
+		return d, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid string
+		var pub bool
+		if err := rows.Scan(&uid, &pub); err != nil {
+			return d, err
+		}
+		d.live[uid] = true
+		if pub {
+			d.pub = append(d.pub, uid)
+		}
+	}
+	return d, rows.Err()
+}
+
+// orderChanged: a published insertion, or a relative reorder among published survivors; a delete alone is neither.
+func orderChanged(before, after docUIDs) bool {
+	if len(after.pub) == 0 {
+		return false
+	}
+	var kept, now []string
+	for _, u := range after.pub {
+		if !before.live[u] {
+			return true
+		}
+	}
+	inAfter, inBefore := map[string]bool{}, map[string]bool{}
+	for _, u := range after.pub {
+		inAfter[u] = true
+	}
+	for _, u := range before.pub {
+		inBefore[u] = true
+		if inAfter[u] {
+			kept = append(kept, u)
+		}
+	}
+	for _, u := range after.pub {
+		if inBefore[u] {
+			now = append(now, u)
+		}
+	}
+	return !slices.Equal(kept, now)
+}
+
+// captureDocOrder emits one order change for doc when a local write changed its published order; before is read first.
+func captureDocOrder(ctx context.Context, tx *sql.Tx, doc string, before docUIDs) error {
+	after, err := readDocUIDs(ctx, tx, doc)
+	if err != nil || !orderChanged(before, after) {
+		return err
+	}
+	cur, err := loadOrder(ctx, tx, doc)
+	if err != nil {
+		return err
+	}
+	return emitOrder(ctx, tx, doc, cur.base(), cur.uids, after.pub)
+}
+
+// emitOrder writes this machine's next order change for doc over base and makes uids the stamped state.
+func emitOrder(ctx context.Context, tx *sql.Tx, doc, base string, baseUIDs, uids []string) error {
+	e := memory.Envelope{Origin: machine(ctx, tx), Schema: memory.EnvelopeOrderSchema, DocRef: doc, BaseVersion: base,
+		Op: memory.EnvelopeOpOrder, At: time.Now().UTC().Format(time.RFC3339)}
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(origin_seq), 0) + 1 FROM changes WHERE origin = ?`, e.Origin).Scan(&e.Seq); err != nil {
+		return err
+	}
+	var err error
+	if e.Payload, err = json.Marshal(orderPayload{UIDs: slices.Concat([]string{}, uids), BaseUIDs: baseUIDs}); err != nil {
+		return err
+	}
+	if err := insertEnvelopeChange(ctx, tx, e); err != nil {
+		return err
+	}
+	return saveOrder(ctx, tx, doc, orderState{uids: uids, origin: e.Origin, seq: e.Seq})
+}
+
+// resolveOrder keeps one side of a document-order conflict and emits the kept array as this side's new order change.
+func resolveOrder(ctx context.Context, tx *sql.Tx, id int64, keep string, e memory.Envelope) error {
+	var older bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM conflicts WHERE op = 'order' AND doc = ? AND resolved = 0
+		AND rowid < ?)`, e.DocRef, id).Scan(&older); err != nil {
+		return err
+	}
+	if older {
+		return fmt.Errorf("memory conflicts: resolve the older order conflict on %s first", e.DocRef)
+	}
+	var peer orderPayload
+	if err := json.Unmarshal(e.Payload, &peer); err != nil {
+		return err
+	}
+	cur, err := loadOrder(ctx, tx, e.DocRef)
+	if err != nil {
+		return err
+	}
+	if keep == "peer" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO conflicts(entry_rowid, entry_uid, peer_origin, peer_seq, payload, at, kind, op,
+			doc, resolved) VALUES(NULL, NULL, ?, 0, ?, ?, 'replaced', 'order', ?, 1)`, machine(ctx, tx),
+			string(mustJSON(orderPayload{UIDs: slices.Concat([]string{}, cur.uids)})), time.Now().UTC().Format(time.RFC3339), e.DocRef); err != nil {
+			return err
+		}
+		if err := projectOrder(ctx, tx, e.DocRef, peer.UIDs); err != nil {
+			return err
+		}
+		cur.uids = peer.UIDs
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE conflicts SET resolved = 1 WHERE rowid = ?`, id); err != nil {
+		return err
+	}
+	return emitOrder(ctx, tx, e.DocRef, baseOf(e.Origin, e.Seq), peer.UIDs, cur.uids)
+}
+
+type orderPayload struct {
+	UIDs     []string `json:"uids"`
+	BaseUIDs []string `json:"base_uids,omitempty"` // actual merged base array so successors can prove their base
+}
+
+func validOrder(e memory.Envelope) error {
+	var p orderPayload
+	if err := json.Unmarshal(e.Payload, &p); err != nil || p.UIDs == nil || e.EntryRef != "" {
+		return fmt.Errorf("memory envelopes: %q/%d: an order change needs a uids payload and no entry ref", e.Origin, e.Seq)
+	}
+	for _, list := range [][]string{p.UIDs, p.BaseUIDs} {
+		seen := map[string]bool{}
+		for _, u := range list {
+			if !entryUIDRE.MatchString(u) || seen[u] {
+				return fmt.Errorf("memory envelopes: %q/%d: invalid or repeated uid %q in an order", e.Origin, e.Seq, u)
+			}
+			seen[u] = true
+		}
+	}
+	return validDoc(e.DocRef)
+}
+
+// applyOrder takes a peer's order: same state stamps, a clean base or an append-only fork merges, else one conflict.
+func applyOrder(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, error) {
+	var in orderPayload
+	if err := json.Unmarshal(e.Payload, &in); err != nil {
+		return false, err
+	}
+	cur, err := loadOrder(ctx, tx, e.DocRef)
+	if err != nil {
+		return false, err
+	}
+	peer := orderState{uids: in.UIDs, origin: e.Origin, seq: e.Seq}
+	var open bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM conflicts WHERE op = 'order' AND doc = ? AND resolved = 0)`,
+		e.DocRef).Scan(&open); err != nil {
+		return false, err
+	}
+	switch {
+	case slices.Equal(cur.uids, peer.uids):
+		if cmpStamp(cur, peer) < 0 {
+			cur = peer
+		}
+		if err := setOrder(ctx, tx, e.DocRef, cur); err != nil {
+			return false, err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE conflicts SET resolved = 1 WHERE op = 'order' AND doc = ?
+			AND peer_origin = ? AND peer_seq < ? AND resolved = 0`, e.DocRef, e.Origin, e.Seq)
+		return false, err
+	case open:
+		return true, insertOrderConflict(ctx, tx, e, conflictBlocked)
+	case e.BaseVersion == cur.base():
+		// A merged array has no envelope of its own; its stamp alone must not let one fork overwrite the other.
+		base, held, err := orderBase(ctx, tx, e.DocRef, cur.base())
+		if err != nil {
+			return false, err
+		}
+		if cur.origin == "" || in.BaseUIDs != nil && slices.Equal(in.BaseUIDs, cur.uids) ||
+			in.BaseUIDs == nil && held && slices.Equal(base, cur.uids) {
+			return false, setOrder(ctx, tx, e.DocRef, peer)
+		}
+	}
+	merged, ok, err := mergeAppends(ctx, tx, e, cur, peer)
+	if err != nil || !ok {
+		if err == nil {
+			err = insertOrderConflict(ctx, tx, e, conflictDiverged)
+		}
+		return !ok, err
+	}
+	return false, setOrder(ctx, tx, e.DocRef, merged)
+}
+
+// setOrder stores next and rewrites the document's seq to match.
+func setOrder(ctx context.Context, tx *sql.Tx, doc string, next orderState) error {
+	if err := saveOrder(ctx, tx, doc, next); err != nil {
+		return err
+	}
+	return projectOrder(ctx, tx, doc, next.uids)
+}
+
+// orderBase is the order array of the change base names; "" is the empty base, ok false when it is not held.
+func orderBase(ctx context.Context, tx *sql.Tx, doc, base string) (uids []string, ok bool, err error) {
+	if base == "" {
+		return nil, true, nil
+	}
+	origin, seq, found := strings.Cut(base, "/")
+	n, perr := strconv.ParseInt(seq, 10, 64)
+	if !found || perr != nil {
+		return nil, false, nil
+	}
+	var raw string
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(payload, '') FROM changes WHERE origin = ? AND origin_seq = ? AND op = 'order'
+		AND doc_ref = ?`, origin, n, doc).Scan(&raw)
+	var p orderPayload
+	if errors.Is(err, sql.ErrNoRows) || err == nil && json.Unmarshal([]byte(raw), &p) != nil {
+		return nil, false, nil
+	}
+	return p.UIDs, err == nil, err
+}
+
+func hasPrefix(s, prefix []string) bool {
+	return len(s) >= len(prefix) && slices.Equal(s[:len(prefix)], prefix)
+}
+
+// mergeAppends joins two forks that only appended to the shared base order, appended uids in stamp order.
+func mergeAppends(ctx context.Context, tx *sql.Tx, e memory.Envelope, cur, peer orderState) (orderState, bool, error) {
+	base, ok, err := orderBase(ctx, tx, e.DocRef, e.BaseVersion)
+	storedBase := base
+	var incoming orderPayload
+	if err := json.Unmarshal(e.Payload, &incoming); err != nil {
+		return orderState{}, false, err
+	}
+	if incoming.BaseUIDs != nil {
+		base, ok = incoming.BaseUIDs, true
+	}
+	if err != nil || !ok || !hasPrefix(cur.uids, base) || !hasPrefix(peer.uids, base) {
+		return orderState{}, false, err
+	}
+	parts, err := siblingAppends(ctx, tx, e, base, storedBase, cur.uids)
+	if err != nil {
+		return orderState{}, false, err
+	}
+	prior, ok := joinAppends(base, parts)
+	if !ok || len(parts) == 0 || !slices.Equal(prior, cur.uids) || cmpStamp(parts[len(parts)-1], cur) != 0 {
+		return orderState{}, false, nil
+	}
+	parts = canonicalOrders(append(parts, peer))
+	merged, ok := joinAppends(base, parts)
+	if !ok {
+		return orderState{}, false, nil
+	}
+	last := parts[len(parts)-1]
+	return orderState{uids: merged, origin: last.origin, seq: last.seq}, true, nil
+}
+
+// siblingAppends loads same-base order branches already represented in cur, deduplicated in stamp order.
+func siblingAppends(ctx context.Context, tx *sql.Tx, e memory.Envelope, base, storedBase, cur []string) ([]orderState, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT origin, origin_seq, payload FROM changes
+		WHERE op = 'order' AND doc_ref = ? AND COALESCE(base_version, '') = ?`, e.DocRef, e.BaseVersion)
+	if err != nil {
+		return nil, err
+	}
+	var parts []orderState
+	for rows.Next() {
+		var part orderState
+		var raw string
+		if err := rows.Scan(&part.origin, &part.seq, &raw); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if keepSibling(&part, raw, base, storedBase, cur) {
+			parts = append(parts, part)
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	return canonicalOrders(parts), nil
+}
+
+func keepSibling(part *orderState, raw string, base, storedBase, cur []string) bool {
+	var p orderPayload
+	if json.Unmarshal([]byte(raw), &p) != nil || !hasPrefix(p.UIDs, base) {
+		return false
+	}
+	partBase := p.BaseUIDs
+	if partBase == nil {
+		partBase = storedBase
+	}
+	if !slices.Equal(partBase, base) {
+		return false
+	}
+	part.uids = p.UIDs
+	return !slices.ContainsFunc(part.uids[len(base):], func(u string) bool { return !slices.Contains(cur, u) })
+}
+
+func canonicalOrders(parts []orderState) []orderState {
+	slices.SortFunc(parts, cmpStamp)
+	var out []orderState
+	for i, part := range parts {
+		if !slices.ContainsFunc(parts[i+1:], func(other orderState) bool { return slices.Equal(part.uids, other.uids) }) {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func joinAppends(base []string, parts []orderState) ([]string, bool) {
+	out := slices.Clone(base)
+	for _, part := range parts {
+		for _, u := range part.uids[len(base):] {
+			if slices.Contains(out, u) { // overlapping suffixes are not independent appends
+				return nil, false
+			}
+			out = append(out, u)
+		}
+	}
+	return out, true
+}
+
+// projectOrder gives doc's live entries the listed order first, the rest after in their current order; only seq moves.
+func projectOrder(ctx context.Context, tx *sql.Tx, doc string, uids []string) error {
+	d, err := readDocRows(ctx, tx, doc)
+	if err != nil {
+		return err
+	}
+	var order []int64
+	for _, u := range uids {
+		if r, ok := d.byUID[u]; ok {
+			order = append(order, r)
+		}
+	}
+	for _, r := range d.rowids {
+		if !slices.Contains(order, r) {
+			order = append(order, r)
+		}
+	}
+	if err := parkDocRows(ctx, tx, doc); err != nil {
+		return err
+	}
+	for i, r := range order {
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET seq = ? WHERE rowid = ?`, i, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// parkDocRows moves doc's rows below any existing negative seq first to avoid transient UNIQUE collisions.
+func parkDocRows(ctx context.Context, tx *sql.Tx, doc string) error {
+	var floor int64
+	if err := tx.QueryRowContext(ctx, `SELECT MIN(COALESCE(MIN(seq), 0), -COALESCE(MAX(rowid), 0))
+		FROM entries WHERE doc = ?`, doc).Scan(&floor); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE entries SET seq = ? - rowid WHERE doc = ?`, floor, doc); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE entries SET seq = -rowid WHERE doc = ?`, doc)
+	return err
+}
+
+type docRows struct {
+	rowids []int64
+	byUID  map[string]int64
+}
+
+func readDocRows(ctx context.Context, tx *sql.Tx, doc string) (docRows, error) {
+	d := docRows{byUID: map[string]int64{}}
+	rows, err := tx.QueryContext(ctx, `SELECT rowid, uid FROM entries WHERE doc = ? AND deleted = 0 ORDER BY seq`, doc)
+	if err != nil {
+		return d, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r int64
+		var uid sql.NullString
+		if err := rows.Scan(&r, &uid); err != nil {
+			return d, err
+		}
+		d.rowids = append(d.rowids, r)
+		if uid.Valid {
+			d.byUID[uid.String] = r
+		}
+	}
+	return d, rows.Err()
+}
+
+// insertOrderConflict files each distinct order variant once, at document scope (no entry uid, NULL rowid).
+func insertOrderConflict(ctx context.Context, tx *sql.Tx, e memory.Envelope, kind string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT COALESCE(payload, '') FROM conflicts WHERE peer_origin = ?
+		AND peer_seq = ? AND op = 'order' AND doc = ? AND COALESCE(base_version, '') = ?`,
+		e.Origin, e.Seq, e.DocRef, e.BaseVersion)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if samePayload(raw, e.Payload) {
+			return rows.Close()
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO conflicts(entry_rowid, entry_uid, peer_origin, peer_seq, payload, at, kind, op,
+		base_version, doc) VALUES(NULL, NULL, ?, ?, ?, ?, ?, 'order', ?, ?)`,
+		e.Origin, e.Seq, string(e.Payload), e.At, kind, e.BaseVersion, e.DocRef)
+	return err
 }
 
 // exportAfterWrite brings the Markdown up to date after a committed envelope write, under the held bank lock.

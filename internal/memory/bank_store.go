@@ -3,7 +3,6 @@ package memory
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -31,141 +30,48 @@ func (e *ConflictError) Error() string {
 	return fmt.Sprintf("op %d: %s changed since read (base %q, now %q)", e.Op, e.Ref, e.Base, e.Current)
 }
 
-// BankStore is the one seam typed writers use; files today, an engine later.
+// BankStore is the db seam typed writers use.
 type BankStore interface {
 	Load() (map[string]Doc, Versions, error)
 	Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) // all or nothing
 }
 
-// ShadowImport is nil when no shadow store is linked; changed means the divergent set moved since the last import.
-var ShadowImport func() (diverged []string, changed bool, err error)
-
 // OpenBankStore is nil when no db store is linked; the close func releases the db.
 var OpenBankStore func(locked bool) (BankStore, func() error, error)
 
-// ExportBeforeFlip runs under the bank lock (not reentrant) when SetTruth leaves "db"; nil refuses.
-var ExportBeforeFlip func() error
+var errNoDBStore = errors.New("memory: no db store is linked")
 
-const (
-	truthFiles = "files"
-	truthDB    = "db"
-)
-
+// truthPath is the retired truth file of the files era; only retireFilesTruth reads it.
 func truthPath() string { return filepath.Join(paths.StateDir(), "memory", "truth") }
 
-// TruthErr reports "files" or "db"; a missing file is "db" with a store linked, else "files"; bad content errors.
-func TruthErr() (string, error) {
+// storedTruthNotDB is true only for a truth file read successfully that is not "db"; missing or unreadable is false.
+func storedTruthNotDB() bool {
 	b, err := os.ReadFile(truthPath())
-	if errors.Is(err, fs.ErrNotExist) {
-		if OpenBankStore != nil {
-			return truthDB, nil
-		}
-		return truthFiles, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("memory truth: %w", err)
-	}
-	if v := strings.TrimSpace(string(b)); v == truthFiles || v == truthDB {
-		return v, nil
-	}
-	return "", fmt.Errorf("memory truth: unknown value %q in %s", strings.TrimSpace(string(b)), truthPath())
+	return err == nil && strings.TrimSpace(string(b)) != "db"
 }
 
-// Truth is TruthErr for display: an error reads as "files".
-func Truth() string {
-	t, err := TruthErr()
-	if err != nil {
-		return truthFiles
+// retireFilesTruth rewrites a stored truth other than "db" to "db"; the caller has just run a conflict-free guard.
+func retireFilesTruth() {
+	if !storedTruthNotDB() {
+		return
 	}
-	return t
+	if err := paths.AtomicWrite(truthPath(), []byte("db\n"), 0o644); err != nil { // never fails the caller
+		fmt.Fprintf(os.Stderr, "memory: retire the files truth: %v\n", err)
+	}
 }
 
-// SetTruth records the source of truth under the bank lock; leaving "db" only flips after a successful export.
-func SetTruth(t string) error {
-	if t != truthFiles && t != truthDB {
-		return fmt.Errorf("truth %q: want %q or %q", t, truthFiles, truthDB)
-	}
-	return WithBankLock(BankLockWait, func() error {
-		cur, err := TruthErr()
-		if err != nil {
-			return err
-		}
-		if t == truthFiles && cur == truthDB {
-			if ExportBeforeFlip == nil {
-				return errors.New("db export unavailable: cannot flip back without losing db-only changes")
-			}
-			if err := ExportBeforeFlip(); err != nil {
-				return fmt.Errorf("export before flip to files: %w", err)
-			}
-			if err := refreshCatalogForFlip(); err != nil {
-				return fmt.Errorf("refresh catalog before flip to files: %w", err)
-			}
-		}
-		if err := os.MkdirAll(filepath.Dir(truthPath()), 0o755); err != nil {
-			return err
-		}
-		return paths.AtomicWrite(truthPath(), []byte(t+"\n"), 0o644)
-	})
-}
-
-// refreshCatalogForFlip rewrites catalog.md and MEMORY.md for an existing store, as the settle does.
-func refreshCatalogForFlip() error {
-	if !statOK(paths.MemoryStoreDir()) {
-		return nil
-	}
-	_, err := refreshIndexFiles(time.Now(), nil)
-	if errors.Is(err, errIndexProblem) && checkIndexFiles() == nil {
-		return nil // the pin problem came after catalog.md was written
-	}
-	return err
-}
-
-// fileBankStore keeps the bank in its markdown files; locked means the caller already holds the bank lock.
-type fileBankStore struct{ locked bool }
-
-// failedStore refuses every call with err, so a truth that cannot be read never falls back to files.
-type failedStore struct{ err error }
-
-func (f failedStore) Load() (map[string]Doc, Versions, error) { return nil, nil, f.err }
-func (f failedStore) Apply(Batch, Versions, time.Time) ([]OpResult, error) {
-	return nil, f.err
-}
-
-// truthStore reads the truth per call, in Apply under the bank lock, so a flip never writes to the old store.
-type truthStore struct{ locked bool }
-
-func newBankStore(locked bool) BankStore { return truthStore{locked: locked} }
-
-// NewBankStore is the store for the current truth; locked means the caller holds the bank lock.
+// NewBankStore is the db store; locked means the caller holds the bank lock, else Apply takes it.
 func NewBankStore(locked bool) BankStore { return newBankStore(locked) }
 
-func (s truthStore) Load() (map[string]Doc, Versions, error) { return pick(s.locked).Load() }
-
-func (s truthStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
-	if s.locked {
-		return pick(true).Apply(b, base, now)
-	}
-	err = withFlatLock(BankLockWait, func() (e error) { rs, e = pick(true).Apply(b, base, now); return })
-	return
-}
-
-// pick is the store for the current truth, a failing one on a bad truth; locked: the caller holds the bank lock.
-func pick(locked bool) BankStore {
-	switch t, err := TruthErr(); {
-	case err != nil:
-		return failedStore{err}
-	case t == truthDB && OpenBankStore == nil:
-		return failedStore{errors.New("memory truth is db but no db store is linked")}
-	case t == truthDB:
-		return dbBankStore{locked: locked}
-	}
-	return fileBankStore{locked: locked}
-}
+func newBankStore(locked bool) BankStore { return dbBankStore{locked: locked} }
 
 // dbBankStore opens the db store for each call and closes it after, so callers need no close func.
 type dbBankStore struct{ locked bool }
 
 func (s dbBankStore) with(f func(BankStore) error) error {
+	if OpenBankStore == nil {
+		return errNoDBStore
+	}
 	st, closeFn, err := OpenBankStore(s.locked)
 	if err != nil {
 		return fmt.Errorf("open db store: %w", err)
@@ -182,53 +88,41 @@ func (s dbBankStore) Load() (docs map[string]Doc, v Versions, err error) {
 	return
 }
 
+// Apply commits b and exports the Markdown under one bank lock (taken here unless held); flock is not reentrant.
 func (s dbBankStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
-	if err = s.with(func(st BankStore) (e error) { rs, e = st.Apply(b, base, now); return }); err != nil {
+	if s.locked {
+		return s.applyLocked(b, base, now)
+	}
+	err = withBankLock(BankLockWait, func() (e error) { rs, e = s.applyLocked(b, base, now); return })
+	return
+}
+
+func (s dbBankStore) applyLocked(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
+	locked := dbBankStore{locked: true}
+	if err = locked.with(func(st BankStore) (e error) { rs, e = st.Apply(b, base, now); return }); err != nil {
 		return
 	}
-	if xerr := exportAfterApply(); xerr != nil {
+	clean, xerr := exportAfterApply()
+	if xerr != nil {
 		return rs, &AfterCommitError{&committedErr{fmt.Errorf("batch committed in the db; markdown export: %w", xerr)}}
+	}
+	if clean {
+		retireFilesTruth() // the guard imported the Markdown a files truth left behind, with no conflict kept apart
 	}
 	return
 }
 
-// exportAfterApply brings the Markdown up to date after a db commit, under the held bank lock; no export db skips it.
-func exportAfterApply() error {
+// exportAfterApply runs the guard after a db commit under the held bank lock; clean means it ran with no conflict.
+func exportAfterApply() (clean bool, err error) {
 	if OpenExportDB == nil {
-		return nil
+		return false, nil
 	}
 	edb, closeDB, err := OpenExportDB()
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = ExportGuardLocked(edb, paths.MemoryStoreDir())
-	return errors.Join(err, closeDB())
-}
-
-func (fileBankStore) Load() (map[string]Doc, Versions, error) {
-	docs, _, err := loadBatchDocs()
-	if err != nil {
-		return nil, nil, err
-	}
-	versions := Versions{}
-	for _, name := range bankFiles {
-		for _, e := range docs[name].Entries {
-			ref := e.Ref()
-			if _, seen := versions[ref]; seen {
-				versions[ref] = ""
-			} else {
-				versions[ref] = Version(contentRef(e.block()))
-			}
-		}
-	}
-	return docs, versions, nil
-}
-
-func (s fileBankStore) Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) {
-	if s.locked {
-		return applyBatchLocked(b, base, now)
-	}
-	return ApplyBatch(b, base, now)
+	indexErr, conflicts, err := guardPass(edb, paths.MemoryStoreDir())
+	return len(conflicts) == 0 && err == nil && indexErr == nil, errors.Join(indexErr, err, closeDB())
 }
 
 // ApplyDocs runs b over a copy of docs; a failed op fails the batch, so a store writes nothing.

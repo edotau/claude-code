@@ -27,23 +27,26 @@ plan: `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 **In a session** — `@agent-claude <request>`, `Agent` with `subagent_type: claude`, or a dispatch brief. The first word
 picks the mode (`review` default, `simplify`, or a build task); the rest is the scope: a diff range, a path, or blank
-for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
-`claude-code agents ask --agent claude --profile <p> --model <m> --tools -- "<task>"` and relay its envelope.
+for the current diff against `git merge-base HEAD main`. With overlay `profile`/`model`, run the work as
+`claude-code agents ask --overlay '<o>' -- "<task>"`, with `<o>` =
+`{"agent":"claude","provider":"<provider of p>","profile":"<p>","model":"<m>"}` (leave out a key that was not given;
+provider and profile travel together), and relay its envelope.
 
-**Headless** — `claude-code agents ask --agent claude` (the default `--agent`); no tools unless `--tools`. Flags:
+**Headless** — `claude-code agents ask` (overlay `agent` defaults to `claude`); tools are on unless overlay
+`"tools":false`. Flags:
 `skills/subagent-workflows/references/agent-verbs.md` → Headless `ask` flags. Beyond that table:
 
-| Need                       | Flags                                                                                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Answer only                | `--no-tools` (profile answers directly; not with `--tools`)                                           |
-| Live session               | `--live` (`--timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions    |
-| Paired Databricks identity | `--as user\|sp`                                                                                       |
-| Isolation                  | `--no-persist` keeps no session · `--debug-file <path>`                                               |
-| Inline agents              | `--agents <json\|file>` (inline definitions; `--agent` takes their keys)                              |
-| Code mode                  | `--provider anthropic --tools --codemode on` (only when the brief says so); rtk is off inside the run |
+| Need                       | Flags                                                                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Answer only                | overlay `"noTools":true` (profile answers directly; not with `tools`)                                                     |
+| Live session               | `--live` (overlay `timeout` = idle limit) → `agents send <id> "<task>"`; one turn at a time, ≤4 sessions                  |
+| Paired Databricks identity | `--as user\|sp`                                                                                                           |
+| Isolation                  | overlay `"noPersist":true` keeps no session · `"debugFile":"<path>"`                                                      |
+| Inline agents              | overlay `"agents":<object>` (inline definitions; `agent` takes their keys)                                                |
+| Code mode                  | overlay `"provider":"anthropic","profile":"<p>","codemode":"on"` (only when the brief says so); rtk is off inside the run |
 
 Claude's code mode runs only on the direct Anthropic API; any other route runs with code mode off and prints
-`codemode: off for claude (<reason>)`. `--codemode only` is not offered for claude.
+`codemode: off for claude (<reason>)`. Overlay `"codemode":"only"` is not offered for claude.
 
 ## Owns
 
@@ -60,7 +63,7 @@ Claude's code mode runs only on the direct Anthropic API; any other route runs w
   Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level
   design is `Plan`'s.
 
-A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
+A live session (`ask --live`, `agents send <id>`) and `--host`:
 `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 
 ## Recommendations to the manager
@@ -71,7 +74,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | Review                                                                                                  | `evaluate-code` skill — verdict `SHIP \| FIX REQUIRED \| BLOCK`                                                                                                                                                               |
 | Gate chain (format → lint → test → security)                                                            | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`)                                                                            |
 | A task wholly another agent's                                                                           | the main session's direct ask, carried except Pi ([Work here or dispatch](#work-here-or-dispatch)); a named agent is binding, size is the manager's call                                                                      |
-| Wide codebase sweep                                                                                     | a carried `gemini` ask (`claude-code agents ask --carry --background --agent gemini --tools --dirs <d> - < BRIEF`, 1M-context pass)                                                                                           |
+| Wide codebase sweep                                                                                     | a carried `gemini` ask (`claude-code agents ask --carry --background --overlay '{"agent":"gemini","tools":true}' --dirs <d> - < BRIEF`, 1M-context pass)                                                                      |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before a new utility/abstraction or dependency, look for an existing library, MCP
@@ -118,10 +121,11 @@ diff" request runs Simplify detect-only (report the findings) → Review.
 - Brief: Write it to the path `claude-code agents brief --path <a>` prints (Read it first); task, owned paths,
   constraints and verify, plus "never stash/checkout/reset/restore".
 - codex, copilot, gemini, opencode run carried (Databricks arm, R20), then one `claude-code agents result -f <id>`:
-  `claude-code agents ask --carry [--background] --agent <a> [flags] - < BRIEF`.
-- Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask --agent pi [--background] [flags] - < BRIEF`; tools
-  are on by default, `--tools=false` to run without them. Its brief stands alone (no CLAUDE.md,
-  skills or MCP load); like every agent it carries no permission policy (R30).
+  `claude-code agents ask --carry [--background] --overlay '{"agent":"<a>"}' [flags] - < BRIEF` (further keys join
+  that one object).
+- Pi is a plain ask (`--carry` refuses pi): `claude-code agents ask [--background] --overlay '{"agent":"pi"}'
+  [flags] - < BRIEF`; tools are on by default, overlay `"tools":false` to run without them. Its brief stands alone (no
+  CLAUDE.md, skills or MCP load); like every agent it carries no permission policy (R30).
 - Verify the result as a claim: no `fallback`, the diff stat shows only your files, the verify command passes; a
   refusal or failure is reported with its command, output and exit code, never redone yourself (except the default
   route's Pi refusal). Report the real

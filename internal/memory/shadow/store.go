@@ -22,7 +22,6 @@ import (
 type sqlBankStore struct{ db *sql.DB }
 
 func init() {
-	memory.ShadowImport = importShadow
 	memory.OpenBankStore = openBankStore
 }
 
@@ -33,8 +32,8 @@ func openBankStore(locked bool) (memory.BankStore, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// a db truth (a missing file counts) skips the import once the db is imported: the export guard owns outside edits
-	if truth, terr := memory.TruthErr(); terr != nil || truth != "db" || !imported(db) {
+	// once the db is imported the open skips the import: the export guard owns outside edits
+	if !imported(db) {
 		var docs []string
 		run := func() (err error) { docs, _, err = importShadow(); return err }
 		if locked {
@@ -96,7 +95,7 @@ func importShadow() (docs []string, changed bool, err error) {
 
 var _ memory.BankStore = sqlBankStore{}
 
-// NewSQLBankStore returns the seam over db; nothing but tests uses it until the truth flips (plan 7.1).
+// NewSQLBankStore returns the seam over db; for tests only; callers open the store through memory.OpenBankStore.
 func NewSQLBankStore(db *sql.DB) memory.BankStore { return sqlBankStore{db: db} }
 
 // entryRow is one live entries row with the ids a write needs.
@@ -264,8 +263,12 @@ func writeDoc(ctx context.Context, tx *sql.Tx, name string, st bankState, now me
 		joinedOrNil(now.Front, now.Front == nil)); err != nil {
 		return err
 	}
+	before, err := readDocUIDs(ctx, tx, name)
+	if err != nil {
+		return err
+	}
 	// free every seq first: the (doc, seq) index is unique and entries move
-	if _, err := tx.ExecContext(ctx, `UPDATE entries SET seq = -rowid WHERE doc = ?`, name); err != nil {
+	if err := parkDocRows(ctx, tx, name); err != nil {
 		return err
 	}
 	kept := map[int64]bool{}
@@ -282,7 +285,7 @@ func writeDoc(ctx context.Context, tx *sql.Tx, name string, st bankState, now me
 			}
 		}
 	}
-	return nil
+	return captureDocOrder(ctx, tx, name, before)
 }
 
 // slot is where an entry lands: its doc, its position, and the row it keeps (0 for a new row).

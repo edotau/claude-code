@@ -34,7 +34,7 @@ This repo's Go conventions (module `github.com/edotau/claude-code`). They win ov
 
 **One line of ≤ 80 characters, label column included.** On a terminal, help and TUI menu rows never wrap: a wider row
 clips (`...` in help, `…` in menus). Piped help keeps the full text and may wrap only with a hanging indent starting at
-the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-line.
+the description column. Arrow-key menu rows (`internal/cli/menu`) stay single-line.
 
 - Lead with what the item does; drop filler ("this will", "allows you to") and `·`-chained clauses; name the one fact
   the user needs to choose (the key it writes, the command it runs).

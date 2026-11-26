@@ -372,10 +372,17 @@ func absPaths(paths []string) ([]string, error) {
 	return out, nil
 }
 
-func (copilotEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
+func (copilotEngine) Login(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
 	login := ""
 	if p != nil {
 		login = p.Login
+	}
+	if login == "" {
+		u, err := agent.RunUnit(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		login = u.Account
 	}
 	return copilotLogin(model, login, h)
 }

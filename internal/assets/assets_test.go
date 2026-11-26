@@ -477,7 +477,6 @@ func memoryRenderCases() []renderCase {
 		{"TranscriptHandoff", "", func() string { return TranscriptHandoff("/cwd", "/t", "note") }},
 		{"MemoryFiledByGo", "", func() string { return MemoryFiledByGo(two) }},
 		{"MemoryHandoffRequest", "", func() string { return MemoryHandoffRequest("/h.md", "<!-- session: s -->") }},
-		{"MemoryResiduePrompt", "", func() string { return MemoryResiduePrompt("- a: b\n") }},
 		{"MemoryRetryNote", "", func() string { return MemoryRetryNote("boom") }},
 	}
 }

@@ -2,7 +2,7 @@
 name: codex
 description: |
   Cross-family review, plan vetting, delegated edits and scoped verification as codex: a scoped terminal leaf whose
-  work runs as one typed `claude-code agents ask --agent codex --codemode on` on the Databricks route.
+  work runs as one typed `claude-code agents ask` with overlay `{"agent":"codex","codemode":"on"}` on the Databricks route.
 color: red
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -15,25 +15,26 @@ maxTurns: 40
 ## Role
 
 Runs one scoped task as the typed codex ask below and hands back its verdict; this file defines a terminal leaf, the
-main session owns orchestration. You compose no command: the line you run is printed here, `--agent` matching this
+main session owns orchestration. You compose no command: the line you run is printed here, overlay `agent` matching this
 file's name. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ## Invocation
 
 **In a session** — `Agent` with `subagent_type: codex`, or a dispatch brief. **Headless** — the same ask from the main
-session (`claude-code agents ask --carry --agent codex …`, `skills/subagent-workflows/SKILL.md` → Carried dispatch).
+session (`claude-code agents ask --carry` with overlay `{"agent":"codex",…}`, `skills/subagent-workflows/SKILL.md` →
+Carried dispatch).
 
 The one ask (PATH is the file `claude-code agents brief --path codex` prints; add `--workdir <dir>` only when the brief
 has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent codex --codemode on --provider databricks --profile dev --tools --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"codex","provider":"databricks","profile":"dev","codemode":"on","timeout":"60m","tools":true}' - < PATH
 ```
 
-No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
-its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
-main session: `claude-code codex …`, or `agents ask --runner own`. Role rotation covers codex's models too.
+No overlay `profile` and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:`
+line, else its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what
+ran (its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
+main session: `claude-code codex …`, or overlay `{"runner":"own"}`. Role rotation covers codex's models too.
 
 ## Owns
 

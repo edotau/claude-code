@@ -52,19 +52,24 @@ const reviseHopCap = 8
 // bankDoc is one typed bank file or archive split into blocks, for edits that span entries.
 type bankDoc struct {
 	path   string
-	header string
-	text   string // current file text, rebuilt from the header and blocks on edit
+	text   string // current file text; setBlock splices an edited block in place
 	seen   string // the file text as loaded, which the write must still find on disk
 	blocks []string
+	starts []int      // starts[i] is blocks[i]'s byte offset in text
 	ids    []string   // ids[i] is blocks[i]'s persisted id, "" when it has none
 	refs   [][]string // refs[i] are the ids blocks[i] says it supersedes
 	dirty  bool
 }
 
-// setBlock replaces block i, in both the block list and the file text, and flags the doc dirty.
+// setBlock splices block i, wrapped, into the file text over its old bytes; every other byte stays as loaded.
 func (d *bankDoc) setBlock(i int, block string) {
+	block = formatBankMarkdown(block)
+	start, old := d.starts[i], d.blocks[i]
+	d.text = d.text[:start] + block + d.text[start+len(old):]
+	for j := i + 1; j < len(d.starts); j++ {
+		d.starts[j] += len(block) - len(old)
+	}
 	d.blocks[i] = block
-	d.text = rejoin(d.header, d.blocks)
 	d.dirty = true
 }
 
@@ -198,10 +203,10 @@ func dropSeeNotes(s string) string {
 	})
 }
 
-// replacementBody skips the wrapped title of a conventions bullet, through its id marker.
+// replacementBody skips the wrapped title of a conventions bullet, through its id marker and the strike's close.
 func replacementBody(block string) (title, body string) {
 	title, body, _ = strings.Cut(block, "\n")
-	if !strings.HasPrefix(title, "- ") || idMarker().MatchString(title) {
+	if !strings.HasPrefix(title, "- ") || titleEnds(title) {
 		return title, body
 	}
 	parts := []string{title}
@@ -212,11 +217,16 @@ func replacementBody(block string) (title, body string) {
 		}
 		parts = append(parts, strings.TrimSpace(line))
 		body = rest
-		if idMarker().MatchString(line) {
+		if titleEnds(strings.Join(parts, " ")) {
 			break
 		}
 	}
 	return strings.Join(parts, " "), body
+}
+
+// titleEnds reports a title holding its id marker and no open strike: a struck title wrapped past the marker continues.
+func titleEnds(title string) bool {
+	return entryID([]string{title}) != "" && strings.Count(title, "~~")%2 == 0
 }
 
 // partlyStruck reports a title with a ~~strike~~ and live text beside it: two decisions, only one reversed.
@@ -256,8 +266,10 @@ func healPartial(docs []*bankDoc) {
 
 // newBankDoc splits text (the content of path) into blocks with their ids and the ids each supersedes.
 func newBankDoc(path, text string) *bankDoc {
-	header, blocks := entryBlocks(logicalName(path), text)
-	d := &bankDoc{path: path, header: header, text: text, seen: text, blocks: blocks, ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
+	base := logicalName(path)
+	_, blocks := entryBlocks(base, text)
+	d := &bankDoc{path: path, text: text, seen: text, blocks: blocks, starts: blockOffsets(text, entryStart(base)),
+		ids: make([]string, len(blocks)), refs: make([][]string, len(blocks))}
 	for i, b := range blocks {
 		d.ids[i] = ownerID(b)
 		d.refs[i] = revisedIDs(b, d.ids[i])
@@ -496,8 +508,8 @@ func strikeTitle(line string) string {
 		return line
 	}
 	body, tail := line, ""
-	if at := idMarker().FindStringIndex(line); at != nil {
-		body, tail = line[:at[0]], line[at[0]:]
+	if spans := idSpans(line); len(spans) > 0 {
+		body, tail = line[:spans[0][0]], line[spans[0][0]:]
 	}
 	prefix := titlePrefix().FindString(body)
 	text := strings.TrimRight(body[len(prefix):], " \t")
@@ -534,7 +546,6 @@ func applyRevisions(docs []*bankDoc, revs []revision) {
 func writeDirtyDocs(docs []*bankDoc) error {
 	for _, d := range docs {
 		if d.dirty {
-			d.text = formatBankMarkdown(d.text) // a strike or pointer may push a line past the wrap width
 			if _, err := writeIfStill(d.path, []byte(d.seen), true, []byte(d.text), 0o600); err != nil {
 				return err
 			}

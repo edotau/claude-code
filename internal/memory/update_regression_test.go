@@ -205,7 +205,7 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 	}
 	calls := 0
 	firstFree := false
-	// A store without the stamp runs typed: the first model call is outside the store lock.
+	// A flat 3 stamp is ignored: the first model call is outside the store lock.
 	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), "flat 3\n")
 	run := func(context.Context, string, string) (string, error) {
 		calls++

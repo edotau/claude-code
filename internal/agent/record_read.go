@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
@@ -241,8 +242,11 @@ func removeRecordFiles(dir, name string) {
 	_ = os.Remove(filepath.Join(dir, id+".log"))
 	_ = os.Remove(filepath.Join(dir, id+paths.DispatchEventsSuffix))
 	_ = os.Remove(AgyLogPath(id))
-	_ = os.Remove(ranIdentityPath(id))
+	_ = os.Remove(proxy.RanIdentityPath(id))
 	_ = os.Remove(filepath.Join(dir, id+wire.LiveSockSuffix))
+	if marker := WatchMarker("resumed", id); marker != "" {
+		_ = os.Remove(marker) // without the record's cleared claim, a rollback's leftover marker would revive the adoption
+	}
 	_ = os.Remove(filepath.Join(dir, name+".lock"))
 }
 

@@ -77,7 +77,7 @@ var inventory = []struct {
 	{"files/memory/prompts/session-tags.tmpl", "tmpl", "MemorySessionTags", func() []byte { return read("files/memory/prompts/session-tags.tmpl") }},
 	{"files/memory/prompts/dream-worker.tmpl", "tmpl", "MemoryDreamPrompt", func() []byte { return read("files/memory/prompts/dream-worker.tmpl") }},
 	{"files/memory/prompts/dream-unchanged.txt", "txt", "MemoryDreamUnchanged", func() []byte { return read("files/memory/prompts/dream-unchanged.txt") }},
-	{"files/memory/prompts/misc.tmpl", "tmpl", "MemoryFiledByGo,MemoryHandoffRequest,MemoryHomeOverflow,MemoryLayoutRow,MemoryMoreEntries,MemoryOpenTasks,MemoryPreviousSession,MemoryResiduePrompt,MemoryRetryNote,MemoryScaffoldNote,MemorySessionDigest,MemoryUnresolvedEntries,MemoryUpdateRecovery", func() []byte { return read("files/memory/prompts/misc.tmpl") }},
+	{"files/memory/prompts/misc.tmpl", "tmpl", "MemoryFiledByGo,MemoryHandoffRequest,MemoryHomeOverflow,MemoryLayoutRow,MemoryMoreEntries,MemoryOpenTasks,MemoryPreviousSession,MemoryRetryNote,MemoryScaffoldNote,MemorySessionDigest,MemoryUnresolvedEntries,MemoryUpdateRecovery", func() []byte { return read("files/memory/prompts/misc.tmpl") }},
 	{"files/memory/prompts/rtk-misses.tmpl", "tmpl", "MemoryRTKMisses", func() []byte { return read("files/memory/prompts/rtk-misses.tmpl") }},
 	{"files/memory/prompts/index-hint.txt", "txt", "MemoryIndexHint", func() []byte { return read("files/memory/prompts/index-hint.txt") }},
 	{"files/memory/prompts/block-begin.txt", "txt", "MemoryBlockBegin", func() []byte { return read("files/memory/prompts/block-begin.txt") }},

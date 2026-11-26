@@ -6,7 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks"
 
-	// the registries hook modules read: ask's flag schema (askspec) and the agent roster with its drivers
+	// the registries hook modules read: ask's flag schema and the agent roster with its drivers
 	_ "github.com/edotau/claude-code/internal/agent/ask"
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"

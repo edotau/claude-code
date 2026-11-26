@@ -91,7 +91,7 @@ func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 		return "", err
 	}
 	var id string
-	err = withFlatLock(BankLockWait, func() error {
+	err = withBankLock(BankLockWait, func() error {
 		var werr error
 		id, werr = rememberLocked(file, kind, fact, old, now)
 		return werr
@@ -112,7 +112,7 @@ func rememberDecisionOnce(fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	var id string
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		if filedDecisions()(fact) {
 			return nil
 		}
@@ -139,7 +139,7 @@ func rememberLocked(file, kind, fact, old string, now time.Time) (string, error)
 	if err != nil {
 		return "", err
 	}
-	err = errors.Join(stampAndSettle(file, now), requireReplaced(old, id))
+	err = errors.Join(settleAfterWrite(now), requireReplaced(old, id))
 	if err == nil {
 		return id, nil
 	}
@@ -174,7 +174,7 @@ func rememberNote(class, fact string, now time.Time) (string, error) {
 		return "", err
 	}
 	var rel string
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		var werr error
 		rel, werr = writeNoteLocked(class, fact, now)
 		return werr
@@ -263,17 +263,8 @@ func requireReplaced(old, newID string) error {
 	return nil
 }
 
-// stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
-func stampAndSettle(file string, now time.Time) error {
-	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory search --open`.
-	for name, prefix := range idFiles {
-		if name == file { // already stamped in memory before its one write
-			continue
-		}
-		if _, _, err := assignFileIDs(name, prefix, now); err != nil {
-			return err
-		}
-	}
+// settleAfterWrite settles inside Remember's critical section: no writer slips in; other entries keep their bytes.
+func settleAfterWrite(now time.Time) error {
 	afterRememberWrite()
 	return settleLockedBank(now)
 }
@@ -285,30 +276,80 @@ func writeRememberFact(file, kind, fact, old string, now time.Time) (string, err
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err // never rewrite the file from an unread one
 	}
+	existed := err == nil
+	above := string(data)
+	if file == "decisionLog.md" {
+		above = above[:insertionOffset(file, above)]
+	}
+	if fenceOpenAtEnd(above) {
+		return "", fmt.Errorf("%s: the fact would be inside an unclosed code fence", file)
+	}
 	line, text := rememberedText(path, file, kind, fact, old, string(data), now)
-	text, _ = stampIDs(file, idFiles[file], text, now)
 	id, err := lastStampedID(text, line, file == "decisionLog.md")
 	if err != nil { // an unclosed fence above it or an id marker inside the fact: refuse before writing
 		return "", fmt.Errorf("%s: the fact would get no id of its own: %w", file, err)
 	}
-	if err := paths.AtomicWrite(path, []byte(text), 0o600); err != nil {
+	ok, err := writeIfStill(path, data, existed, []byte(text), 0o600)
+	if err != nil {
 		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("%s changed outside the bank lock; fact kept in the conflict copy", file)
 	}
 	return id, nil
 }
 
-// rememberedText is body with fact added: a dated heading on top of decisionLog.md, else a labeled bullet at the end.
+// rememberedText is body with fact added and only that entry stamped: on top of decisionLog.md, else at the end.
 func rememberedText(path, file, kind, fact, old, body string, now time.Time) (line, text string) {
 	if strings.TrimSpace(body) == "" { // a missing typed file starts from its scaffold, never appendBlocks' archive header
 		body = templates()[file]
 	}
 	if file == "decisionLog.md" {
 		line = "## " + now.Format("2006-01-02") + " — " + fact + supersedesLine(old, "")
-		header, blocks := entryBlocks(file, body) // newest-first: the new entry goes on top
-		return line, rejoin(header, append([]string{line}, blocks...))
+		off := insertionOffset(file, body)
+		return line, insertedEntry(path, body, off, stampedBlock(file, line, body, now))
 	}
 	line = "- " + strings.ToUpper(kind[:1]) + kind[1:] + ": " + fact + supersedesLine(old, "  ")
-	return line, appendedText(path, body, []string{line})
+	return line, appendedText(path, body, []string{stampedBlock(file, line, body, now)})
+}
+
+// stampedBlock stamps only the new entry; writeRememberFact already refused insertion inside an open fence.
+func stampedBlock(file, entry, text string, now time.Time) string {
+	lines := strings.Split(cleanNewBlock(entry), "\n")
+	block, stamped := settleBlockID(file, 0, lines, now)
+	for salt := 1; stamped == 1 && strings.Contains(text, "<!-- id:"+blockID(block[0])+" -->"); salt++ {
+		block, _ = settleBlockID(file, salt, lines, now) // an id text already carries: redraw
+	}
+	return formatBankMarkdown(strings.Join(block, "\n")) // the wrap keeps the marker on the first line
+}
+
+// fenceOpenAtEnd reports whether text ends inside an unclosed code fence.
+func fenceOpenAtEnd(text string) bool {
+	fence := ""
+	for ln := range strings.SplitSeq(text, "\n") {
+		fence = nextFence(fence, ln)
+	}
+	return fence != ""
+}
+
+// insertionOffset is the byte offset of body's first entry, or len(body) when it has none.
+func insertionOffset(file, body string) int {
+	if starts := blockOffsets(body, entryStart(file)); len(starts) > 0 {
+		return starts[0]
+	}
+	return len(body)
+}
+
+// insertedEntry puts block at off, above body's first entry, leaving every existing byte as it was.
+func insertedEntry(path, body string, off int, block string) string {
+	if off == len(body) { // no entry yet
+		return appendedText(path, body, []string{block})
+	}
+	head := body[:off]
+	if head != "" && !strings.HasSuffix(head, "\n\n") {
+		head += "\n"
+	}
+	return head + block + "\n\n" + body[off:]
 }
 
 // supersedesLine is the body line settle reads as a replacement edge to old ("" when old is empty).
@@ -321,18 +362,28 @@ func supersedesLine(old, indent string) string {
 
 // lastStampedID finds the id stamped on line's first line in text: first match if newest-first, else the last.
 func lastStampedID(text, line string, newestFirst bool) (string, error) {
-	want, _, _ := strings.Cut(line, "\n")
-	want = strings.TrimRight(want, " \t")
+	first, _, _ := strings.Cut(line, "\n")
+	want := strings.Join(strings.Fields(first), " ")
 	lines := strings.Split(text, "\n")
-	if !newestFirst {
-		slices.Reverse(lines)
-	}
-	for _, ln := range lines {
-		if id := blockID(ln); id != "" && strings.TrimRight(stripID(ln), " \t") == want {
+	for k := range lines {
+		i := k
+		if !newestFirst {
+			i = len(lines) - 1 - k
+		}
+		if id := blockID(lines[i]); id != "" && wrappedFrom(lines, i, want) {
 			return id, nil
 		}
 	}
 	return "", errors.New("id not found after settle")
+}
+
+// wrappedFrom reports whether lines[i] (id marker dropped) plus the continuation lines the wrap made spell want.
+func wrappedFrom(lines []string, i int, want string) bool {
+	got := strings.Join(strings.Fields(stripID(lines[i])), " ")
+	for j := i + 1; j < len(lines) && strings.HasPrefix(want, got+" ") && strings.HasPrefix(lines[j], " "); j++ {
+		got += " " + strings.Join(strings.Fields(lines[j]), " ")
+	}
+	return got == want
 }
 
 // ReportInput is the JSON `memory report` reads: one markdown report and the decision lines it produced.
@@ -361,7 +412,7 @@ func appendReport(label string, in ReportInput) ([]string, error) {
 		return nil, errors.New("--label decisions is reserved")
 	}
 	var out []string
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		var err error
 		out, err = appendReportLocked(label, in)
 		return err
@@ -380,7 +431,8 @@ func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	reportPath, err := createUnique(day+"-"+label, []byte(strings.TrimRight(in.Report, "\n")+"\n"))
+	report := formatBankMarkdown(cleanNewBlock(strings.TrimRight(in.Report, "\n"))) + "\n"
+	reportPath, err := createUnique(day+"-"+label, []byte(report))
 	if err != nil {
 		return nil, err
 	}
@@ -390,14 +442,11 @@ func appendReportLocked(label string, in ReportInput) ([]string, error) {
 	}
 	out := []string{reportPath, decisionsPath}
 	if text := decisionLines(day, label, in.Decisions); text != "" {
-		if err := appendText(decisionsPath, "# Decisions\n\n", text); err != nil {
+		if err := appendText(decisionsPath, "# Decisions\n\n", formatBankMarkdown(text)); err != nil {
 			return rollback(err)
 		}
 	} else if _, err := os.Stat(decisionsPath); err != nil {
 		out = out[:1] // no decisions and no file: a header-only file would be an empty section
-	}
-	if _, err := formatFiles(out, false); err != nil {
-		return rollback(err)
 	}
 	if err := commitStore("memory: report "+label, storeRels(out)...); err != nil {
 		return rollback(err)
@@ -433,6 +482,9 @@ func appendText(path, header, text string) error {
 	} else if err != nil {
 		return err
 	}
+	if fenceOpenAtEnd(string(cur)) {
+		return fmt.Errorf("append %s: unclosed code fence", path)
+	}
 	if len(cur) > 0 && cur[len(cur)-1] != '\n' {
 		cur = append(cur, '\n') // keep the new text on its own line
 	}
@@ -462,7 +514,7 @@ func JobReport(day time.Time, kind, label string, body []byte) (string, error) {
 	label = strings.Trim(label[:min(len(label), 60)], "-.") // ASCII only here, so the cut is safe
 	stem := day.Format("2006-01-02") + "-" + kind + "-" + cmp.Or(label, "report")
 	var path string
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o700); err != nil {
 			return err
 		}

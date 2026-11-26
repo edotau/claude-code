@@ -836,6 +836,9 @@ func TestCancelRejectsReusedSplitReviewPID(t *testing.T) {
 				t.Errorf("Cancel() = %v, want process-identity refusal", err)
 			}
 			assertReviewUnaffected(t, rec)
+			if got := load(t, rec.ID); got.cancelled() {
+				t.Fatal("reused PID refusal left the unrelated review cancelled")
+			}
 		})
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -73,13 +74,18 @@ func Review(name string, args []string, o ReviewOptions) int {
 	return runSingleReview(name, diff, o, parent, started)
 }
 
+// LoadOverlays is LoadOverlay with its typed and inherited layers, for ApplyOverlay's callers.
+func LoadOverlays(ctx context.Context, value, busy string) (merged, typed, inherited agentconfig.Overlay, err error) {
+	return loadOverlays(ctx, value, busy)
+}
+
 // reviewLane runs the cloud review when the overlay sets cloud; a run with no overlay does no work here.
 func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
 	value := cmp.Or(o.Overlay, os.Getenv(route.OverlayVar))
 	if value == "" {
 		return 0, false
 	}
-	ov, err := agentconfig.LoadOverlayContext(context.Background(), value, os.Stdin)
+	ov, err := reviewOverlay(o)
 	if err == nil {
 		err = ov.CheckCloudAgent(name)
 	}
@@ -92,7 +98,24 @@ func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
 	case !ov.Cloud || name != "claude":
 		return 0, false
 	}
+	o.Model = ov.Model // an overlay model reaches the cloud refusal like the flag
 	return ultrareview(ov, o), true
+}
+
+// reviewOverlay is the review's overlay through ApplyOverlay: the stored one, --overlay, then a typed --model.
+func reviewOverlay(o ReviewOptions) (agentconfig.Overlay, error) {
+	ctx := context.Background()
+	_, typed, inherited, err := loadOverlays(ctx, o.Overlay, "")
+	if err != nil {
+		return agentconfig.Overlay{}, err
+	}
+	var keys []string
+	if o.Model != "" {
+		keys = append(keys, "model")
+	}
+	reg, _ := providers.LoadShared() // nil on a load error: a unit then matches no row
+	ov, _, err := agentconfig.ApplyOverlay(reg, keys, agentconfig.Overlay{Model: o.Model}, typed, inherited)
+	return ov, err
 }
 
 // ultrareview is `claude review` with cloud set: the CLI's own cloud review of the branch, a base or a PR.

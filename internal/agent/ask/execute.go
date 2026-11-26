@@ -39,7 +39,7 @@ func (r *askRun) execute() int {
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
 		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
 	}
-	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
+	f.timeout = askTimeout(r.fs, r.ov, f.timeout, f.retry, f.job, f.tools)
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
 	req, err := r.request(join())

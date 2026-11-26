@@ -1,12 +1,16 @@
 package shadow
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -239,4 +243,279 @@ func TestSyncPairCanceled(t *testing.T) {
 		envOK(t, errors.Is(err, context.Canceled), "canceled sync: %v", err)
 	}
 	envOK(t, len(docsOf(t, b)) == 0, "canceled sync wrote rows")
+}
+
+var serveRE = regexp.MustCompile(`memory sync --serve (export|import)(?: --since '([^']*)')?$`)
+
+// pipeSSH is the ssh seam: it runs the peer's --serve side in-process against that host's store, as the CLI does.
+func pipeSSH(t *testing.T, peers map[string]envPeer, cut func(export []byte) []byte) func() {
+	t.Helper()
+	return memory.StubSyncSSH(func(_ context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
+		m := serveRE.FindStringSubmatch(script)
+		p, ok := peers[host]
+		if m == nil || !ok {
+			t.Fatalf("unexpected ssh to %q: %q", host, script)
+		}
+		var err error
+		if m[1] == "export" {
+			var since map[string]int64
+			var buf bytes.Buffer
+			if since, err = memory.ParseSince(m[2]); err == nil {
+				err = memory.ServeExport(p.st, since, &buf)
+			}
+			b := buf.Bytes()
+			if cut != nil {
+				b = cut(b)
+			}
+			_, _ = out.Write(b)
+		} else {
+			err = memory.ServeImport(p.st, in, out)
+		}
+		switch {
+		case errors.Is(err, memory.ErrBankBusy):
+			return "busy", memory.ImportBusyExit, nil
+		case err != nil:
+			return err.Error(), 1, nil
+		}
+		return "", 0, nil
+	})
+}
+
+func syncOnce(t *testing.T, local envPeer, peer string) (int, string) {
+	t.Helper()
+	var out strings.Builder
+	code := memory.SyncPeers(context.Background(), local.st, []string{peer}, &out)
+	return code, out.String()
+}
+
+func TestSyncPeersPullsOverSSH(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	defer pipeSSH(t, map[string]envPeer{"a": a}, nil)()
+	u := a.localAdd(t, "notes/a.md", 0, "one")
+	a.localEdit(t, u, "two")
+	code, out := syncOnce(t, b, "a")
+	envOK(t, code == 0 && b.lines(t, u) == "two" && strings.Contains(out, "pull a: 2 applied"), "pull: code %d, out %q", code, out)
+	w, _, _ := b.st.Watermark(a.id)
+	envOK(t, w == 2, "watermark = %d, want 2", w)
+	code, out = syncOnce(t, b, "a")
+	envOK(t, code == 0 && strings.Contains(out, "pull a: 0 applied") && strings.Contains(out, "push a: 0 applied"), "repeat: code %d, out %q", code, out)
+	sameDocs(t, a, b)
+}
+
+func TestSyncPeersPushesOverSSH(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	defer pipeSSH(t, map[string]envPeer{"a": a}, nil)()
+	u := b.localAdd(t, "notes/b.md", 0, "from b")
+	b.localEdit(t, u, "from b, edited")
+	code, out := syncOnce(t, b, "a")
+	envOK(t, code == 0 && a.lines(t, u) == "from b, edited" && strings.Contains(out, "push a: 2 applied"), "push: code %d, out %q", code, out)
+	w, _, _ := a.st.Watermark(b.id)
+	envOK(t, w == 2, "peer watermark for us = %d, want 2", w)
+	code, out = syncOnce(t, b, "a")
+	envOK(t, code == 0 && strings.Contains(out, "push a: 0 applied"), "repeat push moved rows: %q", out)
+}
+
+func TestSyncPeersRefusesTruncatedStream(t *testing.T) {
+	for name, cut := range map[string]func([]byte) []byte{
+		"no end line":  func(b []byte) []byte { return b[:bytes.LastIndex(bytes.TrimRight(b, "\n"), []byte("\n"))+1] },
+		"cut mid-line": func(b []byte) []byte { return b[:len(b)-12] },
+		"wrong count":  func(b []byte) []byte { return bytes.Replace(b, []byte(`"count":2`), []byte(`"count":3`), 1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			a, b := newEnvPeer(t), newEnvPeer(t)
+			defer pipeSSH(t, map[string]envPeer{"a": a}, cut)()
+			u := a.localAdd(t, "notes/a.md", 0, "one")
+			a.localEdit(t, u, "two")
+			code, out := syncOnce(t, b, "a")
+			w, _, _ := b.st.Watermark(a.id)
+			envOK(t, code == 1 && strings.Contains(out, "pull a: refused") && w == 0 && len(docsOf(t, b)) == 0,
+				"truncated stream: code %d, watermark %d, docs %q, out %q", code, w, docsOf(t, b), out)
+		})
+	}
+}
+
+func TestSyncPeersRefusesHeldSchema(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	a.localAdd(t, "notes/a.md", 0, "one")
+	cut := func(raw []byte) []byte { return bytes.Replace(raw, []byte(`"schema":2`), []byte(`"schema":4`), 1) }
+	defer pipeSSH(t, map[string]envPeer{"a": a}, cut)()
+	code, out := syncOnce(t, b, "a")
+	w, _, _ := b.st.Watermark(a.id)
+	envOK(t, code == 1 && strings.Contains(out, "pull a: held") && w == 0 && len(docsOf(t, b)) == 0,
+		"schema hold: code %d, watermark %d, docs %q, out %q", code, w, docsOf(t, b), out)
+}
+
+func TestSyncPeersPushesAfterHeldPull(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	a.localAdd(t, "notes/a.md", 0, "unsupported")
+	u := b.localAdd(t, "notes/b.md", 0, "send despite hold")
+	cut := func(raw []byte) []byte { return bytes.Replace(raw, []byte(`"schema":2`), []byte(`"schema":4`), 1) }
+	defer pipeSSH(t, map[string]envPeer{"a": a}, cut)()
+	code, out := syncOnce(t, b, "a")
+	envOK(t, code == 1 && strings.Contains(out, "pull a: held") && a.lines(t, u) == "send despite hold",
+		"held pull blocked push: code %d, out %q", code, out)
+}
+
+func TestSyncPeersRefusesNonprogressingPull(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	a.localAdd(t, "notes/a.md", 0, "one")
+	_, err := SyncPair(context.Background(), a.st, b.st, []string{a.id})
+	envOK(t, err == nil, "seed: %v", err)
+	defer memory.StubSyncSSH(func(_ context.Context, _, _ string, _ io.Reader, out io.Writer) (string, int, error) {
+		return "", 0, memory.ServeExport(a.st, nil, out)
+	})()
+	code, out := syncOnce(t, b, "a")
+	envOK(t, code == 1 && strings.Contains(out, "pending"), "nonprogress: code %d, out %q", code, out)
+}
+
+func TestSyncPeersContinuesAfterRoundLimit(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	u := a.localAdd(t, "notes/a.md", 0, "0")
+	for i := 1; i <= 20; i++ {
+		a.localEdit(t, u, strconv.Itoa(i))
+	}
+	firstOnly := func(raw []byte) []byte {
+		line := raw[:bytes.IndexByte(raw, '\n')+1]
+		if bytes.Contains(line, []byte(`"end":true`)) {
+			return raw
+		}
+		return append(bytes.Clone(line), []byte(`{"end":true,"count":1}`+"\n")...)
+	}
+	defer pipeSSH(t, map[string]envPeer{"a": a}, firstOnly)()
+	code, out := syncOnce(t, b, "a")
+	w, _, _ := b.st.Watermark(a.id)
+	envOK(t, code == 1 && w == 20 && strings.Contains(out, "pending"), "first pass: exit %d, seq %d, out %q", code, w, out)
+	code, out = syncOnce(t, b, "a")
+	w, _, _ = b.st.Watermark(a.id)
+	envOK(t, code == 0 && w == 21 && b.lines(t, u) == "20", "retry: exit %d, seq %d, out %q", code, w, out)
+}
+
+func TestImportStreamRollsBackOnSecondApplyError(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	u := a.localAdd(t, "notes/a.md", 0, "one")
+	a.localEdit(t, u, "two")
+	var stream bytes.Buffer
+	_, err := memory.ExportEnvelopes(a.st, a.id, 0, &stream)
+	envOK(t, err == nil, "export: %v", err)
+	lines := bytes.Split(bytes.TrimSpace(stream.Bytes()), []byte("\n"))
+	envOK(t, len(lines) == 2, "export lines = %d", len(lines))
+	lines[1] = bytes.Replace(lines[1], []byte(`"entry_ref":"`+u+`"`), []byte(`"entry_ref":"bad"`), 1)
+	_, err = memory.ImportStream(b.st, bytes.NewReader(bytes.Join(lines, []byte("\n"))))
+	w, _, _ := b.st.Watermark(a.id)
+	envOK(t, err != nil && w == 0 && len(docsOf(t, b)) == 0,
+		"half import: watermark %d, docs %q (%v)", w, docsOf(t, b), err)
+}
+
+func TestSyncPeersRetriesBusyPeer(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	busy := true
+	a.st.lock = func(f func() error) error {
+		if busy {
+			return memory.ErrBankBusy
+		}
+		return f()
+	}
+	defer pipeSSH(t, map[string]envPeer{"a": a}, nil)()
+	u := b.localAdd(t, "notes/b.md", 0, "from b")
+	code, out := syncOnce(t, b, "a")
+	envOK(t, code == 1 && strings.Contains(out, "push a: busy") && len(docsOf(t, a)) == 0, "busy pass: code %d, out %q", code, out)
+	busy = false
+	code, out = syncOnce(t, b, "a")
+	envOK(t, code == 0 && a.lines(t, u) == "from b", "retry pass: code %d, out %q", code, out)
+}
+
+func TestSyncPeersRelaysThirdOrigin(t *testing.T) {
+	a, b, c := newEnvPeer(t), newEnvPeer(t), newEnvPeer(t)
+	defer pipeSSH(t, map[string]envPeer{"a": a, "b": b}, nil)()
+	u := a.localAdd(t, "notes/a.md", 0, "from a")
+	c.localAdd(t, "notes/c.md", 0, "from c")
+	for _, step := range [][2]envPeer{{b, a}, {c, b}, {b, a}} {
+		code, out := syncOnce(t, step[0], map[string]string{a.id: "a", b.id: "b"}[step[1].id])
+		envOK(t, code == 0, "step: code %d, out %q", code, out)
+	}
+	envOK(t, c.lines(t, u) == "from a" && len(docsOf(t, a)) == 2, "relay: c %q, a %q", c.lines(t, u), docsOf(t, a))
+	sameDocs(t, a, b, c)
+}
+
+func TestImportStreamRollsBackOnCommitError(t *testing.T) {
+	a, b := newEnvPeer(t), newEnvPeer(t)
+	u := a.localAdd(t, "notes/a.md", 0, "one")
+	for _, q := range []string{
+		`CREATE TABLE commit_parent(id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE commit_child(id INTEGER REFERENCES commit_parent(id) DEFERRABLE INITIALLY DEFERRED)`,
+		`CREATE TRIGGER fail_commit AFTER INSERT ON peers BEGIN INSERT INTO commit_child VALUES(1); END`,
+	} {
+		_, err := b.db.Exec(q)
+		envOK(t, err == nil, "commit failure fixture: %v", err)
+	}
+	var stream bytes.Buffer
+	_, err := memory.ExportEnvelopes(a.st, a.id, 0, &stream)
+	envOK(t, err == nil, "export: %v", err)
+	rep, err := memory.ImportStream(b.st, bytes.NewReader(stream.Bytes()))
+	w, _, werr := b.st.Watermark(a.id)
+	envOK(t, err != nil && strings.Contains(err.Error(), "FOREIGN KEY") && rep.Applied == 0 && werr == nil && w == 0,
+		"failed commit: report %+v, watermark %d (%v), error %v", rep, w, werr, err)
+	envOK(t, len(docsOf(t, b)) == 0 && b.count(t, `SELECT count(*) FROM changes`) == 0, "failed commit left rows")
+	_, err = b.db.Exec(`DROP TRIGGER fail_commit`)
+	envOK(t, err == nil, "drop fixture: %v", err)
+	rep, err = memory.ImportStream(b.st, bytes.NewReader(stream.Bytes()))
+	envOK(t, err == nil && rep.Applied == 1 && b.lines(t, u) == "one", "retry: %+v (%v)", rep, err)
+	rep, err = memory.ImportStream(b.st, bytes.NewReader(stream.Bytes()))
+	envOK(t, err == nil && rep.Applied == 0 && rep.Dup == 1 && b.count(t, `SELECT count(*) FROM changes`) == 1,
+		"replay: %+v (%v)", rep, err)
+}
+
+func TestSyncPeersHeldOriginDoesNotStarveLaterOrigins(t *testing.T) {
+	for _, direction := range []string{"pull", "push"} {
+		t.Run(direction, func(t *testing.T) {
+			a, b, c := newEnvPeer(t), newEnvPeer(t), newEnvPeer(t)
+			if a.id > b.id {
+				a, b = b, a
+			}
+			a.localAdd(t, "notes/held.md", 0, strings.Repeat("x", 9<<20))
+			u := b.localAdd(t, "notes/valid.md", 0, "valid later origin")
+			send(t, b, a, b.id, 0)
+			_, err := a.db.Exec(`UPDATE changes SET schema = 4 WHERE origin = ?`, a.id)
+			envOK(t, err == nil, "schema fixture: %v", err)
+			local, peer := c, a
+			if direction == "push" {
+				local, peer = a, c
+			}
+			defer pipeSSH(t, map[string]envPeer{"peer": peer}, nil)()
+			code, out := syncOnce(t, local, "peer")
+			w, _, err := c.st.Watermark(a.id)
+			envOK(t, code == 1 && strings.Contains(out, "held") && err == nil && w == 0,
+				"held origin: exit %d, watermark %d (%v), out %q", code, w, err, out)
+			envOK(t, c.lines(t, u) == "valid later origin", "later origin starved: %q", out)
+		})
+	}
+}
+
+func TestSyncPeersOrderSchemaThreeAppliedByNewAndHeldByOld(t *testing.T) {
+	for _, direction := range []string{"pull", "push"} {
+		t.Run(direction, func(t *testing.T) {
+			a, b, u := sharedOrder(t)
+			old := newEnvPeer(t)
+			meshSync(t, a, old)
+			old.st.schema = memory.EnvelopeSchema
+			a.writeBank(t, orderDoc, u[2], u[1], u[0])
+			want := []string{u[2], u[1], u[0]}
+			local, peer := b, a
+			if direction == "push" {
+				local, peer = a, b
+			}
+			defer pipeSSH(t, map[string]envPeer{"peer": peer, "old": old, "a": a}, nil)()
+			code, out := syncOnce(t, local, "peer")
+			envOK(t, code == 0 && slices.Equal(b.order(t, orderDoc), want), "new peer %s: code %d, order %v, out %q", direction, code, b.order(t, orderDoc), out)
+			before, _, _ := old.st.Watermark(a.id)
+			if direction == "pull" {
+				code, out = syncOnce(t, old, "a")
+			} else {
+				code, out = syncOnce(t, a, "old")
+			}
+			after, _, _ := old.st.Watermark(a.id)
+			envOK(t, code == 1 && strings.Contains(out, "held") && after == before && slices.Equal(old.order(t, orderDoc), u),
+				"old peer %s: code %d, watermark %d->%d, order %v, out %q", direction, code, before, after, old.order(t, orderDoc), out)
+		})
+	}
 }

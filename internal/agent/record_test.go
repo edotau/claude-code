@@ -39,9 +39,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	r := NewRecord("codex", RunOptions{Prompt: "p", Tools: true}, base)
-	if err := r.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, r)
 	if got, _ := LoadRecord("20261016T210000"); got.Status != "running" || got.Request.Prompt != "p" || !got.Request.Tools {
 		t.Fatalf("running record = %+v", got)
 	}
@@ -102,9 +100,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	keep(t, 1)
 
 	first := NewRecord("codex", RunOptions{Prompt: "p"}, base)
-	if err := first.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, first)
 	logPath := filepath.Join(paths.DispatchDir(), first.ID+".log")
 	if err := os.WriteFile(logPath, []byte("job output"), 0o600); err != nil {
 		t.Fatal(err)
@@ -141,30 +137,22 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 	// active sits 2nd-oldest so the prune walk reaches it before excess runs out; without the guard it would go.
 	finished := NewRecord("codex", RunOptions{Prompt: "old"}, base)
 	finished.Status = "ok"
-	if err := finished.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, finished)
 
 	active := NewRecord("codex", RunOptions{Prompt: "bg"}, base.Add(time.Minute))
 	active.Log = filepath.Join(paths.DispatchDir(), active.ID+".log")
 	active.PID = cmd.Process.Pid
-	if err := active.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, active)
 
 	trigger1 := NewRecord("codex", RunOptions{Prompt: "newer"}, base.Add(2*time.Minute))
 	trigger1.Status = "ok"
-	if err := trigger1.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, trigger1)
 
 	savePruneRecords(t, base.Add(3*time.Minute), dispatchPruneMargin-1)
 	// Cross the margin so trigger1 must be pruned in active's place.
 	trigger2 := NewRecord("codex", RunOptions{Prompt: "newest"}, base.Add(time.Duration(dispatchPruneMargin+2)*time.Minute))
 	trigger2.Status = "ok"
-	if err := trigger2.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, trigger2)
 
 	assertBackgroundPruneRecords(t, finished, active, trigger1, trigger2)
 }
@@ -1080,7 +1068,7 @@ func TestCutoffHintNamesNextCommand(t *testing.T) {
 	}
 	err := withCutoffHint(context.DeadlineExceeded, rec, wire.Result{SessionID: "sess-1"}, 15*time.Minute, tl)
 	want := "codex cut off (deadline) after 15m0s with 47 tool calls and no answer; continue with: " +
-		"claude-code agents ask --agent codex --session sess-1 'finish from what you have'"
+		"claude-code agents ask --session sess-1 --overlay '{\"agent\":\"codex\"}' 'finish from what you have'"
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("err = %v, want it to start with %q and wrap the deadline", err, want)
 	}
@@ -1094,6 +1082,13 @@ func TestCutoffHintNamesNextCommand(t *testing.T) {
 	}
 }
 
+func saveRecordForTest(t *testing.T, r Record) {
+	t.Helper()
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // claimRecord pre-creates the file, so Save never prunes; finishSave must.
 func TestFinishSavePrunesClaimedRecords(t *testing.T) {
 	setConfigDir(t)
@@ -1101,17 +1096,13 @@ func TestFinishSavePrunesClaimedRecords(t *testing.T) {
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	active := ClaimRecord("codex", RunOptions{Prompt: "running"}, base)
 	active.PID = os.Getpid()
-	if err := active.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, active)
 	first := ClaimRecord("codex", RunOptions{Prompt: "done"}, base.Add(time.Minute))
 	first.Status = "ok"
 	for i := 2; i <= dispatchKeep+dispatchPruneMargin; i++ {
 		rec := ClaimRecord("codex", RunOptions{Prompt: "done"}, base.Add(time.Duration(i)*time.Minute))
 		rec.Status = "ok"
-		if err := rec.Save(); err != nil {
-			t.Fatal(err)
-		}
+		saveRecordForTest(t, rec)
 	}
 	if err := os.WriteFile(first.EventsPath(), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -1136,16 +1127,12 @@ func TestFinishingRecordSurvivesItsOwnPrune(t *testing.T) {
 	keep(t, 1)
 	resumed := NewRecord("codex", RunOptions{Prompt: "p"}, base)
 	resumed.Status = "ok"
-	if err := resumed.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, resumed)
 	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
 	if _, err := LoadRecord(resumed.ID); err == nil {
 		t.Fatal("setup: the oldest record should have been pruned by newer saves")
 	}
-	if err := resumed.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, resumed)
 	pruneDispatches(paths.DispatchDir(), resumed.ID)
 	if _, err := LoadRecord(resumed.ID); err != nil {
 		t.Fatalf("the finishing record was pruned: %v", err)
@@ -1310,18 +1297,14 @@ func TestNoteAccountMovesRunningRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("codex", RunOptions{}, time.Now())
 	rec.Account = "databricks·dev"
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, rec)
 	ctx := withDispatchID(context.Background(), rec.ID, 0)
 	noteAccount(ctx, "databricks·qa", nil)
 	if got, _ := LoadRecord(rec.ID); got.Account != "databricks·qa" {
 		t.Fatalf("account = %q, want databricks·qa", got.Account)
 	}
 	rec.Status, rec.Account = "ok", "databricks·qa"
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, rec)
 	noteAccount(ctx, "databricks·prod", nil)
 	if got, _ := LoadRecord(rec.ID); got.Account != "databricks·qa" {
 		t.Fatalf("finished record re-charged to %q", got.Account)
@@ -1334,9 +1317,7 @@ func TestRecordActivityStopsBeforeFinish(t *testing.T) {
 	activityEvery = 5 * time.Millisecond
 	t.Cleanup(func() { activityEvery = old })
 	rec := NewRecord("codex", RunOptions{}, time.Now())
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, rec)
 	tl := &tally{Sink: wire.Discard, live: startActivity(rec.ID)}
 	t.Cleanup(tl.live.close)
 	usage := wire.Usage{InputTokens: 12, OutputTokens: 3}
@@ -1346,9 +1327,7 @@ func TestRecordActivityStopsBeforeFinish(t *testing.T) {
 	waitRecordActivity(t, rec.ID, usage)
 	tl.live.close()
 	rec.Finish(wire.Result{}, nil, time.Second)
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, rec)
 	if err := tl.Emit(wire.Event{Type: wire.EventToolUse}); err != nil {
 		t.Fatal(err)
 	}
@@ -1403,9 +1382,7 @@ func TestNoteReportAndNearestIDs(t *testing.T) {
 func TestFinishSaveKeepsStoredReport(t *testing.T) {
 	setConfigDir(t)
 	rec := Record{ID: "20260101T000002.000-pi", Agent: "pi", Status: "running"}
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	saveRecordForTest(t, rec)
 	if err := NoteReport(rec.ID, "/r.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -1437,14 +1414,20 @@ func TestTallyToolStats(t *testing.T) {
 	}
 }
 
+// proxyRecord is a fresh running dispatch with a saved file, not just an in-memory label.
+func proxyRecord(t *testing.T, i int) Record {
+	t.Helper()
+	r := benchAskRecord(time.Date(2026, 11, 24, 10, 0, i, 0, time.UTC), 0)
+	r.PID = os.Getpid()
+	saveRecordForTest(t, r)
+	return r
+}
+
 func TestNoteAccountClearsPreviousProxy(t *testing.T) {
 	setConfigDir(t)
-	rec := benchAskRecord(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC), 0)
-	rec.PID, rec.Proxy = os.Getpid(), "phase:w1"
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
-	noteAccount(context.WithValue(context.Background(), dispatchIDKey{}, rec.ID), "", nil)
+	rec := proxyRecord(t, 0)
+	NoteProxy(rec.ID, "phase:w1")
+	noteAccount(withDispatchID(context.Background(), rec.ID, 0), "", nil)
 	got, err := LoadRecord(rec.ID)
 	if err != nil || got.Proxy != "" {
 		t.Fatalf("Proxy = %q, err %v; want cleared at the next attempt", got.Proxy, err)
@@ -1453,11 +1436,7 @@ func TestNoteAccountClearsPreviousProxy(t *testing.T) {
 
 func TestNoteProxyStampsRunningRecord(t *testing.T) {
 	setConfigDir(t)
-	rec := benchAskRecord(time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC), 0)
-	rec.PID = os.Getpid()
-	if err := rec.Save(); err != nil {
-		t.Fatal(err)
-	}
+	rec := proxyRecord(t, 0)
 	NoteProxy(rec.ID, "phase:w1")
 	got, err := LoadRecord(rec.ID)
 	if err != nil || got.Proxy != "phase:w1" {
@@ -1485,6 +1464,36 @@ func TestParseArgsRefusesColonForm(t *testing.T) {
 	for _, args := range [][]string{{"--profile", "databricks:dev"}, {"--overlay", "databricks:dev"}} {
 		if _, _, err := ParseArgs(args, true); err == nil {
 			t.Errorf("%v accepted", args)
+		}
+	}
+}
+
+func TestFinishKeepsProxyOfLiveSessionWithoutTransport(t *testing.T) {
+	setConfigDir(t)
+	for i, tc := range []struct {
+		label, next, want string
+		clear             bool
+		transport         *wire.Transport
+	}{
+		{label: "shared", want: "shared"},
+		{label: "old", next: "other", want: "other"},
+		{label: "old", clear: true}, // direct fallback: the latest hop has no proxy
+		{label: "old", transport: &wire.Transport{Proxy: "x"}, want: "x"},
+		{label: "old", transport: &wire.Transport{}}, // an explicit empty transport clears the label
+	} {
+		r := proxyRecord(t, i)
+		NoteProxy(r.ID, tc.label)
+		if tc.clear || tc.next != "" {
+			noteAccount(withDispatchID(context.Background(), r.ID, 0), "", nil)
+		}
+		if tc.next != "" {
+			NoteProxy(r.ID, tc.next)
+		}
+		r.Finish(wire.Result{Transport: tc.transport}, nil, time.Second)
+		saveRecordForTest(t, r)
+		got, err := LoadRecord(r.ID)
+		if err != nil || got.Proxy != tc.want {
+			t.Fatalf("case %d: proxy = %q, err %v; want %q", i, got.Proxy, err, tc.want)
 		}
 	}
 }

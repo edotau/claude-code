@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/serving"
 
@@ -110,6 +111,52 @@ func TestRunAskChildGetsTheRunSnapshot(t *testing.T) {
 	env, err := defaultRunAsk(ctx, script, "codex", "")
 	if err != nil || env.Provider != "snapshot" {
 		t.Fatalf("child saw provider %q (err %v), want the snapshot's", env.Provider, err)
+	}
+}
+
+// The pong ask carries its run configuration as one --overlay object and no per-setting flag.
+func TestRunAskArgvIsOneOverlay(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake ask is a shell script")
+	}
+	dir := t.TempDir()
+	argsFile, script := filepath.Join(dir, "args"), filepath.Join(dir, "fake")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\nprintf '{\"status\":\"ok\"}'\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := defaultRunAsk(context.Background(), script, "codex", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := assets.PreflightPongPrompt()
+	want := "agents\nask\n--overlay\n{\"agent\":\"codex\",\"tools\":false,\"fallback\":\"none\"}\n--format\njson\n" + prompt + "\n"
+	if string(got) != want {
+		t.Fatalf("argv =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestRunAskKeepsUnresolvedProfile(t *testing.T) {
+	hermeticVault(t)
+	dir := t.TempDir()
+	argsFile, script := filepath.Join(dir, "args"), filepath.Join(dir, "fake")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsFile + "'\nprintf '{\"status\":\"ok\"}'\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := defaultRunAsk(context.Background(), script, "codex", "caller-only-profile"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "agents\nask\n--profile\ncaller-only-profile\n--overlay\n{\"agent\":\"codex\",\"tools\":false,\"fallback\":\"none\"}\n--format\njson\n" + assets.PreflightPongPrompt() + "\n"
+	if string(got) != want {
+		t.Fatalf("argv =\n%s\nwant\n%s", got, want)
 	}
 }
 

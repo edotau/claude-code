@@ -14,6 +14,11 @@ import (
 // layoutFile stamps the store root with layoutFlat, the one-bank layout.
 const layoutFile = ".layout"
 
+const storeVersion = 4 // the "flat N" this binary writes
+
+// StoreVersion is the "flat N" this binary writes.
+func StoreVersion() int { return storeVersion }
+
 var layoutFlat = "flat " + strconv.Itoa(storeVersion)
 
 // Path is one of the bank's top-level files.
@@ -29,25 +34,38 @@ func Ensure(sub string) error {
 	return os.MkdirAll(paths.MemorySubDir(sub), 0o755)
 }
 
-// stampLayout refuses a store stamped newer than this binary, else writes the stamp (and the store dir) when absent.
+// stampLayout refuses a newer or malformed stamp, rewrites an older one, and writes it when absent.
 func stampLayout() error {
 	p := filepath.Join(paths.MemoryStoreDir(), layoutFile)
 	b, err := os.ReadFile(p)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read memory store layout: %w", err)
+	}
 	if err == nil {
-		stamp := strings.TrimSpace(string(b))
-		n, ok := strings.CutPrefix(stamp, "flat ")
-		v, aerr := strconv.Atoi(strings.TrimSpace(n))
-		switch {
-		case stamp == "":
-			return nil
-		case !ok || aerr != nil || v <= 0:
-			return fmt.Errorf("memory store layout %q is not a %q stamp", stamp, "flat N")
-		case v > storeVersion:
+		v, err := StoreLayoutVersion(string(b))
+		if err != nil {
+			return err
+		}
+		if v > storeVersion {
 			return fmt.Errorf("store is flat %d, this binary writes flat %d: install a newer claude-code", v, storeVersion)
 		}
-		return nil
+		if v == storeVersion {
+			return nil
+		}
 	}
 	return paths.AtomicWrite(p, []byte(layoutFlat+"\n"), 0o644)
+}
+
+// StoreLayoutVersion parses a positive, unsigned flat stamp for writers and doctor.
+func StoreLayoutVersion(stamp string) (int, error) {
+	stamp = strings.TrimSpace(stamp)
+	n, ok := strings.CutPrefix(stamp, "flat ")
+	n = strings.TrimSpace(n)
+	v, err := strconv.Atoi(n)
+	if !ok || err != nil || v <= 0 || strings.HasPrefix(n, "+") {
+		return 0, fmt.Errorf("memory store layout %q is not a %q stamp", stamp, "flat N")
+	}
+	return v, nil
 }
 
 const homeDir = "home"
@@ -55,12 +73,14 @@ const homeDir = "home"
 // flatSubs derives the store folders from the asset roles so sandbox and import never miss one.
 var flatSubs = storeFolderNames()
 
-// withFlatLock is WithBankLock for writers.
-func withFlatLock(wait time.Duration, fn func() error) error {
-	if err := stampLayout(); err != nil {
-		return err
-	}
-	return WithBankLock(wait, fn)
+// withBankLock is WithBankLock for writers.
+func withBankLock(wait time.Duration, fn func() error) error {
+	return WithBankLock(wait, func() error {
+		if err := stampLayout(); err != nil {
+			return err
+		}
+		return fn()
+	})
 }
 
 // EnsureBank is the one bank with the store root created.

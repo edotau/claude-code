@@ -589,13 +589,16 @@ func protected(p string) bool {
 	if paths.Within(p, memory.AccessStateDir()) {
 		return !orphanAccessLog(p)
 	}
-	for _, root := range []string{paths.MemoryStoreDir(), memory.JournalDir()} {
+	for _, root := range []string{paths.MemoryStoreDir(), journalDir()} {
 		if paths.Within(p, root) {
 			return true
 		}
 	}
 	return false
 }
+
+// journalDir is the retired commit-journal folder; pending files in it are owner data and stay.
+func journalDir() string { return filepath.Join(paths.MemoryStateDir(), "journal") }
 
 // parseAge accepts Go durations plus a `d` (days) suffix, which time.ParseDuration lacks.
 func parseAge(s string) (time.Duration, error) {

@@ -79,7 +79,7 @@ func TestAdmissionClearsWaitOnReturn(t *testing.T) {
 
 func TestAdmissionConcludesPrepareFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := agent.NewRecord("claude", agent.RunOptions{Provider: "test"}, time.Now())
+	rec := agent.NewRecord("claude", agent.RunOptions{Route: route.Route{Provider: "databricks", Profile: route.AutoArm}}, time.Now())
 	rec.Status, rec.PID = "running", os.Getpid()
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -604,6 +604,16 @@ func readCalls(t *testing.T, calls string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
+func remoteCallOverlay(t *testing.T, call string) agentconfig.Overlay {
+	t.Helper()
+	_, doc, ok := strings.Cut(call, "--overlay ")
+	var ov agentconfig.Overlay
+	if !ok || strings.Count(call, "--overlay ") != 1 || json.NewDecoder(strings.NewReader(doc)).Decode(&ov) != nil {
+		t.Fatalf("remote command lacks a single JSON overlay: %s", call)
+	}
+	return ov
+}
+
 // The caller's --fallback reaches the remote ask instead of a hard-coded none.
 func TestAskHostForwardsFallback(t *testing.T) {
 	lines := ndjson(t, resultEvent(wire.Envelope{Status: wire.StatusOK, Agent: "claude", Answer: "ok"}))
@@ -613,8 +623,8 @@ func TestAskHostForwardsFallback(t *testing.T) {
 		"--format", "json", "go"); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	if got := readCalls(t, calls); !strings.Contains(got[0], "--fallback agents") {
-		t.Fatalf("remote argv %q lacks --fallback agents", got[0])
+	if got := readCalls(t, calls); len(got) != 1 || remoteCallOverlay(t, got[0]).Fallback != "agents" {
+		t.Fatalf("remote argv %q lacks fallback agents in overlay", got)
 	}
 }
 
@@ -659,11 +669,14 @@ func TestAskRetryKeepsFallbackPolicy(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &env); code != 0 || err != nil {
 		t.Fatalf("exit %d (%v):\n%s", code, err, out)
 	}
+	if rec, err := agent.LoadRecord(env.DispatchID); err != nil || rec.FallbackPolicy != "none" || rec.Overlay == nil || rec.Overlay.Fallback != "none" {
+		t.Fatalf("stored fallback policy lost: record %+v, err %v", rec, err)
+	}
 	if code, out = captureAskStdout(t, "--retry", env.DispatchID, "--format", "json"); code != 0 {
 		t.Fatalf("retry exit %d:\n%s", code, out)
 	}
-	if got := readCalls(t, calls); len(got) != 2 || !strings.Contains(got[1], "--fallback none") {
-		t.Fatalf("retry argv %q, want --fallback none", got)
+	if got := readCalls(t, calls); len(got) != 2 || remoteCallOverlay(t, got[0]).Fallback != "none" || remoteCallOverlay(t, got[1]).Fallback != "none" {
+		t.Fatalf("retry argv %q, want fallback none in overlay", got)
 	}
 }
 

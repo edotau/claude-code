@@ -56,6 +56,9 @@ func TestExtractRecallCumulativeAndNoLog(t *testing.T) {
 	if err := RecordExtractLoss(ledger, now.Add(-time.Hour), report.Lost); err != nil {
 		t.Fatal(err)
 	}
+	if err := RecordExtractRefusal(ledger, now, "group", errors.New("check refused")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := batch("reports/s2.md", "reports/s3.md"); err == nil || !strings.Contains(err.Error(), "4 of 100") {
 		t.Fatalf("second batch must pass the cumulative limit: %v", err)
 	}
@@ -74,5 +77,27 @@ func checkExtractRecallVerdict(t *testing.T) {
 	}
 	if err := (ExtractRecallReport{BytesBefore: 5, BytesAfter: 10}).Verdict(); err == nil {
 		t.Fatal("grown store passed")
+	}
+}
+
+func TestExtractRefusalsExpireAndLedgerPrunes(t *testing.T) {
+	ledger := filepath.Join(t.TempDir(), "loss.log")
+	now := time.Now()
+	if err := RecordExtractRefusal(ledger, now.AddDate(0, 0, -accessRotateDays-1), "old", errors.New("old recall budget")); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := ExtractRefusals(ledger); err != nil || len(rows) != 0 {
+		t.Fatalf("expired refusal still blocks a retry: %v, %v", rows, err)
+	}
+	if err := RecordExtractRefusal(ledger, now, "current", errors.New("current check")); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ExtractRefusals(ledger)
+	if err != nil || len(rows) != 1 || rows["current"] != "current check" {
+		t.Fatalf("current refusal lost: %v, %v", rows, err)
+	}
+	data, err := os.ReadFile(ledger)
+	if err != nil || strings.Contains(string(data), "old recall budget") {
+		t.Fatalf("old ledger record was not pruned: %q, %v", data, err)
 	}
 }

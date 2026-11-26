@@ -34,6 +34,13 @@ const overlaySchema = 2
 
 const overlayMaxBytes = 64 << 10
 
+// Child hops materialize admission defaults so a later merge cannot erase an implicit ceiling.
+const (
+	DefaultMaxDispatchChildren = 8
+	DefaultMaxTreeTokens       = 20_000_000
+	DefaultMaxDispatchDepth    = 5
+)
+
 // Overlay is one dispatch's config document: where it runs plus its env layer; Files is reserved and refused.
 type Overlay struct {
 	Schema int `json:"schema,omitempty"`
@@ -126,7 +133,12 @@ var (
 )
 
 // readCapped reads r one byte past overlayMaxBytes: LoadOverlayContext's cap sees an oversized document, unread.
-func readCapped(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, overlayMaxBytes+1)) }
+func readCapped(r io.Reader) ([]byte, error) {
+	if r == nil {
+		return nil, errors.New("stdin is unavailable; pass a file or inline JSON")
+	}
+	return io.ReadAll(io.LimitReader(r, overlayMaxBytes+1))
+}
 
 // ReadJSONSource reads value as stdin for -, inline JSON for {...}, else a private regular file; label names errors.
 func ReadJSONSource(label, value string, stdin io.Reader) ([]byte, error) {
@@ -271,7 +283,10 @@ func parseOverlayFrom(raw []byte, origin string, stored bool) (Overlay, error) {
 	if err := providers.CheckModelShared(o.Model); err != nil { // the model key is a plain id; the route keys carry the row
 		return Overlay{}, err
 	}
-	return o, o.validate(fileSrc)
+	if err := o.validate(fileSrc); err != nil {
+		return Overlay{}, err
+	}
+	return o, nil
 }
 
 // checkOverlaySchema refuses a negative or newer "schema" before schemas.Decode, whose migration loop would walk it.
@@ -398,6 +413,89 @@ const (
 	HopFallback                 // the next plan hop: the unit moves inside the fence, a moved unit drops the model
 )
 
+// Origin says where an overlay key's value came from; the zero value is the inherited document.
+type Origin uint8
+
+const (
+	OriginInherited Origin = iota // the parent's document, the stored layer, or anything no typed input sets
+	OriginRecord                  // a stored dispatch record replayed by --retry or --job
+	OriginOverlay                 // a typed --overlay on this command line
+	OriginFlag                    // a typed flag on this command line
+)
+
+// Provenance is each key's origin as Origins computed it: never stored, never read from a document.
+type Provenance map[string]Origin
+
+// originKey is the provenance key of an overlay key: the route unit's five fields are one key, "unit".
+func originKey(name string) string {
+	switch name {
+	case "endpoint", "provider", "profile", "identity", "account", "unit":
+		return "unit"
+	}
+	return name
+}
+
+// Of is where key came from; "unit" (or any of its five fields) is the route unit.
+func (p Provenance) Of(key string) Origin { return p[originKey(key)] }
+
+// Typed reports key typed on this command line, as a flag or in --overlay.
+func (p Provenance) Typed(key string) bool { return p.Of(key) >= OriginOverlay }
+
+// Origins computes each key's origin from typed flags, typed --overlay, inherited base, and effective overlay.
+func Origins(flags []string, typed, inherited, eff Overlay) Provenance {
+	p := Provenance{}
+	for _, k := range typed.setKeys() {
+		p[originKey(k)] = OriginOverlay
+	}
+	lower := inherited.Route()
+	if u := typed.Route(); u != (route.Route{}) {
+		lower = u
+	}
+	for _, k := range flags {
+		if k = originKey(k); k != "unit" || eff.Route() != lower {
+			p[k] = OriginFlag
+		}
+	}
+	return p
+}
+
+// RecordOrigins computes origins for a replayed record: keys from base not typed on this line get OriginRecord.
+func RecordOrigins(flags []string, typed, base, eff Overlay) Provenance {
+	p := Origins(flags, typed, base, eff)
+	for _, k := range base.setKeys() {
+		if ok := originKey(k); p[ok] == OriginInherited {
+			p[ok] = OriginRecord
+		}
+	}
+	return p
+}
+
+// ApplyOverlay layers inherited, typed --overlay, and typed flags, refusing mismatched provider/profile units.
+func ApplyOverlay(reg *providers.Registry, flagKeys []string, flags, typed, inherited Overlay) (Overlay, Provenance, error) {
+	eff, err := inherited.Derive(typed, HopAppend)
+	if err == nil {
+		eff, err = eff.Derive(flags, HopAppend)
+	}
+	if err != nil {
+		return Overlay{}, nil, err
+	}
+	if u := eff.Route(); u.Provider != "" && u.Profile != "" && u.Profile != route.AutoArm {
+		if row := reg.Row(u.Profile); row == nil || row.Provider != u.Provider {
+			return Overlay{}, nil, fmt.Errorf("provider %s and profile %s are not one registry unit", u.Provider, u.Profile)
+		}
+	}
+	return eff, Origins(flagKeys, typed, inherited, eff), nil
+}
+
+// setKeys are the keys o sets, by their JSON names.
+func (o Overlay) setKeys() []string {
+	o.Schema = 0
+	var doc map[string]json.RawMessage
+	raw, _ := json.Marshal(o) // Overlay holds plain values: Marshal cannot fail.
+	_ = json.Unmarshal(raw, &doc)
+	return slices.Collect(maps.Keys(doc))
+}
+
 // Derive is base copied for hop with add laid over it; neither argument is changed and nothing is read from the env.
 func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
 	parent := base
@@ -454,7 +552,9 @@ func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
 func (o Overlay) childCopy(hop Hop) Overlay {
 	out := Overlay{
 		Schema: overlaySchema, Fallback: o.Fallback, Runner: o.Runner, Codemode: o.Codemode, Fence: clonePtr(o.Fence),
-		MaxChildren: clonePtr(o.MaxChildren), MaxTreeTokens: clonePtr(o.MaxTreeTokens), MaxDepth: clonePtr(o.MaxDepth),
+		MaxChildren:   new(o.Limit("HARNESS_DISPATCH_MAX_CHILDREN", DefaultMaxDispatchChildren)),
+		MaxTreeTokens: new(o.Limit("HARNESS_DISPATCH_MAX_TREE_TOKENS", DefaultMaxTreeTokens)),
+		MaxDepth:      new(o.Limit("HARNESS_DISPATCH_MAX_DEPTH", DefaultMaxDispatchDepth)),
 	}
 	out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account
 	out.runKeys = o.restrictions()

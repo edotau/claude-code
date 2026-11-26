@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -238,6 +239,7 @@ func spawn(port int) error {
 	if proc.IsSelfUnderTest(exe) {
 		return ErrTestBinary
 	}
+	exe = sharedProxyExe(exe)
 	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	if fi, err := os.Stat(logFile()); err == nil && fi.Size() > maxLogBytes {
 		flags |= os.O_TRUNC
@@ -255,6 +257,15 @@ func spawn(port int) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// sharedProxyExe is the installed binary when one exists: a lane or /tmp build never serves every session's proxy.
+func sharedProxyExe(self string) string {
+	installed := filepath.Join(paths.BinDir(), "claude-code")
+	if fi, err := os.Stat(installed); err == nil && fi.Mode().IsRegular() && (runtime.GOOS == "windows" || fi.Mode()&0o111 != 0) {
+		return installed
+	}
+	return self
 }
 
 // ownedElsewhere reports a live router on another port already holding proxy.json.

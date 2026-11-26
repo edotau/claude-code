@@ -194,7 +194,7 @@ func enforceEdit(c *candidate, ref string) error {
 
 // rewriteCandidate edits one record in place under the bank lock; the file's other lines are kept byte for byte.
 func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
-	return withFlatLock(BankLockWait, func() error {
+	return withBankLock(BankLockWait, func() error {
 		data, pre, err := readCandidatesLocked()
 		if err != nil {
 			return err
@@ -215,11 +215,8 @@ func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
 	})
 }
 
-// readCandidatesLocked finishes pending journals, then reads the file and its hash ("" when absent).
+// readCandidatesLocked reads the file and its hash ("" when absent).
 func readCandidatesLocked() (data []byte, pre string, err error) {
-	if _, err = recoverEach(); err != nil {
-		return nil, "", err
-	}
 	data, err = os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -387,7 +384,7 @@ func proposeCandidate(w io.Writer, record string) error {
 	}
 	var line bytes.Buffer
 	_ = jsonEncoder(&line).Encode(c) // a plain struct always encodes
-	err := withFlatLock(BankLockWait, func() error {
+	err := withBankLock(BankLockWait, func() error {
 		data, pre, err := readCandidatesLocked()
 		if err != nil {
 			return err

@@ -489,3 +489,36 @@ func TestPassthroughModelUsage(t *testing.T) {
 		t.Errorf("plain models refused: %v", err)
 	}
 }
+
+// ApplyLaunchOverlay refuses a mismatched provider/profile unit and propagates identity, remote, and account.
+func TestApplyLaunchOverlayUnitIdentityAccount(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	reg.Providers["gh-work"] = &providers.Provider{Name: "gh-work", Provider: "github", Login: "octocat"}
+	o := LaunchOptions{Overlay: `{"provider":"openai","profile":"dev"}`}
+	if _, err := ApplyLaunchOverlay(t.Context(), reg, &o, false); err == nil || !strings.Contains(err.Error(), "openai") || !strings.Contains(err.Error(), "dev") {
+		t.Fatalf("mismatched unit = %v, want refusal naming both", err)
+	}
+	o = LaunchOptions{Overlay: `{"provider":"databricks","profile":"dev","identity":"sp"}`}
+	ctx, err := ApplyLaunchOverlay(t.Context(), reg, &o, true)
+	if err != nil || o.Provider != "dev" || providers.IdentityFrom(ctx) != "sp" {
+		t.Fatalf("identity overlay = %+v id=%q err=%v", o, providers.IdentityFrom(ctx), err)
+	}
+	o = LaunchOptions{Overlay: `{"provider":"github","profile":"auto","account":"octocat"}`}
+	if _, err := ApplyLaunchOverlay(t.Context(), reg, &o, false); err != nil || o.Provider != "gh-work" {
+		t.Fatalf("account overlay = %+v err=%v", o, err)
+	}
+}
+
+// An agent CLI's plan carries the unit its overlay and flags resolved, not the caller's pre-resolution copy.
+func TestCLIPlanCarriesResolvedUnit(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", routeOverlay)
+	t.Setenv("HOME", t.TempDir())
+	pathstest.FakeVendor(t, "codex", "")
+	o := LaunchOptions{PrintEnv: true, Provider: "dev", ProfileFlag: true, Route: route.FromWord("dev"), Direct: true}
+	plan, err := LaunchPlan(t.Context(), "codex", o, nil) // the hermetic home has no codex install: configure may fail after resolution
+	if want := (route.Route{Provider: "databricks", Profile: "dev", Endpoint: EndpointDirect}); plan.Unit != want {
+		t.Fatalf("plan unit = %+v, %v; want %+v", plan.Unit, err, want)
+	}
+}

@@ -31,27 +31,27 @@ Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-en
 Shell `agents ask` belongs in a carried dispatch, workflow stage or requested script. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
-| Leaf                                        | Role                                                                                                                                                                                                                                                                                                           | Output                                |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `claude`                                    | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (`--runner pi\|own`, Databricks default); dispatches a step it needs another agent for                                         | Status and verification               |
-| `Explore`                                   | Scoped scan before non-trivial work                                                                                                                                                                                                                                                                            | Codebase Context Brief                |
-| `Plan`                                      | Design on the session's model unless the call names one                                                                                                                                                                                                                                                        | Plan in `docs/templates/plan.md` form |
-| `general-purpose`                           | Built-in work when no named role fits                                                                                                                                                                                                                                                                          | Brief's requested report              |
-| `web-fetch`                                 | Host built-in page fetch, only where the host offers it (else `general-purpose`)                                                                                                                                                                                                                               | The answer                            |
-| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf (a relay): a Haiku worker runs the one typed `agents ask --agent <type>` its file bakes (`--provider databricks --profile <p>`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict  |
-| `coworker`                                  | Pi in code mode, script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --agent pi --provider databricks --profile <p> --tools --codemode on` its file bakes; rtk off; receipt `coworker`                                                                           | `ask: ran on` line, then the verdict  |
-| `claude-code-guide`                         | Host built-in: questions about Claude Code, the Agent SDK and the Claude API                                                                                                                                                                                                                                   | The answer                            |
-| `statusline-setup`                          | Host built-in: configures the status line setting                                                                                                                                                                                                                                                              | The settings edit                     |
+| Leaf                                        | Role                                                                                                                                                                                                                                                                                                                                       | Output                                |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `claude`                                    | Code leaf with no `Agent:` line: runs as a Pi ask first, in-context on Sonnet when Pi refuses; a typed `claude` ask on a Databricks route also runs through the pi runner first (overlay `"runner":"pi"` or `"own"`, Databricks default); dispatches a step it needs another agent for                                                     | Status and verification               |
+| `Explore`                                   | Scoped scan before non-trivial work                                                                                                                                                                                                                                                                                                        | Codebase Context Brief                |
+| `Plan`                                      | Design on the session's model unless the call names one                                                                                                                                                                                                                                                                                    | Plan in `docs/templates/plan.md` form |
+| `general-purpose`                           | Built-in work when no named role fits                                                                                                                                                                                                                                                                                                      | Brief's requested report              |
+| `web-fetch`                                 | Host built-in page fetch, only where the host offers it (else `general-purpose`)                                                                                                                                                                                                                                                           | The answer                            |
+| `codex` · `copilot` · `gemini` · `opencode` | External work as an Agent leaf (a relay): a Haiku worker runs the one typed `agents ask --overlay '{"agent":"<type>"}'` its file bakes (overlay `"provider":"databricks","profile":"<p>"`, gemini excepted: agy on its own pin), waits, checks the diff and verify command; the inner `ask: ran on` line names the model that did the work | `ask: ran on` line, then the verdict  |
+| `coworker`                                  | Pi in code mode, script-style work that needs raw tool output (a relay): a Haiku worker runs the typed `agents ask --overlay '{"agent":"pi","provider":"databricks","profile":"<p>","codemode":"on","tools":true}'` its file bakes; rtk off; receipt `coworker`                                                                            | `ask: ran on` line, then the verdict  |
+| `claude-code-guide`                         | Host built-in: questions about Claude Code, the Agent SDK and the Claude API                                                                                                                                                                                                                                                               | The answer                            |
+| `statusline-setup`                          | Host built-in: configures the status line setting                                                                                                                                                                                                                                                                                          | The settings edit                     |
 
 Print a leaf's description prefix with `claude-code agents label <type> [--model m] [--profile p] --task FILE`
 (`--session-model` supplies the parent's). For a relay type it prints the route's predicted work model (`rotation
 next …` on stderr) while the host row and receipt show the Haiku relay; only the inner `ask: ran on` line names the
 model that did the work. Pass the Agent tool's `model` to raise one call. Model by job: fix and review-loop leaves run
-Sonnet (the review itself stays another family, R6), mechanical fixes `Tier: fast` with `--model auto` (R24; Haiku on a
-Claude leaf); Opus or higher only for planning, security and guard design, architecture, and judgment calls (benchmark
-verdicts, schedule, retry, keep/revert); `fable` only for two large designs at once, never inherited from the session;
-a deterministic step uses no model. The root machine's pins and per-call flags select external execution; never
-overwrite another machine's pins.
+Sonnet (the review itself stays another family, R6), mechanical fixes `Tier: fast` with overlay `"model":"auto"`
+(R24; Haiku on a Claude leaf); Opus or higher only for planning, security and guard design, architecture, and
+judgment calls (benchmark verdicts, schedule, retry, keep/revert); `fable` only for two large designs at once, never
+inherited from the session; a deterministic step uses no model. The root machine's pins and per-call flags select
+external execution; never overwrite another machine's pins.
 
 ### Carried dispatch (main session, no relay)
 
@@ -64,7 +64,7 @@ edits (`claude-code codex review` for a diff), gemini research and codebase swee
 copilot test repair, mechanical edits and authorized LAST-MILE:
 
 ```bash
-claude-code agents ask --carry --background --agent <agent> [ask flags] - < BRIEF
+claude-code agents ask --carry --background --overlay '{"agent":"<agent>"}' [ask flags] - < BRIEF
 claude-code agents result -f <id>
 ```
 
@@ -78,18 +78,18 @@ start (not on the profile's menu, no Databricks route, guard did not load) is th
 in-context, `Ran on:` naming the failed Pi attempt and what then ran. A brief needing the Agent tool, skills or MCP
 says `Agent: in-context`; `Agent: claude` in a wave plan runs a headless claude ask.
 Copilot repair briefs name `rules/standards/testing-guidelines.md` → TEST; authorized landing briefs name
-`rules/standards/worktree-git.md` → LAST-MILE. Both need `--tools`.
+`rules/standards/worktree-git.md` → LAST-MILE. Both need overlay `"tools":true`.
 
 ### External relay contract
 
 For a `claude` leaf that dispatches a step of its own task (`agents/claude.md` → Work here or dispatch), or a routed
 `claude` workflow stage; the wait, hand-back and receipt rules bind both:
 
-- Run the prescribed ask once: `claude-code agents ask --carry --agent <a> …`, the plain ask for `claude`/`pi`, or,
-  for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `coworker.md`), the one
-  non-carry typed `agents ask --background --agent <type> --tools - < PATH` its file prints (Databricks baked, gemini
-  excepted; pi adds `--codemode on`); copy it as printed, add `--workdir <dir>` only for a `Workdir:` line, and
-  never add `--profile` or `--model`:
+- Run the prescribed ask once: `claude-code agents ask --carry --overlay '{"agent":"<a>"}' …`, the plain ask for
+  `claude`/`pi`, or, for a restored type (`agents/codex.md`, `copilot.md`, `gemini.md`, `opencode.md`, `coworker.md`),
+  the one non-carry typed `agents ask --background --overlay '{"agent":"<type>","tools":true}' - < PATH` its file
+  prints (Databricks baked, gemini excepted; pi adds overlay `"codemode":"on"`); copy it as printed, add
+  `--workdir <dir>` only for a `Workdir:` line, and never add overlay `profile` or `model`:
   1. Write the task to the path `claude-code agents brief --path <agent>` prints (Read it first), and attach it as
      `- < PATH` (or `--attach <file>`). Never choose or reuse a path; no `$`, `~` or glob. Never add, drop or swap a
      flag or start another ask.
@@ -160,7 +160,8 @@ allows (`CLAUDE.md` guideline 3): split until files would overlap or one leaf mu
 
 - `Objective:` one outcome. `Agent:` the work agent; omit for the selected type, `in-context` for direct work; keep
   it consistent with the type (no hidden relay).
-- `Model:` is not parsed by the hook: put `--model` on the carried ask (`agents ask --carry --agent <a> --model m`).
+- `Model:` is not parsed by the hook: put overlay `model` on the carried ask
+  (`agents ask --carry --overlay '{"agent":"<a>","model":"m"}'`).
   `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:` identifies a plan
   task for the hook's slot claim (`Task: Phase W.k`): the hand-back then carries its `verify:` result. `Tier:
   fast|standard|deep` (own line) sets the task tier that picks an unpinned run's model (`agent.TaskTier`); without it
@@ -179,10 +180,10 @@ allows (`CLAUDE.md` guideline 3): split until files would overlap or one leaf mu
   rules and the reporting contract from `internal/assets/files/brief/brief.tmpl`; never restate that footer. Pipe it to
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
-The hook reads `Agent:` only before the first blank line. `--profile` leads then falls back unless `--fallback none`
-pins it; carried asks and held-job hints carry the route as `--overlay '<object>'`
-(one unit: provider and profile together, an inherited `COWORKER_OVERLAY` is a fence). Overlay keys:
-`rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`;
+The hook reads `Agent:` only before the first blank line. Overlay `profile` leads then falls back unless
+`"fallback":"none"` pins it; carried asks and held-job hints carry the route as `--overlay '<object>'`
+(one unit: provider and profile together, an inherited `COWORKER_OVERLAY` carries a child's derived confinement).
+Overlay keys and inheritance: `rules/harness/agent.md` → Overlay; auto-mode rewrites: `rules/harness/hooks.md`;
 `--remote` vs `--host`: `rules/harness/network.md`.
 
 **Report (out)** — the final answer is a verdict of at most 8 lines: a review's verdict word,
@@ -209,17 +210,18 @@ fleet scans.
 
 Run at capacity: keep every unblocked task dispatched and refill as a leaf hands back or a file frees up; an idle slot
 with unblocked work is a fault. Spread leaves over the three Databricks profiles (R20;
-`--provider databricks --profile <p>` picks
-one, `--profile dev|qa|prod` names it) and the four vendor CLIs so no single account carries the wave. The only limits
+overlay `"provider":"databricks","profile":"<p>"` picks
+one, `"profile":"dev|qa|prod"` names it) and the four vendor CLIs so no single account carries the wave. The only limits
 are overlapping files, dependency order and an account's own rate limit.
 
 #### Dispatch workflow (R32)
 
 1. One lane per task: each dispatched code task has its own linked worktree; no two tasks share one.
 2. One sign-off gate: `claude-code worktree land <lane>`; a leaf runs no gate chain of its own.
-3. Review loop until clear (R28): other-family review, fix every finding, repeat until a review finds nothing; three
+3. One shared review at the end (R28): finished lanes go into the collector unreviewed; its merged diff gets the
+   other-family review, every finding fixed, repeated until a review finds nothing; three
    rounds in a row each finding a new HIGH in one area stop the loop and go to the owner. A review dispatch passes a
-   typed non-Claude `--model` (a GPT or Gemini id) when the reviewer's route is auto, so other-family holds.
+   typed non-Claude overlay `model` (a GPT or Gemini id) when the reviewer's route is auto, so other-family holds.
 4. Tests only at sign-off: a leaf runs only a test it wrote or repairs; package tests run in the merge gate.
 5. Pi or an external agent does the work and fixes; a Claude subagent verifies and commits in the lane (a relay type
    cannot commit, so the main session does); the main session lands ([Landing](#landing)).
@@ -232,7 +234,7 @@ The owner does a unit alone or sub-contracts it, and checks every leaf it dispat
 lane, confirm the dispatch did not die, lint passes with no syntax errors, tick the plan, close the proxy) is for Go to
 perform and record, never the model. The eyeball check that tests would pass is the owner's own judged verdict, and a
 test step or test repair still needs executed tests.
-Built (plan 2026-11-24-typed-pi-dispatch, phases 10-12): the `contract` key of `agents ask --spec` (`{"unit", "kind":
+Built (plan 2026-11-24-typed-pi-dispatch, phases 10-12): the `contract` key of `agents ask --brief` (`{"unit", "kind":
 function|test-repair|file|task, "limits": {"tokens", "leaves"}, "role": owner|fleet, "parent"}`; `--dry-run` prints
 its `terms:`). Go records the terms it observes (gate, tests, handback, report; lane, tick and landed when the run has
 a lane or plan task, closed at `worktree commit` and `land`) and the budget; the scoped-proxy terms are not wired. A
@@ -397,7 +399,8 @@ otherwise when the owner says yes to a worktree (`rules/standards/worktree-git.m
   the leaf stops. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the rest.
 - Decide the owner before gathering evidence, never redoing its searches. Simplify runs once per diff, by the manager
   (`rules/standards/quality.md` → Verification Order step 5); detectors (`claude-code review *`) once per pipeline.
-- Preserve explicit agent/model choices unless the owner authorizes a change; models go on `ask --model`.
+- Preserve explicit agent/model choices unless the owner authorizes a change; models go on
+  `ask --overlay '{"model":"<m>"}'`.
 
 ## Error handling
 

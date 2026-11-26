@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
@@ -302,6 +303,53 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 	envelopes, err := Launch(t.Context(), executable, []Spec{{ID: "1.1", Agent: "codex", Task: "only", Owns: []string{"/tmp/first.go"}}}, options)
 	if err != nil || len(envelopes) != 1 || envelopes[0].Status != "ok" {
 		t.Fatalf("Launch with route flags: %+v, %v (a helper exit 5 means the flags did not reach the child)", envelopes, err)
+	}
+}
+
+func TestWaveRouteOverlayKeepsFallback(t *testing.T) {
+	for _, route := range [][]string{{"--overlay", `{"fallback":"none"}`}, {`--overlay={"fallback":"none"}`}} {
+		args, err := askArgs(1, LaunchOptions{Provider: "databricks", Profiles: []string{"qa"}, Route: route})
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.Index(args, "--overlay")
+		var ov agentconfig.Overlay
+		if i < 0 || i+2 != len(args) || json.Unmarshal([]byte(args[i+1]), &ov) != nil ||
+			ov.Provider != "databricks" || ov.Profile != "qa" || ov.Fallback != "none" {
+			t.Fatalf("route %v became %v", route, args)
+		}
+	}
+}
+
+func TestWaveRouteOverlayErrorsBeforeChild(t *testing.T) {
+	for _, route := range [][]string{{"--overlay", "/missing/route.json"}, {"--overlay", "{"},
+		{"--overlay", "-"}, {"--overlay"}, {"--overlay="},
+		{"--overlay", `{"fence":{"profiles":["dev"]}}`}} {
+		options := LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), Provider: "databricks", Profiles: []string{"qa"}, Route: route}
+		_, err := launchBatchRun(t.Context(), "/must-not-launch", []Spec{{ID: "1.1", Task: "x", Owns: []string{"/tmp/a"}}}, options)
+		if err == nil || !strings.Contains(err.Error(), "wave route:") || strings.Contains(err.Error(), "/must-not-launch") {
+			t.Fatalf("%v: %v, want route failure before exec", route, err)
+		}
+	}
+}
+
+func TestWaveRouteOverlayParsing(t *testing.T) {
+	unit := agentconfig.Overlay{Provider: "databricks", Profile: "qa"}
+	for _, route := range [][]string{{"--", "--overlay", "missing"}, {"--system-prompt", "--overlay"},
+		{"--append-system-prompt", "--overlay"}, {"--append-system-prompt", "--"}, {"-append-system-prompt", "--overlay"}} {
+		rest, _, err := mergeRouteOverlay(route, unit)
+		if err != nil || !slices.Equal(rest, route) {
+			t.Fatalf("%v: rest %v, err %v, want untouched non-flag overlay", route, rest, err)
+		}
+	}
+	_, doc, err := mergeRouteOverlay([]string{"--overlay", `{"fallback":"none"}`, "--overlay", `{"fallback":"agents"}`}, unit)
+	var ov agentconfig.Overlay
+	if err != nil || json.Unmarshal([]byte(doc), &ov) != nil || ov.Fallback != "agents" {
+		t.Fatalf("repeated flag: doc %s, err %v, want last value like flag.Parse", doc, err)
+	}
+	rest, doc, err := mergeRouteOverlay([]string{"--tools", "--overlay", `{"fallback":"none"}`}, unit)
+	if err != nil || !slices.Equal(rest, []string{"--tools"}) || json.Unmarshal([]byte(doc), &ov) != nil || ov.Fallback != "none" {
+		t.Fatalf("boolean flag: rest %v, doc %s, err %v", rest, doc, err)
 	}
 }
 

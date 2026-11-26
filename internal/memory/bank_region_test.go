@@ -277,10 +277,9 @@ func sessionEvent(t *testing.T, session int) {
 	}
 }
 
-// importSource is a source store with stored records, a pending MEMORY.md entry and a duplicate of a local entry.
-func importSource(t *testing.T, rt *roundTrip, local string) []string {
+// extraPointers is a foreign bank's pointers: a stored record, a duplicate of local, a pending one.
+func extraPointers(t *testing.T, rt *roundTrip, local string) []string {
 	t.Helper()
-	src := t.TempDir()
 	rec, pend := fmt.Sprintf("- [imp%d](notes/a.md) — stored\n\n  remote", rt.next), fmt.Sprintf("* [imp%d](notes/b.md) — pending", rt.next)
 	rt.next++
 	var cat strings.Builder
@@ -288,17 +287,10 @@ func importSource(t *testing.T, rt *roundTrip, local string) []string {
 	for _, e := range []string{rec, local} {
 		fmt.Fprintf(&cat, "    %s\n<!-- end of entry -->\n", strings.ReplaceAll(e, "\n", "\n    "))
 	}
-	write(t, filepath.Join(src, catalogFile), cat.String())
-	write(t, filepath.Join(src, "MEMORY.md"), pend+"\n")
 	rt.want[rec], rt.want[pend] = true, true
-	root, err := os.OpenRoot(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	p := &importPlan{}
-	p.readPointers(root)
-	return p.pointers
+	extra := slices.DeleteFunc(decodeCatalog(cat.String()), generatedCounter)
+	in, _ := inputEntries(pend+"\n", "")
+	return slices.Concat(extra, in, extra, in)
 }
 
 func TestEntriesRoundTripAcrossSessions(t *testing.T) {
@@ -315,11 +307,11 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 			sessionEvent(t, session)
 			l, add := rt.entries()
 			write(t, NativeIndex(), appendModelText(rt.r, readIfExistsString(NativeIndex()), l, add))
+			rt.injectedAtStep = []string{"", "renamed", "appended", "installed", "held"}[session%5]
 			var extra []string
 			if session%10 == 9 {
-				extra = importSource(t, rt, add[0])
+				extra = extraPointers(t, rt, add[0])
 			}
-			rt.injectedAtStep = []string{"", "renamed", "appended", "installed", "held"}[session%5]
 			rt.session(t, session, extra)
 		}
 		if mustRead(t, paths.MemorySub("notes", "a.md")) != note {

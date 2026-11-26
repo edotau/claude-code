@@ -167,7 +167,7 @@ func mergeModels(dest string, check bool) (mergeResult, []string, error) {
 	if err != nil {
 		return mergeResult{}, nil, err
 	}
-	head, elems, tail := splitArray(rawBase)
+	head, elems, tail, suffix := splitArray(rawBase)
 	if len(elems) != len(base) {
 		return mergeResult{}, nil, fmt.Errorf("chat models: cannot split %d entries in the live file", len(base))
 	}
@@ -186,7 +186,7 @@ func mergeModels(dest string, check bool) (mergeResult, []string, error) {
 	if check {
 		return mergeResult{Changed: true}, removed, nil
 	}
-	result, err := writeGuarded(dest, "chat models", rawBase, renderArray(head, items, tail))
+	result, err := writeGuarded(dest, "chat models", rawBase, renderArray(head, items, tail, suffix))
 	return result, removed, err
 }
 
@@ -210,7 +210,7 @@ func ownsGroup(raw json.RawMessage) (name string, ours bool) {
 }
 
 // renderArray lays items out one per line under head (a header comment) and above tail (comments before the ']').
-func renderArray(head string, items [][]byte, tail string) []byte {
+func renderArray(head string, items [][]byte, tail, suffix string) []byte {
 	var b bytes.Buffer
 	if head != "" {
 		b.WriteString(head + "\n")
@@ -230,7 +230,11 @@ func renderArray(head string, items [][]byte, tail string) []byte {
 	if len(items) > 0 || tail != "" {
 		b.WriteByte('\n')
 	}
-	b.WriteString("]\n")
+	b.WriteByte(']')
+	b.WriteString(suffix)
+	if !strings.HasSuffix(suffix, "\n") {
+		b.WriteByte('\n')
+	}
 	return b.Bytes()
 }
 
@@ -278,10 +282,10 @@ func valueEnd(b []byte) int {
 }
 
 // splitArray cuts a JSONC array into its header comment, comma-less entries (comments kept) and trailing comments.
-func splitArray(raw []byte) (head string, elems [][]byte, tail string) {
+func splitArray(raw []byte) (head string, elems [][]byte, tail, suffix string) {
 	open := openBracket(raw)
 	if open < 0 {
-		return "", nil, ""
+		return "", nil, "", ""
 	}
 	depth, start := 1, open+1
 	for i := start; i < len(raw); {
@@ -293,13 +297,13 @@ func splitArray(raw []byte) (head string, elems [][]byte, tail string) {
 		switch {
 		case depth == 0:
 			elems, tail = closeEntries(elems, raw[start:i])
-			return string(bytes.TrimSpace(raw[:open])), elems, tail
+			return string(bytes.TrimSpace(raw[:open])), elems, tail, string(raw[i+1:])
 		case raw[i] == ',' && depth == 1:
 			elems, start = append(elems, raw[start:i]), i+1
 		}
 		i++
 	}
-	return "", nil, ""
+	return "", nil, "", ""
 }
 
 // openBracket is the index of raw's first '[' outside a comment, or -1.

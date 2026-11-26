@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -28,57 +29,82 @@ var gatewayResolvePage = helptext.Page{
 	Hint: "Exit 0, 1 no profile passed, 2 usage or a model the agent cannot run.",
 }
 
+type resolveOptions struct {
+	agent.RouteReq
+	overlay, format, task string
+	all, live, tools      bool
+}
+
+func gatewayResolveFlags() (*flag.FlagSet, *resolveOptions) {
+	fs := helptext.NewFlagSet("gateway resolve", gatewayResolvePage)
+	o := &resolveOptions{format: helptext.Text}
+	fs.StringVar(&o.Model, "model", "", "typed model string, as --model takes it")
+	fs.StringVar(&o.Profile, "profile", "", "registry row, or auto with --provider")
+	fs.StringVar(&o.Provider, "provider", "", "provider (databricks selects the pool)")
+	fs.StringVar(&o.overlay, "overlay", "", "overlay document: file, inline JSON or -")
+	fs.StringVar(&o.Fallback, "fallback", "", "fallback mode ("+strings.Join(route.FallbackModes, "|")+")")
+	fs.BoolVar(&o.all, "all-profiles", false, "resolve on every profile")
+	fs.BoolVar(&o.live, "live", false, "with --all-profiles: check credential, listing, READY (network)")
+	fs.Var(helptext.NewFormatValue(&o.format), "format", "text or json")
+	fs.StringVar(&o.task, "task", "", "the brief the run gets (- reads stdin): auto and an untyped model size it")
+	fs.BoolVar(&o.tools, "tools", false, "the run calls tools: auto skips a model whose probe refused them")
+	return fs, o
+}
+
 // cmdGatewayResolve is `gateway resolve <agent> ...`: read-only, prints the overlay a typed model string becomes.
 func cmdGatewayResolve(args []string) int {
-	fs := helptext.NewFlagSet("gateway resolve", gatewayResolvePage)
-	model := fs.String("model", "", "typed model string, as --model takes it")
-	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks --profile <p>")
-	provider := fs.String("provider", "", "provider (databricks selects the pool)")
-	overlay := fs.String("overlay", "", `overlay document (keys provider, profile, model, effort): file, inline JSON or -; e.g. {"provider":"databricks","profile":"auto"}`)
-	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(route.FallbackModes, "|")+"); none refuses a model the listing lacks")
-	all := fs.Bool("all-profiles", false, "resolve on every profile")
-	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
-	format := helptext.FormatFlagWithUsage(fs, "text or json")
-	taskFile := fs.String("task", "", "the brief the run gets (- reads stdin): auto and an untyped model size it")
-	tools := fs.Bool("tools", false, "the run calls tools: auto skips a model whose probe refused them")
+	fs, o := gatewayResolveFlags()
 	words, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if !resolveArgsOK(words, *format, *live, *all, route.Route{Provider: *provider, Profile: *profile}) {
+	if !resolveArgsOK(words, o.format, o.live, o.all) {
 		fs.Usage()
 		return 2
 	}
-	if err = cmp.Or(refuseModelPrefix(*model), checkFallback(*fallback)); err != nil {
+	if err = cmp.Or(refuseModelPrefix(o.Model), checkFallback(o.Fallback)); err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
 	ctx := context.Background()
-	task, err := agent.ReadBrief(*taskFile)
+	task, err := agent.ReadBrief(o.task)
 	if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
 	if words[0] == poolAll {
-		return cmdPoolTable(ctx, poolUsable(*all, *live, *model, *profile, *overlay), task, *tools, *fallback, *format)
+		return cmdPoolTable(ctx, poolUsable(o.all, o.live, o.Model, o.Profile, o.Provider, o.overlay), task, o.tools, o.Fallback, o.format)
 	}
-	q, err := resolve.QueryForRoute(ctx, words[0], *model, route.Route{Provider: *provider, Profile: *profile}, *overlay)
+	q, err := o.query(ctx, fs, words[0])
 	if err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
-	q.Task, q.Tools, q.Fallback = task, *tools, cmp.Or(*fallback, q.Fallback)
+	q.Task = task
 	reg, err := providers.Load()
 	if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
-	if *all {
-		return printRows(resolve.All(ctx, reg, q, *live), *format)
+	if o.all {
+		return printRows(resolve.All(ctx, reg, q, o.live), o.format)
 	}
-	return resolveOne(ctx, reg, q, task, *format)
+	return resolveOne(ctx, reg, q, task, o.format)
 }
 
 // resolveArgsOK is the verb's shape: one agent word, a known format, --live only with --all-profiles.
-func resolveArgsOK(words []string, format string, live, all bool, rt route.Route) bool {
-	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all) &&
-		(rt.Provider == "" || rt.Profile == "" || rt.Profile == agent.AutoModel)
+func resolveArgsOK(words []string, format string, live, all bool) bool {
+	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all)
+}
+
+func (o *resolveOptions) query(ctx context.Context, fs *flag.FlagSet, name string) (agent.ModelQuery, error) {
+	ov, _, err := gatewayOverlay(ctx, fs, &o.RouteReq, o.overlay)
+	if err != nil {
+		return agent.ModelQuery{}, err
+	}
+	if ov.Agent != "" && ov.Agent != name {
+		return agent.ModelQuery{}, fmt.Errorf("agent %s conflicts with overlay agent %s", name, ov.Agent)
+	}
+	q := agent.ModelQuery{Agent: name, Model: ov.Model, Route: ov.Route(), Profile: ov.Profile, Provider: ov.Provider,
+		Account: ov.Account, Identity: ov.Identity, Effort: ov.Effort, Fallback: ov.Fallback}
+	q.Tools = ov.Tools != nil && *ov.Tools && (ov.NoTools == nil || !*ov.NoTools)
+	return agent.QueryFor(ctx, q), nil
 }
 
 // resolveOne prints the first hop's route; an unrunnable model is a usage error.
@@ -166,14 +192,14 @@ func printRows(rows []resolve.ProfileRow, format string) int {
 // poolAll is the agent word for `gateway resolve all`: every rotation row x agent x tier, read-only.
 const poolAll = "all"
 
-func poolUsable(all, live bool, model, profile, overlay string) bool {
-	return all && !live && model == agent.AutoModel && profile == "" && overlay == ""
+func poolUsable(all, live bool, model, profile, provider, overlay string) bool {
+	return all && !live && model == agent.AutoModel && profile == "" && provider == "" && overlay == ""
 }
 
 // cmdPoolTable prints the pool table; it only peeks, so no rotation history moves.
 func cmdPoolTable(ctx context.Context, usable bool, task string, tools bool, fallback, format string) int {
 	if !usable {
-		return helptext.FailUsage("gateway resolve: all takes --model auto --all-profiles; no --live, --profile, --overlay")
+		return helptext.FailUsage("gateway resolve: all takes --model auto --all-profiles; no --live, --profile, --provider, --overlay")
 	}
 	reg, err := providers.Load()
 	if err != nil {

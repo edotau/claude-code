@@ -79,6 +79,16 @@ func syncModelsFile(t *testing.T, content string, check bool) (string, mergeResu
 	return string(got), res, removed
 }
 
+func TestSyncModelsRetainsFooterComments(t *testing.T) {
+	for _, suffix := range []string{" // footer\n", "\n/* footer */", "\n// one\n// two\n"} {
+		input := "[" + fmt.Sprintf(harnessGroup, "dev", "dev") + "," + foreignGroup + "]" + suffix
+		got, result, removed := syncModelsFile(t, input, false)
+		if !result.Changed || len(removed) != 1 || !strings.Contains(got, "]"+suffix) || !strings.Contains(got, foreignGroup) {
+			t.Errorf("footer %q: result %+v, removed %v, output %s", suffix, result, removed, got)
+		}
+	}
+}
+
 // The merge removes only the groups it wrote, keeps every other entry's bytes, and --check reports without writing.
 func TestSyncModelsRemovesOnlyHarnessGroups(t *testing.T) {
 	in := "[\n  " + fmt.Sprintf(harnessGroup, "dev", "dev") + ",\n  " + foreignGroup + ",\n  " + lookalike + ",\n  " +

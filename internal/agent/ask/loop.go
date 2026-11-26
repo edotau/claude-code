@@ -510,7 +510,7 @@ func (r *askRun) loopMode() (int, bool) {
 		return code, true
 	}
 	base.Tools, base.NoTools = true, false // editing parts need per-part deny rules the pool lacks
-	cfg.plan, cfg.run = r.loopPlanFn(), loopRunner(o, base, helptext.Explicit(r.fs, "timeout"))
+	cfg.plan, cfg.run = r.loopPlanFn(), loopRunner(o, base)
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return runLoop(ctx, cfg, st), true
@@ -586,7 +586,7 @@ func (r *askRun) loopPlanFn() func(context.Context, string, string) (loopPlan, w
 			args = append(args, "--fallback", f.fallback)
 		}
 		// Nested ask: without this it waits out the tools default, not this run's deadline.
-		if d := askTimeout(r.fs, f.timeout, "", "", true); d > 0 {
+		if d := askTimeout(r.fs, r.ov, f.timeout, "", "", true); d > 0 {
 			args = append(args, "--timeout", d.String())
 		}
 		var buf bytes.Buffer
@@ -617,7 +617,7 @@ func parseLoopPlan(b []byte, rc int) (loopPlan, wire.Usage, error) {
 }
 
 // loopRunner runs a round's parts on the batch pool; a retry moves them to claude with the base route cleared.
-func loopRunner(o batchOpts, base agent.RunOptions, timeoutSet bool) func(context.Context, int, []loopPart, bool, func(wire.Envelope)) {
+func loopRunner(o batchOpts, base agent.RunOptions) func(context.Context, int, []loopPart, bool, func(wire.Envelope)) {
 	return func(ctx context.Context, round int, parts []loopPart, retry bool, emit func(wire.Envelope)) {
 		oo, bb := o, base
 		if retry {
@@ -625,7 +625,7 @@ func loopRunner(o batchOpts, base agent.RunOptions, timeoutSet bool) func(contex
 			bb.Model, bb.ModelTyped, bb.Lead = "", false, ""
 		}
 		sink := &loopSink{emit: emit}
-		runBatch(ctx, loopLines(round, parts, retry), oo, bb, timeoutSet, newClient, sink)
+		runBatch(ctx, loopLines(round, parts, retry), oo, bb, newClient, sink)
 		if sink.err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code: ask: loop: unreadable envelope: %v\n", sink.err)
 		}

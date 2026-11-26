@@ -61,9 +61,9 @@ func liveScope(ctx context.Context, team, id string) (Scope, bool) {
 }
 
 // SelfExeHash is the hash a scoped proxy records in its Scope; "" when the binary cannot be read.
-func SelfExeHash() string { return selfHash() }
+func SelfExeHash() string { return ExeHash() }
 
-// ScopeStale is true when sc runs another binary than this one (an older record without a hash always does).
+// ScopeStale is true when sc runs another binary than the installed one (an older record without a hash always does).
 func ScopeStale(sc Scope) bool {
 	self := selfHash()
 	return self != "" && sc.Exe != self
@@ -226,6 +226,7 @@ func spawnScopeProcess(team, id string) (func(), error) {
 	if proc.IsSelfUnderTest(exe) {
 		return nil, ErrTestBinary
 	}
+	exe = sharedProxyExe(exe)
 	if err := os.MkdirAll(paths.StateDir(), 0o700); err != nil {
 		return nil, err
 	}

@@ -2,7 +2,7 @@
 name: opencode
 description: |
   Code and documentation work, library lookups and diff review as opencode: a scoped terminal leaf whose work runs as
-  one typed `claude-code agents ask --agent opencode` on the Databricks route.
+  one typed `claude-code agents ask` with overlay `{"agent":"opencode"}` on the Databricks route.
 color: yellow
 tools: [Read, Write, Edit, Grep, Glob, Bash]
 model: haiku
@@ -15,36 +15,37 @@ maxTurns: 40
 ## Role
 
 Runs one scoped task as the typed opencode ask below and hands back its verdict; this file defines a terminal leaf,
-the main session owns orchestration. You compose no command: the line you run is printed here, `--agent` matching
+the main session owns orchestration. You compose no command: the line you run is printed here, overlay `agent` matching
 this file's name. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
 
 ## Invocation
 
 **In a session** — `Agent` with `subagent_type: opencode`, or a dispatch brief. **Headless** — the same ask from the
-main session (`claude-code agents ask --carry --agent opencode …`, `skills/subagent-workflows/SKILL.md` → Carried
-dispatch).
+main session (`claude-code agents ask --carry` with overlay `{"agent":"opencode",…}`,
+`skills/subagent-workflows/SKILL.md` → Carried dispatch).
 
 The one ask (PATH is the file `claude-code agents brief --path opencode` prints; add `--workdir <dir>` only when the
 brief has a `Workdir:` line):
 
 ```bash
-claude-code agents ask --background --agent opencode --provider databricks --profile dev --tools --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"opencode","provider":"databricks","profile":"dev","timeout":"60m","tools":true}' - < PATH
 ```
 
-No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
-its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(its own CLI is the fallback hop). The OpenCode CLI and its catalog stay
+No overlay `profile` and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:`
+line, else its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what
+ran (its own CLI is the fallback hop). The OpenCode CLI and its catalog stay
 reachable from the main session: `claude-code opencode …`, or overlay `{"runner":"own"}`. Role rotation covers
 opencode's models too.
 
-**Code mode** (only when the brief says so) — the same ask with `--codemode on`:
+**Code mode** (only when the brief says so) — the same ask with `"codemode":"on"` in the overlay:
 
 ```bash
-claude-code agents ask --background --agent opencode --codemode on --provider databricks --profile qa --tools --timeout 60m - < PATH
+claude-code agents ask --background --overlay '{"agent":"opencode","provider":"databricks","profile":"qa","codemode":"on","timeout":"60m","tools":true}' - < PATH
 ```
 
-It sets `CODEMODE=on` and opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`, so rtk is off inside the run. `--codemode only`
-is not offered for opencode (it runs off with a note). Its effect on opencode's tool list is unverified.
+It sets `CODEMODE=on` and opencode's `OPENCODE_EXPERIMENTAL_CODE_MODE`, so rtk is off inside the run.
+Overlay `"codemode":"only"` is not offered for opencode (it runs off with a note).
+Its effect on opencode's tool list is unverified.
 
 ## Owns
 

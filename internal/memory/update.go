@@ -503,7 +503,7 @@ func update(o updateOptions) error {
 		defer warnChanged(o.Out, snap)
 	}
 	run.before = newestMtime()
-	run.typedPass(o) // the model runs outside the store lock; only ApplyBatch and the settle take it
+	run.typedPass(o) // the model runs outside the store lock; only the store's Apply and the settle take it
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
 	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
@@ -661,15 +661,8 @@ const (
 	maxListedRunes   = 120
 )
 
-// typedStoreReady is always true: typed mode needs no layout stamp; a var so tests can stand in.
-var typedStoreReady = func() bool { return true }
-
 // typedPass runs the model outside the store lock and applies its op batch; no usable answer leaves typed "fallback".
 func (r *updateRun) typedPass(o updateOptions) {
-	if !typedStoreReady() { // an older store keeps the untyped run until `memory upgrade` migrates it
-		fmt.Fprintln(o.Out, "memory update: store is not on the current schema; run `claude-code memory upgrade` to enable typed updates")
-		return
-	}
 	if o.Handoff.block != "" { // a handoff needs a file the tools-off run cannot write
 		r.typed = "fallback"
 		return

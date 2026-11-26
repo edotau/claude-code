@@ -3,6 +3,7 @@ package server
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -238,5 +240,72 @@ func TestQuotaModelCoolingPersists(t *testing.T) {
 	}
 	if fresh.modelCooling(other) {
 		t.Error("a per-model hold must not cool another model on the same workspace")
+	}
+}
+
+func tpmScopeRig(t *testing.T, scoped bool) (*httptest.Server, *Router, *rawUp) {
+	t.Helper()
+	first := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"input tokens per minute"}`)
+	})
+	second := newRawUp(t, okMsg)
+	t.Setenv("TPM_SCOPE_KEY", "workspace-credential")
+	row := func(up *rawUp) string {
+		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + up.URL +
+			`/serving-endpoints/anthropic","routes":{"openai":"` + up.URL + `/serving-endpoints","gemini":"` +
+			up.URL + `/serving-endpoints/gemini"},` +
+			`"auth":{"type":"key","env":"TPM_SCOPE_KEY"},"models":{"opus":"databricks-test-model"}}`
+	}
+	var routed *Router
+	srv := setupRouter(t, `{"default":"first","providers":{"databricks":{"first":`+row(first)+
+		`,"second":`+row(second)+`}}}`, func(r *Router) {
+		routed = r
+		if scoped {
+			r.scoped = true
+			r.sessions = newMemorySessionStore(secret, r.now)
+		}
+		r.sessions.procStart = func(int) (string, error) { return "scope-test", nil }
+	})
+	return srv, routed, second
+}
+
+func TestTPMHopsHonorTokenScope(t *testing.T) {
+	for _, path := range []string{"v1/messages", "openai/chat/completions", "gemini/v1beta/models/databricks-test-model:generateContent"} {
+		for _, tc := range []struct {
+			name, failover string
+			fence          []string
+			want           int
+		}{
+			{"pinned", "", nil, 429},
+			{"fenced", "databricks", []string{"first"}, 429},
+			{"auto failover", "databricks", nil, 200},
+			{"router secret", "", nil, 200},
+			{"team pinned", "", nil, 429},
+			{"team fenced", "databricks", []string{"first"}, 429},
+			{"team auto failover", "databricks", nil, 200},
+		} {
+			t.Run(path+"/"+tc.name, func(t *testing.T) {
+				srv, routed, second := tpmScopeRig(t, strings.HasPrefix(tc.name, "team"))
+				tok := secret
+				if tc.name != "router secret" {
+					var err error
+					tok, err = routed.sessions.mintFenced([]string{"first"}, 4242, tc.failover, tc.fence, false)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				for range 2 {
+					resp := ptDo(t, http.MethodPost, srv.URL+"/p/first/"+path,
+						`{"model":"databricks-test-model","contents":[]}`, map[string]string{proxy.ClientHeader: tok})
+					if resp.StatusCode != tc.want {
+						t.Fatalf("status=%d, want %d: %s", resp.StatusCode, tc.want, body(t, resp))
+					}
+				}
+				if hits := len(second.got()); (hits == 2) != (tc.want == 200) || tc.want == 429 && hits != 0 {
+					t.Fatalf("fallback hits=%d, want two for an allowed hop and zero otherwise", hits)
+				}
+			})
+		}
 	}
 }

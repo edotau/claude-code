@@ -1,9 +1,7 @@
 package memory
 
 import (
-	"encoding/json"
 	"errors"
-	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,12 +37,6 @@ func readStore(t *testing.T, rel string) string {
 		t.Fatalf("read %s: %v", rel, err)
 	}
 	return string(data)
-}
-
-func journals(t *testing.T) []string {
-	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(JournalDir(), "*.json"))
-	return files
 }
 
 // commitLocked runs one batch under the writable bank lock, the shape every caller uses.
@@ -90,9 +82,6 @@ func TestCommitChangesLockedFreshImportCommits(t *testing.T) {
 	if len(st) != 0 {
 		t.Fatalf("store dirty after commit: %+v", st)
 	}
-	if got := journals(t); len(got) != 0 {
-		t.Fatalf("journal left behind: %v", got)
-	}
 	if _, err := os.Stat(filepath.Join(store, ".git", "hooks", "pre-push")); err != nil {
 		t.Fatal(err)
 	}
@@ -122,14 +111,11 @@ func TestCommitChangesLockedDeleteRules(t *testing.T) {
 }
 
 // Regression: validateRel refuses an escaping rel and a symlinked ancestor directory, not just a symlinked leaf.
-func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *testing.T) {
+func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestor(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, _ := storeFixture(t)
 	if _, err := commitLocked(t, "x", []storeChange{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
 		t.Fatal("escaping rel accepted")
-	}
-	if len(journals(t)) != 0 {
-		t.Fatal("rejected batch wrote a journal")
 	}
 	if StoreRepo().Exists() {
 		t.Fatal("rejected batch initialized the repo")
@@ -146,9 +132,6 @@ func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *test
 	}
 	if _, err := os.Stat(filepath.Join(outside, "sub", "MEMORY.md")); !os.IsNotExist(err) {
 		t.Fatal("bytes escaped through the symlinked ancestor")
-	}
-	if len(journals(t)) != 0 {
-		t.Fatal("refused batch wrote a journal")
 	}
 }
 
@@ -180,265 +163,6 @@ func batchLocked(subject string, changes []storeChange) (rec commitReceipt, err 
 		return err
 	})
 	return rec, err
-}
-
-// assertJournalSurvives checks exactly one applied journal for r/x.md remains and its bytes are on disk.
-func assertJournalSurvives(t *testing.T) {
-	t.Helper()
-	js := journals(t)
-	if len(js) != 1 {
-		t.Fatalf("journal must survive a commit failure: %v", js)
-	}
-	var j journal
-	data, err := os.ReadFile(js[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(data, &j); err != nil {
-		t.Fatal(err)
-	}
-	if len(j.Changes) != 1 || string(j.Changes[0].Data) != "x\n" {
-		t.Fatalf("journal = %+v", j)
-	}
-	if readStore(t, "r/x.md") != "x\n" {
-		t.Fatal("bytes not applied before the failed commit")
-	}
-}
-
-func TestCommitChangesLockedRecoversAfterCommitFailure(t *testing.T) {
-	store, decoy := storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	// Hooks are disabled; a held ref lock makes git commit itself fail.
-	refLock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
-	write(t, refLock, "")
-	_, err := batchLocked("batch", []storeChange{{Rel: "r/x.md", Data: []byte("x\n")}})
-	if err == nil || errors.Is(err, errDivergent) {
-		t.Fatalf("commit must fail under the held ref lock: %v", err)
-	}
-	assertJournalSurvives(t)
-	if err := os.Remove(refLock); err != nil {
-		t.Fatal(err)
-	}
-	// The next batch recovers the old journal as its own commit.
-	rec, err := batchLocked("next", []storeChange{{Rel: "r/y.md", Data: []byte("y\n")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertRecovered(t, rec)
-	assertDecoyUntouched(t, decoy)
-}
-
-// assertRecovered checks the old journal is retired, both batches are committed, and the store is clean.
-func assertRecovered(t *testing.T, rec commitReceipt) {
-	t.Helper()
-	if len(journals(t)) != 0 {
-		t.Fatal("journal not retired after recovery")
-	}
-	log, err := StoreRepo().run("log", "--format=%s")
-	if err != nil || strings.TrimSpace(log) != "next\nbatch" {
-		t.Fatalf("log = %q, %v", log, err)
-	}
-	if len(rec.Preexisting) != 0 {
-		t.Fatalf("recovered batch's files leaked into the next batch as preexisting: %v", rec.Preexisting)
-	}
-	st, err := StoreRepo().Status()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(st) != 0 {
-		t.Fatalf("dirty after recovery: %+v", st)
-	}
-}
-
-// Regression: apply re-reads live bytes before mutating, so an edit landing after plan is reported divergent.
-func TestApplyRechecksLiveBytesBeforeWrite(t *testing.T) {
-	store, _ := storeFixture(t)
-	if err := WithBankLock(BankLockWait, func() error {
-		_, err := commitChangesLocked("seed", []storeChange{{Rel: "r/a.md", Data: []byte("v1\n")}})
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	c := journalChange{Rel: "r/a.md", HasPreimage: true, PreimageSHA256: textutil.SHA256Hex([]byte("v1\n")), Data: []byte("v2\n")}
-	repo := StoreRepo()
-	live := filepath.Join(store, "r", "a.md")
-	write(t, live, "edited after plan\n")
-	assertApply(t, c, repo, outApply, "", "r/a.md", "planned apply over edited bytes")
-	if readStore(t, "r/a.md") != "edited after plan\n" {
-		t.Fatal("cached apply decision overwrote a native edit")
-	}
-	write(t, live, "v1\n")
-	assertApply(t, c, repo, outSkip, "", "r/a.md", "late preimage match must diverge (never captured)")
-	if readStore(t, "r/a.md") != "v1\n" {
-		t.Fatal("uncaptured bytes were overwritten")
-	}
-	assertApply(t, c, repo, outApply, "r/a.md", "", "matching preimage")
-	if readStore(t, "r/a.md") != "v2\n" {
-		t.Fatal("matching preimage not applied")
-	}
-}
-
-// assertApply applies c with the planned outcome into a fresh receipt and checks its Applied and Divergent rels.
-func assertApply(t *testing.T, c journalChange, repo storeRepo, planned outcome, wantApplied, wantDivergent, label string) {
-	t.Helper()
-	var rec commitReceipt
-	err := c.apply(repo, planned, &rec)
-	if err != nil || strings.Join(rec.Applied, ",") != wantApplied || strings.Join(rec.Divergent, ",") != wantDivergent {
-		t.Fatalf("%s: %+v, %v", label, rec, err)
-	}
-}
-
-// recoverJournals finishes every unfinished journal and returns the scan error and per-journal failures joined.
-func recoverJournals() error {
-	skipped, err := recoverEach()
-	return errors.Join(err, skipped)
-}
-
-// Regression: replayed journals are validated before anything is read or written.
-func TestRecoverJournalsRefusesEscapingPaths(t *testing.T) {
-	store, decoy := storeFixture(t)
-	outside := filepath.Join(filepath.Dir(store), "escape.md")
-	bad := journal{ID: "20000101-000000.000-00000000", Subject: "replay",
-		Changes: []journalChange{{Rel: "../escape.md", Data: []byte("x\n")}}}
-	if err := bad.save(); err != nil {
-		t.Fatal(err)
-	}
-	err := WithBankLock(BankLockWait, recoverJournals)
-	if err == nil || !strings.Contains(err.Error(), "invalid path") {
-		t.Fatalf("escaping replay accepted: %v", err)
-	}
-	if _, err := os.Stat(outside); !os.IsNotExist(err) {
-		t.Fatal("bytes escaped the store")
-	}
-	if StoreRepo().Exists() {
-		t.Fatal("refused replay initialized the repo")
-	}
-	os.Remove(bad.path())
-	assertForgedJournalRefused(t)
-	assertDecoyUntouched(t, decoy)
-}
-
-func assertForgedJournalRefused(t *testing.T) {
-	t.Helper()
-	forged := filepath.Join(JournalDir(), "20000101-000000.000-11111111.json")
-	if err := os.MkdirAll(JournalDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	write(t, forged, `{"id":"../../forged","subject":"replay","state":"pending","changes":[]}`)
-	err := WithBankLock(BankLockWait, recoverJournals)
-	if err == nil || !strings.Contains(err.Error(), "does not match its file name") {
-		t.Fatalf("forged id accepted: %v", err)
-	}
-	if _, err := os.Stat(forged); err != nil {
-		t.Fatal("forged journal was moved or removed instead of refused")
-	}
-}
-
-// writeJournal seeds a pending one-file journal (extra fields merged in) under the state journal dir.
-func writeJournal(t *testing.T, id string, extra map[string]any) {
-	t.Helper()
-	doc := map[string]any{
-		"id": id, "subject": "seeded", "state": "pending",
-		"changes": []map[string]any{{"rel": "r/seeded.md", "delete": false, "hasPreimage": false, "data": []byte("seeded\n")}},
-	}
-	maps.Copy(doc, extra)
-	data, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	write(t, filepath.Join(JournalDir(), id+".json"), string(data))
-}
-
-func nextBatch(t *testing.T) error {
-	t.Helper()
-	_, err := commitLocked(t, "next", []storeChange{{Rel: "r/next.md", Data: []byte("n\n")}})
-	return err
-}
-
-// A schema-2 (newer) journal is never replayed: its target stays untouched and the file stays in place.
-func TestRecoverSkipsNewerSchemaJournal(t *testing.T) {
-	store, decoy := storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	id := "20260101-000000.000-aaaa"
-	writeJournal(t, id, map[string]any{"schema": 2})
-
-	_ = nextBatch(t) // reporting the newer journal as an error is allowed; replaying it is not
-	if _, err := os.Stat(filepath.Join(store, "r", "seeded.md")); !os.IsNotExist(err) {
-		t.Fatalf("newer journal was replayed (stat err = %v)", err)
-	}
-	if _, err := os.Stat(filepath.Join(JournalDir(), id+".json")); err != nil {
-		t.Fatalf("newer journal not left in place: %v", err)
-	}
-	assertDecoyUntouched(t, decoy)
-}
-
-// A v0 journal (no schema field) still recovers on the next batch.
-func TestRecoverReplaysV0Journal(t *testing.T) {
-	storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	writeJournal(t, "20260101-000000.000-bbbb", nil)
-
-	if err := nextBatch(t); err != nil {
-		t.Fatal(err)
-	}
-	if got := readStore(t, "r/seeded.md"); got != "seeded\n" {
-		t.Fatalf("v0 journal not recovered: %q", got)
-	}
-	if len(journals(t)) != 0 {
-		t.Fatalf("journal not retired: %v", journals(t))
-	}
-}
-
-// Regression: a journal that can never finish must not wedge later batches or the journals behind it.
-func TestCommitChangesLockedNotWedgedByPermanentlyFailingJournal(t *testing.T) {
-	storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	stuck := "20260101-000000.000-aaaa"
-	writeJournal(t, stuck, map[string]any{"schema": 2})
-	writeJournal(t, "20260101-000001.000-bbbb", nil)
-
-	if err := nextBatch(t); err != nil {
-		t.Fatalf("stuck journal wedged the next batch: %v", err)
-	}
-	if got := readStore(t, "r/next.md"); got != "n\n" {
-		t.Fatalf("new batch not committed: %q", got)
-	}
-	if got := readStore(t, "r/seeded.md"); got != "seeded\n" {
-		t.Fatalf("journal behind the stuck one not recovered: %q", got)
-	}
-	if _, err := os.Stat(filepath.Join(JournalDir(), stuck+".json")); err != nil {
-		t.Fatalf("stuck journal should stay on disk: %v", err)
-	}
-}
-
-// A skipped older journal that replays after a newer commit to the same file diverges instead of clobbering.
-func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
-	storeFixture(t)
-	if err := StoreRepo().Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := commitLocked(t, "newer", []storeChange{{Rel: "r/seeded.md", Data: []byte("newer\n")}}); err != nil {
-		t.Fatal(err)
-	}
-	writeJournal(t, "20260101-000000.000-aaaa", map[string]any{"changes": []map[string]any{{
-		"rel": "r/seeded.md", "hasPreimage": true, "preimageSha256": textutil.SHA256Hex([]byte("old\n")), "data": []byte("stale\n"),
-	}}})
-
-	_, err := commitLocked(t, "after", []storeChange{{Rel: "r/other.md", Data: []byte("o\n")}})
-	if err != nil {
-		t.Fatalf("diverging journal must not wedge: %v", err)
-	}
-	if got := readStore(t, "r/seeded.md"); got != "newer\n" {
-		t.Fatalf("stale journal clobbered the newer commit: %q", got)
-	}
 }
 
 // A credential-shaped file outside the batch's dirs is named once on stderr and never swept; inside, it refuses.
@@ -950,5 +674,189 @@ func TestStoreGitIgnoresTheUsersGlobalExcludes(t *testing.T) {
 	}
 	if _, committed, err := r.Commit([]string{"receipts/x.json", "reports/a.md"}, "receipts", ""); err != nil || !committed {
 		t.Fatalf("a global ignore broke Commit: %v, %v", committed, err)
+	}
+}
+
+// seedRecoveryFact commits r/fact.md and returns the store dir.
+func seedRecoveryFact(t *testing.T) string {
+	t.Helper()
+	store, _ := storeFixture(t)
+	if _, err := batchLocked("seed", []storeChange{{Rel: "r/fact.md", Data: []byte("preserve me\n")}}); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestCommitFailureLeavesFilesForNextSettle(t *testing.T) {
+	store := seedRecoveryFact(t)
+	lock := filepath.Join(store, ".git", "refs", "heads", "main.lock")
+	write(t, lock, "")
+	_, err := batchLocked("delete", []storeChange{{Rel: "r/fact.md", Delete: true}})
+	if err == nil || errors.Is(err, errDivergent) {
+		t.Fatalf("held ref lock must fail the deletion commit: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(store, "r", "fact.md")); !os.IsNotExist(err) {
+		t.Fatalf("the applied deletion must stay on disk: %v", err)
+	}
+	if staged, err := StoreRepo().run("diff", "--cached", "--name-only"); err != nil || staged != "" {
+		t.Fatalf("failed deletion left the index staged: %q, %v", staged, err)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := batchLocked("next", []storeChange{{Rel: "r/next.md", Data: []byte("next\n")}}); err != nil {
+		t.Fatalf("next batch could not commit the deletion: %v", err)
+	}
+	if out, err := StoreRepo().run("ls-tree", "--name-only", "HEAD", "--", "r/fact.md"); err != nil || out != "" {
+		t.Fatalf("deletion still present at HEAD: %q, %v", out, err)
+	}
+	if status, err := StoreRepo().Status(); err != nil || len(status) != 0 {
+		t.Fatalf("store is dirty: %+v, %v", status, err)
+	}
+}
+
+func TestCommitChangesRollsBackOnWriteError(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	store := seedRecoveryFact(t)
+	blocker := filepath.Join(store, "r", "blocked")
+	if err := os.MkdirAll(blocker, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(blocker, "keep.md")
+	write(t, keep, "keep\n")
+	if err := os.Chmod(blocker, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocker, 0o700) })
+	rec, err := batchLocked("two", []storeChange{
+		{Rel: "r/fact.md", Data: []byte("changed\n")},
+		{Rel: "r/blocked/new.md", Data: []byte("x\n")},
+	})
+	if err == nil {
+		t.Fatal("writing into a read-only directory must fail")
+	}
+	if got := readStore(t, "r/fact.md"); got != "preserve me\n" {
+		t.Fatalf("the earlier file was not rolled back: %q", got)
+	}
+	if rec.Applied != nil || mustRead(t, keep) != "keep\n" {
+		t.Fatalf("rollback receipt or blocker changed: %+v", rec)
+	}
+}
+
+// decide classifies a change against the live bytes: stale preimages diverge, equal bytes skip.
+func TestChangeDecide(t *testing.T) {
+	store, _ := storeFixture(t)
+	live := filepath.Join(store, "r", "a.md")
+	write(t, live, "v1\n")
+	pre := textutil.SHA256Hex([]byte("v1\n"))
+	c := storeChange{Rel: "r/a.md", Data: []byte("v2\n"), Planned: true, PreSHA256: pre}
+	for _, tc := range []struct {
+		live string
+		c    storeChange
+		want changeState
+	}{
+		{"v1\n", c, stApply},
+		{"edited\n", c, stDiverge},
+		{"v2\n", c, stSkip},
+		{"edited\n", storeChange{Rel: "r/a.md", Data: []byte("v2\n")}, stApply},
+	} {
+		write(t, live, tc.live)
+		if got, err := tc.c.decide(store); err != nil || got != tc.want {
+			t.Fatalf("live %q: got %v, %v; want %v", tc.live, got, err, tc.want)
+		}
+	}
+	if got, _ := (storeChange{Rel: "r/gone.md", Delete: true}).decide(store); got != stSkip {
+		t.Fatalf("delete of an absent file = %v, want skip", got)
+	}
+}
+
+func TestChangeWriteKeepsLateEdits(t *testing.T) {
+	store, _ := storeFixture(t)
+	live := filepath.Join(store, "r", "a.md")
+	write(t, live, "first\n")
+	snap, err := snapshotFile(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := storeChange{Rel: "r/a.md", Data: []byte("output\n")}
+	write(t, live, "late\n")
+	var rec commitReceipt
+	if err := c.write(StoreRepo(), live, stApply, snap, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStore(t, "r/a.md"); got != "late\n" || !slices.Equal(rec.Divergent, []string{"r/a.md"}) {
+		t.Fatalf("late edit overwritten: %q, %+v", got, rec)
+	}
+	write(t, live, "first\n")
+	rec = commitReceipt{}
+	if err := c.write(StoreRepo(), live, stSkip, snap, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStore(t, "r/a.md"); got != "first\n" || !slices.Equal(rec.Divergent, []string{"r/a.md"}) {
+		t.Fatalf("uncaptured edit overwritten: %q, %+v", got, rec)
+	}
+}
+
+func TestCommitKeepsPendingJournalFile(t *testing.T) {
+	storeFixture(t)
+	pending := filepath.Join(JournalDir(), "pending.json")
+	write(t, pending, "pending bytes\n")
+	rec, err := commitLocked(t, "batch", []storeChange{{Rel: "r/a.md", Data: []byte("a\n")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustRead(t, pending); got != "pending bytes\n" {
+		t.Fatalf("pending journal changed: %q", got)
+	}
+	if slices.Contains(rec.Preexisting, "pending.json") || slices.Contains(rec.Applied, "pending.json") {
+		t.Fatalf("pending journal included in the batch: %+v", rec)
+	}
+}
+
+func TestRollbackKeepsNativeEdit(t *testing.T) {
+	store, _ := storeFixture(t)
+	live := filepath.Join(store, "r", "a.md")
+	write(t, live, "before\n")
+	snap, err := snapshotFile(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := appliedWrite{change: storeChange{Rel: "r/a.md", Data: []byte("batch\n")}, snap: snap}
+	write(t, live, "native edit\n")
+	if err := w.restoreIfOurs(); err == nil || readStore(t, "r/a.md") != "native edit\n" {
+		t.Fatalf("native edit overwritten or error lost: %v", err)
+	}
+	write(t, live, "batch\n")
+	if err := w.restoreIfOurs(); err != nil || readStore(t, "r/a.md") != "before\n" {
+		t.Fatalf("batch bytes not rolled back: %v", err)
+	}
+}
+
+func TestCaptureNativeKeepsEditMissedByStatus(t *testing.T) {
+	store := seedRecoveryFact(t)
+	write(t, filepath.Join(store, "r/fact.md"), "late native edit\n")
+	var rec commitReceipt
+	changes := []storeChange{{Rel: "r/fact.md", Data: []byte("batch\n")}}
+	if _, _, err := captureNative(StoreRepo(), "batch", changes, nil, &rec); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := StoreRepo().run("show", "HEAD:r/fact.md"); err != nil || got != "late native edit" {
+		t.Fatalf("native revision not captured: %q, %v", got, err)
+	}
+}
+
+func TestCommitRejectsDuplicatePaths(t *testing.T) {
+	store := seedRecoveryFact(t)
+	_, err := batchLocked("duplicates", []storeChange{
+		{Rel: "r/fact.md", Data: []byte("one\n")}, {Rel: "r/fact.md", Data: []byte("two\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate path") {
+		t.Fatalf("duplicate paths accepted: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(store, "r/fact.md")); got != "preserve me\n" {
+		t.Fatalf("refused batch changed the file: %q", got)
 	}
 }

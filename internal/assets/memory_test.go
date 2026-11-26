@@ -158,11 +158,6 @@ func oldHandoffRequest(path, identity string) string {
 		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."
 }
 
-func oldResiduePrompt(rows string) string {
-	return "The memory upgrade left these files unplaced (path: reason). The working directory is a git copy of the store.\n" +
-		rows + "Return only a typed Batch of ops that places them; write no files."
-}
-
 func oldRetryNote(failure string) string {
 	return "\n\nYour previous answer failed: " + failure + "\nReturn a corrected typed batch."
 }
@@ -174,9 +169,6 @@ func TestMemoryMovedProseMatchesOldBuilders(t *testing.T) {
 		}
 		if got, want := MemoryHandoffRequest(s, "<!-- session: "+s+" -->"), oldHandoffRequest(s, "<!-- session: "+s+" -->"); got != want {
 			t.Errorf("MemoryHandoffRequest(%q): got %q, want %q", s, got, want)
-		}
-		if got, want := MemoryResiduePrompt(s), oldResiduePrompt(s); got != want {
-			t.Errorf("MemoryResiduePrompt(%q): got %q, want %q", s, got, want)
 		}
 		if got, want := MemoryRetryNote(s), oldRetryNote(s); got != want {
 			t.Errorf("MemoryRetryNote(%q): got %q, want %q", s, got, want)

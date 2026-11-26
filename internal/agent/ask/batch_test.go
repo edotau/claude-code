@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"strings"
 	"testing"
@@ -58,9 +59,10 @@ func TestReadTaskLinesRejectsTrailingJunk(t *testing.T) {
 
 func TestBatchLineKeyHint(t *testing.T) {
 	for line, want := range map[string]string{
-		`{"task":"x"}`:   `did you mean "prompt"`,
-		`{"promt":"x"}`:  `did you mean "prompt"`,
-		`{"prompt":"x"}`: "",
+		`{"task":"x"}`:                  `did you mean "prompt"`,
+		`{"promt":"x"}`:                 `did you mean "prompt"`,
+		`{"noTools":true,"prompt":"x"}`: `put --no-tools on the --batch command`,
+		`{"prompt":"x"}`:                "",
 	} {
 		lines, err := readTaskLines(strings.NewReader(line + "\n"))
 		if err != nil || len(lines) != 1 {
@@ -105,7 +107,7 @@ func TestBatchLegReplay(t *testing.T) {
 	if len(replayed) != 3 {
 		t.Fatalf("replay ran siblings: records = %d", len(replayed))
 	}
-	assertReplayedLeg(t, failed, replayed[0].Request)
+	assertReplayedLeg(t, failed, replayed[0])
 }
 
 // failBatchLeg runs a two-leg batch and saves its newest leg as a failure.
@@ -133,10 +135,15 @@ func failBatchLeg(t *testing.T) agent.Record {
 	return failed
 }
 
-// assertReplayedLeg checks a replay kept the failed leg's task, session and route.
-func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) {
+// assertReplayedLeg checks a replay kept the failed leg's task and session and ran on the route the leg answered on.
+func assertReplayedLeg(t *testing.T, failed, replayed agent.Record) {
 	t.Helper()
-	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt || got.Provider != failed.Request.Provider || got.Lead != failed.Request.Lead {
+	got := replayed.Request
+	if failed.RanRoute.IsZero() || replayed.RanRoute != failed.RanRoute {
+		t.Fatalf("replay ran on %+v, want the recorded %+v", replayed.RanRoute, failed.RanRoute)
+	}
+	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt ||
+		got.Provider != cmp.Or(failed.Request.Provider, failed.RanRoute.Profile) || got.Lead != failed.Request.Lead {
 		t.Fatalf("replay lost task/session/route: %+v", got)
 	}
 }
@@ -223,5 +230,67 @@ func TestBatchLineOverlayKeepsRunner(t *testing.T) {
 	}
 	if strings.Contains(base.Values[route.OverlayVar], "runner") {
 		t.Errorf("the batch base values were mutated: %v", base.Values)
+	}
+}
+
+func TestBatchLineKeepsFallbackPolicy(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: ""})
+	base := agent.RunOptions{FallbackDefaulted: true, Values: proc.Values{route.OverlayVar: `{"maxChildren":2}`}}
+	for _, policy := range []string{"none", "agents"} {
+		line := decodeTaskLine([]byte(`{"prompt":"x","overlay":{"fallback":"`+policy+`"}}`), 1)
+		task, err := buildTask(ctx, line, batchOpts{Agent: "claude", Fallback: "all"}, base, t.TempDir(),
+			map[string]bool{}, func() *agent.Client { return &agent.Client{} })
+		if err != nil {
+			t.Fatal(err)
+		}
+		ov, err := agentconfig.LoadOverlayContext(proc.WithValues(ctx, task.Req.Values), "", nil)
+		if err != nil || task.Req.Fallback != policy || task.Req.FallbackDefaulted || ov.Fallback != policy || ov.MaxChildren == nil {
+			t.Fatalf("%s: request fallback %q defaulted %v, overlay %+v, err %v", policy,
+				task.Req.Fallback, task.Req.FallbackDefaulted, ov, err)
+		}
+	}
+	if base.Values[route.OverlayVar] != `{"maxChildren":2}` {
+		t.Fatalf("base changed: %v", base.Values)
+	}
+}
+
+func TestBatchOverlayRunKeys(t *testing.T) {
+	line := decodeTaskLine([]byte(`{"prompt":"x","overlay":{"agent":"codex","tools":false,"timeout":"30s","noPersist":true,"tier":"deep"}}`), 1)
+	task, err := parseTask(line, "claude", agent.RunOptions{Tools: true}, false, t.TempDir(), map[string]bool{})
+	if err != nil || task.Agent != "codex" || task.Req.Tools || !task.Req.NoPersist ||
+		task.Req.Timeout != 30*time.Second || !task.Req.TimeoutTyped || !strings.Contains(task.Req.Prompt, "Tier: deep") {
+		t.Fatalf("task %+v, err %v", task, err)
+	}
+}
+
+func TestBatchOverlayRouteSkipsPool(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: ""})
+	line := decodeTaskLine([]byte(`{"prompt":"x","overlay":{"provider":"databricks","profile":"qa"}}`), 1)
+	task, err := buildTask(ctx, line, batchOpts{Agent: "codex", Fallback: "none", Auto: "dev"}, agent.RunOptions{},
+		t.TempDir(), map[string]bool{}, func() *agent.Client { return &agent.Client{} })
+	if err != nil || task.arm != nil || task.Req.AutoArm || task.Req.Route.Profile != "qa" || task.Req.Provider != "qa" {
+		t.Fatalf("task %+v, err %v, want qa without an auto arm", task, err)
+	}
+}
+
+func TestBatchFallbackControlsModelPin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: ""})
+	line := decodeTaskLine([]byte(`{"prompt":"x","model":"claude-sonnet-5-5","overlay":{"fallback":"none"}}`), 1)
+	task, err := buildTask(ctx, line, batchOpts{Agent: "claude", Fallback: "all", Swap: true, Auto: "dev"}, agent.RunOptions{},
+		t.TempDir(), map[string]bool{}, func() *agent.Client { return &agent.Client{} })
+	if err != nil || task.arm == nil || !task.arm.strict || task.arm.fallback != "none" {
+		t.Fatalf("arm %+v, err %v, want the line's strict model and fallback none", task.arm, err)
+	}
+}
+
+func TestBatchOverlayBriefUsesRunKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	line := decodeTaskLine([]byte(`{"prompt":"x","own":["a.go"],"report":"r.md","overlay":{"agent":"pi","tools":true,"codemode":"only"}}`), 1)
+	req, name, err := lineRequest(line, "claude", agent.RunOptions{})
+	if err != nil || name != "pi" || req.Codemode != "only" || !req.Tools || strings.Contains(req.Prompt, "goes through rtk") {
+		t.Fatalf("name %s, request %+v, err %v, want the pi brief in code mode", name, req, err)
 	}
 }

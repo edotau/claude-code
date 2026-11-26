@@ -675,9 +675,11 @@ func dispatchCommand(r ReadyTask) string {
 	if slices.Contains(carriedCLI, agent) {
 		words = append(words, "--carry")
 	}
-	words = append(words, "--background", "--agent", agent)
-	if agent != "pi" {
-		words = append(words, "--tools")
-	}
+	overlay := struct {
+		Agent string `json:"agent"`
+		Tools bool   `json:"tools,omitempty"`
+	}{agent, agent != "pi"}
+	obj, _ := json.Marshal(overlay) // a string and a bool always marshal
+	words = append(words, "--background", "--overlay", string(obj))
 	return textutil.ShellJoin(words) + " - < " + textutil.QuotePath(r.Brief)
 }

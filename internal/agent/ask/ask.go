@@ -57,8 +57,11 @@ type askRun struct {
 	ag          string
 	persona     *agent.Schema
 	defs        map[string]*agent.Schema
-	ov          agentconfig.Overlay // --overlay, else $COWORKER_OVERLAY: routing keys fold under typed flags
-	ovSrc       ovSource            // where ov came from: its route is a fence only when inherited
+	ov          agentconfig.Overlay // the run's one config document: stored, then --overlay, then typed flags (HopAppend)
+	typedOv     agentconfig.Overlay // --overlay as typed on this line (ovTyped); its per-run keys count as typed flags
+	ovTyped     bool
+	inherited   agentconfig.Overlay // the resolved parent document this invocation started under, before its own route
+	projected   []string            // the flags typeOverlay set from typedOv; a --retry re-parse sets them again
 	flagRoute   bool                // --profile / --provider name a route: it replaces every lower layer
 	recCoworker route.Route         // the confinement a --retry/--job record ran on
 	confined    bool                // the confinement filled the lead: resolveLead treats it as typed
@@ -66,8 +69,6 @@ type askRun struct {
 	jobRec      *agent.Record
 	prompt      string
 	state       *askState
-	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.profile
-	typedProv   string // --provider as typed, kept for the --dry-run argv: poolValue clears f.provider
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
@@ -130,9 +131,7 @@ func runCtx(ctx context.Context, args []string, out io.Writer) (exit int) {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
 	r := &askRun{ctx: withContract(withPlanTask(ctx, f.planTask), f.contract), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
-	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
-	defaultTools(fs, f)
-	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.mergeFlags, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -162,7 +161,7 @@ func (r *askRun) fail(err error, code int) (int, bool) {
 	return failAskCode(r.f.format, r.f.name, err, code), true
 }
 
-// config loads the overlay once and folds its routing keys under the typed flags; a bad value is a usage error.
+// config loads the overlay once: a typed one's per-run keys type their flags, a stored one folds under them.
 func (r *askRun) config() (int, bool) {
 	var err error
 	if r.ctx, err = jobAncestry(r.ctx, r.f.job); err != nil { // first: the overlay read must see the parent's fence
@@ -177,53 +176,19 @@ func (r *askRun) config() (int, bool) {
 	if r.stdinTaken() {
 		busy = "stdin is the overlay, so give the task as an argument"
 	}
-	ov, err := LoadOverlay(r.ctx, r.f.overlay, busy)
+	ov, typed, inherited, err := loadOverlays(r.ctx, r.f.overlay, busy)
+	if err == nil {
+		r.inherited = inherited
+		err = takeConfig(r, ov, typed)
+	}
 	if err != nil {
 		return r.fail(err, 2)
 	}
-	if remote.IsSelf(ov.Host) { // an overlay host naming this machine runs here, like --host
-		ov.Host = ""
-	}
-	r.ov = ov
-	if err := r.remoteWithHost(); err != nil {
-		return r.fail(err, 2)
-	}
-	if err := takeRoute(r); err != nil {
-		return r.fail(err, 2)
-	}
-	r.ov.Fold(r.fs)
 	r.f.runner = cmp.Or(r.f.runner, r.ov.Runner)
 	r.ov.Runner = r.f.runner // carryOverlay hands it to piRunnerAsked
+	markTyped(r.fs, r.f)     // after typeOverlay: an overlay model or timeout is typed like its flag
+	defaultTools(r.fs, r.f)
 	return 0, false
-}
-
-// ovSource is where the loaded overlay came from; only an inherited one is a fence, the others are sources.
-type ovSource int
-
-const (
-	srcVault ovSource = iota // $COWORKER_OVERLAY in the vault env, or a --spec template's overlay
-	srcCmd                   // --overlay on this command line
-	srcFence                 // $COWORKER_OVERLAY inherited from a parent dispatch
-)
-
-// takeRoute settles the route unit whole: --overlay and the flags must agree; flags beat a vault or template overlay.
-func takeRoute(r *askRun) error {
-	f := r.f
-	switch {
-	case f.overlay != "" && f.spec == "":
-		r.ovSrc = srcCmd
-	case f.overlay == "" && proc.Value(r.ctx, route.OverlayVar) != "":
-		r.ovSrc = srcFence
-	}
-	fr := flagRoute(f)
-	r.flagRoute = !fr.IsZero()
-	if r.ovSrc == srcCmd {
-		return flagConflict(r.fs, f, fr, r.ov)
-	}
-	if r.ovSrc == srcVault && r.flagRoute {
-		r.ov = r.ov.WithoutRoute()
-	}
-	return nil
 }
 
 // confinementValue is the fence: overlay's provider[:profile], else a replayed record's; typed route flags drop that.
@@ -235,16 +200,83 @@ func confinementValue(r *askRun) (route.Route, error) {
 	return recordConfinement(r.ov.Confinement(), rec)
 }
 
-// LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
+// takeConfig settles the route unit whole and types a typed overlay: it and the flags must agree, flags win the rest.
+func takeConfig(r *askRun, ov, typed agentconfig.Overlay) error {
+	r.ov = ov
+	if err := r.remoteWithHost(); err != nil {
+		return err
+	}
+	f := r.f
+	fr := flagRoute(f)
+	r.flagRoute = !fr.IsZero()
+	fence := f.overlay == "" && proc.Value(r.ctx, route.OverlayVar) != "" // inherited from a parent dispatch
+	cmdTyped := f.overlay != ""
+	r.typedOv = typed
+	if cmdTyped {
+		if err := unitConflict(f, fr, typed); err != nil {
+			return err
+		}
+		r.ovTyped = true
+		r.projected = typeOverlay(r.fs, typed, nil, true)
+	}
+	if r.flagRoute && !fence && (!cmdTyped || typed.Provider == "") { // a stored unit yields; a typed one agreed
+		r.ov, r.inherited = r.ov.WithoutRoute(), r.inherited.WithoutRoute()
+	}
+	r.projected = append(r.projected, typeInherited(r.fs, r.ov, nil)...)
+	r.ov.Fold(r.fs) // what is left untyped: the stored layer's settings
+	return nil
+}
+
+// typeInherited types ov's run keys no flag holds (retype: keys a --retry re-sets over the record).
+func typeInherited(fs *flag.FlagSet, ov agentconfig.Overlay, retype []string) []string {
+	ov.Model, ov.Effort, ov.Fallback, ov.Runner, ov.Host, ov.Agent, ov.Agents = "", "", "", "", "", "", nil
+	typedHere := func(n string) bool { return helptext.Explicit(fs, n) && !slices.Contains(retype, n) }
+	if typedHere("tools") || typedHere("no-tools") {
+		ov.Tools, ov.NoTools = nil, nil // a stored half never refuses a typed flag
+	}
+	return typeOverlay(fs, settleTools(ov), retype, false)
+}
+
+// LoadOverlay is the stored overlay ($COWORKER_OVERLAY, else the vault's) with --overlay value laid over it.
 func LoadOverlay(ctx context.Context, value, busy string) (agentconfig.Overlay, error) {
-	if busy != "" && cmp.Or(value, proc.Value(ctx, route.OverlayVar)) == "-" {
+	ov, _, _, err := loadOverlays(ctx, value, busy)
+	return ov, err
+}
+
+// loadOverlays returns the merged, typed, and inherited overlays; "-" fails with busy when set.
+func loadOverlays(ctx context.Context, value, busy string) (merged, typed, inherited agentconfig.Overlay, err error) {
+	stored := agentconfig.DispatchOverlayContext(ctx, "")
+	switch {
+	case busy != "" && cmp.Or(value, stored) == "-":
 		from := "--overlay -"
 		if value == "" {
 			from = route.OverlayVar + "=-"
 		}
-		return agentconfig.Overlay{}, errors.New(from + ": " + busy)
+		return merged, typed, inherited, errors.New(from + ": " + busy)
+	case value != "" && stored == "-":
+		return merged, typed, inherited, errors.New(route.OverlayVar + "=- with --overlay: stdin is read once, drop one")
 	}
-	return agentconfig.LoadOverlayFrom(ctx, agentconfig.DispatchOverlayContext(ctx, value), os.Stdin, value != "")
+	base, err := agentconfig.LoadOverlayFrom(ctx, stored, os.Stdin, false)
+	base = localHost(base)
+	if err != nil || value == "" {
+		return base, typed, base, err
+	}
+	if typed, err = agentconfig.LoadOverlayFrom(ctx, value, os.Stdin, true); err != nil {
+		return merged, agentconfig.Overlay{}, base, err
+	}
+	if merged, err = base.Derive(settleTools(typed), agentconfig.HopAppend); err != nil {
+		return merged, typed, base, fmt.Errorf("overlay: %w", err)
+	}
+	merged.Schema = cmp.Or(merged.Schema, typed.Schema)
+	return localHost(merged), localHost(typed), base, nil
+}
+
+// localHost is o with a host naming this machine cleared: it runs here, like --host.
+func localHost(o agentconfig.Overlay) agentconfig.Overlay {
+	if remote.IsSelf(o.Host) {
+		o.Host = ""
+	}
+	return o
 }
 
 // remoteWithHost refuses an overlay remote on a run that goes to --host (typed, or restored from a record).
@@ -262,7 +294,10 @@ func (r *askRun) export() (int, bool) {
 		r.ctx, err = overlayEgress(r.ctx, r.ov.Remote)
 	}
 	if err == nil {
-		r.ctx, err = carryOverlay(r.ctx, r.ov)
+		r.ctx, err = carryOverlay(r.ctx, carried(r.ov))
+	}
+	if err == nil { // the merged layers can outgrow the cap each one met: the --job child must read it back
+		_, err = agentconfig.LoadOverlayContext(r.ctx, "", nil)
 	}
 	if err != nil {
 		return r.fail(err, 2)
@@ -270,10 +305,16 @@ func (r *askRun) export() (int, bool) {
 	return 0, false
 }
 
+// carried is ov less the per-run text a child never inherits: the record holds it, and the env doc stays under its cap.
+func carried(ov agentconfig.Overlay) agentconfig.Overlay {
+	ov.SystemPrompt, ov.AppendSystemPrompt, ov.OutputSchema, ov.DebugFile, ov.Agents = "", "", "", "", nil
+	return ov
+}
+
 // stdinTaken reports the task, a batch or a framed prompt already reading stdin.
 func (r *askRun) stdinTaken() bool {
 	f := r.f
-	return f.stdinFramed || f.batchSrc == "-" || f.spec == "-" || (taskFromStdin(r.pos) && f.retry == "" && f.job == "" && !f.live)
+	return f.stdinFramed || f.batchSrc == "-" || f.brief == "-" || (taskFromStdin(r.pos) && f.retry == "" && f.job == "" && !f.live)
 }
 
 // taskFromStdin reports no task positional, or a lone "-".
@@ -349,7 +390,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := agent.ValidateAs(f.as, f.name); err != nil { // against the resolved agent: a claude persona passes
 		return r.fail(err, 2)
 	}
-	if err := resolveCodemode(f); err != nil {
+	if err := resolveCodemode(f, r.codemodeRoute()); err != nil {
 		return r.fail(err, 2)
 	}
 	if err := askCheckCombos(r.fs, f.name, f.live, r.persona != nil, f.host, f.background, f.job, f.batchSrc, len(f.env) > 0); err != nil {
@@ -382,6 +423,11 @@ func (r *askRun) checkArm() (int, bool) {
 		fallback, f.fallback = route.FallbackNone, route.FallbackNone
 	}
 	moves := r.typedStart(value, fallback)
+	nativeCtx := r.ctx
+	ownUnit := r.origins().Of("unit") == agentconfig.OriginFlag
+	if ownUnit { // a unit typed as a flag is the run's own route: --native meets only the resolved inherited fence
+		nativeCtx = withValues(r.ctx, proc.Values{route.OverlayVar: r.inherited.Doc()})
+	}
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
 	ctx, err := ApplyRouteOverlay(r.ctx, value, f.profile, agentName, f.model, fallback)
 	if err != nil {
@@ -389,7 +435,13 @@ func (r *askRun) checkArm() (int, bool) {
 	}
 	r.ctx = ctx
 	r.markAuto(picks, moves)
-	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
+	if r.ctx, err = withEndpoint(r.ctx, r.ov.Route()); err != nil {
+		return r.fail(err, 2)
+	}
+	if !ownUnit {
+		nativeCtx = r.ctx
+	}
+	if err := cmp.Or(checkNative(nativeCtx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
 	if !batchLines {
@@ -434,7 +486,7 @@ func recordRefusal(r *askRun, err error, fallback string) {
 	if perr != nil || strings.TrimSpace(prompt) == "" {
 		return
 	}
-	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
+	f.timeout = askTimeout(r.fs, r.ov, f.timeout, f.retry, f.job, f.tools)
 	req, rerr := r.request(prompt)
 	if rerr != nil {
 		return
@@ -452,7 +504,7 @@ func (r *askRun) poolValue(value route.Route) route.Route {
 	switch {
 	case !value.IsZero() || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
 	case f.provider == router.RouteDatabricks:
-		r.typedProv, f.provider = f.provider, ""
+		f.provider = ""
 		return auto
 	case pinMoves(r):
 		return auto
@@ -496,6 +548,22 @@ func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool)
 		return "", true
 	}
 	return ag, false
+}
+
+// withEndpoint lays the unit's endpoint on ctx's confinement of the same provider: the whole unit reaches ctx.
+func withEndpoint(ctx context.Context, unit route.Route) (context.Context, error) {
+	if unit.Endpoint == "" {
+		return ctx, nil
+	}
+	own, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil || own.Provider != unit.Provider || own.Profile == "" || own.Endpoint == unit.Endpoint {
+		return ctx, err
+	}
+	own.Endpoint = unit.Endpoint
+	if err := own.Route().Validate(); err != nil {
+		return ctx, err
+	}
+	return withValues(ctx, proc.Values{route.OverlayVar: own.Doc()}), nil
 }
 
 // ApplyCode is the exit code for an ApplyRouteOverlay error: a preflight refusal is 1, the rest usage errors.
@@ -553,7 +621,7 @@ func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done 
 		code, done = r.fail(err, 2)
 		return o, base, code, done
 	}
-	o = batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as, Swap: r.swap, Pending: map[string]int{}}
+	o = r.batchOpts()
 	if r.auto != "" {
 		o.Reg, _ = providers.Load() // a failed load keeps the batch's shared pick
 	}
@@ -571,6 +639,13 @@ func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done 
 		return o, base, code, done
 	}
 	return o, base.ApplyOverlay(r.ctx, ov), 0, false
+}
+
+// batchOpts is the pool options the flags give --batch and --loop; TimeoutHeld is read from them, never re-derived.
+func (r *askRun) batchOpts() batchOpts {
+	f := r.f
+	return batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as,
+		Swap: r.swap, Pending: map[string]int{}, TimeoutHeld: timeoutHeld(r.fs, r.ov)}
 }
 
 // runBatch runs --batch to completion; every path ends the run.
@@ -603,7 +678,16 @@ func (r *askRun) batchBase() (agent.RunOptions, error) {
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: cmp.Or(f.runner, r.ov.Runner), GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted(),
-		FenceTyped: r.ovSrc == srcCmd && (!r.ov.Confinement().IsZero() || r.ov.Fence != nil)}, nil
+		FenceTyped: r.fenceTyped(), TypedFlags: r.f.cli, InheritedOverlay: r.inherited.Doc()}, nil
+}
+
+// fenceTyped: a typed --overlay or route flag confined the run; a --job relaunch keeps what its record says.
+func (r *askRun) fenceTyped() bool {
+	if r.jobRec != nil {
+		return r.jobRec.Request.FenceTyped
+	}
+	o := r.origins()
+	return o.Typed("unit") && !r.ov.Confinement().IsZero() || o.Typed("fence")
 }
 
 // fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.
@@ -650,7 +734,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 		return r.fail(err, 2)
 	}
 	r.ov.Runner = cmp.Or(f.runner, r.ov.Runner) // a replayed record's runner reaches the chain too
-	if err := cmp.Or(finalGoogleTools(f, typedTools), replayCodemode(f)); err != nil {
+	if err := cmp.Or(finalGoogleTools(f, typedTools), r.replayCodemode()); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
@@ -662,16 +746,26 @@ func (r *askRun) resolveRecord() (int, bool) {
 }
 
 // replayCodemode rechecks --codemode after a --retry/--job record replaced the agent, route and mode.
-func replayCodemode(f *askFlags) error {
-	if f.retry == "" && f.job == "" {
+func (r *askRun) replayCodemode() error {
+	if r.f.retry == "" && r.f.job == "" {
 		return nil
 	}
-	return resolveCodemode(f)
+	return resolveCodemode(r.f, r.codemodeRoute())
+}
+
+// codemodeRoute is the unit the run will apply: the overlay's, or the confinement a --retry/--job record restores.
+func (r *askRun) codemodeRoute() route.Route {
+	rt := r.ov.Route()
+	if v, err := confinementValue(r); err == nil && !v.IsZero() {
+		rt.Provider, rt.Profile = v.Provider, v.Profile
+	}
+	return rt
 }
 
 // resolveCodemode settles f.codemode and its reason for the resolved agent and route, noting a fall back to off.
-func resolveCodemode(f *askFlags) (err error) {
-	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.runner, f.tools, directRoute(f.provider, f.profile))
+func resolveCodemode(f *askFlags, rt route.Route) (err error) {
+	direct := directRoute(cmp.Or(f.provider, rt.Provider), cmp.Or(f.profile, rt.Profile))
+	f.codemode, f.codemodeReason, err = validateCodemode(f.codemode, f.name, f.runner, f.tools, direct)
 	noteCodemodeOff(f.name, f.codemodeReason)
 	return err
 }
@@ -700,7 +794,7 @@ func (r *askRun) applyRecord() (int, bool) {
 	}
 	if r.jobRec != nil {
 		r.ctx = jobRetried(r.ctx, *r.jobRec)
-		return 0, false // a --job record already holds the fold
+		return r.takeRecordFence(r.jobRec.Request) // a --job record already holds the fold
 	}
 	if r.ctx, rc, done = loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
 		return rc, true
@@ -715,6 +809,9 @@ func (r *askRun) applyRecord() (int, bool) {
 		if err != nil {
 			return r.fail(err, 1)
 		}
+		if err := r.mergeRecordOverlay(rec); err != nil {
+			return r.fail(err, 2)
+		}
 		r.ctx = retryLineage(r.ctx, rec)
 		if resumes(rec, f.name) && !f.recover && !helptext.Explicit(r.fs, "session") {
 			f.session = cmp.Or(rec.SessionID, f.session)
@@ -722,6 +819,34 @@ func (r *askRun) applyRecord() (int, bool) {
 	}
 	r.ov.Fold(r.fs) // the overlay beats a --retry record
 	return 0, false
+}
+
+// takeRecordFence restores a --job relaunch's typed flags, stored overlay limits, and parent document.
+func (r *askRun) takeRecordFence(req agent.RunOptions) (int, bool) {
+	if r.jobRec != nil {
+		if err := r.mergeRecordOverlay(*r.jobRec); err != nil {
+			return r.fail(err, 2)
+		}
+	}
+	r.f.cli, r.inherited = req.TypedFlags, agentconfig.Overlay{}
+	if req.InheritedOverlay == "" { // never the env: a relaunch's own context holds the parent's route, not its fence
+		return 0, false
+	}
+	inherited, err := agentconfig.LoadOverlayFrom(r.ctx, req.InheritedOverlay, nil, false)
+	if err != nil {
+		return r.fail(fmt.Errorf("--job record: inherited overlay: %w", err), 2)
+	}
+	r.inherited = inherited
+	return 0, false
+}
+
+// origins computes where each key of the run's overlay came from; nothing stores the result.
+func (r *askRun) origins() agentconfig.Provenance {
+	typed := agentconfig.Overlay{}
+	if r.ovTyped {
+		typed = r.typedOv
+	}
+	return agentconfig.Origins(r.flagOverlayKeys(), typed, r.inherited, r.ov)
 }
 
 // resolveAskHost re-checks the overlay against --host and resolves it; a --retry/--job record may carry a --host.
@@ -747,7 +872,16 @@ func (r *askRun) askState() *askState {
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
 		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Runner: &f.runner, GoogleTools: &f.googleTools, Verify: &f.verify,
-		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed}
+		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed,
+		retype: func() {
+			if r.ovTyped {
+				typeOverlay(r.fs, r.typedOv, r.projected, true)
+			}
+			typeInherited(r.fs, r.ov, r.projected) // the parent's fence keys beat the record; typed flags beat both
+			if r.ov.Timeout != "" && !r.origins().Typed("timeout") {
+				r.f.timeoutTyped = false // an inherited deadline replaced the record's, typed or not
+			}
+		}}
 }
 
 // request is batchBase plus the single-task fields.
@@ -900,7 +1034,6 @@ func (r *askRun) routesItself() bool {
 
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
-	r.typed = r.f.profile
 	lead, err := narrowLead(r.ag, r.f, !r.routesItself(), fencedWorkspace(r.ctx, r.f))
 	if err != nil {
 		return r.fail(err, 2)

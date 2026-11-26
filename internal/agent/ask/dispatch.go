@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/router"
 	usagepkg "github.com/edotau/claude-code/internal/usage"
 )
@@ -24,19 +26,30 @@ func RegisterRouteFlags(fs *flag.FlagSet) *RouteFlags {
 	return r
 }
 
-// Args re-emits the route flags that were set as `ask` arguments, so a child ask run routes as the caller did.
+// Args re-emits the route flags as a single --overlay document, so a child ask run routes as the caller did.
 func (r *RouteFlags) Args() ([]string, error) {
 	f := &r.f
 	if f.overlay == "-" {
 		return nil, errors.New("--overlay - reads stdin, which a batch child needs; pass a file or inline JSON")
 	}
-	var out []string
-	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}} {
-		if kv[1] != "" {
-			out = append(out, "--"+kv[0], kv[1])
+	if f.fallback == "" {
+		if f.overlay == "" {
+			return nil, nil
+		}
+		return []string{"--overlay", f.overlay}, nil
+	}
+	var base agentconfig.Overlay
+	if f.overlay != "" {
+		var err error
+		if base, err = agentconfig.LoadOverlayFrom(context.Background(), f.overlay, nil, true); err != nil {
+			return nil, err
 		}
 	}
-	return out, nil
+	ov, err := base.Derive(agentconfig.Overlay{Fallback: f.fallback}, agentconfig.HopAppend)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"--overlay", ov.Doc()}, nil
 }
 
 // failSpawn finishes a record whose spawn failed so it never shows as running; a failed save joins the returned error.

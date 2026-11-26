@@ -3,8 +3,10 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -688,13 +690,67 @@ func TestRouteNameChecksFoldOnWindows(t *testing.T) {
 	if err := p.checkOverlay(agentconfig.Resolved{Set: map[string]string{"anthropic_base_url": "y"}}); err == nil {
 		t.Error("checkOverlay let a case-variant set through")
 	}
-	if got := p.withOverlay(agentconfig.Resolved{Set: map[string]string{"anthropic_base_url": "y"}}); len(got.Set) != 1 {
-		t.Errorf("withOverlay Set = %v, want one spelling", got.Set)
+	got := p.withOverlay(agentconfig.Resolved{Set: map[string]string{"anthropic_base_url": "y"}}).Set
+	spellings := slices.DeleteFunc(slices.Collect(maps.Keys(got)), func(k string) bool { return !strings.EqualFold(k, "ANTHROPIC_BASE_URL") })
+	if len(spellings) != 1 || got["ANTHROPIC_BASE_URL"] != "http://x" { // the confinement document is another name, not a spelling
+		t.Errorf("withOverlay Set = %v, want one spelling", got)
 	}
 	t.Setenv("Databricks_Token", "v")
 	var buf bytes.Buffer
 	Plan{Unset: []string{"DATABRICKS_TOKEN"}}.Print(&buf)
 	if !strings.Contains(buf.String(), "unset    DATABRICKS_TOKEN\n") {
 		t.Errorf("Print = %q, want an unset line for the case-variant inherited name", buf.String())
+	}
+}
+
+// Inside a confinement a launch's own unit rides by value to its child; an unconfined launch never invents a fence.
+func TestPlanChildOverlayCarriesLaunchUnit(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", routeOverlay)
+	qa := map[string]string{providers.EnvSessionProfile: "qa"}
+	fenced := proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"qa","fence":{"profiles":["qa"]}}`}
+	scoped := route.Route{Provider: "databricks", Profile: "qa", Endpoint: "proxy", Identity: "sp"}
+	for name, tc := range map[string]struct {
+		plan Plan
+		want route.Route
+	}{
+		"unconfined launch": {Plan{Set: qa, Unit: scoped}, route.Route{}},
+		"confined launch":   {Plan{Set: qa, Values: fenced, Unit: scoped}, scoped},
+		"auto pick": {Plan{Set: qa, Values: fenced, Unit: route.Route{Provider: "databricks", Profile: route.AutoArm, Endpoint: "proxy", Identity: "sp"}},
+			scoped},
+		"auto pick drops a row URL": {Plan{Set: qa, Values: fenced,
+			Unit: route.Route{Provider: "databricks", Profile: route.AutoArm, Endpoint: "https://dev.cloud.databricks.com/x", Identity: "sp"}},
+			route.Route{Provider: "databricks", Profile: "qa", Identity: "sp"}},
+		"profile only": {Plan{Set: qa, Values: fenced, Unit: route.Route{Profile: "qa", Identity: "user"}},
+			route.Route{Provider: "databricks", Profile: "qa", Identity: "user"}},
+		"other provider": {Plan{Set: qa, Values: fenced, Unit: route.Route{Provider: "github", Account: "aueric_boehcp"}},
+			route.Route{Provider: "databricks", Profile: "qa"}},
+		"another row": {Plan{Set: map[string]string{providers.EnvSessionProfile: "dev"}, Values: fenced,
+			Unit: route.Route{Provider: "databricks", Profile: "dev", Endpoint: "proxy"}}, route.Route{Provider: "databricks", Profile: "qa"}},
+		"no launch unit": {Plan{Set: qa, Values: fenced}, route.Route{Provider: "databricks", Profile: "qa"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc := tc.plan.withOverlay(agentconfig.Resolved{}).Set[route.OverlayVar]
+			var o agentconfig.Overlay
+			if err := json.Unmarshal([]byte(doc), &o); err != nil || o.Route() != tc.want {
+				t.Fatalf("child doc %q (%v), want unit %+v", doc, err, tc.want)
+			}
+			if fence := tc.plan.Values[route.OverlayVar] != ""; fence != (o.Fence != nil) || fence && !slices.Equal(o.Fence.Profiles, []string{"qa"}) {
+				t.Fatalf("child fence = %+v, want the inherited one only", o.Fence)
+			}
+			if _, err := launchOverlay(LaunchOptions{Values: proc.Values{route.OverlayVar: doc}}); err != nil {
+				t.Fatalf("a nested launch refused its inherited unit: %v", err)
+			}
+		})
+	}
+	auto := proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"auto"}`}
+	if _, err := launchOverlay(LaunchOptions{Values: auto}); err != nil {
+		t.Fatalf("a nested launch refused an inherited auto arm: %v", err)
+	}
+	picked := Plan{Set: qa, Values: auto, Unit: route.Route{Provider: "databricks", Profile: "qa", Endpoint: "https://qa.cloud.databricks.com/x", Identity: "user"}}
+	var o agentconfig.Overlay
+	doc := picked.withOverlay(agentconfig.Resolved{}).Set[route.OverlayVar]
+	if err := json.Unmarshal([]byte(doc), &o); err != nil || o.Route() != (route.Route{Provider: "databricks", Profile: route.AutoArm, Identity: "user"}) || o.Fence != nil {
+		t.Fatalf("auto arm child doc %q (%v): want the arm kept with the launch identity and no row URL", doc, err)
 	}
 }

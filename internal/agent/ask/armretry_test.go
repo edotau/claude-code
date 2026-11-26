@@ -624,10 +624,47 @@ func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
 	}
 }
 
+// A dev request that answered on qa retries on qa, recorded --profile and lead included; a typed --profile wins.
+func TestRetryFollowsAnsweringRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts agent.RunOptions
+		args []string
+		want string
+	}{
+		{"profile and lead", agent.RunOptions{Provider: "dev", Lead: "dev"}, nil, "databricks·qa"},
+		{"profile with its route", agent.RunOptions{Provider: "dev", Route: route.Route{Provider: "databricks", Profile: "dev"}}, nil, "databricks·qa"},
+		{"typed profile", agent.RunOptions{Provider: "dev", Lead: "dev"}, []string{"--profile", "dev"}, "databricks·dev"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			armChildEnvFixture(t)
+			o := tc.opts
+			o.Model, o.Fallback, o.Prompt = "claude-sonnet-5-5", route.FallbackNone, "reply ok"
+			rec := agent.NewRecord("claude", o, time.Now())
+			rec.RanRoute = route.Route{Provider: "databricks", Profile: "qa"}
+			rec.FallbackPolicy, rec.Status = route.FallbackNone, "error"
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			argv := append([]string{"ask", "--retry", rec.ID, "--dry-run", "--format", "json"}, tc.args...)
+			code, out, stderr := runCLI(t, argv...)
+			var doc dryDoc
+			if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil {
+				t.Fatalf("exit %d, decode %v: %s\n%s", code, err, out, stderr)
+			}
+			if len(doc.Hops) != 1 || !strings.Contains(doc.Hops[0], tc.want) {
+				t.Fatalf("hops = %v, want one hop on %s", doc.Hops, tc.want)
+			}
+		})
+	}
+}
+
 func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
 	cliEnv(t)
 	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","fallback":"all","runner":"own"}`})
-	values, err := armRetryValues(ctx, nil, "qa")
+	depth := 2
+	claim := &agent.Record{Overlay: &agent.StoredOverlay{Model: "claude-sonnet-5-5", MaxDepth: &depth}}
+	values, err := armRetryValues(ctx, nil, "qa", claim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,6 +674,18 @@ func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
 	}
 	if ov.Profile != "qa" || ov.Fallback != "all" || ov.Runner != "own" {
 		t.Fatalf("workspace retry erased routing provenance: %+v", ov)
+	}
+	if ov.Model != "claude-sonnet-5-5" || ov.MaxDepth == nil || *ov.MaxDepth != 2 {
+		t.Fatalf("workspace retry dropped the stored model or limit: %+v", ov)
+	}
+}
+
+// A claimed record whose stored overlay was refused stops the workspace retry, naming the field.
+func TestArmRetryValuesRefusesStoredOverlay(t *testing.T) {
+	cliEnv(t)
+	claim := &agent.Record{Overlay: &agent.StoredOverlay{Refused: "overlay model: not a registry name or typed limit"}}
+	if _, err := armRetryValues(t.Context(), nil, "qa", claim); err == nil || !strings.Contains(err.Error(), "model") {
+		t.Fatalf("err = %v, want a refusal naming model", err)
 	}
 }
 

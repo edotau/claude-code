@@ -10,13 +10,18 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 func TestRouteLine(t *testing.T) {
@@ -34,6 +39,105 @@ func TestGatewayResolveUsage(t *testing.T) {
 	if _, err := resolve.QueryForRoute(context.Background(), "claude", "sonnet", route.Route{Profile: "ultra"},
 		`{"provider":"databricks","profile":"dev","identity":"sp"}`); err == nil {
 		t.Error("typed profile accepted another route's identity")
+	}
+}
+
+func TestGatewayResolveOverlayLayers(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"qa","tools":true,"model":"haiku"}`})
+	for _, tc := range []struct {
+		args  []string
+		model string
+		tools bool
+	}{
+		{[]string{"opencode"}, "haiku", true},
+		{[]string{"opencode", "--overlay", `{"model":"sonnet","tools":false}`}, "sonnet", false},
+		{[]string{"opencode", "--tools", "--provider", "databricks", "--profile", "qa", "--model", "opus"}, "opus", true},
+		{[]string{"opencode", "--tools=false", "--overlay", `{"tools":true}`}, "haiku", false},
+	} {
+		fs, o := gatewayResolveFlags()
+		words, err := helptext.ParseArgs(fs, tc.args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, err := o.query(ctx, fs, words[0])
+		if err != nil || q.Model != tc.model || q.Tools != tc.tools || q.Route.Profile != "qa" {
+			t.Errorf("%q: query = %+v, %v", tc.args, q, err)
+		}
+	}
+}
+
+func TestGatewayResolveUnitErrors(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"opencode", "--tools", "--overlay", `{"unknownSetting":1}`}, "unknownSetting"},
+		{[]string{"opencode", "--tools", "--provider", "openai", "--profile", "anthropic"}, "not one registry unit"},
+		{[]string{"opencode", "--overlay", `{"agent":"codex"}`}, "conflicts with overlay agent"},
+		{[]string{"all", "--model", "auto", "--all-profiles", "--provider", "databricks"}, "no --live, --profile, --provider"},
+	} {
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdGatewayResolve(tc.args) })
+		if code != 2 || out != "" || !strings.Contains(stderr, tc.want) {
+			t.Errorf("%q: exit %d, out %q, stderr %q", tc.args, code, out, stderr)
+		}
+	}
+}
+
+func TestChildAdmissionDefaultsAgree(t *testing.T) {
+	if agentconfig.DefaultMaxDispatchChildren != agent.DefaultMaxDispatchChildren ||
+		agentconfig.DefaultMaxTreeTokens != agent.DefaultMaxTreeTokens ||
+		agentconfig.DefaultMaxDispatchDepth != agent.DefaultMaxDispatchDepth {
+		t.Fatal("overlay child ceilings and dispatch admission defaults disagree")
+	}
+}
+
+func TestGatewayOverlayRegistryError(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":`)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdGatewayResolve([]string{"opencode", "--profile", "qa"})
+	})
+	if code != 2 || out != "" || !strings.Contains(stderr, "provider registry:") {
+		t.Fatalf("exit %d, out %q, stderr %q; want the registry load error", code, out, stderr)
+	}
+}
+
+func TestStoredOverlayWarnsAndFilesUnknownKey(t *testing.T) {
+	vaulttest.Use(t)
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"model":"haiku","origins":{"model":"flag"}}`})
+	var got agentconfig.Overlay
+	var loadErr error
+	_, _, stderr := hosttest.CaptureOutput(t, func() int {
+		got, loadErr = agentconfig.LoadOverlayContext(ctx, "", nil)
+		return 0
+	})
+	if loadErr != nil || got.Model != "haiku" || !strings.Contains(stderr, "warning: stored overlay") {
+		t.Fatalf("load = %s, %v; stderr %q", got.Doc(), loadErr, stderr)
+	}
+	if p := agentconfig.Origins(nil, agentconfig.Overlay{}, got, got); p.Typed("model") {
+		t.Fatalf("stored document forged typed model origin: %v", p)
+	}
+	rows, err := worktree.ListFailures(worktree.FailuresDir())
+	if err != nil || len(rows) != 1 || string(rows[0].Kind) != "overlay_unknown_key" {
+		t.Fatalf("failures = %+v, %v; want one overlay_unknown_key", rows, err)
+	}
+}
+
+func TestLaunchOverlayIdentityAndRemote(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := agent.LaunchOptions{Overlay: `{"provider":"databricks","profile":"qa","identity":"sp","remote":"relay"}`}
+	ctx, err := agent.ApplyLaunchOverlay(t.Context(), reg, &o, true)
+	if err != nil || providers.IdentityFrom(ctx) != "sp" || proc.Value(ctx, egress.EnvHost) != "relay" || o.Provider != "qa" {
+		t.Fatalf("identity %q, remote %q, profile %q, error %v", providers.IdentityFrom(ctx), proc.Value(ctx, egress.EnvHost), o.Provider, err)
 	}
 }
 

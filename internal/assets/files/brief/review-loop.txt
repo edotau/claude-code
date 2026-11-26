@@ -1,6 +1,6 @@
-Review loop (standing rule): after your change, get an other-family review that lists every finding; fix
-every finding yourself, any severity, then review again, until a review finds nothing. Three rounds in a row that each
-find a new HIGH in one area: stop and hand back the pattern with a design recommendation. Never hand back a finding unfixed
+Review loop (standing rule): do not get a review of your own change; the main session runs one shared other-family
+review over the collector at the end and sends back what it finds. Fix every finding you are sent yourself, any
+severity. Never hand back a finding unfixed
 or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.
 A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip
 it); if large, hand back naming it for a test-repair leaf.

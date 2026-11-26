@@ -35,7 +35,7 @@ func piOwner() (contract.Contract, error) {
 	return c, nil
 }
 
-// piDispatchArgv builds `agents ask --background --format json --overlay <run keys> --spec <task>`; Go writes both.
+// piDispatchArgv builds `agents ask --background --format json --overlay <run keys> --brief <task>`; Go writes both.
 func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	c, err := piOwner()
 	if err != nil {
@@ -56,42 +56,35 @@ func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// agent and tier ride the overlay; the spec keeps them too until ask reads the overlay's run keys (plan 3.1a)
-	spec := map[string]any{"agent": "claude", "tier": tier, "own": own, "prompt": prompt,
+	brief := map[string]any{"own": own, "prompt": prompt,
 		"contract": map[string]any{"unit": unit, "kind": string(kind), "role": string(contract.RoleFleet), "parent": c.ID,
 			"limits": map[string]int{"tokens": max(c.Limits.Tokens-wire.SpentBy(c).Tokens, 1)}}}
 	if c.Scope.Verify != "" { // the owner's typed verify, so a test-repair child's tests term can pass
-		spec["verify"] = c.Scope.Verify
+		brief["verify"] = c.Scope.Verify
 	}
-	return piSpecArgv(piRunOverlay(tier), spec, unit)
+	return piBriefArgv(tier, brief, unit)
 }
 
-// piRunOverlay is the run's agent and tier as an overlay; "" when one is inherited, which --overlay would replace.
-func piRunOverlay(tier string) string {
-	if agentconfig.DispatchOverlayContext(context.Background(), "") != "" {
-		return ""
-	}
-	var ov agentconfig.Overlay
-	ov.Agent, ov.Tier = "claude", tier
-	return ov.Doc()
-}
-
-// piSpecArgv adds a Go-derived report path to the task spec and builds the ask argv; overlay "" adds no --overlay.
-func piSpecArgv(overlay string, spec map[string]any, unit string) ([]string, error) {
+// piBriefArgv adds a Go-derived report path to the task brief and builds the ask argv.
+func piBriefArgv(tier string, brief map[string]any, unit string) ([]string, error) {
 	report, err := piReportPath(unit)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
-	spec["report"] = report
-	b, err := json.Marshal(spec)
+	brief["report"] = report
+	b, err := json.Marshal(brief)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
 	argv := []string{"agents", "ask", "--background", "--format", "json"}
-	if overlay != "" {
-		argv = append(argv, "--overlay", overlay)
+	if agentconfig.DispatchOverlayContext(context.Background(), "") != "" {
+		argv = append(argv, "--agent", "claude", "--tier", tier)
+	} else {
+		var ov agentconfig.Overlay
+		ov.Agent, ov.Tier = "claude", tier
+		argv = append(argv, "--overlay", ov.Doc())
 	}
-	return append(argv, "--spec", string(b)), nil
+	return append(argv, "--brief", string(b)), nil
 }
 
 // piReportPath is a fresh dated report file under the memory reports dir, so a leaf's report term passes by any tool.

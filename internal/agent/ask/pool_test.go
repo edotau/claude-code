@@ -200,7 +200,7 @@ func runOpts(t *testing.T, initial string, o batchOpts) map[string][]wire.Envelo
 	o.Jobs, o.Agent, o.Fallback = 1, "opencode", "agents"
 	base := agent.RunOptions{Provider: "acme", Model: "acme-large", WorkDir: t.TempDir()}
 	var buf bytes.Buffer
-	id, _ := runBatch(t.Context(), lines, o, base, false, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
+	id, _ := runBatch(t.Context(), lines, o, base, func() *agent.Client { return agent.NewClient(nil, nil, nil) }, &buf)
 	byID := map[string][]wire.Envelope{}
 	for _, env := range decodePoolEnvelopes(t, &buf) {
 		if env.BatchID != id {
@@ -260,7 +260,7 @@ func TestBatchTaskProfileReachesRequest(t *testing.T) {
 	profileFixture(t)
 	build := func(n int, profile string) batchTask {
 		line := parsedLine{N: n, Task: batchLine{Prompt: "p", Profile: profile}}
-		bt, err := buildTask(t.Context(), line, batchOpts{Agent: "opencode", Fallback: "all"}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+		bt, err := buildTask(t.Context(), line, batchOpts{Agent: "opencode", Fallback: "all"}, agent.RunOptions{}, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1095,7 +1095,7 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 		task, err := buildTask(ctx, parsedLine{N: 1, Task: batchLine{ID: "item", Prompt: "go"}},
-			batchOpts{Agent: req.Agent, Fallback: "none", Auto: "dev"}, agent.RunOptions{}, false, t.TempDir(), map[string]bool{}, newClient)
+			batchOpts{Agent: req.Agent, Fallback: "none", Auto: "dev"}, agent.RunOptions{}, t.TempDir(), map[string]bool{}, newClient)
 		if err != nil {
 			t.Fatal(err)
 		}

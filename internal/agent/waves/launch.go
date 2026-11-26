@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -119,7 +120,11 @@ func launchBatchRun(ctx context.Context, executable string, specs []Spec, option
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, executable, askArgs(len(specs), options)...)
+	args, err := askArgs(len(specs), options)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Stdin = bytes.NewReader(lines)
 	var stdout bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, os.Stderr
@@ -129,15 +134,65 @@ func launchBatchRun(ctx context.Context, executable string, specs []Spec, option
 }
 
 // askArgs is the `agents ask` batch command line (without the executable) for n leaves, route flags last.
-func askArgs(n int, options LaunchOptions) []string {
+func askArgs(n int, options LaunchOptions) ([]string, error) {
 	args := []string{"agents", "ask", "--batch", "-", "--jobs", strconv.Itoa(min(n, 24)), "--format", "json"}
-	if options.Provider != "" {
-		args = append(args, "--provider", options.Provider)
-		if len(options.Profiles) > 0 {
-			args = append(args, "--profile", options.Profiles[0]) // a provider with profiles needs the pair
+	if options.Provider == "" {
+		return append(args, options.Route...), nil
+	}
+	if len(options.Profiles) == 0 {
+		return append(append(args, "--provider", options.Provider), options.Route...), nil
+	}
+	unit := agentconfig.Overlay{Provider: options.Provider, Profile: options.Profiles[0]}
+	rest, merged, err := mergeRouteOverlay(options.Route, unit)
+	if err != nil {
+		return nil, fmt.Errorf("wave route: %w", err)
+	}
+	return append(append(args, "--overlay", merged), rest...), nil
+}
+
+// routeBoolFlags keeps a switch from consuming an overlay argument as its value.
+var routeBoolFlags = []string{"autonomous", "background", "carry", "diff", "direct", "dry-run", "enable-memory",
+	"fail-fast", "fleet", "fresh", "index", "live", "loop", "native", "no-persist", "no-tools", "recover",
+	"status", "stdin-framed", "tools"}
+
+// mergeRouteOverlay folds unit into any --overlay in route, returning the remaining flags and merged JSON.
+func mergeRouteOverlay(route []string, unit agentconfig.Overlay) ([]string, string, error) {
+	var rest []string
+	var base agentconfig.Overlay
+	for i := 0; i < len(route); i++ {
+		name, value, inline := strings.Cut(route[i], "=")
+		if name == "--" {
+			rest = append(rest, route[i:]...)
+			break
+		}
+		if name == "--overlay" || name == "-overlay" {
+			if !inline {
+				if i+1 == len(route) {
+					return nil, "", errors.New("--overlay needs a value")
+				}
+				i++
+				value = route[i]
+			}
+			if value == "" || value == "-" {
+				return nil, "", errors.New("--overlay needs a file or inline JSON; stdin carries batch lines")
+			}
+			var err error
+			if base, err = agentconfig.LoadOverlayFrom(context.Background(), value, nil, true); err != nil {
+				return nil, "", err
+			}
+			continue
+		}
+		rest = append(rest, route[i])
+		if !inline && i+1 < len(route) && strings.HasPrefix(name, "-") && !slices.Contains(routeBoolFlags, strings.TrimLeft(name, "-")) {
+			i++
+			rest = append(rest, route[i])
 		}
 	}
-	return append(args, options.Route...)
+	ov, err := base.Derive(unit, agentconfig.HopAppend)
+	if err != nil {
+		return nil, "", err
+	}
+	return rest, ov.Doc(), nil
 }
 
 func launchSave(ctx context.Context, executable string, envelopes []Envelope) error {

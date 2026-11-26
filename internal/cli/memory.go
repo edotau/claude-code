@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/shadow"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -49,7 +48,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: path, report, fmt, watch,\n" +
-		"          import, sandbox, upgrade, extract, shadow, store (off menu)\n" +
+		"          sync, sandbox, extract, shadow, store (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -68,11 +67,11 @@ var memoryPlumbing = map[string][2]string{
 	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
 	"sandbox": {"", "create a disposable memory config"},
-	"upgrade": {"[--dry-run] [--to N] [--model M] [--no-resolve]", "bring every memory file to the current store version, one commit per step"},
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
-	"store":   {"[--truth files|db]", "show which store is the source of truth, or switch it"},
+	"store":   {"[--truth db]", "show the source of truth: the db; files was retired"},
 
+	"sync":      {"[--host HOST]", "merge change envelopes with the peers in CLAUDE_REMOTE_HOST (NETWORK_MEMORY=on), pull then push"},
 	"conflicts": {"[--resolve ID --keep local|peer]", "list open sync conflicts, or resolve one; the resolution syncs"},
 }
 
@@ -166,29 +165,9 @@ func cmdMemoryDream(args []string) int {
 	return 0
 }
 
-// cmdMemoryUpgrade exits 4 when a file was left untouched.
-func cmdMemoryUpgrade(args []string) int {
-	fs := memoryFlagSet("upgrade")
-	dryRun := fs.Bool("dry-run", false, "print the per-file summary; write nothing")
-	to := fs.Int("to", 0, "stop at this store version (default: the version this binary writes)")
-	noResolve := fs.Bool("no-resolve", false, "leave residue listed; skip the one code-mode agent")
-	model := fs.String("model", "", "residue agent model: opus (default), astra or a catalog id")
-	if code, done := memoryParseNoArgs(fs, "upgrade", args); done {
-		return code
-	}
-	ask.RegisterCodeMode() // the residue agent needs the seam; upgrade builds no MemoryRunner
-	if _, err := memory.FallbackModel(*model); err != nil {
-		return helptext.FailUsage("memory upgrade: --model: %v", err)
-	}
-	rep, err := memory.MemoryUpgrade(memory.UpgradeOptions{DryRun: *dryRun, To: *to, Model: *model, NoResolve: *noResolve})
-	if err != nil {
-		return helptext.Fail("memory upgrade: %v", err)
-	}
-	rep.Print(os.Stdout)
-	if rep.Partial() {
-		return 4
-	}
-	return 0
+// cmdMemoryUpgrade is gone: the database is the store, so a typed `memory upgrade` exits 2.
+func cmdMemoryUpgrade([]string) int {
+	return helptext.FailUsage("memory upgrade: the store is the database now; it upgrades itself on the next write")
 }
 
 // cmdMemoryConflicts prints one tab-separated line per open sync conflict: id kind op doc entry peer/seq time.
@@ -265,26 +244,22 @@ func cmdMemoryShadow(args []string) int {
 	return 0
 }
 
-// cmdMemoryStore prints the store's truth, or switches it with --truth.
+// cmdMemoryStore prints the store's truth; the db is the only one, so --truth files is refused.
 func cmdMemoryStore(args []string) int {
 	fs := memoryFlagSet("store")
-	truth := fs.String("truth", "", "switch the source of truth to files or db")
+	truth := fs.String("truth", "", "the source of truth: db (files was retired)")
 	if code, done := memoryParseNoArgs(fs, "store", args); done {
 		return code
 	}
 	if helptext.Explicit(fs, "truth") {
-		if *truth != "files" && *truth != "db" {
-			return helptext.FailUsage("memory store: --truth %q: want files or db (usage: %s)", *truth, memorySubPage("store").Usage)
+		if *truth == "files" {
+			return helptext.Fail("memory store: --truth files is retired: the db is the only store, the Markdown is its export")
 		}
-		if err := memory.SetTruth(*truth); err != nil {
-			return helptext.Fail("memory store: %v", err)
+		if *truth != "db" {
+			return helptext.FailUsage("memory store: --truth %q: want db (usage: %s)", *truth, memorySubPage("store").Usage)
 		}
 	}
-	t, err := memory.TruthErr()
-	if err != nil {
-		return helptext.Fail("memory store: %v", err)
-	}
-	fmt.Printf("truth: %s\n", t)
+	fmt.Println("truth: db")
 	return 0
 }
 
@@ -321,7 +296,6 @@ func memorySubcommands() map[string]func([]string) int {
 		"report":  cmdMemoryReport,
 		"fmt":     cmdMemoryFmt,
 		"watch":   cmdMemoryWatch,
-		"import":  cmdMemoryImport,
 		"sandbox": cmdMemorySandbox,
 		"upgrade": cmdMemoryUpgrade,
 		"extract": cmdMemoryExtract,
@@ -329,6 +303,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"store":   cmdMemoryStore,
 
 		"conflicts": cmdMemoryConflicts,
+		"sync":      cmdMemorySync,
 	}
 }
 
@@ -340,6 +315,9 @@ func cmdMemory(args []string) int {
 	}
 	sub := args[0]
 	h, ok := memorySubcommands()[sub]
+	if use, retired := memoryRetired[sub]; retired && !ok {
+		return helptext.FailUsage("memory %s: retired: %s", sub, use)
+	}
 	if !ok {
 		return helptext.FailUsage("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
@@ -371,15 +349,12 @@ func memorySpec() *helptext.Node {
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
 		"watch":   {Flags: []helptext.Flag{helptext.Plain("session"), helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("owner"), helptext.Plain("idle")}},
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
-		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to"), helptext.Plain("model"), helptext.BoolFlag("no-resolve")}},
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild"), helptext.BoolFlag("conflicts"), helptext.ValuedFlag("clear", nil)}},
-		"store":   {Flags: []helptext.Flag{helptext.ValuedFlag("truth", func() []string { return []string{"files", "db"} })}},
+		"store":   {Flags: []helptext.Flag{helptext.ValuedFlag("truth", func() []string { return []string{"db"} })}},
+		"sync":    {Flags: []helptext.Flag{helptext.Plain("host")}},
 		"conflicts": {Flags: []helptext.Flag{helptext.Plain("resolve"),
 			helptext.ValuedFlag("keep", func() []string { return []string{"local", "peer"} })}},
-		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
-			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
-			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
 	}}
 }
 
@@ -903,153 +878,10 @@ func cmdMemoryPromote(args []string) int {
 	return 0
 }
 
-var memoryImportPage = helptext.Page{
-	Usage: "claude-code memory import (--from DIR | --host HOST) [flags]",
-	About: "Merge another bank's logs (a memory root or one store) into this one; nothing\n" +
-		"local is overwritten, the source is never changed. --topics adds the other files.\n" +
-		"git -C <memory> log is the undo.",
-}
-
-// cmdMemoryImport is `memory import`: --dry-run prints the plan and writes nothing.
-func cmdMemoryImport(args []string) int {
-	fs := helptext.NewFlagSet("memory import", memoryImportPage)
-	from := fs.String("from", "", "memory root or store dir to merge in")
-	host := fs.String("host", "", "tailnet host whose memory root to fetch over ssh")
-	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
-	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
-	sync := fs.Bool("sync", false, "pull, then push; all peers when no --host")
-	replaceFile := fs.String("replace", "", "file of sha256 lines: replace those files on a match")
-	removeFile := fs.String("remove", "", "file of sha256 lines: delete those files while the hash still matches")
-	primary := fs.String("primary", "", "with --sync: self, a peer host or none; its version wins conflicts and deletions")
-	plans := fs.Bool("plans", false, "apply a sync peer's plans from --from DIR")
-	if code, done := memoryParseNoArgs(fs, "import", args); done {
-		return code
-	}
-	if *plans {
-		return memoryImportPlans(*from, *dryRun, *sync, *host, *replaceFile)
-	}
-	if *sync {
-		return memorySync(*host, memorySyncFlags{*from, *replaceFile, *removeFile, *primary}, *dryRun)
-	}
-
-	if (*from == "") == (*host == "") {
-		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
-	}
-	replace, remove, err := memoryHashLists(*replaceFile, *removeFile)
-	if err != nil {
-		return helptext.FailUsage("memory import: %v", err)
-	}
-	if *primary != "" {
-		return helptext.FailUsage("memory import: --primary goes with --sync (usage: %s)", memoryImportPage.Usage)
-	}
-	dir, label, err := memoryImportSource(*from, *host)
-	if err != nil {
-		return helptext.Fail("memory import: %v", err)
-	}
-	if *host != "" {
-		defer func() { _ = os.RemoveAll(dir) }()
-	}
-	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics, Replace: replace, Remove: remove})
-	if err != nil {
-		return memoryImportFail(err)
-	}
-	fmt.Println(strings.Join(append(res.Lines, res.Summary), "\n"))
-	return 0
-}
-
-// memoryHashLists reads --replace and --remove, each a file of sha256 lines.
-func memoryHashLists(replaceFile, removeFile string) (replace, remove map[string]string, err error) {
-	if replace, err = memory.ReadReplaceList(replaceFile); err != nil {
-		return nil, nil, fmt.Errorf("--replace: %w", err)
-	}
-	if remove, err = memory.ReadReplaceList(removeFile); err != nil {
-		return nil, nil, fmt.Errorf("--remove: %w", err)
-	}
-	return replace, remove, nil
-}
-
-// memoryImportPlans is the peer side of the plans sync, run by the syncing machine over ssh.
-func memoryImportPlans(from string, dryRun, sync bool, host, replaceFile string) int {
-	if from == "" || sync || host != "" || replaceFile != "" {
-		return helptext.FailUsage("memory import: --plans takes --from DIR and --dry-run only (usage: %s)", memoryImportPage.Usage)
-	}
-	lines, err := memory.ImportPlans(from, dryRun)
-	fmt.Println(strings.Join(lines, "\n"))
-	if err != nil {
-		return helptext.Fail("memory import --plans: %v", err)
-	}
-	return 0
-}
-
-// memorySyncFlags are the import flags --sync sees; only primary is its own.
-type memorySyncFlags struct{ from, replace, remove, primary string }
-
-func (f memorySyncFlags) refusal(dryRun bool) string {
-	switch {
-	case f.from != "" || f.replace != "" || f.remove != "":
-		return "--sync takes none of --from, --replace and --remove"
-	case f.primary != "" && dryRun:
-		return "--primary is saved, so it does not combine with --dry-run"
-	}
-	return ""
-}
-
-// memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
-func memorySync(host string, f memorySyncFlags, dryRun bool) int {
-	if msg := f.refusal(dryRun); msg != "" {
-		return helptext.FailUsage("memory import: %s (usage: %s)", msg, memoryImportPage.Usage)
-	}
-	if memory.InSandbox() {
-		fmt.Fprintln(os.Stderr, "memory sync: refused: this config dir is a sandbox")
-		return 0
-	}
-	if !memory.SyncOn() {
-		return helptext.FailUsage(memory.SyncOffMsg)
-	}
-	peers := []string{host}
-	if host == "" {
-		peers = providers.RemoteHosts()
-	}
-	for i := range peers {
-		peers[i] = strings.TrimSpace(peers[i])
-	}
-	if len(peers) == 0 {
-		return helptext.FailUsage("memory import --sync: CLAUDE_REMOTE_HOST names no peer; give --host")
-	}
-	if f.primary != "" {
-		if err := memory.SetSyncPrimary(f.primary); err != nil {
-			return helptext.FailUsage("memory import: --primary: %v", err)
-		}
-	}
-	code, err := memory.RunSync(peers, dryRun, os.Stdout)
-	if err != nil {
-		return helptext.Fail("memory sync: %v", err)
-	}
-	return code
-}
-
-// memoryImportFail is exit 2 for a bad --from or flag combination, 75 for a busy store, else exit 1.
-func memoryImportFail(err error) int {
-	if errors.Is(err, memory.ErrBankBusy) {
-		helptext.Fail("memory import: %v", err)
-		return memory.ImportBusyExit
-	}
-	if _, bad := errors.AsType[*memory.ImportInputError](err); bad {
-		return helptext.FailUsage("memory import: %v", err)
-	}
-	return helptext.Fail("memory import: %v", err)
-}
-
-// memoryImportSource is the dir to import from and its commit label: --from as given, else the --host fetch.
-func memoryImportSource(from, host string) (dir, label string, err error) {
-	if host == "" {
-		return from, from, nil
-	}
-	if dir, err = memory.FetchRoot(host); err != nil {
-		_ = os.RemoveAll(dir)
-		err = fmt.Errorf("fetch from %s: %w", host, err)
-	}
-	return dir, host, err
+// memoryRetired names each retired verb's replacement; a typed one exits 2 with it.
+var memoryRetired = map[string]string{
+	"import": "memory syncs with `claude-code memory sync`",
+	"fetch":  "memory syncs with `claude-code memory sync`",
 }
 
 // memorySearchExplain prints the hook's recall selection; --explain refuses --format json.
@@ -1087,9 +919,6 @@ func cmdMemorySandbox(args []string) int {
 	}
 	res, err := memory.Sandbox(memory.SandboxOptions{Empty: *empty})
 	if err != nil {
-		if _, ok := errors.AsType[*memory.ImportInputError](err); ok {
-			return helptext.FailUsage("memory sandbox: %v", err)
-		}
 		return helptext.Fail("memory sandbox: %v", err)
 	}
 	return printMemorySandbox(res, *format)

@@ -77,6 +77,30 @@ func TestPlanTaskDoneReopenStrikeAndAmbiguousId(t *testing.T) {
 	}
 }
 
+func TestPlanMutationsRejectExtraArguments(t *testing.T) {
+	const name, body = "2026-11-18-safe.md", "- [ ] 1.1 Safe\n"
+	repo := planRepo(t, map[string]string{name: body})
+	file := filepath.Join(plans.Home(repo), name)
+	for _, args := range [][]string{
+		{"plan", "task", "1.1", "--done", "extra", "--plan", file},
+		{"plan", "task", "--done", "1.1", "extra", "--plan", file},
+		{"plan", "task", "", "--done", "--plan", file},
+		{"plan", "tick", "--audit", "extra"},
+		{"plan", "tick", "--verify", "--dry-run"},
+		{"plan", "tick", "--verify", "--range", "HEAD..HEAD"},
+		{"plan", "tick"},
+	} {
+		code, out, stderr := runCLI(t, args...)
+		if code != 2 || out != "" || readPlan(t, repo, name) != body {
+			t.Fatalf("%q: exit %d, out %q, stderr %q; plan %q", args, code, out, stderr, readPlan(t, repo, name))
+		}
+	}
+	code, _, stderr := runCLI(t, "plan", "task", "--done", "1.1", "--plan", file, "--sha", "abc1234")
+	if code != 0 || !strings.Contains(readPlan(t, repo, name), "- [x] 1.1 Safe (abc1234)") {
+		t.Fatalf("interspersed flags: exit %d, stderr %q", code, stderr)
+	}
+}
+
 // plan task is offered by completion, so TestCompletionMatchesHelpFlags then holds its flags to -h.
 func TestPlanSpecOffersTask(t *testing.T) {
 	if planSpec().Sub["task"] == nil {

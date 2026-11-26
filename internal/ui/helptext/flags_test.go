@@ -185,6 +185,10 @@ func TestRemovedFlagHint(t *testing.T) {
 		{"env", []string{"--env", "qa"}, "--profile"},
 		{"tier", []string{"--tier", "opus"}, "--model"},
 		{"after other args", []string{"-p", "hi", "--tier=opus"}, "--tier"},
+		{"after bool flag", []string{"--print-env", "--provider", "x"}, "--profile"},
+		{"after unknown bool", []string{"--verbose", "--env", "qa"}, "--profile"},
+		{"after positional", []string{"exec", "--provider", "x"}, "--profile"},
+		{"valued flag skips next", []string{"--system-prompt", "--provider"}, ""},
 		{"profile valid", []string{"--profile", "x"}, ""},
 		{"model valid", []string{"--model=opus"}, ""},
 		{"after double dash", []string{"--", "--provider"}, ""},
@@ -204,6 +208,18 @@ func TestRemovedFlagHint(t *testing.T) {
 				t.Fatalf("RemovedFlagHint(%q) = %v, want containing %q", tt.args, err, tt.want)
 			}
 		})
+	}
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.Bool("json", false, "")
+	fs.String("task", "", "")
+	if err := RemovedFlagHintFS(fs, []string{"--json", "--provider", "x"}, "--provider"); err == nil {
+		t.Fatal("--provider after a bool flag must be refused")
+	}
+	if err := RemovedFlagHintFS(fs, []string{"--task", "--provider"}, "--provider"); err != nil {
+		t.Fatalf("--provider as the value of --task = %v, want nil", err)
+	}
+	if err := RemovedFlagHintFS(fs, []string{"--task", "--", "--json", "--provider", "x"}, "--provider"); err == nil {
+		t.Fatal("a flag value of -- must not hide a later removed flag")
 	}
 }
 

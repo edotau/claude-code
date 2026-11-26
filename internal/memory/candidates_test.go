@@ -377,3 +377,24 @@ func TestWriteCandidatesUnreadableFile(t *testing.T) {
 		t.Errorf("unreadable file: err=%v out=%q, want an error and no output", err, out.String())
 	}
 }
+
+// TestRewriteCandidateRefusesEditedMeanwhile pins that an owner edit between the read and the write stays.
+func TestRewriteCandidateRefusesEditedMeanwhile(t *testing.T) {
+	isolatedConfig(t)
+	path := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel))
+	write(t, path, "# C\n\n```jsonl\n"+candidateRows+"\n```\n")
+	if err := EnsureBank(""); err != nil {
+		t.Fatal(err)
+	}
+	const hand = "# C\n\nhand edit\n"
+	err := rewriteCandidate("fc-b", "approved", func(c *candidate) error {
+		write(t, path, hand) // the owner edits after the read, before the write
+		return approveEdit(c)
+	})
+	if err == nil {
+		t.Error("a stale preimage was accepted without error")
+	}
+	if got := mustRead(t, path); got != hand {
+		t.Errorf("the owner's edit was overwritten:\n%s", got)
+	}
+}

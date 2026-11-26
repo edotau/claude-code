@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/googletools"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
@@ -32,7 +32,7 @@ import (
 // noForward are inbound credentials and transport headers; egress auth is re-added by send.
 var noForward = map[string]bool{
 	"Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true, "Host": true, "Accept-Encoding": true,
-	translate.GoogleToolsHeader: true,
+	googletools.Header: true,
 }
 
 // parsePassthrough splits /p/<provider>/<openai|responses|gemini>/<rest>.
@@ -195,6 +195,8 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	}
 	if dbxGemini {
 		decoded.raw = decoded.geminiThinking(model)
+	}
+	if dialect == providers.ProtocolGemini {
 		if decoded.raw, err = decoded.withGoogleTools(googleTools, p.Options.GoogleTools); err != nil {
 			return nil, asked, model, false, err
 		}
@@ -359,7 +361,7 @@ func (r *Router) after429(tc *passthroughTPM, cur passthroughHop, resp *http.Res
 // tpmPassthroughHop moves cur to the next workspace in vault order serving its model on the dialect; false keeps cur.
 func (r *Router) tpmPassthroughHop(tc *passthroughTPM, cur passthroughHop, why string) (passthroughHop, bool) {
 	var route string
-	t, ok := r.tpmHop(providers.Target{Provider: cur.p, Model: cur.model}, func(t providers.Target) bool {
+	t, ok := r.tpmHop(tc.in, providers.Target{Provider: cur.p, Model: cur.model}, func(t providers.Target) bool {
 		var fits bool
 		route, fits = r.siblingRoute(t, tc.origin, cur.model, tc.dialect, tc.tried)
 		return fits && servesGoogleTools(t.Provider, googleToolsHeader(tc.in))
@@ -529,7 +531,7 @@ func (r *Router) sendHop(in *http.Request, cur passthroughHop, target string,
 // withEffortNone is body with reasoning_effort "none" (nil when not a JSON object) and whether it carries tools.
 func withEffortNone(body []byte) ([]byte, bool) {
 	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
+	if json.Unmarshal(body, &top) != nil || top == nil {
 		return nil, false
 	}
 	top["reasoning_effort"] = json.RawMessage(`"none"`) // deleting it leaves the model default, refused the same
@@ -958,72 +960,6 @@ func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, 
 		query = "alt=sse"
 	}
 	return "v1beta/models/" + model + ":" + m[2], query, model, nil
-}
-
-// googleToolsHeader joins the tool tokens; a model= token limits them to that model (agy's title tier gets none).
-func googleToolsHeader(in *http.Request) string {
-	var tools []string
-	named := ""
-	for _, tok := range textutil.SplitCSV(strings.Join(in.Header.Values(translate.GoogleToolsHeader), ",")) {
-		if m, ok := strings.CutPrefix(tok, translate.GoogleToolsModelPrefix); ok {
-			named = m
-		} else {
-			tools = append(tools, tok)
-		}
-	}
-	if named != "" && named != geminiPathModel(in.URL.Path, providers.ProtocolGemini) {
-		return ""
-	}
-	return strings.Join(tools, ",")
-}
-
-// servesGoogleTools is false when p's probed list lacks a tool the request asked for; unprobed serves any.
-func servesGoogleTools(p *providers.Provider, header string) bool {
-	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
-	if err != nil {
-		return false
-	}
-	if p.Options.GoogleTools == nil {
-		return true
-	}
-	ok, _ := translate.ParseGoogleTools(p.Options.GoogleTools)
-	return len(translate.Unserved(ok, asked)) == 0
-}
-
-// errGoogleToolsBody refuses a google-tools request whose body cannot carry tools[], never sending it ungrounded.
-var errGoogleToolsBody = errors.New("proxy: google tools need a JSON body with tools[]")
-
-// withGoogleTools appends the header's built-in tools to a native generateContent tools[]; unserved is an error.
-func (b proxyBody) withGoogleTools(header string, served []string) ([]byte, error) {
-	asked, err := translate.ParseGoogleTools(textutil.SplitCSV(header))
-	if err != nil {
-		return nil, err
-	}
-	if len(asked) == 0 {
-		return b.raw, nil
-	}
-	if b.top == nil {
-		return nil, errGoogleToolsBody
-	}
-	if served != nil { // nil = unprobed row: send as asked, the upstream answers
-		ok, _ := translate.ParseGoogleTools(served)
-		if miss := translate.Unserved(ok, asked); len(miss) > 0 {
-			return nil, fmt.Errorf("google tool %s is not served on this profile; served: %s",
-				translate.JoinGoogleTools(miss), strings.Join(served, ","))
-		}
-	}
-	var have []map[string]json.RawMessage
-	if raw, ok := b.top["tools"]; ok && json.Unmarshal(raw, &have) != nil {
-		return nil, errGoogleToolsBody
-	}
-	for _, t := range asked {
-		key := translate.GoogleWireKey(t)
-		if !slices.ContainsFunc(have, func(e map[string]json.RawMessage) bool { _, ok := e[key]; return ok }) {
-			have = append(have, map[string]json.RawMessage{key: json.RawMessage(`{}`)})
-		}
-	}
-	b.top["tools"], _ = json.Marshal(have)
-	return b.marshalTop(), nil
 }
 
 // geminiThinking fits thinkingConfig to the model; the gemini-4 family rejects thinkingBudget and takes thinkingLevel.

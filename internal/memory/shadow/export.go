@@ -22,11 +22,10 @@ import (
 
 func init() {
 	memory.OpenExportDB = openExportDB
-	memory.ExportBeforeFlip = exportBeforeFlip
 }
 
-// exportBeforeFlip runs under SetTruth's bank lock; a conflict refuses the flip (the db side is kept beside the file).
-func exportBeforeFlip() error {
+// exportBeforeRebuild runs under the bank lock; a conflict refuses the rebuild (the db side is kept beside the file).
+func exportBeforeRebuild() error {
 	edb, closeDB, err := openExportDB()
 	if err != nil {
 		return err
@@ -34,7 +33,7 @@ func exportBeforeFlip() error {
 	rep, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir())
 	err = errors.Join(err, closeDB())
 	if err == nil && len(rep.Conflicts) > 0 {
-		return fmt.Errorf("memory: export conflicts %v: resolve them with `memory conflicts`, then flip again", rep.Conflicts)
+		return fmt.Errorf("memory: export conflicts %v: resolve them with `memory conflicts`, then rebuild again", rep.Conflicts)
 	}
 	return err
 }
@@ -262,6 +261,10 @@ func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc)
 	if err != nil {
 		return err
 	}
+	before, err := readDocUIDs(ctx, tx, d.path)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE entries SET seq = -rowid WHERE doc = ?`, d.path); err != nil {
 		return err
 	}
@@ -285,7 +288,10 @@ func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc)
 			return err
 		}
 	}
-	return deleteUnused(ctx, tx, oldRows, used, e.moved)
+	if err := deleteUnused(ctx, tx, oldRows, used, e.moved); err != nil {
+		return err
+	}
+	return captureDocOrder(ctx, tx, d.path, before)
 }
 
 // claimMovedRows lets an unmatched id-marked entry reuse a unique row with the same id whose old doc dropped it.

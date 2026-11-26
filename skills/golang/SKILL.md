@@ -23,4 +23,4 @@ where a reference disagrees.
 3. Verify with `rtk go build ./... && rtk go vet ./...`, then the touched package's tests.
 4. An API, release note or issue the module cache and `go doc` cannot answer: search through the web-explorer skill
    (`claude-code network websearch --query "<q>"`, `--extract https://pkg.go.dev/<pkg>`); a Gemini leaf can add
-   `--google-tools search,url,code` where its route serves them.
+   overlay `"googleTools":"search,url,code"` where its route serves them.

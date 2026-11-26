@@ -16,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // gitRepo is a temp repo with one commit holding internal/x/a.go.
@@ -189,6 +191,42 @@ func judgeRun(t *testing.T, answer string) *[]string {
 		return "", 0, nil
 	}
 	return &calls
+}
+
+func TestDriverAskOverlayKeepsPins(t *testing.T) {
+	old := driverRun
+	t.Cleanup(func() { driverRun = old })
+	var argv []string
+	driverRun = func(_ context.Context, _, _, _ string, args ...string) (string, int, error) {
+		switch args[1] {
+		case "ask":
+			argv = slices.Clone(args)
+			return `{"id":"j1"}`, 0, nil
+		case "result":
+			return `{"status":"ok"}`, 0, nil
+		}
+		return "", 0, nil
+	}
+	d := &driver{top: "/repo", exe: "claude-code"}
+	if _, err := d.ask(context.Background(), "/lane", "brief", benchOverlay{Model: "opus", Fallback: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"agents", "ask", "--background", "--format", "json", "--workdir", "/lane", "--overlay"}
+	if len(argv) != len(want)+2 || !slices.Equal(argv[:len(want)], want) || argv[len(argv)-1] != "-" {
+		t.Fatalf("ask argv = %q, want %q then JSON and stdin", argv, want)
+	}
+	var ov agentconfig.Overlay
+	if err := json.Unmarshal([]byte(argv[len(want)]), &ov); err != nil {
+		t.Fatal(err)
+	}
+	if ov.Provider != "databricks" || ov.Profile != "auto" || ov.Model != "opus" || ov.Fallback != "none" {
+		t.Fatalf("review leaf lost a pin: %+v", ov)
+	}
+	origins := agentconfig.Origins(nil, ov, agentconfig.Overlay{}, ov)
+	policy, err := router.PolicyOf(ov.Fallback, router.PolicyOverlay)
+	if !origins.Typed("model") || !origins.Typed("fallback") || err != nil || !policy.Typed() || policy.Kind != router.PolicyNone {
+		t.Fatalf("overlay weakened typed pins: origins %v, policy %+v, error %v", origins, policy, err)
+	}
 }
 
 // wantRows checks the scorecard holds no row (verdict "") or exactly one with that verdict.

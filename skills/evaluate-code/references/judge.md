@@ -8,9 +8,10 @@ Use when *someone else* called it done: another agent, a pasted report, a branch
 work mid-loop: `../../problem-solving/SKILL.md` Step 5 and `../../problem-solving/references/verify.md`; a graded
 transcript walk-through: the audit path in `../SKILL.md`.
 
-Not the same as: the codex final gate (`claude-code agents ask --agent codex --tools`), which runs the *project's*
-gate chain and fixes failures; this judges *claims* against *the diff* and changes nothing. `task-review.md` vets a
-task before code exists; Workflow `code-analyzer {fix: false}` finds new defects, this refutes asserted ones.
+Not the same as: the codex final gate (`claude-code agents ask --overlay '{"agent":"codex","tools":true}'`), which runs
+the *project's* gate chain and fixes failures; this judges *claims* against *the diff* and changes nothing.
+`task-review.md` vets a task before code exists; Workflow `code-analyzer {fix: false}` finds new defects, this refutes
+asserted ones.
 
 ## Protocol
 

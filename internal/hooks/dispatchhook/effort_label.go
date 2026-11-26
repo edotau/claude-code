@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -404,19 +405,43 @@ func bakedRoute(agent string) (provider, profile string) {
 	return "", ""
 }
 
+// askLine keeps the same flag precedence as the run it predicts.
+type askLine struct{ Agent, Provider, Profile, Model, Tier string }
+
 // askLineRoute is the route of the first `agents ask --agent <agent>` line in text, continuations joined.
 func askLineRoute(text, agent string) (provider, profile string) {
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\\\r\n", " "), "\\\n", " ")
 	for line := range strings.SplitSeq(text, "\n") {
-		words := strings.Fields(line)
+		words := quotedFields(line)
 		if len(words) < 4 || words[0] != "claude-code" || words[1] != "agents" || words[2] != "ask" {
 			continue
 		}
-		if a, ok := ParseAskWords(words[3:]); ok && a.Value("agent") == agent {
-			return a.Value("provider"), a.Value("profile")
+		if l, ok := readAskLine(words[3:]); ok && l.Agent == agent {
+			return l.Provider, l.Profile
 		}
 	}
 	return "", ""
+}
+
+// readAskLine refuses unreadable overlay values without loading files or resolving routes.
+func readAskLine(words []string) (askLine, bool) {
+	a, ok := ParseAskWords(words)
+	if !ok {
+		return askLine{}, false
+	}
+	if a.Has("overlay") && !a.overlayOK {
+		return askLine{}, false
+	}
+	return askLine{a.Value("agent"), a.Value("provider"), a.Value("profile"), a.Value("model"), a.Value("tier")}, true
+}
+
+// quotedFields shares shell unquoting with the receipt reader and refuses an unterminated quote or escape.
+func quotedFields(line string) []string {
+	line = shell.DropComments(line)
+	if at := shell.QuoteAt(line + "\x00"); at[len(at)-1] != 0 {
+		return nil
+	}
+	return shell.Tokens(line)
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.

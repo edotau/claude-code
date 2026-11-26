@@ -3,8 +3,10 @@ description: "Send a task to the coworker (pi in code mode) on the Databricks ar
 argument-hint: "[--host <host>] [--provider <p>] [--profile <p>] [--model <m>] [--effort <e>] [--fallback <mode>] [--codemode on|only] <task>"
 disable-model-invocation: true
 allowed-tools: Bash(claude-code agents label coworker *), Bash(claude-code agents brief --path pi), Read, Write,
-  Bash(claude-code agents ask --background --agent pi *),
-  Bash(claude-code agents ask --agent pi *), Bash(claude-code agents result -f *)
+  Bash(claude-code agents ask --background --overlay '{"agent":"pi"*),
+  Bash(claude-code agents ask --background --overlay {"agent":"pi"*),
+  Bash(claude-code agents ask --overlay '{"agent":"pi"*),
+  Bash(claude-code agents ask --overlay {"agent":"pi"*), Bash(claude-code agents result -f *)
 ---
 
 # /coworker
@@ -25,15 +27,24 @@ Launcher only, a plain ask with no relay subagent (`--carry` refuses pi); the ru
 reads `coworker`. Empty `$ARGUMENTS` or `help`: print the block above and stop. Otherwise:
 
 1. Take the leading flags in the block above off `$ARGUMENTS` (any order, each optional); the rest is the task.
-   When neither `--provider` nor `--profile` was given, add `--provider databricks --profile dev|qa|prod` (pick one), or
-   `--overlay {"provider":"databricks","profile":"auto"}` for the least-busy pick (`--profile auto` is refused). Add
-   `--codemode on` when `--codemode` was not.
+   When neither `--provider` nor `--profile` was given, add `"provider":"databricks","profile":"dev|qa|prod"` (pick
+   one), or `"provider":"databricks","profile":"auto"` for the least-busy pick (`--profile auto` is refused). Add
+   `"codemode":"on"` when `--codemode` was not given.
 2. Run `claude-code agents brief --path pi`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label coworker [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).
 4. Run ONE Bash call, description `<label>: <first ~8 words of the task>`:
-   `claude-code agents ask --background --agent pi [flags from step 1] --tools --autonomous - < <that path>`.
-   With `--host`, drop `--background`, add `--host <host>`, and relay the foreground result directly; skip step 5.
+
+   ```sh
+   claude-code agents ask --background --overlay '{"agent":"pi","provider":"databricks","profile":"auto","autonomous":true,"codemode":"on","tools":true}' - < <that path>
+   ```
+
+   Replace the example's route and code mode with the selections from step 1; add the remaining flags as keys of that
+   one object, in the order agent, provider, profile, model, then the rest
+   alphabetically (`--host` becomes `"host"`). With `--host`, drop `--background`, add `"host":"<host>"` to the
+   overlay, and relay the foreground result directly; skip step 5. For provider alone add `"profile":"auto"`; for a
+   registry profile alone add its provider. For `--profile session` without a provider, remove both example route keys
+   and pass `--profile session` as a flag after `--overlay`.
    Allow the Bash call to wait for completion.
 5. For a local ask, read the id from its `job <id> started` line, then wait with ONE
    `claude-code agents result -f <id>`.

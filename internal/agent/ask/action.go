@@ -98,13 +98,13 @@ func actionRefusal(f *askFlags) string {
 // actionCheck is the usage error for an action the harness cannot run as asked, else nil.
 func actionCheck(f *askFlags) error {
 	if why := actionRefusal(f); why != "" {
-		return fmt.Errorf("spec action runs no model: not with %s", why)
+		return fmt.Errorf("brief action runs no model: not with %s", why)
 	}
 	if f.action == "gateway" && len(f.actionOwn) > 0 {
-		return errors.New("spec own: the gateway action takes no own paths")
+		return errors.New("brief own: the gateway action takes no own paths")
 	}
 	if f.action == "diff" && slices.ContainsFunc(f.actionOwn, func(p string) bool { return strings.Contains(p, ",") }) {
-		return errors.New("spec own: a path with a comma cannot go to agents diff --path")
+		return errors.New("brief own: a path with a comma cannot go to agents diff --path")
 	}
 	return nil
 }

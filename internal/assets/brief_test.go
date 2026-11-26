@@ -10,9 +10,9 @@ import (
 func TestBriefTextMatchesOldLiterals(t *testing.T) {
 	const clean = "VERDICT: no actionable findings"
 	checkFrames(t, []frameCase{
-		{"review-loop", ReviewLoop(), "Review loop (standing rule): after your change, get an other-family review that lists every finding; fix\n" +
-			"every finding yourself, any severity, then review again, until a review finds nothing. Three rounds in a row that each\n" +
-			"find a new HIGH in one area: stop and hand back the pattern with a design recommendation. Never hand back a finding unfixed\n" +
+		{"review-loop", ReviewLoop(), "Review loop (standing rule): do not get a review of your own change; the main session runs one shared other-family\n" +
+			"review over the collector at the end and sends back what it finds. Fix every finding you are sent yourself, any\n" +
+			"severity. Never hand back a finding unfixed\n" +
 			"or ask whether to fix it: fix it. Hand back only what you could not fix and why; the main session decides the rest.\n" +
 			"A test your change breaks: fix it now if small (repair the test only when the test is wrong; never delete or skip\n" +
 			"it); if large, hand back naming it for a test-repair leaf.\n" +
