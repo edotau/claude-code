@@ -199,8 +199,6 @@ local main diverged from origin/main (ahead 2, behind 3): a commit was rewritten
 local main diverged from origin/main (ahead 2, behind 3): both sides have new commits; merge origin/main before committing on top
 == HookClaimHowTo ==
 ; edit only your own hunks and stage just those (save `git diff <path>` to a patch file outside the repo, delete the hunks that are not yours, then `git apply --cached <patch>`), or hand the change to its owner
-== HookClaimStageHint ==
-stage only your hunks: save `git diff <path>` to a patch file outside the repo, delete the hunks that are not yours, then `git apply --cached <patch>`; or leave the file and tell its owner
 == ClaudeAttachImage ==
 
 

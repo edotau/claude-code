@@ -480,7 +480,7 @@ func cmdAgentsFix(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents fix: %v", err)
 	}
-	return inspect.Fix(inspect.FixOptions{Dir: cwd, Paths: sel, DryRun: *dry, Source: callerClaims(), Out: os.Stdout, Err: os.Stderr})
+	return inspect.Fix(inspect.FixOptions{Dir: cwd, Paths: sel, DryRun: *dry, Out: os.Stdout, Err: os.Stderr})
 }
 
 func cmdAgentsFind(args []string) int {

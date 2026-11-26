@@ -34,11 +34,13 @@ type LandResult struct {
 	BeforeOID  string
 	AfterOID   string
 	ResumeHint string
+	Merged     []string // landed paths merged cleanly into uncommitted live edits
+	Conflicted []string // landed paths left with conflict markers where both sides changed the same lines
 }
 
 // integrateTarget rebases the lane onto the pinned target inside the lane (never repo.Main); a lane on it is kept.
 func integrateTarget(ctx context.Context, plan *LandPlan) (*LandResult, error) {
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("integrate: %s: %v", issue.Code, issue.Detail)
@@ -108,10 +110,11 @@ func promoteLocked(ctx context.Context, repo *Repo, plan *LandPlan) (*LandResult
 		// never start the apply once canceled: repo.Main stays untouched
 		return nil, err
 	}
-	return &LandResult{Phase: "land", BeforeOID: freshTarget, AfterOID: freshSource}, applyLaneDiff(ctx, repo.Main, freshTarget, freshSource)
+	res = &LandResult{Phase: "land", BeforeOID: freshTarget, AfterOID: freshSource}
+	return res, applyLaneDiff(ctx, repo.Main, freshTarget, freshSource, res)
 }
 
-// promoteStateChecks requires the pinned target, no overlapping target edits, and a clean source worktree.
+// promoteStateChecks requires the pinned target, no operation in progress there, and a clean source worktree.
 func promoteStateChecks(ctx context.Context, repo *Repo, plan *LandPlan) error {
 	branch, err := requireBranch(ctx, repo.Main)
 	if err != nil {
@@ -120,15 +123,12 @@ func promoteStateChecks(ctx context.Context, repo *Repo, plan *LandPlan) error {
 	if branch != plan.TargetRef {
 		return fmt.Errorf("promote: main checkout moved to %q, pinned target was %q — retry from a fresh plan", branch, plan.TargetRef)
 	}
-	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+".."+plan.IntegratedOID); err != nil {
+	if issue, err := inProgressIssue(ctx, repo.Main, plan.MainGitDir); err != nil {
 		return err
 	} else if issue != nil {
-		if issue.Code == issueDirtyTarget {
-			return fmt.Errorf("promote: %s: %v: %w", issue.Code, issue.Detail, ErrLandRefused)
-		}
 		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
 	}
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, plan.AfterResolution); err != nil {
+	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir); err != nil {
 		return err
 	} else if issue != nil {
 		return fmt.Errorf("promote: %s: %v", issue.Code, issue.Detail)
@@ -442,28 +442,21 @@ func gateFailText(gate string, err error) string {
 
 // PlanOrResolve runs Preflight; a predicted conflict proceeds to the lane rebase; nil plan = blocked.
 func PlanOrResolve(ctx context.Context, repo *Repo, req LandRequest, dryRun bool) (*LandPlan, error) {
+	if err := commitLaneDirt(ctx, repo, req, dryRun); err != nil {
+		return nil, err
+	}
 	plan, err := Preflight(ctx, repo, req.Name, req.Target)
 	if err != nil {
 		return nil, err
 	}
 	req.ShowPlan(plan)
 	if len(plan.Issues) > 0 && !onlyConflictIssue(plan.Issues) {
-		return nil, dirtyRefusal(plan.Issues)
+		return nil, nil
 	}
 	if dryRun {
 		return plan, previewLand(ctx, repo, plan, req)
 	}
 	return plan, nil
-}
-
-// dirtyRefusal is the ErrLandRefused for a dirty-target issue, else nil (the plan is blocked and already shown).
-func dirtyRefusal(issues []Issue) error {
-	for _, iss := range issues {
-		if iss.Code == issueDirtyTarget {
-			return fmt.Errorf("%w: %s dirty in the live tree; nothing changed, lane kept", ErrLandRefused, strings.Join(iss.Paths, ", "))
-		}
-	}
-	return nil
 }
 
 // integrateLane rebases the lane; a conflict notices its session, or with ResolveAgent is resolved in the lane.
@@ -513,15 +506,12 @@ func resumeLand(ctx context.Context, repo *Repo, req LandRequest) (*LandPlan, er
 
 // replanPinned re-plans a committed resolution, requiring it unblocked and the target still at the pinned ref and OID.
 func replanPinned(ctx context.Context, repo *Repo, req LandRequest, ref, oid, blockedAfter, movedWhen string) (*LandPlan, error) {
-	fresh, err := preflightAfterResolution(ctx, repo, req.Name, req.Target)
+	fresh, err := Preflight(ctx, repo, req.Name, req.Target)
 	if err != nil {
 		return nil, err
 	}
 	if len(fresh.Issues) > 0 {
 		req.ShowPlan(fresh)
-		if err := dirtyRefusal(fresh.Issues); err != nil {
-			return nil, err
-		}
 		return nil, fmt.Errorf("still blocked after %s (%s)", blockedAfter, issueCodes(fresh.Issues))
 	}
 	if fresh.TargetRef != ref || fresh.TargetOID != oid {
@@ -626,7 +616,7 @@ func previewLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandReques
 	fmt.Fprintf(req.Out, "would: rebase %s onto %s inside the lane; a conflict aborts it, lane unchanged (exit 3)\n",
 		plan.WorktreePath, plan.TargetRef)
 	fmt.Fprintf(req.Out, "would: verify in the lane: %s\n", verify)
-	fmt.Fprintf(req.Out, "would: apply the lane's diff uncommitted to the live tree; refuse (exit 3) if a landed path is dirty; %s\n", clean)
+	fmt.Fprintf(req.Out, "would: apply the lane's diff uncommitted to the live tree, merging into any landed path you edited; %s\n", clean)
 	changed, err := targetTouchedPaths(ctx, repo.Main, plan.TargetOID+"..."+plan.SourceOID)
 	if err != nil {
 		return err
@@ -653,7 +643,7 @@ func previewLane(out io.Writer, repo *Repo, lane string) error {
 	return nil
 }
 
-// ErrLandRefused marks a land stopped before it changed the live tree: a landed path is dirty or the apply failed.
+// ErrLandRefused marks a land stopped before it changed the live tree: the apply or a merge failed.
 var ErrLandRefused = errors.New("land refused")
 
 const gitlinkMode = "160000"
@@ -661,8 +651,8 @@ const gitlinkMode = "160000"
 // gitlinkPatch matches a patch header touching a submodule entry, which git apply cannot update without an index.
 var gitlinkPatch = regexp.MustCompile(`(?m)^(?:index \S+ ` + gitlinkMode + `|(?:old|new|deleted file|new file) mode ` + gitlinkMode + `)`)
 
-// applyLaneDiff applies the net diff from..to unstaged: --check first, then an apply a cancel cannot cut short.
-func applyLaneDiff(ctx context.Context, main, from, to string) error {
+// applyLaneDiff applies the net diff from..to unstaged; a landed path dirty in the live tree is merged, not refused.
+func applyLaneDiff(ctx context.Context, main, from, to string, res *LandResult) error {
 	patch, err := runGit(ctx, main, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none",
 		"--src-prefix=a/", "--dst-prefix=b/", "--no-relative", "--no-color", "--submodule=short", from, to, "--")
 	if err != nil {
@@ -674,35 +664,26 @@ func applyLaneDiff(ctx context.Context, main, from, to string) error {
 	if gitlinkPatch.Match(patch) {
 		return fmt.Errorf("the lane changes a submodule, which cannot land uncommitted: %w", ErrLandRefused)
 	}
-	if err := refuseHiddenEdits(ctx, main, from, to); err != nil {
-		return err
-	}
-	if out, err := gitApply(ctx, main, patch, "--check"); err != nil {
-		return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, out, ErrLandRefused)
-	}
-	if out, err := gitApply(context.WithoutCancel(ctx), main, patch); err != nil {
-		return fmt.Errorf("git apply in %s failed after a clean --check, so the live tree may be partly changed "+
-			"(the lane and its branch are intact; compare with `git status`): %s: %w", main, out, err)
-	}
-	return nil
-}
-
-// refuseHiddenEdits refuses a landed path marked assume-unchanged or skip-worktree: git status cannot show its edits.
-func refuseHiddenEdits(ctx context.Context, main, from, to string) error {
 	files, err := laneFiles(ctx, main, from, to)
-	if err != nil || len(files) == 0 {
+	if err != nil {
 		return err
 	}
-	out, err := runGit(ctx, main, nil, append([]string{"--literal-pathspecs", "ls-files", "-v", "-z", "--"}, files...)...)
+	merges, err := mergeDirtyPaths(ctx, main, from, to, files)
 	if err != nil {
-		return fmt.Errorf("git ls-files in %s: %w", main, err)
+		return err
 	}
-	for rec := range strings.SplitSeq(string(out), "\x00") {
-		if tag, path, ok := strings.Cut(rec, " "); ok && !strings.Contains("HMRCK", tag) {
-			return fmt.Errorf("%s is marked assume-unchanged or skip-worktree in the live tree; nothing changed: %w", path, ErrLandRefused)
+	skip := excludeArgs(merges)
+	if len(merges) < len(files) {
+		if out, err := gitApply(ctx, main, patch, append([]string{"--check"}, skip...)...); err != nil {
+			return fmt.Errorf("git apply --check in %s: %s; nothing changed: %w", main, out, ErrLandRefused)
+		}
+		if out, err := gitApply(context.WithoutCancel(ctx), main, patch, skip...); err != nil {
+			return fmt.Errorf("git apply in %s failed after a clean --check, so the live tree may be partly changed "+
+				"(the lane and its branch are intact; compare with `git status`): %s: %w", main, out, err)
 		}
 	}
-	return nil
+	noteMerges(res, merges)
+	return writeMerges(main, merges)
 }
 
 // gitApply feeds patch to `git apply --binary` in main (extra flags first) and returns its trimmed output.
@@ -756,6 +737,12 @@ func afterLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest,
 func printLanded(ctx context.Context, repo *Repo, req LandRequest, landed *LandResult, state string) {
 	files, _ := targetTouchedPaths(ctx, repo.Main, landed.BeforeOID+".."+landed.AfterOID)
 	fmt.Fprintf(req.Out, "landed %s: %d files uncommitted in %s; %s\n", req.Name, len(files), repo.Main, state)
+	if len(landed.Merged) > 0 {
+		fmt.Fprintf(req.Out, "merged into your uncommitted edits: %s\n", strings.Join(landed.Merged, ", "))
+	}
+	if len(landed.Conflicted) > 0 {
+		fmt.Fprintf(req.Out, "conflict markers left in (both sides changed the same lines): %s\n", strings.Join(landed.Conflicted, ", "))
+	}
 	if stat, err := runGit(ctx, repo.Main, nil, "diff", "--stat", landed.BeforeOID, landed.AfterOID, "--"); err == nil {
 		fmt.Fprint(req.Out, string(stat))
 	}

@@ -365,7 +365,6 @@ func hookRenderCases() []renderCase {
 		{"HookDiverged", "rewritten", func() string { return HookDiverged("main", "origin/main", 2, 3, true) }},
 		{"HookDiverged", "plain", func() string { return HookDiverged("main", "origin/main", 2, 3, false) }},
 		{"HookClaimHowTo", "", HookClaimHowTo},
-		{"HookClaimStageHint", "", HookClaimStageHint},
 		{"ClaudeAttachImage", "", func() string { return ClaudeAttachImage("/i.png") }},
 		{"AttachFile", "", func() string { return AttachFile(`"/f"`, two) }},
 		{"AttachRef", "", func() string { return AttachRef("/f") }},

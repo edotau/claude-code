@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -205,11 +204,6 @@ func laneHold(j laneJob, e worktree.Entry, repo *worktree.Repo, q *worktree.Queu
 	}
 	land := laneLandCmd(j.lane)
 	switch {
-	case e.Dirty:
-		files := core.DirtyPaths(j.lane)
-		q.Reason, q.Detail = "uncommitted work", capText(strings.Join(files, ", "))
-		q.Next = "(cd " + j.lane + " && claude-code worktree commit --task " + cmp.Or(j.task, "<id>") +
-			` -m "<type>: <subject>" ` + strings.Join(files, " ") + ") && " + land
 	case len(e.Problems) > 0 || e.Busy != "" || e.DivergenceUnknown():
 		why := cmp.Or(e.Busy, strings.Join(e.Problems, "; "), "divergence unknown")
 		q.Reason, q.Detail, q.Next = "lane busy or unreadable", capText(why), land+" once it is free"

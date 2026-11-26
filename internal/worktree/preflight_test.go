@@ -150,7 +150,7 @@ func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
 	plan := &LandPlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
-	stop, err := screenCheckouts(context.Background(), repo, plan, "release", false)
+	stop, err := screenCheckouts(context.Background(), repo, plan, "release")
 	if err != nil || !stop {
 		t.Fatalf("target mismatch must stop before inspecting the nonexistent worktree: stop=%v err=%v", stop, err)
 	}
@@ -276,17 +276,6 @@ func TestPreflightRenameConflict(t *testing.T) {
 	}
 }
 
-func assertDirtyTargetIssue(t *testing.T, plan *LandPlan, path string) {
-	t.Helper()
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyTarget {
-		t.Fatalf("Issues = %v, want one IssueDirtyTarget", plan.Issues)
-	}
-	issue := plan.Issues[0]
-	if !slices.Equal(issue.Paths, []string{path}) || !strings.Contains(issue.Detail, path) {
-		t.Fatalf("issue = %+v, want only overlapping path %q and detail naming it", issue, path)
-	}
-}
-
 func TestPreflightDirtyTargetNonOverlapping(t *testing.T) {
 	for _, name := range []string{"f.txt", "dirty\nfile.txt"} {
 		t.Run(name, func(t *testing.T) {
@@ -319,7 +308,9 @@ func TestPreflightDirtyTargetRename(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertDirtyTargetIssue(t, plan, name)
+			if len(plan.Issues) != 0 {
+				t.Fatalf("Issues = %v, want none: a dirty live path never blocks the plan", plan.Issues)
+			}
 		})
 	}
 }
@@ -335,10 +326,12 @@ func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDirtyTargetIssue(t, plan, "f.txt")
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none: a dirty live path never blocks the plan", plan.Issues)
+	}
 }
 
-// Regression: status.showUntrackedFiles=no must not hide a dirty worktree from isDirty.
+// Regression: with status.showUntrackedFiles=no an untracked lane file still never blocks a land.
 func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 	t.Parallel()
 	repo, _, wt := preflightFixtureSetup(t)
@@ -351,24 +344,8 @@ func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preflight: %v", err)
 	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyWorktree {
-		t.Fatalf("Issues = %v, want one IssueDirtyWorktree (an untracked file must still count as dirty)", plan.Issues)
-	}
-}
-
-func TestPreflightDirtyWorktree(t *testing.T) {
-	t.Parallel()
-	repo, _, wt := preflightFixtureSetup(t)
-	if err := os.WriteFile(filepath.Join(wt, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	plan, err := Preflight(context.Background(), repo, "feature", "")
-	if err != nil {
-		t.Fatalf("Preflight: %v", err)
-	}
-	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDirtyWorktree {
-		t.Fatalf("Issues = %v, want one IssueDirtyWorktree", plan.Issues)
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none: an untracked file never blocks a land", plan.Issues)
 	}
 }
 
@@ -533,36 +510,6 @@ func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	landFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
 	landFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
 	return repo
-}
-
-// TestPreflightDirtyTargetNamesClaimHolder: an overlapping dirty file names the live session that claims it.
-func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	repo, main, wt := preflightFixtureSetup(t)
-	landFixtureWrite(t, wt, "f.txt", "feature edit\n", "feature edits f")
-	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	claims := filepath.Join(ClaimsDir(), fmt.Sprintf("%d-peer-session.jsonl", os.Getpid()))
-	if err := os.MkdirAll(filepath.Dir(claims), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	line := fmt.Sprintf(`{"schema":1,"path":%q,"ts":1}`+"\n", filepath.Join(main, "f.txt"))
-	if err := os.WriteFile(claims, []byte(line), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := Preflight(context.Background(), repo, "feature", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertDirtyTargetIssue(t, plan, "f.txt")
-	if plan.TargetOID != "" || plan.SourceOID != "" {
-		t.Fatalf("OIDs pinned despite an overlapping dirty target: %+v", plan)
-	}
-	want := fmt.Sprintf("f.txt (held by session peer-ses (pid %d))", os.Getpid())
-	if !strings.Contains(plan.Issues[0].Detail, want) {
-		t.Fatalf("detail = %q, want %q", plan.Issues[0].Detail, want)
-	}
 }
 
 // A live process other than the caller inside the lane refuses the merge; the caller's own process does not.

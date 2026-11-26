@@ -123,43 +123,32 @@ func TestCommitClaimsOnlyLeavesUnclaimedFileOut(t *testing.T) {
 	}
 }
 
-func TestCommitRefusesPeerClaimedPath(t *testing.T) {
+func TestCommitTakesPeerClaimedPath(t *testing.T) {
 	dir := commitRepo(t)
 	hosttest.WriteRel(t, dir, "a.txt", "peer's\n")
 	claim(t, "peer", filepath.Join(dir, "a.txt"))
-	head := hosttest.In(t, dir, "rev-parse", "HEAD")
-	_, err := commitRun(commitReq(dir, "fix: a", "a.txt"))
-	wantCode(t, err, 1)
-	if !strings.Contains(err.Error(), fmt.Sprintf("a.txt is claimed by session peer (pid %d)", peerPid)) {
-		t.Fatalf("error = %v, want the holder named", err)
+	if _, err := commitRun(commitReq(dir, "fix: a", "a.txt")); err != nil {
+		t.Fatalf("a peer's claim must not refuse the commit: %v", err)
 	}
-	if hosttest.In(t, dir, "rev-parse", "HEAD") != head {
-		t.Fatal("a refused commit moved HEAD")
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
+		t.Fatalf("commit holds %q, want a.txt", got)
 	}
 }
 
-func TestCommitLinkedLaneAllowsOwnLatestEdit(t *testing.T) {
+func TestCommitInLinkedLaneIgnoresPeerEditTimes(t *testing.T) {
 	dir := commitRepo(t)
 	hosttest.In(t, dir, "branch", "-m", "main")
 	lane := paths.Real(filepath.Join(t.TempDir(), "lane"))
 	hosttest.In(t, dir, "worktree", "add", "-q", "-b", "lane", lane)
-	hosttest.WriteRel(t, lane, "a.txt", "both\n")
 	now := time.Now().Unix() + 20
-	claimAt(t, "peer", "", filepath.Join(lane, "a.txt"), now-10)
-	claimAt(t, "me", "", filepath.Join(lane, "a.txt"), now)
-	if _, err := commitRun(commitReq(lane, "fix: a", "a.txt")); err != nil {
-		t.Fatalf("own latest edit in a linked lane: %v", err)
+	for _, tc := range []struct{ root, file string }{{lane, "a.txt"}, {lane, "b.txt"}, {dir, "c.txt"}} {
+		hosttest.WriteRel(t, tc.root, tc.file, "edited\n")
+		claimAt(t, "me", "", filepath.Join(tc.root, tc.file), now-10)
+		claimAt(t, "peer", "", filepath.Join(tc.root, tc.file), now)
+		if _, err := commitRun(commitReq(tc.root, "fix: "+tc.file, tc.file)); err != nil {
+			t.Fatalf("%s edited last by the peer: %v", tc.file, err)
+		}
 	}
-	hosttest.WriteRel(t, lane, "b.txt", "peer\n")
-	claimAt(t, "me", "", filepath.Join(lane, "b.txt"), now-10)
-	claimAt(t, "peer", "", filepath.Join(lane, "b.txt"), now)
-	_, err := commitRun(commitReq(lane, "fix: b", "b.txt"))
-	wantCode(t, err, 1)
-	hosttest.WriteRel(t, dir, "c.txt", "x\n")
-	claimAt(t, "peer", "", filepath.Join(dir, "c.txt"), now-10)
-	claimAt(t, "me", "", filepath.Join(dir, "c.txt"), now)
-	_, err = commitRun(commitReq(dir, "fix: c", "c.txt"))
-	wantCode(t, err, 1)
 }
 
 func TestCommitRename(t *testing.T) {
@@ -286,34 +275,35 @@ func TestCommitNoPathsNoClaimsIsUsageError(t *testing.T) {
 	}
 }
 
-func TestCommitRefusesRenameWhoseSourceIsPeerClaimed(t *testing.T) {
+func TestCommitRenameWhoseSourceIsPeerClaimed(t *testing.T) {
 	dir := commitRepo(t)
 	hosttest.In(t, dir, "mv", "a.txt", "renamed.txt")
 	claim(t, "peer", filepath.Join(dir, "a.txt"))
-	head := hosttest.In(t, dir, "rev-parse", "HEAD")
-	_, err := commitRun(commitReq(dir, "refactor: rename", "renamed.txt"))
-	wantCode(t, err, 1)
-	if !strings.Contains(err.Error(), "a.txt is claimed by session peer") || hosttest.In(t, dir, "rev-parse", "HEAD") != head {
-		t.Fatalf("err = %v; the peer's source path must be named and HEAD unmoved", err)
+	if _, err := commitRun(commitReq(dir, "refactor: rename", "renamed.txt")); err != nil {
+		t.Fatalf("a peer's claim on the rename source must not refuse: %v", err)
+	}
+	if got := commitFiles(t, dir); !strings.Contains(got, "renamed.txt") {
+		t.Fatalf("commit holds %q, want the rename", got)
 	}
 }
 
-func TestCommitNoPathsRefusesClaimsOfSeveralAgents(t *testing.T) {
+func TestCommitNoPathsLeavesSubagentClaimsOut(t *testing.T) {
 	dir := commitRepo(t)
 	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
 	hosttest.WriteRel(t, dir, "b.txt", "leaf's\n")
 	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
 	claimAs(t, "me", "leaf-1", filepath.Join(dir, "b.txt"))
-	_, err := commitRun(commitReq(dir, "fix: both"))
-	wantCode(t, err, 2)
-	if !strings.Contains(err.Error(), "name your files") {
-		t.Fatalf("error = %v", err)
+	if _, err := commitRun(commitReq(dir, "fix: main")); err != nil {
+		t.Fatalf("a subagent's claim must not stop main's bare commit: %v", err)
+	}
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
+		t.Fatalf("commit holds %q, want only main's a.txt", got)
 	}
 	if err := os.Remove(filepath.Join(ClaimsDir(), fmt.Sprintf("%d-me.jsonl", peerPid))); err != nil {
 		t.Fatal(err)
 	}
-	claimAs(t, "me", "leaf-1", filepath.Join(dir, "a.txt")) // a subagent's claims alone are refused too
-	_, err = commitRun(commitReq(dir, "fix: leaf"))
+	claimAs(t, "me", "leaf-1", filepath.Join(dir, "b.txt")) // a subagent's claims alone leave nothing to take
+	_, err := commitRun(commitReq(dir, "fix: leaf"))
 	wantCode(t, err, 2)
 }
 
@@ -329,50 +319,44 @@ func TestCommitNoPathsTakesOnlyMainClaims(t *testing.T) {
 	}
 }
 
-func TestCommitCLIDispatchNeedsNamedFiles(t *testing.T) {
+func TestCommitCLIDispatchBareTakesOwnSessionClaims(t *testing.T) {
 	dir := commitRepo(t)
 	t.Setenv(proc.DispatchIDEnv, "d1")
 	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
 	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
-	head := hosttest.In(t, dir, "rev-parse", "HEAD")
-	_, err := commitRun(commitReq(dir, "fix: x"))
-	wantCode(t, err, 2)
-	if !strings.Contains(err.Error(), "name your files") || hosttest.In(t, dir, "rev-parse", "HEAD") != head {
-		t.Fatalf("err = %v, HEAD must not move", err)
+	if _, err := commitRun(commitReq(dir, "fix: x")); err != nil {
+		t.Fatalf("a dispatched bare commit takes the session's claims: %v", err)
+	}
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
+		t.Fatalf("commit holds %q", got)
 	}
 }
 
-func TestCommitCLIDispatchRefusesSessionClaims(t *testing.T) {
+func TestCommitCLIDispatchTakesSessionClaims(t *testing.T) {
 	dir := commitRepo(t)
 	t.Setenv(proc.DispatchIDEnv, "d1")
 	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
 	hosttest.WriteRel(t, dir, "b.txt", "sibling's\n")
 	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
 	claimAs(t, "me", "leaf-2", filepath.Join(dir, "b.txt"))
-	for f, who := range map[string]string{"a.txt": "this session's main agent", "b.txt": "sibling leaf leaf-2"} {
-		_, err := commitRun(commitReq(dir, "fix: x", f))
-		wantCode(t, err, 1)
-		if !strings.Contains(err.Error(), f+" is claimed by "+who) {
-			t.Fatalf("%s: error = %v, want the holder named", f, err)
+	for _, f := range []string{"a.txt", "b.txt"} {
+		if _, err := commitRun(commitReq(dir, "fix: x", f)); err != nil {
+			t.Fatalf("%s: a session or sibling claim must not refuse a named file: %v", f, err)
 		}
 	}
 }
 
-func TestCommitCLIDispatchCommitsFileItClaimedItself(t *testing.T) {
+func TestCommitCLIDispatchCommitsEveryNamedFile(t *testing.T) {
 	dir := commitRepo(t)
 	t.Setenv(proc.DispatchIDEnv, "d1")
 	hosttest.WriteRel(t, dir, "a.txt", "mine\n")
 	hosttest.WriteRel(t, dir, "b.txt", "another dispatch's\n")
 	claimAs(t, "codex-session", "d1", filepath.Join(dir, "a.txt"))
 	claimAs(t, "codex-session", "d2", filepath.Join(dir, "b.txt"))
-	if _, err := commitRun(commitReq(dir, "fix: mine", "b.txt")); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
-		t.Fatalf("another dispatch's claim: err = %v, want a refusal naming b.txt", err)
-	}
-	if _, err := commitRun(commitReq(dir, "fix: mine", "a.txt")); err != nil {
-		t.Fatalf("own dispatch's claim refused: %v", err)
-	}
-	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
-		t.Fatalf("commit holds %q", got)
+	for _, f := range []string{"b.txt", "a.txt"} {
+		if _, err := commitRun(commitReq(dir, "fix: mine", f)); err != nil {
+			t.Fatalf("%s: another dispatch's claim must not refuse: %v", f, err)
+		}
 	}
 }
 

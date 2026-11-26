@@ -3,17 +3,14 @@ package inspect
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // fixFake swaps the exec seam: gofmt -w and mdsmith fix append a marker to each file; the listers name every file.
@@ -70,9 +67,7 @@ func fixRepo(t *testing.T) string {
 
 func runFix(dir string, dry bool, sel ...string) (code int, out, errOut string) {
 	var so, se bytes.Buffer
-	code = Fix(FixOptions{Dir: dir, Paths: sel, DryRun: dry, Out: &so, Err: &se, Source: worktree.ClaimSource{
-		Alive: func(int) bool { return true }, Self: "me", Owner: func() int { return 0 },
-		Label: func(pid int) string { return fmt.Sprintf("session peer (pid %d)", pid) }}})
+	code = Fix(FixOptions{Dir: dir, Paths: sel, DryRun: dry, Out: &so, Err: &se})
 	return code, so.String(), se.String()
 }
 
@@ -109,25 +104,15 @@ func TestFixRefusesWithoutPath(t *testing.T) {
 	}
 }
 
-func TestFixSkipsHeldAndUntrackedFiles(t *testing.T) {
+func TestFixSkipsUntrackedFiles(t *testing.T) {
 	dir := fixRepo(t)
 	f := &fixFake{}
 	f.install(t)
 	writeRepoFile(t, dir, "a.go", "edited\n")
 	writeRepoFile(t, dir, "new.go", "x\n")
-	if err := os.MkdirAll(worktree.ClaimsDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	line := fmt.Sprintf(`{"schema":1,"path":%q,"ts":%d}`+"\n", filepath.Join(dir, "a.go"), time.Now().Unix())
-	if err := os.WriteFile(filepath.Join(worktree.ClaimsDir(), "4242-peer.jsonl"), []byte(line), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	code, _, errOut := runFix(dir, false, "a.go", "b.go", "new.go")
-	if code != FixExitSkipped || !strings.Contains(errOut, "a.go: skipped, held by session peer") || !strings.Contains(errOut, "new.go: skipped, not tracked") {
+	if code != FixExitSkipped || !strings.Contains(errOut, "new.go: skipped, not tracked") {
 		t.Fatalf("code %d, err %q", code, errOut)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "a.go")); string(b) != "edited\n" {
-		t.Fatalf("held a.go was rewritten: %q", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "b.go")); string(b) != "x\n// fixed\n" {
 		t.Fatalf("b.go was not fixed: %q", b)

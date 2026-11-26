@@ -44,7 +44,6 @@ const (
 	OutcomeLanded      Outcome = "landed"
 	OutcomeGateFailed  Outcome = "gate_failed"
 	OutcomeTargetMoved Outcome = "target_moved"
-	OutcomeDirtyTarget Outcome = "dirty_target"
 	OutcomeConflict    Outcome = "conflict"
 	OutcomeLockBusy    Outcome = "lock_busy"
 	OutcomeRefused     Outcome = "refused"

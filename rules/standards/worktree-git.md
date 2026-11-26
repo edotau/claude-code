@@ -9,8 +9,8 @@
 3. **Stage named files only** (never `add -A`, `.` or a directory); commit when the request or
    an approved wave plan authorizes it, else confirm first.
    `claude-code worktree commit --task <id> -m <msg> [files]` is the way
-   to commit: it takes only named files, or with none the main session's own claims (a subagent or CLI leaf must name
-   its files; a CLI leaf is refused any claimed file), and refuses a peer's.
+   to commit: it takes only named files, or with none the main session's own claims (a subagent or CLI leaf should
+   name its files; a peer's claim never refuses it).
    Repeat `--task` for multiple tasks; `--plan <file>` selects the plan when ids collide. Each id must name one open
    task (a recent or claimed plan, or a dated `--plan` file in the repo's plans home) before staging; quote an id with
    spaces. The commit carries `Task: <plan-slug> <id>` trailers: only a real trailer counts (last paragraph, every line
@@ -24,7 +24,7 @@
    Plans finishing together run their closing steps once and tick each plan's lines with that sha; strike only a
    step really dropped.
    A file another live session or leaf has
-   uncommitted edits in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).
+   uncommitted edits in is noted once on the edit (`worktree-claim-check`); staging or committing it is never refused.
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
 5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;`; a docs
    commit gates on a clean `claude-code agents diff --check`.
@@ -77,9 +77,11 @@ another repo's primary checkout, gets a note naming `claude-code worktree create
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree land <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
   importers; all concurrent) and applies its net diff to the live working tree, uncommitted and unstaged. A landed
-  path already dirty in the live tree, or a patch that does not check, changes nothing, keeps the lane and exits 3
-  naming the paths (a write failure after a clean check exits 1, may be partial, and keeps the lane; a change you
-  did not make is never overwritten). A clean land removes the worktree, keeps the branch (the only committed copy
+  path already dirty in the live tree is three-way merged (`git merge-file`) into your file, keeping both sides, with
+  conflict markers where they changed the same lines, and the land reports it; a lane's own uncommitted tracked edits
+  are committed first. A patch that does not check, or a merge that fails, changes nothing, keeps the lane and exits 3
+  naming the paths (a write failure after a clean check exits 1, may be partial, and keeps the lane; a change you did
+  not make is never overwritten). A clean land removes the worktree, keeps the branch (the only committed copy
   until you commit; a detached lane keeps its worktree) and prints `landed <lane>: N files uncommitted in <dir>;
   branch <b> kept` plus the diff stat. `worktree clean <lane>` deletes the kept branch once its diff is in `HEAD`.
   Plan ticks fire when you commit with `Task:` trailers or run `plan task --done`, not at landing. The full

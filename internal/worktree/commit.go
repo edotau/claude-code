@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -77,8 +76,7 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
-	dispatched := proc.InDispatch(ctx)
-	set, err := commitSet(req, tree, dispatched)
+	set, err := commitSet(req, tree)
 	if err != nil {
 		return err
 	}
@@ -94,9 +92,6 @@ func Commit(ctx context.Context, req CommitRequest) error {
 		fmt.Fprintln(req.Out, n)
 	}
 	msg += trailers
-	if err := checkHolders(ctx, req, tree, set, dispatched); err != nil {
-		return err
-	}
 	untracked := printSet(ctx, req.Out, tree, set)
 	if req.DryRun {
 		return nil
@@ -200,7 +195,7 @@ func readOnlyStatus(ctx context.Context, top string) ([]proc.StatusEntry, error)
 }
 
 // commitSet is the repo-relative dirty paths to commit: named ones, else the caller's own claimed ones.
-func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, error) {
+func commitSet(req CommitRequest, t commitTree) ([]string, error) {
 	var want []string
 	var err error
 	if len(req.Paths) > 0 {
@@ -213,9 +208,6 @@ func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, erro
 			return nil, err
 		}
 		want = append(want, named...)
-	} else if dispatched {
-		return nil, usage("a dispatched leaf commits named files only: name your files " +
-			"(claude-code worktree commit -m <msg> <files>)")
 	} else if want, err = ownClaimed(req, t); err != nil {
 		return nil, err
 	}
@@ -339,10 +331,9 @@ func inCheckout(top, p string) (string, bool) {
 	return filepath.ToSlash(rel), ok
 }
 
-// ownClaimed is the dirty paths the main session claimed under top; any subagent's claim makes the pick ambiguous.
+// ownClaimed is the dirty paths the main session claimed under top; a subagent's claims are left out.
 func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 	var out []string
-	subagent := false
 	own := req.Source.Owner
 	_ = ScanClaims(req.Source.Alive, func(pid int, slug string, c Claim) {
 		if slug != req.Source.Self && pid != own() {
@@ -352,7 +343,6 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 		if !ok || !t.dirty[c.Path] {
 			return
 		}
-		subagent = subagent || c.Agent != ""
 		if c.Agent != "" {
 			return
 		}
@@ -360,109 +350,11 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 			out = append(out, rel)
 		}
 	})
-	switch {
-	case subagent:
-		return nil, usage("a subagent of this session also has claims: name your files " +
-			"(claude-code worktree commit -m <msg> <files>)")
-	case len(out) == 0:
+	if len(out) == 0 {
 		return nil, usage("no files to commit: name your files or ids (claude-code worktree commit -m <msg> <files|@id>)%s",
 			idListing(t))
 	}
 	return out, nil
-}
-
-// checkHolders refuses a dirty path of the set that another live session claims; a CLI leaf is refused any claim.
-func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []string, dispatched bool) error {
-	src := req.Source
-	src.Leaf = func(Claim) string { return "" } // outside a dispatch the worktree-claim-check hook judges this session
-	if dispatched {
-		src.Leaf = sessionHolder
-		src.Dispatch = proc.Value(ctx, proc.DispatchIDEnv) // a claim this dispatch stamped is its own, whatever the session
-	}
-	claims, err := LiveClaims(src)
-	if err != nil && len(claims) == 0 {
-		return fmt.Errorf("could not read file claims: %w", err)
-	}
-	var claimed []string
-	for _, rel := range set {
-		if len(claims[t.abs(rel)]) > 0 {
-			claimed = append(claimed, rel)
-		}
-	}
-	res, errs := freshHitsAll(ctx, t, claimed, claims)
-	res = dropOwnLatest(req.Source, t, claimed, res, dispatched)
-	var held []string
-	for i, rel := range claimed {
-		if errs[i] != nil {
-			return errs[i]
-		}
-		for _, h := range res[i] {
-			held = append(held, fmt.Sprintf("%s is claimed by %s (since %s)", rel, h.Who, time.Unix(h.TS, 0).Format("15:04")))
-		}
-	}
-	if len(held) > 0 {
-		return refuse("another live session or leaf has uncommitted edits in the set: %s; leave those files out or "+
-			"hand them to their owner", strings.Join(held, "; "))
-	}
-	return nil
-}
-
-// dropOwnLatest drops a peer's hit on a path this session edited last, in a linked worktree only.
-func dropOwnLatest(src ClaimSource, t commitTree, rels []string, res [][]ClaimHit, dispatched bool) [][]ClaimHit {
-	if !t.linked || dispatched {
-		return res
-	}
-	own := sync.OnceValue(src.Owner)
-	mine := map[string]int64{}
-	_ = ScanClaims(src.Alive, func(pid int, slug string, c Claim) {
-		if c.Agent == "" && (slug == src.Self || pid == own()) {
-			mine[c.Path] = max(mine[c.Path], c.TS)
-		}
-	})
-	out := make([][]ClaimHit, len(res))
-	for i, hits := range res {
-		out[i] = slices.DeleteFunc(slices.Clone(hits), func(h ClaimHit) bool { return mine[t.abs(rels[i])] >= h.TS })
-	}
-	return out
-}
-
-// freshHitsAll runs FreshHits per path on up to 4 workers, fully joined; results are indexed like paths.
-func freshHitsAll(ctx context.Context, t commitTree, paths []string, claims map[string][]ClaimHit) ([][]ClaimHit, []error) {
-	res := make([][]ClaimHit, len(paths))
-	errs := make([]error, len(paths))
-	query := func(i int) {
-		p := t.abs(paths[i])
-		res[i], errs[i] = FreshHits(ctx, t.top, p, t.dirty, claims[p], 0)
-	}
-	if len(paths) < 2 {
-		for i := range paths {
-			query(i)
-		}
-		return res, errs
-	}
-	var wg sync.WaitGroup
-	next := make(chan int)
-	for range min(4, len(paths)) {
-		wg.Go(func() {
-			for i := range next {
-				query(i)
-			}
-		})
-	}
-	for i := range paths {
-		next <- i
-	}
-	close(next)
-	wg.Wait()
-	return res, errs
-}
-
-// sessionHolder labels a claim of the caller's own session, which a CLI leaf may not commit.
-func sessionHolder(c Claim) string {
-	if c.Agent == "" {
-		return "this session's main agent"
-	}
-	return "sibling leaf " + c.Agent
 }
 
 // cleanMessage refuses a non-Conventional subject, drops attribution trailers and trailing blanks, reporting each.

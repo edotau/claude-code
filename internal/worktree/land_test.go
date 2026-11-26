@@ -205,7 +205,7 @@ func TestPromoteLockHeldRefusesConcurrentLand(t *testing.T) {
 	}
 }
 
-// A preflightAfterResolution plan tolerates untracked tool residue; a plain Preflight plan refuses it.
+// A plan tolerates untracked tool residue, and integrate and promote carry on past it.
 func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
@@ -217,13 +217,9 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	strict, err := Preflight(ctx, repo, "feature", "")
-	if err != nil || len(strict.Issues) == 0 {
-		t.Fatalf("plain Preflight must still flag untracked residue: issues=%v err=%v", strict.Issues, err)
-	}
-	plan, err := preflightAfterResolution(ctx, repo, "feature", "")
+	plan, err := Preflight(ctx, repo, "feature", "")
 	if err != nil || len(plan.Issues) != 0 {
-		t.Fatalf("preflightAfterResolution: issues=%v err=%v", plan.Issues, err)
+		t.Fatalf("Preflight: issues=%v err=%v", plan.Issues, err)
 	}
 	if _, err := integrateTarget(ctx, plan); err != nil {
 		t.Fatalf("integrateTarget refused residue: %v", err)
@@ -234,55 +230,62 @@ func TestIntegrateAndPromoteToleratePostResolutionResidue(t *testing.T) {
 	requireFileContent(t, filepath.Join(main, "g.txt"), "feature only\n")
 }
 
-func TestLandDirtyTargetOverlap(t *testing.T) {
-	for _, overlap := range []bool{false, true} {
-		name := "non-overlapping"
-		if overlap {
-			name = "overlapping"
-		}
-		t.Run(name, func(t *testing.T) {
+// dirtyLandCases are a lane change landing on an uncommitted live edit: no overlap, a clean merge, a conflict.
+var dirtyLandCases = []struct {
+	name, laneFile, laneBody, liveBody string
+	want                               []string
+	conflict                           bool
+}{
+	{"other file", "b.txt", "feature\n", "mine\n", []string{"mine\n"}, false},
+	{"disjoint hunks merge", "f.txt", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nTEN\n",
+		"ONE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n", []string{"ONE\n", "TEN\n"}, false},
+	{"same lines keep both with markers", "f.txt", "LANE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+		"LIVE\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n", []string{"<<<<<<<", "LIVE\n", "LANE\n", ">>>>>>>"}, true},
+}
+
+func TestLandDirtyTargetMergesBothSides(t *testing.T) {
+	const base = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n"
+	for _, tc := range dirtyLandCases {
+		t.Run(tc.name, func(t *testing.T) {
 			landFixtureLockEnv(t)
 			repo, main, wt := preflightFixtureSetup(t)
-			landFixtureWrite(t, main, "a.txt", "base\n", "main adds a")
-			landFixtureWrite(t, wt, "b.txt", "feature\n", "feature adds b")
-			if overlap {
-				landFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
-			}
+			landFixtureWrite(t, main, "f.txt", base, "main grows f")
+			landFixtureRun(t, wt, "merge", "-q", "--ff-only", headOf(main))
+			landFixtureWrite(t, wt, tc.laneFile, tc.laneBody, "feature edits")
 			before := headOf(main)
-			if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte(tc.liveBody), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			var plan *LandPlan
+			var out bytes.Buffer
 			outcome, err := Land(context.Background(), repo, LandRequest{
-				Name: "feature", Verify: "true", NoClean: true, Out: io.Discard, Err: io.Discard,
-				ShowPlan: func(p *LandPlan) { plan = p },
+				Name: "feature", Verify: "true", NoClean: true, Out: &out, Err: io.Discard, ShowPlan: func(*LandPlan) {},
 			})
-			if errors.Is(err, ErrLandRefused) != overlap || (!overlap && (err != nil || outcome == nil)) {
-				t.Fatalf("Land = %+v, %v; want a land refusal=%v", outcome, err, overlap)
+			if err != nil || outcome == nil || outcome.Blocked {
+				t.Fatalf("Land = %+v, %v; want it landed", outcome, err)
 			}
-			if overlap {
-				assertDirtyTargetIssue(t, plan, "a.txt")
+			if headOf(main) != before {
+				t.Fatal("main HEAD moved: a land stays uncommitted")
 			}
-			assertTargetEditIntact(t, main, before)
+			got, err := os.ReadFile(filepath.Join(main, "f.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.laneFile == "b.txt" {
+				requireFileContent(t, filepath.Join(main, "b.txt"), tc.laneBody)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(string(got), w) {
+					t.Errorf("f.txt = %q, want it to hold %q", got, w)
+				}
+			}
+			if marked := strings.Contains(out.String(), "conflict markers left in"); marked != tc.conflict {
+				t.Errorf("output %q: conflict note = %v, want %v", out.String(), marked, tc.conflict)
+			}
 		})
 	}
 }
 
-func assertTargetEditIntact(t *testing.T, main, wantHead string) {
-	t.Helper()
-	if got := headOf(main); got != wantHead {
-		t.Fatalf("main HEAD = %s, want %s", got, wantHead)
-	}
-	content, err := os.ReadFile(filepath.Join(main, "a.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != "uncommitted\n" {
-		t.Fatalf("a.txt = %q, want uncommitted edit intact", content)
-	}
-}
-
-func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
+func TestPromoteMergesIntoDirtyTargetAfterPlan(t *testing.T) {
 	landFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	landFixtureWrite(t, wt, "a.txt", "feature\n", "feature adds a")
@@ -298,10 +301,14 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := promoteOnly(ctx, repo, plan); err == nil || !strings.Contains(err.Error(), "dirty-target") || !strings.Contains(err.Error(), "a.txt") {
-		t.Fatalf("promote = %v, want dirty-target naming a.txt", err)
+	res, err := promoteOnly(ctx, repo, plan)
+	if err != nil || len(res.Conflicted) != 1 || res.Conflicted[0] != "a.txt" {
+		t.Fatalf("promote = %+v, %v; want a.txt left with conflict markers", res, err)
 	}
-	assertTargetEditIntact(t, main, before)
+	got, _ := os.ReadFile(filepath.Join(main, "a.txt"))
+	if !strings.Contains(string(got), "uncommitted\n") || !strings.Contains(string(got), "feature\n") || headOf(main) != before {
+		t.Fatalf("a.txt = %q, head moved = %v; want both sides kept", got, headOf(main) != before)
+	}
 }
 
 // requireFileContent fails unless the live tree holds the lane's content uncommitted at path.
@@ -514,29 +521,43 @@ func TestLaneLandDryRunPreservesEveryRef(t *testing.T) {
 	requireContains(t, "preview", out.String(), "would: rebase", "apply the lane's diff uncommitted", "remove the lane", "changed files: f.txt")
 }
 
-func TestLaneLandDirtyOverlapRefusesBeforeRebase(t *testing.T) {
+func TestLaneLandDirtyOverlapKeepsBothSides(t *testing.T) {
 	repo, main, wt := laneLandFixture(t)
 	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
-	before := headOf(wt)
-	mainBefore := headOf(main)
 	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("dirty\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var plan *LandPlan
-	req := laneRequest("a", io.Discard)
-	req.ShowPlan = func(p *LandPlan) { plan = p }
-	outcome, err := Land(t.Context(), repo, req)
-	if !errors.Is(err, ErrLandRefused) || outcome != nil || !strings.Contains(err.Error(), "f.txt") {
-		t.Fatalf("want a land refusal naming f.txt: %+v %v", outcome, err)
-	}
-	assertDirtyTargetIssue(t, plan, "f.txt")
-	if headOf(wt) != before || headOf(main) != mainBefore {
-		t.Fatal("ref moved before dirty-target refusal")
+	outcome, err := Land(t.Context(), repo, laneRequest("a", io.Discard))
+	if err != nil || outcome == nil || outcome.Blocked {
+		t.Fatalf("want a land past the dirty path: %+v %v", outcome, err)
 	}
 	data, err := os.ReadFile(filepath.Join(main, "f.txt"))
-	if err != nil || string(data) != "dirty\n" {
-		t.Fatalf("edit lost: %s %v", data, err)
+	if err != nil || !strings.Contains(string(data), "dirty\n") || !strings.Contains(string(data), "lane\n") {
+		t.Fatalf("f.txt = %q %v; want the edit and the lane's line both kept", data, err)
 	}
+}
+
+// A lane's uncommitted tracked edits are committed before the land and land with it; a dry run only counts them.
+func TestLaneLandCommitsLaneDirt(t *testing.T) {
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	if err := os.WriteFile(filepath.Join(wt, "f.txt"), []byte("lane, then more\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := headOf(wt)
+	var out bytes.Buffer
+	if _, err := PlanOrResolve(t.Context(), repo, laneRequest("a", &out), true); err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, "dry run", out.String(), "would commit 1 uncommitted lane files")
+	if headOf(wt) != before {
+		t.Fatal("dry run committed in the lane")
+	}
+	outcome, err := Land(t.Context(), repo, laneRequest("a", io.Discard))
+	if err != nil || outcome == nil || outcome.Blocked {
+		t.Fatalf("Land = %+v, %v; want it landed past the lane's dirt", outcome, err)
+	}
+	requireFileContent(t, filepath.Join(main, "f.txt"), "lane, then more\n")
 }
 
 // Trunk moving while the gate runs refuses the fast-forward and says re-run; the lane stays.

@@ -12,11 +12,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // Exit codes of Fix; 1 is a skipped file, a missing tool or a failed fixer.
@@ -29,7 +27,6 @@ type FixOptions struct {
 	Dir      string
 	Paths    []string
 	DryRun   bool
-	Source   worktree.ClaimSource // who counts as a peer when a file is claimed
 	Out, Err io.Writer
 }
 
@@ -56,10 +53,6 @@ func Fix(o FixOptions) int {
 	if err := r.resolve(ctx, o); err != nil {
 		fmt.Fprintf(o.Err, "agents fix: %v\n", err)
 		return FixExitUsage
-	}
-	if err := r.dropHeld(ctx, o.Source); err != nil {
-		fmt.Fprintf(o.Err, "agents fix: %v\n", err)
-		return FixExitSkipped
 	}
 	for _, st := range steps {
 		r.runStep(ctx, st)
@@ -138,43 +131,6 @@ func (r *fixRun) plain(rel string) bool {
 	}
 	real, err := filepath.EvalSymlinks(filepath.Dir(abs))
 	return err == nil && real == filepath.Dir(abs)
-}
-
-// dropHeld removes the dirty files another live session or leaf has claimed, as `worktree commit` refuses them.
-func (r *fixRun) dropHeld(ctx context.Context, src worktree.ClaimSource) error {
-	if len(r.files) == 0 {
-		return nil
-	}
-	raw, err := proc.RunGit(ctx, r.root, append([]string{"--no-optional-locks", "status", "--porcelain", "-z",
-		"--untracked-files=no", "--"}, r.files...)...)
-	if err != nil {
-		return err
-	}
-	dirty := worktree.DirtyMap(r.root, proc.StatusEntries(raw))
-	src.Leaf = func(worktree.Claim) string { return "" }
-	if proc.InDispatch(ctx) { // a CLI leaf is refused every claim but its own dispatch's
-		src.Leaf = func(c worktree.Claim) string { return "another agent of this session" }
-		src.Dispatch = proc.Value(ctx, proc.DispatchIDEnv)
-	}
-	claims, err := worktree.LiveClaims(src)
-	if err != nil && len(claims) == 0 {
-		return fmt.Errorf("could not read file claims: %w", err)
-	}
-	var kept []string
-	for _, f := range r.files {
-		abs := filepath.Join(r.root, filepath.FromSlash(f))
-		hits, err := worktree.FreshHits(ctx, r.root, abs, dirty, claims[abs], 0)
-		if err != nil {
-			return err
-		}
-		if len(hits) == 0 {
-			kept = append(kept, f)
-			continue
-		}
-		r.skip(f, fmt.Sprintf("held by %s (since %s)", hits[0].Who, time.Unix(hits[0].TS, 0).Format("15:04")))
-	}
-	r.files = kept
-	return nil
 }
 
 // runStep runs one table step's fixer, or with --dry-run its listing command, over the files its globs cover.

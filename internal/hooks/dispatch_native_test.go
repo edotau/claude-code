@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
-	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/memtest"
@@ -147,17 +146,16 @@ func allowInput(t *testing.T, tool, agentID, cwd string, in map[string]any) *cor
 	return core.ParseInput(bytes.NewReader(b))
 }
 
-// A leaf's Bash block from docs-placement or worktree-claim-check is allowed with a note; the module still blocks.
-func TestLeafBashAllowLiftsPlacementAndClaimCheck(t *testing.T) {
+// A leaf's Bash block from docs-placement is allowed with a note; the module still blocks.
+func TestLeafBashAllowLiftsPlacement(t *testing.T) {
 	t.Setenv(proc.DispatchIDEnv, "")
 	repo, _ := filepath.EvalSymlinks(hosttest.Repo(t))
-	t.Setenv("CLAUDE_CONFIG_DIR", repo) // the repo is the live config tree, where a leaf's claim check blocks
+	t.Setenv("CLAUDE_CONFIG_DIR", repo)
 	cases := []struct {
 		module, cmd string
 		raw         core.Runner
 	}{
 		{"docs-placement", "echo hi > NOTES.md", docs.Placement},
-		{"worktree-claim-check", "claude-code worktree commit -m x", wthook.ClaimCheck},
 	}
 	for _, c := range cases {
 		in := map[string]any{"command": c.cmd}

@@ -262,14 +262,6 @@ func HookDiverged(branch, up string, ahead, behind int, rewritten bool) string {
 
 func HookClaimHowTo() string { return renderHook("claim/how-to", nil) }
 
-func HookClaimStageHint() string { return renderHook("claim/stage-hint", nil) }
-
-func HookClaimCommitHint() string { return string(read("hooks/claim-commit-hint.txt")) }
-
-func HookClaimBareHint() string { return string(read("hooks/claim-bare-hint.txt")) }
-
-func HookClaimNestHint() string { return string(read("hooks/claim-nest-hint.txt")) }
-
 func HookClaimLaneHint() string { return string(read("hooks/claim-lane-hint.txt")) }
 
 // The file stores one trailing newline (git diff --check); the preamble ends with a blank line.

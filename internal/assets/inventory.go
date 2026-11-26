@@ -157,10 +157,7 @@ var inventory = []struct {
 	{"ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
 	{"pi/system-prompt.txt", "txt", "PiSystemPrompt", func() []byte { return read("pi/system-prompt.txt") }},
 	{"pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
-	{"hooks/claim.tmpl", "tmpl", "HookClaimHowTo,HookClaimStageHint", func() []byte { return read("hooks/claim.tmpl") }},
-	{"hooks/claim-commit-hint.txt", "txt", "HookClaimCommitHint", func() []byte { return read("hooks/claim-commit-hint.txt") }},
-	{"hooks/claim-bare-hint.txt", "txt", "HookClaimBareHint", func() []byte { return read("hooks/claim-bare-hint.txt") }},
-	{"hooks/claim-nest-hint.txt", "txt", "HookClaimNestHint", func() []byte { return read("hooks/claim-nest-hint.txt") }},
+	{"hooks/claim.tmpl", "tmpl", "HookClaimHowTo", func() []byte { return read("hooks/claim.tmpl") }},
 	{"hooks/claim-lane-hint.txt", "txt", "HookClaimLaneHint", func() []byte { return read("hooks/claim-lane-hint.txt") }},
 }
 

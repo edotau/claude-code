@@ -100,23 +100,15 @@ func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
 	var got []string
 	alive := func(int) bool { return true }
 	err := ScanClaims(alive, func(pid int, slug string, c Claim) {
-		got = append(got, label(pid, slug, c.Agent)+":"+c.Path)
+		got = append(got, fmt.Sprintf("%d-%s-%s:%s", pid, slug, c.Agent, c.Path))
 	})
 	for _, want := range []error{syscall.ELOOP, syscall.EISDIR} {
 		if !errors.Is(err, want) {
 			t.Errorf("ScanClaims error = %v, want live ledger failure %v", err, want)
 		}
 	}
-	label := "leaf worker of session readable (pid 103)"
-	if !reflect.DeepEqual(got, []string{label + ":dirty.go"}) {
+	if !reflect.DeepEqual(got, []string{"103-readable-worker:dirty.go"}) {
 		t.Errorf("ScanClaims claims = %v, want readable owner's dirty.go claim", got)
-	}
-	held, err := holders(alive, []string{"dirty.go"})
-	if !reflect.DeepEqual(held["dirty.go"], []string{label}) {
-		t.Errorf("holders = %v, want readable owner's claim despite ledger errors", held)
-	}
-	if !errors.Is(err, syscall.ELOOP) || !errors.Is(err, syscall.EISDIR) {
-		t.Errorf("holders error = %v, want the live ledger failures", err)
 	}
 }
 
@@ -253,42 +245,39 @@ func writeOwnedClaims(t *testing.T, pid int, slug string, lines [][2]string) {
 	}
 }
 
-// TestCommitCLIDispatchOwnProcessClaims: an unstamped claim filed by the caller's own CLI process is its own to commit.
-func TestCommitCLIDispatchOwnProcessClaims(t *testing.T) {
+// liveClaimPaths is the paths LiveClaims names for a dispatched leaf d1 whose CLI process is owner.
+func liveClaimPaths(t *testing.T, owner int) map[string][]ClaimHit {
+	t.Helper()
+	got, err := LiveClaims(ClaimSource{Alive: func(int) bool { return true }, Self: "me", Owner: func() int { return owner },
+		Leaf: func(Claim) string { return "leaf" }, Label: func(pid int) string { return fmt.Sprint("pid ", pid) }, Dispatch: "d1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// TestLiveClaimsDispatchOwnProcessClaims: an unstamped claim filed by the caller's own CLI process is its own.
+func TestLiveClaimsDispatchOwnProcessClaims(t *testing.T) {
 	dir := commitRepo(t)
-	t.Setenv(proc.DispatchIDEnv, "d1")
 	orig := claimStart
 	claimStart = func(int) (string, error) { return "T2", nil }
 	t.Cleanup(func() { claimStart = orig })
-	hosttest.WriteRel(t, dir, "a.txt", "mine\n")
-	hosttest.WriteRel(t, dir, "b.txt", "an earlier process at this pid\n")
-	writeOwnedClaims(t, peerPid, "codex-sess", [][2]string{{filepath.Join(dir, "b.txt"), "T1"}, {filepath.Join(dir, "a.txt"), "T2"}})
-	req := func(file string, owner int) CommitRequest {
-		r := commitReq(dir, "fix: mine", file)
-		r.Source.Owner = func() int { return owner }
-		return r
+	a, b := filepath.Join(dir, "a.txt"), filepath.Join(dir, "b.txt")
+	writeOwnedClaims(t, peerPid, "codex-sess", [][2]string{{b, "T1"}, {a, "T2"}})
+	if got := liveClaimPaths(t, peerPid+1); len(got[a]) != 1 || len(got[b]) != 1 {
+		t.Fatalf("non-owner process: claims %v, want both paths held", got)
 	}
-	if _, err := commitRun(req("a.txt", peerPid+1)); err == nil || !strings.Contains(err.Error(), "a.txt is claimed by") {
-		t.Fatalf("non-owner process: err = %v, want a refusal naming a.txt", err)
-	}
-	if _, err := commitRun(req("b.txt", peerPid)); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
-		t.Fatalf("reused pid (token T1, now T2): err = %v, want a refusal naming b.txt", err)
-	}
-	if _, err := commitRun(req("a.txt", peerPid)); err != nil {
-		t.Fatalf("own process's claim refused: %v", err)
+	if got := liveClaimPaths(t, peerPid); len(got[a]) != 0 || len(got[b]) != 1 {
+		t.Fatalf("own process: claims %v, want a.txt its own and the reused-pid b.txt still held", got)
 	}
 }
 
-// TestCommitCLIDispatchRefusesSubagentClaimUnderSamePid: a sibling subagent's claim shares the CLI pid but is not own.
-func TestCommitCLIDispatchRefusesSubagentClaimUnderSamePid(t *testing.T) {
+// TestLiveClaimsDispatchKeepsSubagentClaimUnderSamePid: a sibling subagent's claim shares the CLI pid but is not own.
+func TestLiveClaimsDispatchKeepsSubagentClaimUnderSamePid(t *testing.T) {
 	dir := commitRepo(t)
-	t.Setenv(proc.DispatchIDEnv, "d1")
-	hosttest.WriteRel(t, dir, "b.txt", "sibling's\n")
 	claimAs(t, "claude-sess", "sub-2", filepath.Join(dir, "b.txt"))
-	r := commitReq(dir, "fix: x", "b.txt")
-	r.Source.Owner = func() int { return peerPid }
-	if _, err := commitRun(r); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
-		t.Fatalf("err = %v, want a refusal naming b.txt", err)
+	if got := liveClaimPaths(t, peerPid); len(got[filepath.Join(dir, "b.txt")]) != 1 {
+		t.Fatalf("claims %v, want the subagent's b.txt held", got)
 	}
 }
 

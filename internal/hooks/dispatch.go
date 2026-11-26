@@ -476,7 +476,7 @@ var native = map[string]core.Runner{
 	"worktree-busy":        dispatchhook.BusyWatched,
 	"worktree-fixnow":      wthook.FixNow,
 	"worktree-claim":       wthook.Claim,
-	"worktree-claim-check": claimCheckRun,
+	"worktree-claim-check": wthook.ClaimCheck,
 	"worktree-clean-end":   wthook.CleanEnd,
 	"lane-land":            lane.Land,
 	"lane-land-queue":      lane.Queue,

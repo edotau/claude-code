@@ -259,35 +259,6 @@ func FreshHits(ctx context.Context, top, p string, dirty map[string]bool, claims
 	return slices.DeleteFunc(slices.Clone(claims), func(h ClaimHit) bool { return h.TS < landed }), nil
 }
 
-// holders maps each claimed path to its session or leaf label; on a scan error it still returns what it read.
-func holders(alive func(int) bool, want []string) (map[string][]string, error) {
-	set := map[string]map[string]bool{}
-	for _, p := range want {
-		set[p] = map[string]bool{}
-	}
-	err := ScanClaims(alive, func(pid int, slug string, c Claim) {
-		if who, ok := set[c.Path]; ok {
-			who[label(pid, slug, c.Agent)] = true
-		}
-	})
-	out := map[string][]string{}
-	for p, who := range set {
-		for w := range who {
-			out[p] = append(out[p], w)
-		}
-	}
-	return out, err
-}
-
-// label names a claimant from its claims file name and the line's agent id.
-func label(pid int, slug, agent string) string {
-	s := "session " + slug[:min(8, len(slug))] + " (pid " + strconv.Itoa(pid) + ")"
-	if agent != "" {
-		return "leaf " + agent[:min(8, len(agent))] + " of " + s
-	}
-	return s
-}
-
 // Notice is one inbox line: when, who sent it, its kind (only "conflict" today) and the text the reader sees.
 type Notice struct {
 	Schema int    `json:"schema"`

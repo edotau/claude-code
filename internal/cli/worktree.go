@@ -45,8 +45,8 @@ var worktreePage = helptext.Page{
 
 // worktreeVerifyNote explains land's modes and verification gate; it trails both the verb and the land page.
 const worktreeVerifyNote = `Land on local: uncommitted changes in your checkout; you commit.
-Land on local refuses (exit 3, nothing changed) when a landed path is dirty
-in your checkout.
+A landed path you already edited is three-way merged into your file; where
+both sides changed the same lines, conflict markers are left in it.
 Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
 Verify in the lane on the rebased tree, before landing.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,

@@ -274,7 +274,7 @@ func abortMaterialized(worktreePath string, saveErr error) error {
 
 // materializeConflict makes the predicted conflict real in the worktree; a clean merge returns Phase "integrate".
 func materializeConflict(ctx context.Context, plan *LandPlan) (*LandResult, error) {
-	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, isDirty); err != nil {
+	if issue, err := checkCheckoutState(ctx, plan.WorktreePath, plan.WorktreeGitDir, trackedDirty); err != nil {
 		return nil, err
 	} else if issue != nil {
 		return nil, fmt.Errorf("resolve: %s: %v", issue.Code, issue.Detail)

@@ -1,1 +1,0 @@
-unwrap the nested bash -c/eval and run the git add/commit directly

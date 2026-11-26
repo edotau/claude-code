@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "claudeMdExcludes": [
+    "**/.claude/agents/claude.md"
+  ],
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
@@ -44,7 +47,7 @@
     "defaultMode": "auto"
   },
   "model": "opus",
-  "disableClaudeAiConnectors": true,
+  "feedbackSurveyRate": 0,
   "hooks": {
     "PreToolUse": [
       {
@@ -194,9 +197,6 @@
       }
     ]
   },
-  "worktree": {
-    "baseRef": "head"
-  },
   "statusLine": {
     "type": "command",
     "command": "$HOME/.claude/bin/claude-code theme statusline",
@@ -206,30 +206,30 @@
     "gopls-lsp@claude-plugins-official": true
   },
   "outputStyle": "Concise",
-  "feedbackSurveyRate": 0,
-  "feedbackDrafts": "off",
   "spinnerTipsEnabled": false,
+  "prefersReducedMotion": true,
+  "worktree": {
+    "baseRef": "head"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "tui": "fullscreen",
+  "useAutoModeDuringPlan": true,
+  "theme": "auto",
+  "awaySummaryEnabled": false,
+  "autoScrollEnabled": true,
+  "agentPushNotifEnabled": true,
+  "disableClaudeAiConnectors": true,
+  "inputNeededNotifEnabled": true,
+  "remoteControlAtStartup": true,
+  "askUserQuestionTimeout": "5m",
+  "autoConnectIde": false,
+  "feedbackDrafts": "off",
   "modelSettings": {
     "claude-fable-5-2": {
       "effortLevel": "high"
     }
   },
-  "awaySummaryEnabled": false,
-  "askUserQuestionTimeout": "5m",
-  "tui": "fullscreen",
-  "prefersReducedMotion": true,
-  "skipDangerousModePermissionPrompt": true,
   "skipWorkflowUsageWarning": true,
-  "claudeMdExcludes": [
-    "**/.claude/agents/claude.md"
-  ],
-  "theme": "auto",
   "idleCompaction": false,
-  "switchModelsOnFlag": true,
-  "autoScrollEnabled": true,
-  "remoteControlAtStartup": true,
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": true,
-  "useAutoModeDuringPlan": true,
-  "autoConnectIde": false
+  "switchModelsOnFlag": true
 }

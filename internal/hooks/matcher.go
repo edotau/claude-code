@@ -8,7 +8,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
-	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -54,9 +53,8 @@ func matchTool(matcher, tool string) bool {
 	return false
 }
 
-// placementRun and claimCheckRun keep the leaf lift: a leaf's Bash block or ask from the module is allowed with a note.
-func placementRun(in *core.Input) core.Result  { return leafBashAllow(docs.Placement, in) }
-func claimCheckRun(in *core.Input) core.Result { return leafBashAllow(wthook.ClaimCheck, in) }
+// placementRun keeps the leaf lift: a leaf's Bash block or ask from the module is allowed with a note.
+func placementRun(in *core.Input) core.Result { return leafBashAllow(docs.Placement, in) }
 
 // leafBashAllow is run(in), except a leaf's Bash block or ask (not a Floor block) becomes allow plus a note.
 func leafBashAllow(run core.Runner, in *core.Input) core.Result {

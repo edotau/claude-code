@@ -94,8 +94,6 @@ func outcomeOf(err error) Outcome {
 		return OutcomeConflict
 	case errors.Is(err, errTargetMoved):
 		return OutcomeTargetMoved
-	case errors.Is(err, ErrLandRefused) && strings.Contains(err.Error(), issueDirtyTarget):
-		return OutcomeDirtyTarget
 	case errors.Is(err, ErrLandRefused):
 		return OutcomeRefused
 	case strings.Contains(err.Error(), "verify failed"):

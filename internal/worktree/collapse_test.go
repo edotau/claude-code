@@ -64,8 +64,11 @@ func TestCollapseLanes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirty, "d.txt"), []byte("edited"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = run("dirty"); !errors.Is(err, ErrCollapseStopped) || !strings.Contains(err.Error(), "dirty (uncommitted") {
-		t.Fatalf("dirty lane must be refused by name: %v", err)
+	if _, err = run("dirty"); err != nil {
+		t.Fatalf("a lane with uncommitted edits still collapses its commits: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dirty, "d.txt")); string(got) != "edited" {
+		t.Fatalf("the lane's uncommitted edit = %q; want it kept on disk", got)
 	}
 }
 

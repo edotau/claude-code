@@ -262,7 +262,7 @@ var pointerBound = map[string]core.Runner{
 	"codex-routing-result": dispatchhook.CodexRoutingResult, "codex-subagent-start": dispatchhook.CodexSubagentStart,
 	"dispatch-failure": dispatchhook.Release, "review-grep-exit": quality.GrepExit, "dispatch-workflow": dispatchhook.AfterTool, "dispatch-stop": dispatchhook.Stop,
 	"dispatch-handback": dispatchhook.Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": dispatchhook.ReminderWatched,
-	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": claimCheckRun,
+	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 	"worktree-clean-end": wthook.CleanEnd, "worktree-fixnow": wthook.FixNow, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
 	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": web.Tavily,
 	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,

@@ -334,9 +334,10 @@ sit in the `land queue:` line.
    direct importers, the whole suite when `go.mod`, `go.sum` or an unowned non-Go, non-Markdown file changed), applies
    the net diff uncommitted and removes the worktree (the branch stays); a detached post-land audit (`make audit`)
    reports on your next prompt.
-4. Refusals: exit 3 when a landed path is dirty in the live tree (nothing changed; commit or move that edit, re-run)
-   or the rebase conflicts and `--resolve-agent` leaves it unresolved (lane untouched; resolve in the lane, re-run, or
-   `--resume`). `promote: target moved … since integration` means a peer committed meanwhile: re-run.
+4. Refusals: a landed path that is dirty in the live tree is three-way merged with `git merge-file` and may leave
+   conflict markers to resolve; exit 3 when the rebase conflicts and `--resolve-agent` leaves it unresolved
+   (lane untouched; resolve in the lane, re-run, or `--resume`).
+   `promote: target moved … since integration` means a peer committed meanwhile: re-run.
 5. After you commit the landed diff, `claude-code worktree clean <lane>` deletes the kept branch once its diff is in
    `HEAD`; `--force` discards unmerged work.
 

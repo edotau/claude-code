@@ -242,19 +242,9 @@ func (v *claimView) scopePaths(edits []string) {
 	}
 }
 
-// ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
+// ClaimCheck notes a dirty file another live session claims before an edit; it never refuses.
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	bare := isBash(in) && bareVerbCall(cmd)
-	res := checkClaims(in, cmd)
-	if bare && in.AgentID != "" && in.SessionID != "" && res.Decision == core.Allow {
-		return bareVerbResult(in, res)
-	}
-	return res
-}
-
-// checkClaims is ClaimCheck over cmd, where a worktree-commit call is judged as the git commit it makes.
-func checkClaims(in *core.Input, cmd string) core.Result {
 	bash := isBash(in)
 	git := gitAnyCmd().MatchString(cmd) || verbText.MatchString(cmd)
 	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
@@ -279,7 +269,7 @@ func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, 
 		return claimResult(ctx, in, cmd, edits)
 	}
 	res := core.Result{}
-	if stageText(cmd) || len(edits) > 0 {
+	if len(edits) > 0 {
 		res = claimResult(ctx, in, cmd, edits)
 	}
 	if !git {
@@ -492,7 +482,7 @@ func applyDry(flags []string) bool {
 	})
 }
 
-// claimResult runs the edit check on each edited path and, for Bash, the stage check, against the live claims.
+// claimResult runs the edit check on each edited path against the live claims.
 func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
@@ -500,9 +490,6 @@ func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string
 		v := claimView{ctx: ctx, in: in, cmd: cmd, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		v.scopePaths(edits)
-		if isBash(in) && stageText(cmd) {
-			res = v.stageCheck()
-		}
 		for _, p := range edits {
 			r := v.editCheck(p)
 			res.Context = core.JoinContext(res.Context, r.Context)
@@ -520,7 +507,7 @@ func claimWarn(err error) core.Result {
 	return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
 }
 
-// MayRefuse reports whether ClaimCheck could ask or deny a Bash call; it reads no claims and marks nothing seen.
+// MayRefuse reports whether ClaimCheck could note or act on a Bash call; it reads no claims and marks nothing seen.
 func MayRefuse(in *core.Input) bool {
 	cmd := in.ToolCommand()
 	return isBash(in) && (stageText(cmd) || laneText(cmd) || len(core.WrittenPaths(cmd, in.CWD)) > 0)
@@ -647,36 +634,6 @@ func firstSighting(session, key string) bool {
 
 func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 
-// stageCheck asks (a leaf under ~/.claude: blocks) when a git add/commit would stage a dirty claimed file.
-func (v claimView) stageCheck() core.Result {
-	var res core.Result
-	var warns []string // a fail-open warning must not hide a later invocation in the chain
-	// A data heredoc body (file sink, script interpreter) stages nothing.
-	cmd := dropScriptHeredocs(core.DropDataHeredocs(v.cmd))
-	shell.EachGit(cmd, v.in.CWD, func(target, verb string, args []string) bool {
-		verb, args = verbAsGit(verb, args)
-		if verb == "" {
-			return false
-		}
-		res = v.stageVerdict(target, verb, args)
-		if verb == shell.Uninspectable {
-			res = v.uninspectableVerdict(target, shell.TooDeep(args) && cdWord.MatchString(cmd))
-			if shell.TooDeep(args) && !stageWord.MatchString(cmd) {
-				res = core.Result{}
-			}
-		}
-		if res.Decision == core.Allow && res.Stderr != "" {
-			warns = append(warns, res.Stderr)
-			res = core.Result{}
-		}
-		return res.Decision != core.Allow
-	})
-	if len(warns) > 0 {
-		res.Stderr = strings.TrimSpace(strings.Join(warns, "\n") + "\n" + res.Stderr)
-	}
-	return res
-}
-
 // verbFiles reads a worktree-commit call's words with the CLI's own grammar: its files and whether --dry-run is set.
 func verbFiles(args []string) (files []string, dry, ok bool) {
 	fs := helptext.NewFlagSet("worktree commit", helptext.Page{})
@@ -685,17 +642,6 @@ func verbFiles(args []string) (files []string, dry, ok bool) {
 	d := fs.Bool("dry-run", false, "")
 	files, err := helptext.ParseArgs(fs, args)
 	return files, *d, err == nil
-}
-
-// bareVerbCall reports a worktree-commit call, at any nesting, that names no file and is not a dry run.
-func bareVerbCall(cmd string) bool {
-	if !verbText.MatchString(cmd) {
-		return false
-	}
-	return shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), "", func(_, verb string, args []string) bool {
-		files, dry, ok := verbFiles(args)
-		return verb == shell.WorktreeCommit && ok && !dry && len(files) == 0
-	})
 }
 
 // verbAsGit reads a worktree-commit call as the git commit it makes (-- <files>); other calls come back unchanged.
@@ -713,22 +659,6 @@ func verbAsGit(verb string, args []string) (string, []string) {
 	}
 	return "commit", append(out, files...)
 }
-
-// bareVerbResult asks (a leaf under ~/.claude: blocks) a subagent's file-less worktree commit to name its files.
-func bareVerbResult(in *core.Input, res core.Result) core.Result {
-	top, _ := paths.CheckoutOf(in.CWD)
-	d := core.Ask
-	if leafInConfig(in, top) {
-		d = core.Block
-	}
-	what := "worktree commit with no files takes this session's claimed edits, which cannot be told from other agents' here"
-	hint := assets.HookClaimBareHint()
-	res.Decision, res.Reason = d, core.SafetyMessage(in, d, what, "", hint)
-	return res
-}
-
-// stageWord matches the git verbs stageVerdict checks, as a whole word, in text too deep to inspect.
-var stageWord = core.Gate(`\b(?:add|commit)\b`, "add", "commit")
 
 // scriptReader names a non-shell interpreter whose heredoc body is its own script, never shell commands.
 var scriptReader = sync.OnceValue(func() *regexp.Regexp {
@@ -764,130 +694,6 @@ func scriptHeredoc(line string) bool {
 		return len(rest) > 0 && scriptReader().MatchString(filepath.Base(rest[0])) && !strings.HasPrefix(seps[i], "|")
 	}
 	return false
-}
-
-// leafInConfig reports a leaf working under the live config tree, the only place a leaf is blocked rather than asked.
-func leafInConfig(in *core.Input, dir string) bool {
-	cfg := paths.ConfigDir()
-	if in.AgentID == "" {
-		return false
-	}
-	_, main := paths.CheckoutOf(dir)
-	return paths.InsideDir(dir, cfg) || main != "" && paths.InsideDir(main, cfg)
-}
-
-// cdWord matches a directory change, which text too deep to inspect may hide.
-var cdWord = regexp.MustCompile(`\b(?:cd|pushd)\b`)
-
-// uninspectableVerdict asks (a leaf under ~/.claude: blocks) on a command nested too deep to see what it stages.
-func (v claimView) uninspectableVerdict(target string, hiddenCd bool) core.Result {
-	d := core.Ask
-	if leafInConfig(v.in, target) || v.in.AgentID != "" && hiddenCd {
-		d = core.Block
-	}
-	return core.Result{Decision: d, Reason: core.SafetyMessage(v.in, d, "command nests too deep to check what it stages", "",
-		assets.HookClaimNestHint())}
-}
-
-// stageVerdict checks one git invocation's staged set against the claims.
-func (v claimView) stageVerdict(target, verb string, args []string) core.Result {
-	w := splitStage(verb, args)
-	if verb != "add" && verb != "commit" || interactive(verb, w.flags) || stagesNothing(verb, w.flags) {
-		return core.Result{}
-	}
-	top, dirty, err := v.dirtyAt(target)
-	if err != nil {
-		return claimWarn(err)
-	}
-	if top == "" {
-		return core.Result{}
-	}
-	scopes, err := stageScopes(v.ctx, top, target, verb, args)
-	if err != nil {
-		return claimWarn(err)
-	}
-	if w.trackedOnly(verb) {
-		if dirty, err = tracked(v.ctx, top, dirty); err != nil {
-			return claimWarn(err)
-		}
-	}
-	taken, claimed, err := v.takenPaths(top, dirty, scopes)
-	if err != nil {
-		return claimWarn(err)
-	}
-	return stageResult(v.in, top, verb, taken, stageCount{total: countUnder(dirty, scopes), claimed: claimed})
-}
-
-// stageCount sizes a stage: files the git call takes, and how many of them another owner claims.
-type stageCount struct{ total, claimed int }
-
-// countUnder counts the dirty paths under scopes, i.e. the files a git add/commit would take.
-func countUnder(dirty map[string]bool, scopes []string) int {
-	n := 0
-	for p := range dirty {
-		if underAny(p, scopes) {
-			n++
-		}
-	}
-	return n
-}
-
-// takenPaths names each dirty claimed path under scopes with its claimants, plus the distinct claimed paths.
-func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string) ([]string, int, error) {
-	var taken []string
-	claimed := 0
-	for p := range v.claims {
-		if !underAny(p, scopes) {
-			continue
-		}
-		hits, err := v.freshHits(top, p, dirty)
-		if err != nil {
-			return nil, 0, err
-		}
-		if len(hits) > 0 {
-			claimed++
-		}
-		rel, _ := paths.RelWithin(top, p)
-		for _, h := range hits {
-			taken = append(taken, fmt.Sprintf("%s takes %s's uncommitted hunks (since %s)", cmp.Or(rel, p), h.Who,
-				clock(h.TS)))
-		}
-	}
-	return taken, claimed, nil
-}
-
-// stageResult renders the ask (a leaf under ~/.claude: block) for the claimed paths, capped at claimShown.
-func stageResult(in *core.Input, top, verb string, taken []string, n stageCount) core.Result {
-	if len(taken) == 0 {
-		return core.Result{}
-	}
-	slices.Sort(taken)
-	more := ""
-	if len(taken) > claimShown {
-		more = fmt.Sprintf("; and %d more", len(taken)-claimShown)
-		taken = taken[:claimShown]
-	}
-	d := core.Ask
-	if leafInConfig(in, top) {
-		d = core.Block
-	}
-	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
-		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
-	hint := assets.HookClaimStageHint()
-	if verb == "commit" {
-		hint = assets.HookClaimCommitHint()
-	}
-	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
-}
-
-// interactive reports hunk mode: add -i/-p or commit -p (commit -i is --include, not interactive).
-func interactive(verb string, flags []string) bool {
-	return slices.ContainsFunc(flags, func(f string) bool {
-		if f == "-p" || f == "--patch" {
-			return true
-		}
-		return verb == "add" && (f == "-i" || f == "--interactive")
-	})
 }
 
 // stagesNothing reports a dry run (add -n, --dry-run) or add -N, which records intent-to-add and stages no content.
@@ -1064,17 +870,6 @@ func (w stageWords) stagesAll(verb string) bool {
 		_, all := stageFlag(verb, f)
 		return all
 	})
-}
-
-// trackedOnly reports commit -a or add -u without -A: the verbs that never stage an untracked file.
-func (w stageWords) trackedOnly(verb string) bool {
-	has := func(flags ...string) bool {
-		return slices.ContainsFunc(w.flags, func(f string) bool { return slices.Contains(flags, f) })
-	}
-	if verb == "commit" {
-		return w.stagesAll(verb)
-	}
-	return has("-u", "--update") && !has("-A", "--all")
 }
 
 // tracked is dirty without the untracked files.

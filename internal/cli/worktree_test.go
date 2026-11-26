@@ -367,7 +367,7 @@ type worktreeLandCase struct {
 	notOut   []string // stdout must contain none
 	stderr   string
 	landed   bool // g.txt holds the lane's content uncommitted in main
-	dirty    bool // main has its own untracked g.txt first; it must stay byte-identical
+	dirty    bool // main has its own untracked g.txt first; the land keeps both its lines and the lane's
 	kept     bool // the worktree is still on disk afterwards
 }
 
@@ -381,8 +381,8 @@ var worktreeLandCases = []worktreeLandCase{
 	{name: "no-verify lands uncommitted, removes the worktree, keeps the branch", commit: featureEdit,
 		args: []string{"--no-verify"}, ok: true, out: []string{"landed feature: 1 files uncommitted", "branch worktree-feature kept"},
 		landed: true},
-	{name: "a dirty landed path refuses and changes nothing", commit: featureEdit, dirty: true,
-		args: []string{"--no-verify"}, exit: 3, stderr: "g.txt dirty in the live tree", kept: true},
+	{name: "a dirty landed path keeps both sides with markers", commit: featureEdit, dirty: true,
+		args: []string{"--no-verify"}, ok: true, out: []string{"conflict markers left in (both sides changed the same lines): g.txt"}},
 	{name: "no-clean leaves the worktree, resolve-agent unused on a clean plan", commit: featureEdit,
 		args: []string{"--no-verify", "--no-clean", "--resolve-agent", "claude"}, ok: true,
 		out: []string{"landed feature"}, landed: true, kept: true},
@@ -447,7 +447,7 @@ func requireMainState(t *testing.T, repo, wt string, tc worktreeLandCase, wantHe
 		t.Errorf("main HEAD = %s, want unmoved %s", cliHeadOf(t, repo), wantHead)
 	}
 	got, _ := os.ReadFile(filepath.Join(repo, "g.txt"))
-	if tc.landed && string(got) != "feature only\n" || tc.dirty && string(got) != "mine\n" {
+	if tc.landed && string(got) != "feature only\n" || tc.dirty && (!strings.Contains(string(got), "mine\n") || !strings.Contains(string(got), "feature only\n")) {
 		t.Errorf("main g.txt = %q (landed=%v dirty=%v)", got, tc.landed, tc.dirty)
 	}
 	if _, err := os.Stat(wt); (err == nil) != tc.kept {

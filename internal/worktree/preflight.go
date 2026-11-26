@@ -7,11 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -20,7 +18,6 @@ import (
 const (
 	issueDetachedTarget     = "detached-target"
 	issueTargetMismatch     = "target-mismatch"
-	issueDirtyTarget        = "dirty-target"
 	issueDirtyWorktree      = "dirty-worktree"
 	issueInProgress         = "operation-in-progress"
 	issueUnrelatedHistories = "unrelated-histories"
@@ -48,9 +45,7 @@ type LandPlan struct {
 	SourceOID      string
 	// set by integrateTarget; promote refuses unless the worktree HEAD still matches
 	IntegratedOID string
-	// AfterResolution: planned after an agent resolution, so untracked tool residue in the worktree is tolerated.
-	AfterResolution bool
-	Issues          []Issue
+	Issues        []Issue
 }
 
 // gitEnv returns os.Environ() with per-repo GIT_* overrides stripped, plus extra.
@@ -74,20 +69,16 @@ var gitWaitDelay = 5 * time.Second
 
 // Preflight resolves name, rejects unsafe state, pins both OIDs and simulates the merge; an error = it could not run.
 func Preflight(ctx context.Context, repo *Repo, name, target string) (*LandPlan, error) {
-	return preflight(ctx, repo, name, target, false)
+	return preflight(ctx, repo, name, target)
 }
 
-// preflightAfterResolution re-plans after a committed agent resolution, tolerating untracked tooling residue.
-func preflightAfterResolution(ctx context.Context, repo *Repo, name, target string) (*LandPlan, error) {
-	return preflight(ctx, repo, name, target, true)
-}
-
-func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnlyWorktree bool) (*LandPlan, error) {
-	plan, err := newLandPlan(ctx, repo, name, trackedOnlyWorktree)
+// preflight plans name's land; untracked residue in the lane never blocks it, as git's rebase ignores it.
+func preflight(ctx context.Context, repo *Repo, name, target string) (*LandPlan, error) {
+	plan, err := newLandPlan(ctx, repo, name)
 	if err != nil {
 		return nil, err
 	}
-	if stop, err := screenCheckouts(ctx, repo, plan, target, trackedOnlyWorktree); err != nil {
+	if stop, err := screenCheckouts(ctx, repo, plan, target); err != nil {
 		return nil, err
 	} else if stop {
 		return plan, nil
@@ -98,7 +89,7 @@ func preflight(ctx context.Context, repo *Repo, name, target string, trackedOnly
 	return plan, nil
 }
 
-func newLandPlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktree bool) (*LandPlan, error) {
+func newLandPlan(ctx context.Context, repo *Repo, name string) (*LandPlan, error) {
 	worktreePath, err := resolveWorktree(ctx, repo, name)
 	if err != nil {
 		return nil, err
@@ -113,8 +104,7 @@ func newLandPlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktr
 			return nil, err
 		}
 	}
-	plan := &LandPlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
-		AfterResolution: trackedOnlyWorktree}
+	plan := &LandPlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath}
 	if plan.WorktreeGitDir, _, err = gitDirsOf(ctx, worktreePath); err != nil {
 		return nil, err
 	}
@@ -122,7 +112,7 @@ func newLandPlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorktr
 }
 
 // screenCheckouts records an issue for a bad target or dirty/mid-operation checkout; with none, the plan pins HEADs.
-func screenCheckouts(ctx context.Context, repo *Repo, plan *LandPlan, target string, trackedOnlyWorktree bool) (stop bool, err error) {
+func screenCheckouts(ctx context.Context, repo *Repo, plan *LandPlan, target string) (stop bool, err error) {
 	if stop, err := screenTargetBranch(ctx, repo, plan, target); err != nil || stop {
 		return stop, err
 	}
@@ -143,7 +133,7 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *LandPlan, target str
 	if plan.SourceOID, err = headOfContext(ctx, plan.WorktreePath); err != nil {
 		return false, err
 	}
-	if err := screenStates(ctx, repo, plan, trackedOnlyWorktree); err != nil {
+	if err := screenStates(ctx, repo, plan); err != nil {
 		return false, err
 	}
 	if len(plan.Issues) > 0 {
@@ -153,13 +143,13 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *LandPlan, target str
 	return false, nil
 }
 
-func screenStates(ctx context.Context, repo *Repo, plan *LandPlan, trackedOnlyWorktree bool) error {
-	if issue, err := checkTargetState(ctx, repo.Main, plan.MainGitDir, plan.TargetOID+"..."+plan.SourceOID); err != nil {
+func screenStates(ctx context.Context, repo *Repo, plan *LandPlan) error {
+	if issue, err := inProgressIssue(ctx, repo.Main, plan.MainGitDir); err != nil {
 		return err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
 	}
-	if issue, err := checkWorktreeState(ctx, plan.WorktreePath, plan.WorktreeGitDir, trackedOnlyWorktree); err != nil {
+	if issue, err := inProgressIssue(ctx, plan.WorktreePath, plan.WorktreeGitDir); err != nil {
 		return err
 	} else if issue != nil {
 		plan.Issues = append(plan.Issues, *issue)
@@ -279,53 +269,7 @@ func parseConflicts(out []byte) []string {
 	return conflicts
 }
 
-// checkTargetState blocks local target edits only where the promoted range touches the same paths.
-func checkTargetState(ctx context.Context, path, gitDir, commitRange string) (*Issue, error) {
-	dirty, err := targetDirtyPaths(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	if len(dirty) > 0 {
-		touched, err := targetTouchedPaths(ctx, path, commitRange)
-		if err != nil {
-			return nil, err
-		}
-		var overlap []string
-		for _, name := range touched {
-			if dirty[name] {
-				overlap = append(overlap, name)
-			}
-		}
-		if len(overlap) > 0 {
-			return &Issue{Code: issueDirtyTarget, Paths: overlap,
-				Detail: "uncommitted target changes overlap promoted files: " + withHolders(path, overlap)}, nil
-		}
-	}
-	return inProgressIssue(ctx, path, gitDir)
-}
-
-// withHolders lists rels, each followed by the live sessions or leaves the claims ledger says are editing it.
-func withHolders(top string, rels []string) string {
-	root := paths.CanonDeep(top)
-	abs := make([]string, len(rels))
-	for i, r := range rels {
-		abs[i] = filepath.Join(root, r)
-	}
-	held, err := holders(proc.Alive, abs)
-	out := make([]string, len(rels))
-	for i, r := range rels {
-		out[i] = r
-		if who := held[abs[i]]; len(who) > 0 {
-			slices.Sort(who)
-			out[i] += " (held by " + strings.Join(who, ", ") + ")"
-		}
-	}
-	if err != nil {
-		return strings.Join(out, ", ") + " (claims ledger partly unreadable, holders may be missing: " + err.Error() + ")"
-	}
-	return strings.Join(out, ", ")
-}
-
+// targetDirtyPaths is every path with a status entry in path, rename sources included.
 func targetDirtyPaths(ctx context.Context, path string) (map[string]bool, error) {
 	out, err := runGit(ctx, path, nil, "status", "--porcelain=v1", "-z", "--ignore-submodules=none", "--untracked-files=all")
 	if err != nil {
@@ -384,13 +328,9 @@ func trackedDirty(ctx context.Context, path string) (bool, error) {
 	return len(tracked) > 0, err
 }
 
-// checkWorktreeState is checkCheckoutState for the source worktree; trackedOnly ignores untracked residue.
-func checkWorktreeState(ctx context.Context, path, gitDir string, trackedOnly bool) (*Issue, error) {
-	probe := isDirty
-	if trackedOnly {
-		probe = trackedDirty
-	}
-	return checkCheckoutState(ctx, path, gitDir, probe)
+// checkWorktreeState is checkCheckoutState for the source worktree; untracked residue is ignored.
+func checkWorktreeState(ctx context.Context, path, gitDir string) (*Issue, error) {
+	return checkCheckoutState(ctx, path, gitDir, trackedDirty)
 }
 
 // isDirty reports uncommitted changes; --untracked-files=all overrides a repo-local showUntrackedFiles=no.

@@ -116,12 +116,6 @@ func TestHookTextMatchesOldLiterals(t *testing.T) {
 		{"diverged-rewritten", HookDiverged("main", "origin/main", 1, 2, true), "local main diverged from origin/main " +
 			"(ahead 1, behind 2): a commit was rewritten; do not commit until it is reconciled"},
 		{"claim-howto", HookClaimHowTo(), "; edit only your own hunks and stage just those (" + ownHunksOld + "), or hand the change to its owner"},
-		{"claim-stage", HookClaimStageHint(), "stage only your hunks: " + ownHunksOld + "; or leave the file and tell its owner"},
-		{"claim-commit", HookClaimCommitHint(), "commit only your own files: claude-code worktree commit -m <msg> <files> " +
-			"(or git commit -- <your files>; a bare commit takes everything staged)"},
-		{"claim-bare", HookClaimBareHint(), "commit only your own files: claude-code worktree commit -m <msg> <files> " +
-			"(or git commit -- <your files>)"},
-		{"claim-nest", HookClaimNestHint(), "unwrap the nested bash -c/eval and run the git add/commit directly"},
 		{"claim-lane", HookClaimLaneHint(), "a lane keeps it clean: claude-code worktree create <slug>, " +
 			"then edit under ~/worktrees/<repo>/<slug>"},
 	})
@@ -143,7 +137,7 @@ func TestInventoryListing(t *testing.T) {
 		!slices.Equal(r.Fields, []string{"Ahead", "Behind", "Branch", "Comm", "Files", "Lanes", "Name", "PID", "Rewritten", "Up"}) {
 		t.Errorf("busy-peer row: %+v", r)
 	}
-	if r := byPath["hooks/claim-bare-hint.txt"]; len(r.Fields) != 0 {
+	if r := byPath["hooks/claim-lane-hint.txt"]; len(r.Fields) != 0 {
 		t.Errorf("plain text row has fields: %+v", r)
 	}
 }

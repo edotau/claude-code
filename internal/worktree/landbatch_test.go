@@ -342,13 +342,13 @@ func TestDrainQueueDeletesCollectorBranchAfterBatch(t *testing.T) {
 
 func TestDrainQueueNamesCollectorLeftByFailedBatch(t *testing.T) {
 	repo, _, req := drainFixture(t, "bad.txt")
-	req.Verify += "; touch junk.txt"
+	req.Verify += "; echo junk >> a.txt" // a tracked edit left by the gate blocks the promote
 	swapCollectorNames(t, "land-batch-mine")
 	if _, err := DrainQueue(t.Context(), repo, req); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(req.Err.(*bytes.Buffer).String(), "collector land-batch-mine left on disk") {
-		t.Fatal("the output does not name the collector left behind")
+		t.Fatalf("the output does not name the collector left behind: %q", req.Err.(*bytes.Buffer).String())
 	}
 }
 

@@ -212,7 +212,7 @@ func collapseReady(ctx context.Context, dir string) error {
 	return nil
 }
 
-// collapseLanes resolves every lane and refuses, by name and before any pick, one that is missing or has changes.
+// collapseLanes resolves every lane and refuses, by name and before any pick, one that is missing or has no branch.
 func collapseLanes(ctx context.Context, repo *Repo, req CollapseRequest) ([]collapseLane, error) {
 	var lanes []collapseLane
 	var bad []string
@@ -225,11 +225,6 @@ func collapseLanes(ctx context.Context, repo *Repo, req CollapseRequest) ([]coll
 		branch, err := currentWorktreeBranch(dest)
 		if err != nil || branch == "" {
 			bad = append(bad, name+" (no branch)")
-			continue
-		}
-		out, err := gitCmd(ctx, "-C", dest, "status", "--porcelain", "--untracked-files=no").Output()
-		if err != nil || strings.TrimSpace(string(out)) != "" {
-			bad = append(bad, name+" (uncommitted changes)")
 			continue
 		}
 		lanes = append(lanes, collapseLane{name, dest, branch})

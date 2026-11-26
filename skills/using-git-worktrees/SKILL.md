@@ -71,7 +71,7 @@ drainer exits at once with exit 0 and changes nothing. A single `land <name>` is
 The `land` verb enforces these steps (`internal/worktree/{preflight,land,gate,audit}.go`):
 
 1. Pin the primary checkout's current branch and both OIDs; `--target` requires that branch, not an arbitrary
-   destination. Refuse a dirty source, busy lane (process cwd inside), in-progress Git operation or other blocking
+   destination. Refuse a busy lane (process cwd inside), in-progress Git operation or other blocking
    preflight issue. A predicted conflict alone may proceed; a preview does not run the gate or prove it can land.
 2. Rebase **inside the lane**, then gate the rebased tree. Makefile `test` + `go.mod` uses concurrent build/vet
    across the module and tests of changed packages plus **direct** importers (including test imports), not a fixed
@@ -88,7 +88,7 @@ The `land` verb enforces these steps (`internal/worktree/{preflight,land,gate,au
 | Outcome | Meaning / next step |
 | --- | --- |
 | Exit 3: rebase conflict | Rebase aborted, lane restored; resolve in the lane, then retry. `--resolve-agent <agent>` resolves via a controller-created merge commit; `--resume` reattaches without restarting the agent. |
-| Exit 3: land refused | Overlapping dirty target paths, hidden index flags, unsupported submodule changes or failed patch check; live tree unchanged, lane kept. Resolve the named cause, retry. |
+| Exit 3: land refused | Hidden index flags, unsupported submodule changes or failed patch check; live tree unchanged, lane kept. Resolve the named cause, retry. |
 | Exit 1 | Other refusal/failure: gate red, moved target, busy lane, etc. A gate failure can leave the lane rebased; it does not promote. An apply failure **after** a clean check may partially write the live tree; inspect status before retrying. |
 | Exit 0 | Preview plan accepted (possibly with predicted conflicts), or apply succeeded/already landed. Preview never mutates, even on nonzero exit; after apply, read any worktree-removal refusal. |
 
@@ -108,9 +108,9 @@ Hooks run on the events/tools declared in `internal/settings/hookspec.go`, not o
 | --- | --- |
 | Lane choice, dated plan before work, no stash, no shared-history rewrites, root sandbox scope, discard approval | Policy/prose in the standard and workflow; not a blanket guard in the hooks listed here. `safety-scan` applies configured denies, not a universal Git rewrite ban. |
 | Lanes-mode reminder | `worktree-claim-check` (`wthook.ClaimCheck`): notes tracked edits/stages in the live harness checkout and, once per session, another repo's primary checkout; never refuses merely for lanes mode. |
-| Peer's dirty claimed file | `worktree-claim-check`: note before edits; ask before stage/commit, block a leaf in the live config checkout. `worktree commit` independently refuses claimed peer files. |
+| Peer's dirty claimed file | `worktree-claim-check`: notes it before edits; never asks or blocks. |
 | Relay commit refusal | `dispatch-handback` / `relay-shell`; applies to Agent-tool relays, not every executor. |
-| Finished leaf auto-land | `lane-land`: detached worker waits for completion and clean `UNFIXED: none`; dirty/busy/unreadable lanes queue. Its restriction check is path-based, not semantic proof of owner approval. `lane-land-queue` prints pending work on prompts. |
+| Finished leaf auto-land | `lane-land`: detached worker waits for completion and clean `UNFIXED: none`; dirty lanes are landed after committing their dirt; busy/unreadable lanes queue. Its restriction check is path-based, not semantic proof of owner approval. `lane-land-queue` prints pending work on prompts. |
 | Land / cleanup checks | `worktree land`, `worktree clean`, `clean-all` and native `worktree-remove`, as detailed above. |
 | Plan/report placement | `docs-placement` redirects/gates plans and blocks recognized misplaced Markdown writes; it does not require every task to have a plan. Placement policy: `rules/harness/docs-placement.md`. |
 | No AI-attribution footers | `safety-scan` blocks recognized commit/merge/tag/PR message footers; commit policy stays in the standard. |
