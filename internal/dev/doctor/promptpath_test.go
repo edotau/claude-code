@@ -15,8 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
-const savedDoc = "skills/subagent-workflows/references/saved-workflows.md"
-
 func wantOne(t *testing.T, got []string, frags ...string) {
 	t.Helper()
 	if len(got) != 1 {
@@ -79,17 +77,6 @@ func TestH4PlanTemplateHasEveryHeading(t *testing.T) {
 	}
 	hosttest.WriteRel(t, root, "docs/templates/plan.md", strings.Join(heads[1:], "\n")+"\n")
 	wantOne(t, planTemplate(root), `docs/templates/plan.md:1: template lacks "# Plan:"`, "(fix at docs/templates/plan.md)")
-}
-
-func TestH5SavedWorkflowsInSync(t *testing.T) {
-	root := t.TempDir()
-	hosttest.WriteRel(t, root, "workflows/a.js", "// a\n")
-	hosttest.WriteRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n")
-	if got := workflows(root); len(got) != 0 {
-		t.Fatalf("pass fixture findings = %q", got)
-	}
-	hosttest.WriteRel(t, root, savedDoc, "| Name |\n|---|\n| `a` | runs a |\n| `ghost` | gone |\n")
-	wantOne(t, workflows(root), savedDoc+":1:", "ghost has no workflows/ghost.js", "(fix at "+savedDoc+")")
 }
 
 func TestH6AgentNameStemDescriptionModel(t *testing.T) {
@@ -208,7 +195,6 @@ func BenchmarkPromptPathStatic(b *testing.B) {
 		claudeMD(root)
 		rules(root)
 		skills(root)
-		workflows(root)
 		agents(root)
 	}
 }

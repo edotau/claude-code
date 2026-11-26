@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/dev/plans"
-	workflowchecks "github.com/edotau/claude-code/internal/dev/workflows"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/memhook"
@@ -59,7 +58,6 @@ func promptPath(root string) []check {
 		hop("H2 rules", rules(root)),
 		hop("H3 skills", skills(root)),
 		hop("H4 plan template", planTemplate(root)),
-		hop("H5 workflows", workflows(root)),
 		hop("H6 agents", agents(root)),
 		hop("H7 session prompts", sessionPrompts(root)),
 	}
@@ -302,21 +300,6 @@ func hasHeading(ls []string, want string) bool {
 }
 
 // workflows reports saved-workflow doc and helper-block drift, each as file:1 with its origin.
-func workflows(root string) []string {
-	var out []string
-	for _, m := range workflowchecks.WorkflowDrift(root) {
-		head, what, _ := strings.Cut(m, ": ")
-		origin := head
-		if head == "saved-workflows.md" {
-			origin = "skills/subagent-workflows/references/saved-workflows.md"
-		} else if strings.HasPrefix(head, root+string(filepath.Separator)) {
-			origin, _ = filepath.Rel(root, head)
-		}
-		out = append(out, fmt.Sprintf("%s:1: %s (fix at %s)", origin, what, origin))
-	}
-	return out
-}
-
 // recallProbe is the memory-recall text for the probe prompt, read-only: it would consume the hook's seen-state/log.
 func recallProbe(prompt string) (string, error) {
 	hits := memory.SearchBank(prompt, probeRecallHits)

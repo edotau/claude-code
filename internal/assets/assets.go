@@ -11,7 +11,7 @@ import (
 )
 
 //go:embed agent agentconfig brief catalog claude clipboard copilot databricks hooks memory models pi
-//go:embed providers proxy review router rtk safety settings setup shell tools ui workflows
+//go:embed providers proxy review router rtk safety settings setup shell tools ui
 var files embed.FS
 
 // tmplFields is a template's named inputs; a missing name panics like missingkey=error.

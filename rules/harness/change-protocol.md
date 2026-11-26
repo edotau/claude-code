@@ -27,10 +27,8 @@ Act on every applicable item when changing hooks, settings, agent configs, agent
    `testdata/writers/<pkg>.txt` and the registry golden. Refresh hook/settings goldens and examples in the same change.
 6. **Record:** the commit message names what was rebuilt and deferred.
 7. **Component added/changed (agent, skill, hook, plugin):** write a manifest of files/actions and get approval first.
-8. **Saved workflow changed:** run `claude-code workflow lint`; update the saved-workflows reference table,
-   keep `stepOf` verbatim and ensure every script parses under node.
-9. **Instruction path changed:** run `claude-code doctor --prompts` and fix findings at their origin. This covers
-   rules, skills, CLAUDE.md, plan templates, workflows, agents and session-start/recall hooks.
+8. **Instruction path changed:** run `claude-code doctor --prompts` and fix findings at their origin. This covers
+   rules, skills, CLAUDE.md, plan templates, agents and session-start/recall hooks.
 
 Check generated files for leaked placeholders:
 

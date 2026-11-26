@@ -163,13 +163,9 @@ func applyFixers(ctx context.Context, bin, lane string, findings []Finding) ([]C
 		return nil, fmt.Errorf("resolve fixer directory: %w", err)
 	}
 	var fixed []Class
-	for _, class := range []Class{ClassGofmt, ClassMarkdownLong, ClassWriterRows, ClassWorkflowBlock} {
+	for _, class := range []Class{ClassGofmt, ClassMarkdownLong, ClassWriterRows} {
 		files := fixerPaths(lane, findings, class)
-		if class == ClassWorkflowBlock {
-			if !slices.ContainsFunc(findings, func(f Finding) bool { return f.Class == class }) {
-				continue
-			}
-		} else if len(files) == 0 {
+		if len(files) == 0 {
 			continue
 		}
 		if err := applyFixer(ctx, bin, lane, class, files); err != nil {
@@ -195,9 +191,6 @@ func applyFixer(ctx context.Context, bin, lane string, class Class, files []stri
 				return err
 			}
 		}
-	case ClassWorkflowBlock:
-		_, err := run(ctx, lane, bin, "workflow", "sync", lane)
-		return err
 	case ClassWriterRows:
 		for _, file := range files {
 			if err := sortWriterRows(filepath.Join(lane, file)); err != nil {

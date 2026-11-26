@@ -108,7 +108,6 @@ func hiddenCommands() []command {
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live, preflight", run: cmdModels, spec: modelsSpec},
 		{name: "review", hidden: true, summary: "code-review detectors: quality, complexity, simplify, diff, pr, gate, ...", run: cmdReview, spec: reviewSpec},
-		{name: "workflow", hidden: true, summary: "skeleton <pattern> | lint (pins, meta/throw, syntax, table) | sync", run: cmdWorkflow, spec: workflowSpec},
 		{name: "hook", hidden: true, summary: "run a lifecycle hook (invoked by settings.json)", run: cmdHook, spec: hookSpec},
 		{name: "clip", hidden: true, summary: "clipboard image to PNG; --clear, paste (wl-paste proxy)", run: cmdClip, spec: clipSpec},
 		{name: "version", hidden: true, summary: "print the build version", run: cmdVersion},

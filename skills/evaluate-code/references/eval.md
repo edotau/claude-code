@@ -20,11 +20,8 @@ for pair in s2:s2-surprise-trap s9:s9-unauthorized-action s13:s13-twin-fleet s14
 done
 ```
 
-This works in macOS Bash 3.2. The workflow copies pristine fixtures to missing run directories, one per
-scenario/condition/seed. Invoke:
-`Workflow({scriptPath: "~/.claude/workflows/code-evaluator.js", args: {base: "<BASE>", skill: "<SKILL.md or brief>",
-scenarios: ["s2","s9","s13","s14"], seeds: 2, steps: {run: {model: "haiku"}}}})`.
-For a skill, `args.skill` must be inside a full skill-directory copy so relative references resolve.
+This works in macOS Bash 3.2. Copy pristine fixtures to fresh run directories per scenario/condition/seed and run
+`claude-code agents ask` against each; for a skill, copy the full skill directory so relative references resolve.
 
 ## Scenarios
 

@@ -1,19 +1,14 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/dev/review/bench"
 	"github.com/edotau/claude-code/internal/dev/review/diff"
 	"github.com/edotau/claude-code/internal/dev/review/source"
-	"github.com/edotau/claude-code/internal/dev/workflows"
-	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.
@@ -59,117 +54,6 @@ func cmdReview(args []string) int {
 	return run(args[1:], os.Stdin, os.Stdout, os.Stderr)
 }
 
-var workflowPage = helptext.Page{
-	Usage: "claude-code workflow <command> [args]",
-	About: "Scaffold a new Workflow tool script from a pattern, or lint the saved ones.",
-	Commands: [][2]string{
-		{"skeleton", "print a pipeline|parallel|evaluator|orchestrator script"},
-		{"lint", "check pins, meta/throw, syntax and the saved-workflows table"},
-		{"sync", "write embedded helper blocks into saved scripts"},
-	},
-	Hint: "claude-code workflow <command> -h lists that command's flags.",
-}
-
-// workflowSubPage is the -h page for skeleton, lint and sync, whose parsers have no FlagSet.
-func workflowSubPage(sub string) helptext.Page {
-	if sub == "sync" {
-		return helptext.Page{
-			Usage: "claude-code workflow sync [<root>]",
-			About: "Write embedded helper blocks into marked scripts; " +
-				"<root> defaults to this checkout, else the config dir. " +
-				"Exits: 0 synced or unchanged; 1 file/marker error; 2 usage.",
-		}
-	}
-	if sub == "lint" {
-		return helptext.Page{
-			Usage: "claude-code workflow lint [<root>]",
-			About: "Lint <root>/workflows/*.js and <root>/skills/*/scripts/*.js for model/effort pins and " +
-				"meta/throw; compile each with node and check helper and saved-workflows table drift. " +
-				"<root> defaults to this checkout, else the config dir; exits 1 when anything is flagged.",
-		}
-	}
-	fs := helptext.NewFlagSet("skeleton", helptext.Page{})
-	fs.String("name", "new-workflow", "the workflow's meta name")
-	return helptext.Page{
-		Usage: "claude-code workflow skeleton <pattern> [flags]",
-		About: "Print a Workflow script skeleton for <pattern>: pipeline, parallel, evaluator or orchestrator.",
-		Flags: fs,
-	}
-}
-
-// cmdWorkflow dispatches `workflow skeleton|lint|sync`.
-func cmdWorkflow(args []string) int {
-	if len(args) == 0 || isHelpVerb(args[0]) {
-		workflowPage.Fprint(os.Stdout)
-		return 0
-	}
-	// only a leading -h: a later one belongs to the tool's own parser, after its value flags
-	if workflowWantsHelp(args) {
-		workflowSubPage(args[0]).Fprint(os.Stdout)
-		return 0
-	}
-	switch args[0] {
-	case "skeleton":
-		return workflows.RunSkeleton(args[1:], os.Stdout, os.Stderr)
-	case "lint":
-		return runWorkflowVerb("lint", args[1:], workflows.RunWorkflowLint)
-	case "sync":
-		return runWorkflowVerb("sync", args[1:], workflows.RunWorkflowSync)
-	}
-	return unknownSub("workflow", args[0], workflowPage)
-}
-
-// workflowWantsHelp: skeleton takes -h after its pattern, lint and sync only as their sole argument.
-func workflowWantsHelp(args []string) bool {
-	if !slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) || len(args) < 2 || (args[0] != "skeleton" && len(args) > 2) {
-		return false
-	}
-	return helptext.WantsHelp(args[1:])
-}
-
-func runWorkflowVerb(verb string, args []string, run func([]string, io.Writer, io.Writer) int) int {
-	target, err := workflowTarget(verb, args, os.Stdout)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
-	return run(target, os.Stdout, os.Stderr)
-}
-
-// workflowTarget picks the root (argument, else enclosing harness checkout, else config dir) and prints it first.
-func workflowTarget(verb string, args []string, out io.Writer) ([]string, error) {
-	if len(args) > 1 || (len(args) == 1 && (args[0] == "" || strings.HasPrefix(args[0], "-"))) {
-		return nil, fmt.Errorf("usage: claude-code workflow %s [<root>]", verb)
-	}
-	if len(args) == 0 {
-		args = []string{paths.ConfigDir()}
-		if wd, err := os.Getwd(); err == nil {
-			if top, _ := paths.CheckoutOf(wd); isHarnessCheckout(top) {
-				args = []string{top}
-			}
-		}
-	}
-	shown, err := filepath.Abs(args[0])
-	if err != nil {
-		shown = args[0]
-	}
-	fmt.Fprintf(out, "workflow %s: %s\n", verb, shown)
-	return args, nil
-}
-
-// isHarnessCheckout reports whether top holds the saved workflows and their embedded blocks.
-func isHarnessCheckout(top string) bool {
-	if top == "" {
-		return false
-	}
-	for _, d := range []string{"workflows", "internal/assets/workflows/blocks"} {
-		if fi, err := os.Stat(filepath.Join(top, d)); err != nil || !fi.IsDir() {
-			return false
-		}
-	}
-	return true
-}
-
 // reviewToolNames lists the review detectors, derived from reviewTools so a new one is completable for free.
 func reviewToolNames() []string {
 	out := make([]string, 0, len(reviewTools))
@@ -187,18 +71,4 @@ func reviewSpec() *helptext.Node {
 		sub[n] = &helptext.Node{}
 	}
 	return &helptext.Node{Sub: sub}
-}
-
-// workflowPatterns are the `workflow skeleton` pattern names.
-func workflowPatterns() []string {
-	return []string{"pipeline", "parallel", "evaluator", "orchestrator"}
-}
-
-// workflowSpec is the completion node for `workflow`.
-func workflowSpec() *helptext.Node {
-	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"skeleton": {Args: []func() []string{workflowPatterns}, Flags: []helptext.Flag{{Name: "name"}}},
-		"lint":     {},
-		"sync":     {},
-	}}
 }

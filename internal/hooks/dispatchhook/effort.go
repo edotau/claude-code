@@ -15,7 +15,6 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/dev/transcript"
-	"github.com/edotau/claude-code/internal/dev/workflows"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/routing/agentid"
@@ -105,9 +104,6 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 }
 
 func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result {
-	if in.ToolName == "Workflow" {
-		return workflows.WorkflowResult(in)
-	}
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}

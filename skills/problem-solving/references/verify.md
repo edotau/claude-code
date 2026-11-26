@@ -35,9 +35,6 @@ iteration; `rtk make audit` only in Gate 3.
 
 ## Gate Loop (max 5 iterations per change set)
 
-Scripted form: `Workflow code-looper` (only when the user asks; caps 3 iterations per call;
-`../../subagent-workflows/references/saved-workflows.md`).
-
 Each iteration runs Gates 1-2 only, fixing failures minimally. Once clean, run Gate 5, then Gates 3, 4 and 6 ONCE as
 the final pass. Only a failing final pass returns to Gate 1; after 5 iterations, escalate with the remaining
 failures. Gates 3, 4 and 6 belong to the main session at landing; a subagent stops after Gate 2, running only the

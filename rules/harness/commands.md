@@ -88,7 +88,6 @@ Default off: proxy, duration, session. Other keys: path, model, provider, contex
 - Memory sandbox, sync and conflicts: `rules/workflows/memory-bank.md` → Verbs.
 - Remote execution, browser, web, MCP and cleanup: `network.md`.
 - Databricks metadata: `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user|sp]`.
-- Workflow scripts: `claude-code workflow lint`, `workflow skeleton <pattern>`.
 - Housekeeping: `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` removes; preview first as needed.
   `doctor --audit [--days 7]`, `configure history snapshot|log|diff`.
 - Theme/editor: `configure theme [--palettes|--reset] [<palette>]`, `configure theme apply`,

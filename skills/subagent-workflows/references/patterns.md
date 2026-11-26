@@ -1,14 +1,14 @@
 # Agent Design Patterns (this harness)
 
-Every row maps to code this repo runs. Serves `../SKILL.md` Phase 0: pick the shape here, fill each node with a leaf
-type, then wire stages into a template from [composites.md](composites.md).
+Every row maps to code this repo runs. Serves `../SKILL.md` Phase 0: pick the shape here and fill each node with a leaf
+type.
 
-## Execution mode: subagents, plus scripts that hold the plan
+## Execution mode: subagents and plan waves
 
 Agent teams (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) are not used; the harness keeps leaves terminal. Plan
 ownership: `../SKILL.md` → Who holds the plan.
 
-Concurrency: `../SKILL.md` → Concurrency. Saved-script limits and arguments: [saved-workflows.md](saved-workflows.md).
+Concurrency: `../SKILL.md` → Concurrency.
 
 ## Patterns we run
 
@@ -20,17 +20,8 @@ The sections below describe task shapes. Dispatch uses `../SKILL.md` → Handoff
 scope: find -> merge findings -> rederive blind -> fix -> repair affected tests -> cheap checks
 ```
 
-- Stage implementation and current defaults: [saved-workflows.md](saved-workflows.md).
-
 ### Fan-out / fan-in
 
-```text
-packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged report
-```
-
-- code-workers streams each package to its fixer the moment its findings are confirmed; the barrier shape (all
-  findings, then all fixes) is retired. Finders in `code-analyzer.js` remain a fan-out over (dimension x chunk) with a
-  refute step.
 - Manual form: `Agent` calls in one message with `Owns:` files; fan-in reads every diff and the seam between leaves
   (`../SKILL.md` Phase 3).
 
@@ -40,10 +31,9 @@ packages -> [ code-workers stream p1 | p2 | ... | pN ]  (no barrier)  -> merged 
 task -> size -> repair | audit | evaluate | plan
 ```
 
-- Code: `code-engineer.js` (Size, Route, then Simplify and Review once over the children's merged fixes, Record).
-  Tiers follow `rules/workflows/master-workflow.md` Phase 0; `tier` skips sizing.
-- Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; code-analyzer's
-  per-package implementer runs `opus` for high-severity findings; any other `opus`/`fable` only by a `steps` pin.
+- Tiers follow `rules/workflows/master-workflow.md` Phase 0.
+- Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` for
+  planning, security, architecture and judgment calls.
 
 ### Producer-reviewer
 
@@ -64,15 +54,6 @@ main -> explore -> plan -> parallel leaves -> collector -> sign-off
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:
   `ask: ran on` line (carried asks via `claude-code agents ask --carry`).
 
-### Hierarchical
-
-```text
-main -> Workflow code-engineer -> workflow(code-workers | code-analyzer) -> in-script stages -> agent() leaves
-main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script stageLoop
-```
-
-- `code-engineer` returns its children's merged result plus tier, route, polish, files, `verdict` and `reportPath`.
-
 ### Sequential plan and tournament
 
 - Sequential plan: dispatch each dependent task when its input is ready. Final review and validation:
@@ -84,8 +65,7 @@ main -> Workflow code-analyzer -> Scan -> Plan (script) -> waves -> in-script st
 ### Not used
 
 Agent teams / `TeamCreate` (experimental, one per session, no nesting); loop-until-dry and the modal sweep (retired or
-pre-pass only); peer-to-peer agent debate (refute/rederive is one-way and blind). External workflow stages and
-overrides: [saved-workflows.md](saved-workflows.md).
+pre-pass only); peer-to-peer agent debate (refute/rederive is one-way and blind); saved JS workflow scripts (removed).
 
 ## Split vs merge; skill vs agent vs brief
 

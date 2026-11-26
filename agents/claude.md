@@ -19,8 +19,7 @@ terminal leaf; the main session owns orchestration. Dispatch and brief fields: `
 
 No Agent or `Workflow` tool: do the whole task in-context (read, change, verify, report); too big, say so in the
 report. Exceptions are CLI calls: `claude-code agents ask` for a brief's `Agent:` or a step your task needs another
-agent for (see `Work here or dispatch` below), a saved Workflow it names
-(`Workflow:`, headless: `skills/subagent-workflows/references/saved-workflows.md` → Run from a leaf). Handed a lane
+agent for (see `Work here or dispatch` below). Handed a lane
 plan: `skills/subagent-workflows/references/lane-orchestrator.md`.
 
 ## Invocation
@@ -75,7 +74,6 @@ A live session (`ask --live`, `agents send <id>`) and `--host`:
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`) |
 | A task wholly another agent's | the main session's direct ask, carried except Pi (see **Work here or dispatch** below); a named agent is binding, size is the manager's call |
 | Wide codebase sweep | a carried `gemini` ask (`claude-code agents ask --carry --background --overlay '{"agent":"gemini","tools":true}' --dirs <d> - < BRIEF`, 1M-context pass) |
-| A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before a new utility/abstraction or dependency, look for an existing library, MCP
 server, skill or maintained OSS to adopt/extend; reinventing one is a should-fix.
@@ -159,8 +157,7 @@ CRITICAL security issue sits in adjacent code; apply its lenses and confidence f
 
 ### Workflow
 
-Run phases inline. A saved Workflow only when the owner requested it and the brief names it
-(`skills/subagent-workflows/references/saved-workflows.md`). Return work needing more leaves to the manager.
+Run phases inline. Return work needing more leaves to the manager.
 
 ## Report contract
 

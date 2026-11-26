@@ -71,7 +71,7 @@ func TestCompletionTopLevel(t *testing.T) {
 			t.Errorf("top-level candidates missing %q: %v", want, got)
 		}
 	}
-	for _, hidden := range []string{"models", "agents", "review", "workflow",
+	for _, hidden := range []string{"models", "agents", "review",
 		"completion", "__complete", "hook", "statusline", "version", "switch", "resolve", "claude"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("top-level candidates must not offer hidden %q: %v", hidden, got)
@@ -98,7 +98,6 @@ func TestCompletionExact(t *testing.T) {
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
 		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 		{"ask --model has no domain", []string{"agents", "ask", "--model", ""}, nil},
-		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
 		{"vendor past double dash", []string{"codex", "--", ""}, nil},
 		{"resolve-agent domain", []string{"worktree", "land", "--resolve-agent", ""},
@@ -479,7 +478,6 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			"index", "path", "watch", "fmt", "report", "sandbox", "extract", "shadow", "store", "conflicts", "sync"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
-		"workflow": {"skeleton", "lint", "sync"},
 		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
@@ -664,7 +662,7 @@ func TestHelpFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	hidden := []string{
-		"agents", "models", "review", "workflow", "hook",
+		"agents", "models", "review", "hook",
 		"help-svg", "clip", "completion", "plan", "test",
 	}
 	var verbs []string
@@ -848,7 +846,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
-		"hook": true, "clip": true, "configure history diff": true, "workflow lint": true, "workflow sync": true,
+		"hook": true, "clip": true, "configure history diff": true,
 		"test ramdisk": true, "failures done": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,

@@ -48,4 +48,3 @@ Flags and lifecycle: [cost-routing.md](cost-routing.md) → Ask flags and lifecy
 
 Choose once, run once, observe and report through `../SKILL.md` → External relay contract.
 Fallback: [cost-routing.md](cost-routing.md) → Fallback.
-A brief naming a workflow follows [saved-workflows.md](saved-workflows.md) → Run from a leaf.

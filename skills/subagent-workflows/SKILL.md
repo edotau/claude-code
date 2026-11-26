@@ -22,9 +22,7 @@ orchestration layer. Agent file = who, brief's `Method:` skill = how, this skill
 | Shape | The plan lives in | Use when |
 | --- | --- | --- |
 | Subagent / skill | Claude, turn by turn | the next step depends on what the last one found |
-| Workflow | the script | the steps are known up front and must run the same every time |
-
-Workflow requested, none fits: run `code-engineer` (`~/.claude/workflows/code-engineer.js`).
+| Plan waves (`agents ask --waves`) | the plan file | the steps are known up front and run in waves |
 
 ## Leaf types
 
@@ -122,7 +120,6 @@ unticked line of its `~/.claude/plans/` checklist).
 | Sequential plan · tournament | [patterns.md](references/patterns.md) |
 | A plan's waves, observed | `agents ask --waves`; lifecycle: [agent-verbs.md](references/agent-verbs.md). |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
-| Saved `Workflow` | [saved-workflows.md](references/saved-workflows.md) and its composite templates. |
 | Fleet scan | A carried `copilot` ask with an explicitly requested fleet task; verify the returned diff |
 
 ### Phase 1: prepare
@@ -245,7 +242,6 @@ unblocked row in one message.
 Test selection, live evidence and repair scope: `rules/standards/testing-guidelines.md`.
 Use the implementer for small repairs or a carried `copilot` ask with the TEST section and exact failing names.
 For independent failures, dispatch one repair leaf per disjoint set of test files. Main owns the live check.
-Use `Workflow code-looper` only when requested; its scope follows [saved-workflows.md](references/saved-workflows.md).
 
 ### Phase 3: integrate
 
@@ -255,7 +251,6 @@ Read hand-backs for completion, owned-file changes and unresolved gaps; collect 
 Treat reports as claims. At merged review, check the diff, removed code's callers, ownership and seams between
 producers and consumers; a successful build alone does not prove a JSON shape or flag/argv contract.
 Simplify once over the merged diff before review. Keep disagreeing findings with their evidence.
-Saved workflow results follow [saved-workflows.md](references/saved-workflows.md) → Fan-in and run rules.
 
 #### Landing
 

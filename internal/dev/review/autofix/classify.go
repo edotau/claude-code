@@ -12,9 +12,8 @@ type Class string
 const (
 	ClassGofmt         Class = "gofmt"
 	ClassMarkdownLong  Class = "markdown-long"
-	ClassWriterRows    Class = "writer-rows"
-	ClassWorkflowBlock Class = "workflow-block"
-	ClassComplexity    Class = "complexity"
+	ClassWriterRows   Class = "writer-rows"
+	ClassComplexity   Class = "complexity"
 	ClassIneffassign   Class = "ineffassign"
 	ClassFailingTest   Class = "failing-test"
 )
@@ -31,7 +30,7 @@ type Finding struct {
 // Deterministic reports whether a formatting, sorting or regeneration fixer can repair the class.
 func (c Class) Deterministic() bool {
 	switch c {
-	case ClassGofmt, ClassMarkdownLong, ClassWriterRows, ClassWorkflowBlock:
+	case ClassGofmt, ClassMarkdownLong, ClassWriterRows:
 		return true
 	default:
 		return false
@@ -114,7 +113,6 @@ var classRules = []struct {
 	{ClassGofmt, func(r row) bool { return r.gate == "gofmt" || r.lint("gofmt") }},
 	{ClassMarkdownLong, func(r row) bool { return r.tool == "mdsmith" && r.rule == "MDS001" }},
 	{ClassWriterRows, func(r row) bool { return strings.Contains(r.msg, "is duplicate or unsorted") }},
-	{ClassWorkflowBlock, func(r row) bool { return strings.Contains(r.msg, "block differs from embedded source") }},
 	{ClassComplexity, func(r row) bool { return r.gate == "complexity" }},
 	{ClassIneffassign, func(r row) bool { return r.lint("ineffassign") }},
 	{ClassFailingTest, func(r row) bool { return r.gate == "test" && strings.HasPrefix(r.msg, "--- FAIL: ") }},

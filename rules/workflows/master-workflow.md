@@ -64,5 +64,4 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
 - **9 Commit** only when authorized: `rules/standards/worktree-git.md` and `CLAUDE.md` hard rule 5; the main session
   owns release checks and push.
 
-Tech debt: `skills/evaluate-code/SKILL.md` → Tech debt. Saved workflows (`workflows/*.js`) and `Workflow
-code-looper` run only when the user asks: `skills/subagent-workflows/references/saved-workflows.md`.
+Tech debt: `skills/evaluate-code/SKILL.md` → Tech debt.

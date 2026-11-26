@@ -107,14 +107,13 @@ func TestRepairGreen(t *testing.T) {
 		{Class: ClassGofmt, Path: filepath.Join(top, "sample.go")},
 		{Class: ClassMarkdownLong, Path: "guide.md"},
 		{Class: ClassWriterRows, Path: "schemas_test.go", Message: "example.txt:3: row a is duplicate or unsorted"},
-		{Class: ClassWorkflowBlock},
 		{Class: ClassComplexity, Path: "sample.go"},
 	}
 	res, err := Repair(context.Background(), top, repairSHA, findings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != lane || res.Lane != "autofix-abcdef0" || len(res.Fixed) != 4 {
+	if res.Path != lane || res.Lane != "autofix-abcdef0" || len(res.Fixed) != 3 {
 		t.Fatalf("result = %+v", res)
 	}
 	if !strings.Contains(res.Notice, "gate green; land it: claude-code worktree land autofix-abcdef0") {

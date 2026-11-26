@@ -39,10 +39,9 @@ example.com/vt/pkg: test: FAIL
 pkg_test.go:14: test: red
 agents diff: 1 files +3 -0 (prod +3 -0, test +0 -0); --path ok; gates 3 ok, 3 FAIL
 `
-	// Messages from schemas_test.go:266 and workflowdrift.go:113 as the test gate prints them.
+	// Messages from schemas_test.go as the test gate prints them.
 	regenOut = `FAIL test (1.6s)
 schemas_test.go:290: test: internal-review-bench.txt:4: row bench.go:writeOut is duplicate or unsorted
-test: workflows/loop.js: retry block differs from embedded source (run claude-code workflow sync)
 `
 )
 
@@ -57,7 +56,7 @@ func TestClassify(t *testing.T) {
 		{"markdown", docsOut, []Class{ClassMarkdownLong}},
 		{"ineffassign", lintOut, []Class{ClassIneffassign}},
 		{"failing test", testOut, []Class{ClassFailingTest}},
-		{"regeneration", regenOut, []Class{ClassWriterRows, ClassWorkflowBlock}},
+		{"regeneration", regenOut, []Class{ClassWriterRows}},
 		{"clean", "agents diff: 1 files +1 -0; --path ok; gates 6 ok\n", nil},
 	}
 	for _, tt := range tests {

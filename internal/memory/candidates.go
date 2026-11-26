@@ -307,22 +307,18 @@ func showCandidate(w io.Writer, c candidate) {
 		launchLine(c), c.ID)
 }
 
-// launchLine is the one-line edit for a small prose change, else the code-engineer call the main session runs.
+// launchLine is the one-line edit for a small prose change, else the agents ask command the main session runs.
 func launchLine(c candidate) string {
 	if c.Kind == "prose" && c.Size == "small" {
-		return "a one-line edit in " + c.Target + ": do it in the main session, no workflow"
+		return "a one-line edit in " + c.Target + ": do it in the main session, no dispatch"
 	}
-	kind := "feature"
-	if c.Kind == "prose" {
-		kind = "refactor"
-	}
-	args := map[string]string{"cwd": paths.ConfigDir(), "kind": kind, "task": c.Change + " Target: " + c.Target + "."}
+	args := map[string]string{"cwd": paths.ConfigDir(), "task": c.Change + " Target: " + c.Target + "."}
 	if g := candidateGate(c.Target); g != "" {
 		args["gate"] = g
 	}
 	var b bytes.Buffer
 	_ = jsonEncoder(&b).Encode(args)
-	return `Workflow({scriptPath: "~/.claude/workflows/code-engineer.js", args: ` + strings.TrimSpace(b.String()) + `})`
+	return `claude-code agents ask --brief ` + strings.TrimSpace(b.String())
 }
 
 // candidateGate scopes the gate to the target's Go package, "" when the target is not Go code in this repository.

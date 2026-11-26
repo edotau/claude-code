@@ -21,7 +21,7 @@ Review existing work: findings and a verdict, read-only unless the collector rev
 - Diff/PR → **Review a diff**; transcript → **Audit a transcript**; debt → **Tech debt**.
 - Claimed-done → `references/judge.md`; task brief/plan → `references/task-review.md`.
 - Skill/plugin → `references/codex-skill-plugin-review.md` (carried `codex` ask).
-- A/B skill-rule eval → `references/eval.md` (`workflows/code-evaluator.js`).
+- A/B skill-rule eval → `references/eval.md`.
 
 ## Audit a transcript
 

@@ -42,7 +42,6 @@ func readers(t *testing.T) map[string][]string {
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
 	"read": "", "renderMemory": "memory/prompts/", "renderAgent": "agent/", "renderHook": "hooks/", "renderBriefText": "brief/", "renderSafety": "safety/", "renderRtk": "rtk/",
-	"renderSkeleton": "workflows/skeletons/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {
@@ -397,10 +396,6 @@ func briefRenderCases() []renderCase {
 		{"RtkNote", "", func() string { return RtkNote("git") }},
 		{"RtkShadowNone", "", func() string { return RtkShadowNone("rtk") }},
 		{"RtkShadowFound", "", func() string { return RtkShadowFound("/usr/bin/rtk") }},
-		{"WorkflowPipelineSkeleton", "", func() string { return WorkflowPipelineSkeleton("it's") }},
-		{"WorkflowParallelSkeleton", "", func() string { return WorkflowParallelSkeleton("it's") }},
-		{"WorkflowEvaluatorSkeleton", "", func() string { return WorkflowEvaluatorSkeleton("it's") }},
-		{"WorkflowOrchestratorSkeleton", "", func() string { return WorkflowOrchestratorSkeleton("it's") }},
 		{"BenchFixBrief", "rtk", func() string { return benchFix(false) }},
 		{"BenchFixBrief", "bare", func() string { return benchFix(true) }},
 		{"BenchReviewBrief", "rtk", func() string { return benchReview(false) }},
@@ -502,7 +497,7 @@ func TestTemplatesRender(t *testing.T) {
 
 // templateSets is every loaded embedded template set.
 func templateSets() []func() map[string]*parse.ListNode {
-	return []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates, skeletonTemplates}
+	return []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates}
 }
 
 // unrenderedKeys lists every loaded template key (all sets, block keys included) absent from rendered.

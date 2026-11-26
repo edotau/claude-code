@@ -275,12 +275,12 @@ audit-git:  # (folded into `audit`) doctor --git over the unpushed commits; a to
 		$(BIN) doctor --git --range '@{u}..HEAD'
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go quality shell yaml help docs js settings
+LINT_WHAT := go quality shell yaml help docs settings
 
 WHAT    ?= all
 SKIP    ?=
 C_COMMA := ,
-LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(filter $(WHAT),js settings),$(LINT_WHAT)))
+LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(filter $(WHAT),settings),$(LINT_WHAT)))
 FMT_KINDS := $(filter go yaml docs settings,$(LINT_KINDS))
 .PHONY: format
 format:  ## Auto-fix go, yaml, md, settings, memory; checks nothing
@@ -328,7 +328,6 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 			$(BIN) memory fmt || rc=1; \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc; fi ;; \
-	js) $(BIN) workflow lint ;; \
 	settings) $(BIN) configure fmt ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac

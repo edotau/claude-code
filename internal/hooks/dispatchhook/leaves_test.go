@@ -91,18 +91,6 @@ func TestDispatchRepeatStopRetiresNothingElse(t *testing.T) {
 	}
 }
 
-// A Workflow the lint blocks (ambiguous agent() options) claims nothing even with every slot free.
-func TestDispatchLintBlockedWorkflowClaimsNothing(t *testing.T) {
-	dispatchEnv(t)
-	r := pre(`{"tool_name":"Workflow","tool_use_id":"amb","tool_input":{"script":"const o = {}; await agent('x', o);"}}`)
-	if r.Decision != core.Block || !strings.Contains(r.Reason, "ambiguous") {
-		t.Fatalf("ambiguous agent() options = %+v, want a lint Block", r)
-	}
-	if n := len(markerNames(t)); n != 0 {
-		t.Fatalf("a lint-blocked Workflow claimed %d markers", n)
-	}
-}
-
 const threeLeaves = "agent('a', {model:'sonnet'});\nagent('b', {model:'sonnet'});\nagent('c', {model:'sonnet'});\n"
 
 func workflowPayload(id string) string {
@@ -245,18 +233,6 @@ func TestDispatchIgnoresOtherTools(t *testing.T) {
 	dispatchEnv(t)
 	if r := pre(`{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_use_id":"b"}`); r.Decision == core.Block || len(markerNames(t)) != 0 {
 		t.Fatalf("a Bash call claimed or blocked: %+v %v", r, markerNames(t))
-	}
-}
-
-// A pin-step Block (bad workflow pin) returns as-is and claims nothing.
-func TestDispatchPinBlockClaimsNothing(t *testing.T) {
-	dispatchEnv(t)
-	payload := `{"tool_name":"Workflow","tool_use_id":"bad","tool_input":{"script":"agent('x', {model:'gpt-4'});"}}`
-	if r := pre(payload); r.Decision != core.Block {
-		t.Fatalf("a bad pin must block, got %+v", r)
-	}
-	if n := len(markerNames(t)); n != 0 {
-		t.Fatalf("a pin Block wrote %d markers", n)
 	}
 }
 
@@ -609,15 +585,6 @@ func TestPlanClaimOnSpawnClearedOnStop(t *testing.T) {
 	Stop(core.ParseInput(strings.NewReader(stop)))
 	if data, _ = os.ReadFile(plan); strings.Contains(string(data), "working:") {
 		t.Fatalf("claim survived SubagentStop:\n%s", data)
-	}
-}
-
-// A Workflow call through Effort is linted by workflows.WorkflowResult: an unpinned leaf gets a model.
-func TestDispatchEffortLintsWorkflowViaQuality(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	res := pre(`{"tool_name":"Workflow","tool_input":{"script":"agent('x', { label: 'l' });\n"}}`)
-	if got, _ := res.UpdatedInput["script"].(string); !strings.Contains(got, "model: 'sonnet'") {
-		t.Errorf("updatedInput.script = %q, want model: 'sonnet' filled", got)
 	}
 }
 
