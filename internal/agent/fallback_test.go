@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -1015,7 +1016,7 @@ func TestPerModelQuotaHoldsOnlyTheModel(t *testing.T) {
 	if !e.ExhaustedUntil.IsZero() || e.Status(time.Now()) == router.StateExhausted {
 		t.Fatalf("%s = %+v, want no account-wide mark on one model's 429", account, e)
 	}
-	if until := e.ModelDead[router.ModelKey(req.Model)]; time.Until(until) < 150*time.Hour {
+	if until := e.ModelDead[models.ModelKey(req.Model)]; time.Until(until) < 150*time.Hour {
 		t.Fatalf("%s model hold = %v, want about the 151h reset", req.Model, until)
 	}
 	hydrogen := &fakeRunner{errs: []error{nil}}

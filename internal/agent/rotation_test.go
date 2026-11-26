@@ -226,7 +226,7 @@ func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 	disp := Dispatch{Agent: &fakeRunner{name: "opencode"}, Account: router.ProviderAccount("dev")}
 	cut := fmt.Errorf("timed out after 2s: %w", context.DeadlineExceeded)
 	noteSlowModel(disp, RunOptions{AutoModel: true, TimeoutTyped: true}, m, cut)
-	if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; held {
+	if _, held := loadState()[disp.Account].ModelDead[models.ModelKey(m)]; held {
 		t.Fatal("a typed --timeout held the model")
 	}
 	rec := Record{ID: "typed", Agent: "codex", Request: RunOptions{Model: "m", Prompt: "a", TimeoutTyped: true}}
@@ -235,7 +235,7 @@ func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 		t.Fatalf("typed deadline filed a cutoff: %v %+v", err, readCutoffs())
 	}
 	noteSlowModel(disp, RunOptions{AutoModel: true}, m, cut)
-	if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; !held {
+	if _, held := loadState()[disp.Account].ModelDead[models.ModelKey(m)]; !held {
 		t.Error("a default-deadline silent auto pick was not held")
 	}
 	t.Run("typed model idle cutoff", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 			t.Fatal(err)
 		}
 		noteSlowModel(disp, RunOptions{ModelTyped: true}, m, fmt.Errorf("silent: %w", ErrSilent))
-		if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; !held {
+		if _, held := loadState()[disp.Account].ModelDead[models.ModelKey(m)]; !held {
 			t.Error("a typed model's idle cutoff was not held")
 		}
 	})

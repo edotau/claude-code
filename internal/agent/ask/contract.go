@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -525,25 +526,13 @@ func planOf(dir, id string) string {
 
 // contractBlock is the owner's brief block: scope, the terms Go records, and the limits, all read from the contract.
 func contractBlock(o *contractOpen) string {
-	lines := []string{fmt.Sprintf("Unit: %s (%s)", o.Scope.Unit, o.Scope.Kind)}
-	if o.Scope.Plan != "" {
-		lines = append(lines, fmt.Sprintf("Plan task: %s (%s)", o.Scope.PlanTask, o.Scope.Plan))
-	}
-	if o.Scope.Lane != "" {
-		lines = append(lines, "Lane: "+o.Scope.Lane)
-	}
-	lines = append(lines, "Terms Go records: "+joinTerms(o.terms()),
-		fmt.Sprintf("Limits: tokens %d, leaves %d, depth %d", o.Limits.Tokens, o.Limits.Leaves, o.Limits.Depth),
-		"Go checks every term itself; hand back with the handback tool (status, tests, method).",
-		contract.ReportInstructions())
-	if o.Owner.Role == contract.RoleFleet && o.Parent != "" {
-		lines = append(lines,
-			"While the parent works, a cancelled fleet attempt is re-sent once on the same contract.",
-			"Recover manually with agents ask --retry <id> --recover; a fresh spec creates a new contract.",
-			"Operator cancels also trigger this one re-send. Stop the fleet by cancelling its owner; "+
-				"cancelling its replacement too (two cancels total) stops this unit but fails the owner leaves term.")
-	}
-	return "\n\n## Contract\n\n" + strings.Join(lines, "\n")
+	sc := o.Scope
+	return assets.ContractBlock(assets.ContractFrame{
+		Unit: sc.Unit, Kind: string(sc.Kind), Plan: sc.Plan, PlanTask: sc.PlanTask, Lane: sc.Lane,
+		Terms: joinTerms(o.terms()), Report: contract.ReportInstructions(),
+		Tokens: o.Limits.Tokens, Leaves: o.Limits.Leaves, Depth: o.Limits.Depth,
+		Fleet: o.Owner.Role == contract.RoleFleet && o.Parent != "",
+	})
 }
 
 // startAsk stamps the plan task and opens the spec's contract on a new dispatch record before it is saved.

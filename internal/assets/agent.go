@@ -108,6 +108,20 @@ func AgentRecovery(in RecoveryFrame) string {
 	})
 }
 
+// ContractFrame is ContractBlock's input: Terms and Report are ready text, Fleet adds the re-send notes.
+type ContractFrame struct {
+	Unit, Kind, Plan, PlanTask, Lane, Terms, Report string
+	Tokens, Leaves, Depth                           int
+	Fleet                                           bool
+}
+
+func ContractBlock(in ContractFrame) string {
+	return renderAgent("misc/contract", tmplFields{
+		"Unit": in.Unit, "Kind": in.Kind, "Plan": in.Plan, "PlanTask": in.PlanTask, "Lane": in.Lane, "Terms": in.Terms,
+		"Report": in.Report, "Tokens": in.Tokens, "Leaves": in.Leaves, "Depth": in.Depth, "Fleet": in.Fleet,
+	})
+}
+
 func AgentSchemaInstruction(schema string) string { return renderAgent("misc/schema", schema) }
 
 func PackPrompt(task, inventory, blocks string) string {

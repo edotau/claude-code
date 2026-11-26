@@ -97,7 +97,7 @@ var inventory = []struct {
 	{"files/agent/resume.txt", "txt", "AgentResumePrompt", func() []byte { return read("files/agent/resume.txt") }},
 	{"files/agent/rubric-lead.txt", "txt", "AgentRubricLead", func() []byte { return read("files/agent/rubric-lead.txt") }},
 	{"files/agent/rubric.tmpl", "tmpl", "AgentRubricBody", func() []byte { return read("files/agent/rubric.tmpl") }},
-	{"files/agent/misc.tmpl", "tmpl", "AgentHandoff,AgentMidRun,AgentPartial,AgentPersona,AgentReconcile,AgentSchemaInstruction,PackCoverageWarning", func() []byte { return read("files/agent/misc.tmpl") }},
+	{"files/agent/misc.tmpl", "tmpl", "AgentHandoff,AgentMidRun,AgentPartial,AgentPersona,AgentReconcile,AgentSchemaInstruction,ContractBlock,PackCoverageWarning", func() []byte { return read("files/agent/misc.tmpl") }},
 	{"files/agent/recovery.tmpl", "tmpl", "AgentRecovery", func() []byte { return read("files/agent/recovery.tmpl") }},
 	{"files/agent/pack-prompt.tmpl", "tmpl", "PackPrompt", func() []byte { return read("files/agent/pack-prompt.tmpl") }},
 	{"files/agent/pack-index.tmpl", "tmpl", "PackIndex", func() []byte { return read("files/agent/pack-index.tmpl") }},

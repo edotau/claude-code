@@ -314,6 +314,12 @@ func agentRenderCases() []renderCase {
 		{"AgentHandoff", "", func() string { return AgentHandoff("codex", two) }},
 		{"AgentRecovery", "files", func() string { return AgentRecovery(RecoveryFrame{"p", "id1", "st", "cut", "a.go", two, true}) }},
 		{"AgentRecovery", "nofiles", func() string { return AgentRecovery(RecoveryFrame{"p", "id1", "st", "cut", "", two, false}) }},
+		{"ContractBlock", "plain", func() string {
+			return ContractBlock(ContractFrame{Unit: "u1", Kind: "k", Terms: "a, b", Report: "rep", Tokens: 5, Leaves: 2, Depth: 1})
+		}},
+		{"ContractBlock", "fleet", func() string {
+			return ContractBlock(ContractFrame{"u1", "k", "/p.md", "2.1", "lane1", "a, b", "rep", 5, 2, 1, true})
+		}},
 		{"AgentSchemaInstruction", "", func() string { return AgentSchemaInstruction(`{"a":1}`) }},
 		{"PackPrompt", "", func() string { return PackPrompt("task", "inv", two) }},
 		{"PackIndex", "", func() string { return PackIndex(two) }},

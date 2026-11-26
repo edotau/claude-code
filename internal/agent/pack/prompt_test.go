@@ -230,12 +230,13 @@ func TestChangedFilesCancellationMessageEndsInCause(t *testing.T) {
 // A directory whose path inventory alone exceeds the cap degrades to a trimmed inventory plus a note, not an error.
 func TestBuildHugeDirTrimsInventory(t *testing.T) {
 	dir := t.TempDir()
-	for i := range 3000 {
+	const budget = 4 << 10 // small cap so a few hundred paths overflow it
+	for i := range 300 {
 		write(t, filepath.Join(dir, "d", fmt.Sprintf("sub%d", i%40), fmt.Sprintf("file_number_%d.txt", i)), "hello")
 	}
 	for _, s := range []Spec{{Dirs: []string{"d"}, MaxFiles: -1}, {Dirs: []string{"d"}, IndexOnly: true}, {Dirs: []string{"d"}, IndexOnly: true, Index: true}} {
-		got, err := Build(t.Context(), s, "task", dir, 64<<10)
-		if err != nil || len(got.Prompt) > 64<<10 || !strings.Contains(strings.Join(got.Notes, "\n"), "path inventory over 64 KB") || !strings.Contains(got.Prompt, "more skipped paths are not listed") {
+		got, err := Build(t.Context(), s, "task", dir, budget)
+		if err != nil || len(got.Prompt) > budget || !strings.Contains(strings.Join(got.Notes, "\n"), "path inventory over 4 KB") || !strings.Contains(got.Prompt, "more skipped paths are not listed") {
 			t.Errorf("spec %+v: %d bytes, err %v, notes %v", s, len(got.Prompt), err, got.Notes)
 		}
 	}
