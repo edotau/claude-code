@@ -60,12 +60,16 @@ type askFlags struct {
 	loopRounds, loopBudget                                                                                                                                                             int
 }
 
-// CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
+// CompletionFlags lists ask's flags for tab completion; choice flags offer the spec's Choices lists.
 func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
-	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
-		"format":   nil,
-		"fallback": func() []string { return route.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
+	values := map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames}
+	for _, f := range askSchema().Fields {
+		if len(f.Choices) > 0 {
+			values[f.Name] = func() []string { return f.Choices }
+		}
+	}
+	return helptext.FlagsOf(fs, values)
 }
 
 func engineNames() []string {

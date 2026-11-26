@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -245,5 +246,26 @@ func TestSpecDryRunPrintsPlan(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != 0 || len(doc.Plan.Runners) == 0 || doc.Plan.Fallback.Source != "typed" {
 		t.Fatalf("exit = %d, want plan.runners and plan.fallback.source (err %v)\nout=%s\nstderr=%s", code, err, out, stderr)
+	}
+}
+
+func TestCompletionFlagsOfferSpecChoices(t *testing.T) {
+	want := map[string][]string{}
+	for _, f := range askSchema().Fields {
+		if len(f.Choices) > 0 {
+			want[f.Name] = f.Choices
+		}
+	}
+	if len(want) != 7 {
+		t.Fatalf("spec choice flags = %d, want 7", len(want))
+	}
+	for _, f := range CompletionFlags() {
+		var got []string
+		if f.Values != nil {
+			got = f.Values()
+		}
+		if w, ok := want[f.Name]; ok && !slices.Equal(got, w) {
+			t.Errorf("--%s completes %v, want %v", f.Name, got, w)
+		}
 	}
 }
