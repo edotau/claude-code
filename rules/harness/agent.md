@@ -87,8 +87,12 @@ paths:
   A request Pi cannot carry (`--carry`, `--host`, `--as`, a vendor session, `--direct`, a vendor
   budget) drops the Pi hops (`runnerLoses`). Measured on one one-line task: about 3.3k tokens through Pi against 61k
   on the claude CLI. Hop order: Pi on the asked profile, Pi on the other Databricks profiles, then the agent's own CLI;
-  hops off Databricks only under a typed `--fallback all`. An overflow refusal re-picks once by context size under
-  `all` or `agents` (a typed model is kept, not replaced); a policy refusal and
+  hops off Databricks only under a typed `--fallback all`. Last of all, when every hosted hop fails before answering,
+  one Pi hop on the local Qwen row (`magnitude`/`local`, `ranks.json` `local.stage` `last`;
+  `internal/agent/localhop.go`), receipt `fallback local(<kind>)`; barred by `--fallback none`, a typed pin, model or
+  backend, `--native`/`--host`/`--as`, a fence typed on the command line, a tier outside `local.tiers`, a security
+  brief or a prompt over `local.max_prompt`; one slot, its wait taken from `--timeout`. An overflow refusal re-picks
+  once by context size under `all` or `agents` (a typed model is kept, not replaced); a policy refusal and
   `x-should-retry` are typed error classes. Fable is refused on Databricks by name, never run as Opus;
   among non-vendor families only kimi, grok and qwen are picked automatically, the others run by name.
   A brief for a Pi hop must stand alone (no CLAUDE.md, skills or MCP).
