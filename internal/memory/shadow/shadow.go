@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 )
 
 // memorySteps is the memory store's migration list; step n sets user_version n.
-var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}}
+var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}, {Name: "area", Up: areaV2}}
 
 // schemaV1Stmts is schema v1, one statement per Exec so a failure names its statement.
 var schemaV1Stmts = []string{
@@ -55,6 +56,55 @@ func schemaV1(tx *sql.Tx) (string, error) {
 		}
 	}
 	return "8 tables", nil
+}
+
+var citedPkg = regexp.MustCompile(`\b(?:internal|cmd)/([A-Za-z0-9_-]+)`)
+
+// deriveArea is the most-cited package or command dir in lines, ties to the smaller name; "" when none (R2).
+func deriveArea(lines string) string {
+	count := map[string]int{}
+	best := ""
+	for _, m := range citedPkg.FindAllStringSubmatch(lines, -1) {
+		count[m[1]]++
+		if c, b := count[m[1]], count[best]; c > b || (c == b && m[1] < best) {
+			best = m[1]
+		}
+	}
+	return best
+}
+
+// areaV2 fills the empty area of every entry from the paths it cites.
+func areaV2(tx *sql.Tx) (string, error) {
+	ctx := context.Background()
+	rows, err := tx.QueryContext(ctx, `SELECT rowid, lines FROM entries WHERE area = '' ORDER BY rowid`)
+	if err != nil {
+		return "", fmt.Errorf("memory: shadow area: %w", err)
+	}
+	type upd struct {
+		id   int64
+		area string
+	}
+	var areas []upd
+	for rows.Next() {
+		var id int64
+		var lines string
+		if err := rows.Scan(&id, &lines); err != nil {
+			_ = rows.Close()
+			return "", fmt.Errorf("memory: shadow area: %w", err)
+		}
+		if a := deriveArea(lines); a != "" {
+			areas = append(areas, upd{id, a})
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return "", fmt.Errorf("memory: shadow area: %w", err)
+	}
+	for _, u := range areas {
+		if _, err := tx.ExecContext(ctx, `UPDATE entries SET area = ? WHERE rowid = ?`, u.area, u.id); err != nil {
+			return "", fmt.Errorf("memory: shadow area: %w", err)
+		}
+	}
+	return fmt.Sprintf("%d areas", len(areas)), nil
 }
 
 // migrateMemoryDB brings db to the latest memory schema.
@@ -171,8 +221,8 @@ func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 	}
 	for _, e := range d.entries {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version,
-			deleted, origin, origin_seq, rendered_rev) VALUES(?, ?, ?, ?, ?, ?, '', 1, 0, '', 0, 1)`,
-			d.path, e.id, e.seq, e.kind, e.lines, e.date); err != nil {
+			deleted, origin, origin_seq, rendered_rev) VALUES(?, ?, ?, ?, ?, ?, ?, 1, 0, '', 0, 1)`,
+			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines)); err != nil {
 			return err
 		}
 	}

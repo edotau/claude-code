@@ -223,8 +223,8 @@ func TestShadowRebuildAtomic(t *testing.T) {
 func TestShadowMigrateVersion(t *testing.T) {
 	ctx := context.Background()
 	db := openShadowDB(t, nil)
-	if v, err := sqlite.Version(db); err != nil || v != 1 {
-		t.Fatalf("version = %d (%v), want 1", v, err)
+	if v, err := sqlite.Version(db); err != nil || v != 2 {
+		t.Fatalf("version = %d (%v), want 2", v, err)
 	}
 	rep, err := migrateMemoryDB(ctx, db, sqlite.MigrateOptions{})
 	if err != nil || len(rep.Applied) != 0 {
@@ -240,5 +240,58 @@ func TestShadowMigrateVersion(t *testing.T) {
 	}
 	if v, err := sqlite.Version(fresh); err != nil || v != 0 {
 		t.Fatalf("dry-run version = %d (%v), want 0", v, err)
+	}
+}
+
+func TestShadowAreaStep(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "memory.db"), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := sqlite.Migrate(ctx, db, memorySteps[:1], sqlite.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	execShadow(t, db, `INSERT INTO docs VALUES('d.md','note','h',NULL,'bullets',NULL)`)
+	for i, l := range []string{"see internal/hooks/a.go and cmd/zed, internal/hooks", "cmd/b then internal/a", "no paths", "x/internal/memory"} {
+		execShadow(t, db, fmt.Sprintf(`INSERT INTO entries(doc,id,seq,kind,lines,date,version) VALUES('d.md','i%d',%d,'bullet','%s','',1)`, i, i, l))
+	}
+	if _, err := migrateMemoryDB(ctx, db, sqlite.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	rows, err := db.QueryContext(ctx, `SELECT area FROM entries ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, a)
+	}
+	if want := []string{"hooks", "a", "", "memory"}; !slices.Equal(got, want) {
+		t.Fatalf("areas = %q, want %q", got, want)
+	}
+	wantShadowMatch(t, db, "hooks", "d.md", "i0")
+}
+
+func TestShadowRebuildKeepsArea(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte("# C\n\n- see internal/zzpkg\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := openShadowDB(t, nil)
+	if _, err := shadowRebuild(context.Background(), db, root); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	err := db.QueryRowContext(context.Background(), `SELECT e.id FROM entries_fts f JOIN entries e ON e.rowid = f.rowid
+		WHERE entries_fts MATCH 'area:zzpkg' AND e.area = 'zzpkg'`).Scan(&id)
+	if err != nil {
+		t.Fatalf("area column match: %v", err)
 	}
 }
