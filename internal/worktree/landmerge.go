@@ -47,23 +47,15 @@ func mergeDirtyPaths(ctx context.Context, main, from, to string, files []string)
 // mergeOne is git merge-file over the live file, its bytes at from and its bytes at to; a missing side reads as empty.
 func mergeOne(ctx context.Context, main, tmp, from, to, rel string) (liveMerge, error) {
 	live := filepath.Join(main, filepath.FromSlash(rel))
-	m := liveMerge{path: rel, mode: 0o644}
-	if fi, err := os.Lstat(live); err == nil {
-		if !fi.Mode().IsRegular() {
-			return m, fmt.Errorf("%s is not a regular file in the live tree; nothing changed: %w", rel, ErrLandRefused)
-		}
-		m.mode = fi.Mode().Perm()
-	}
-	ours, err := os.ReadFile(live)
-	if err != nil && !os.IsNotExist(err) {
+	m := liveMerge{path: rel}
+	ours, mode, err := readLive(live, rel)
+	m.mode = mode
+	if err != nil {
 		return m, err
 	}
-	var args [3]string
-	for i, side := range [][]byte{ours, blobOrEmpty(ctx, main, from, rel), blobOrEmpty(ctx, main, to, rel)} {
-		args[i] = filepath.Join(tmp, strconv.Itoa(i))
-		if err := os.WriteFile(args[i], side, 0o600); err != nil {
-			return m, err
-		}
+	args, err := writeSides(tmp, [][]byte{ours, blobOrEmpty(ctx, main, from, rel), blobOrEmpty(ctx, main, to, rel)})
+	if err != nil {
+		return m, err
 	}
 	cmd := gitCmd(ctx, "merge-file", "-p", "-L", "live tree", "-L", "base", "-L", "lane", args[0], args[1], args[2])
 	m.data, err = cmd.Output()
@@ -74,6 +66,34 @@ func mergeOne(ctx context.Context, main, tmp, from, to, rel string) (liveMerge, 
 		return m, fmt.Errorf("git merge-file %s: %v; nothing changed: %w", rel, err, ErrLandRefused)
 	}
 	return m, nil
+}
+
+// readLive reads the live file and its mode (0644 when absent); a non-regular file is refused.
+func readLive(live, rel string) ([]byte, os.FileMode, error) {
+	mode := os.FileMode(0o644)
+	if fi, err := os.Lstat(live); err == nil {
+		if !fi.Mode().IsRegular() {
+			return nil, mode, fmt.Errorf("%s is not a regular file in the live tree; nothing changed: %w", rel, ErrLandRefused)
+		}
+		mode = fi.Mode().Perm()
+	}
+	ours, err := os.ReadFile(live)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, mode, err
+	}
+	return ours, mode, nil
+}
+
+// writeSides writes each side to its own file under tmp and returns the three paths.
+func writeSides(tmp string, sides [][]byte) ([3]string, error) {
+	var args [3]string
+	for i, side := range sides {
+		args[i] = filepath.Join(tmp, strconv.Itoa(i))
+		if err := os.WriteFile(args[i], side, 0o600); err != nil {
+			return args, err
+		}
+	}
+	return args, nil
 }
 
 // blobOrEmpty is path's bytes at rev, or none when rev has no such file.

@@ -14,8 +14,8 @@ internal/worktree/land.go:acquire	unversioned: text: the land-lock holder pid an
 internal/worktree/land.go:editQueueWithin	land-queue
 internal/worktree/land.go:withLandRun	unversioned: text: the land-lease owner file (pid and lane) beside the lease lock
 internal/worktree/landbatch.go:DrainQueue	unversioned: text: the drainer lease holder pid and who, beside the drain lease
-internal/worktree/landmerge.go:mergeOne	unversioned: text: a landed file three-way merged with the live edit, conflict markers kept
 internal/worktree/landmerge.go:writeMerges	unversioned: text: the merged landed files written into the live tree
+internal/worktree/landmerge.go:writeSides	unversioned: text: a landed file three-way merged with the live edit, conflict markers kept
 internal/worktree/landstats.go:recordAttempt	land-attempts
 internal/worktree/landstats.go:trimAttempts	land-attempts
 internal/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close

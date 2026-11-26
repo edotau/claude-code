@@ -253,9 +253,7 @@ func TestLandDirtyTargetMergesBothSides(t *testing.T) {
 			landFixtureRun(t, wt, "merge", "-q", "--ff-only", headOf(main))
 			landFixtureWrite(t, wt, tc.laneFile, tc.laneBody, "feature edits")
 			before := headOf(main)
-			if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte(tc.liveBody), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeLiveFile(t, main, "f.txt", tc.liveBody)
 			var out bytes.Buffer
 			outcome, err := Land(context.Background(), repo, LandRequest{
 				Name: "feature", Verify: "true", NoClean: true, Out: &out, Err: io.Discard, ShowPlan: func(*LandPlan) {},
@@ -266,18 +264,7 @@ func TestLandDirtyTargetMergesBothSides(t *testing.T) {
 			if headOf(main) != before {
 				t.Fatal("main HEAD moved: a land stays uncommitted")
 			}
-			got, err := os.ReadFile(filepath.Join(main, "f.txt"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.laneFile == "b.txt" {
-				requireFileContent(t, filepath.Join(main, "b.txt"), tc.laneBody)
-			}
-			for _, w := range tc.want {
-				if !strings.Contains(string(got), w) {
-					t.Errorf("f.txt = %q, want it to hold %q", got, w)
-				}
-			}
+			requireDirtyLandFiles(t, main, tc.laneFile, tc.laneBody, tc.want)
 			if marked := strings.Contains(out.String(), "conflict markers left in"); marked != tc.conflict {
 				t.Errorf("output %q: conflict note = %v, want %v", out.String(), marked, tc.conflict)
 			}
@@ -298,9 +285,7 @@ func TestPromoteMergesIntoDirtyTargetAfterPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := headOf(main)
-	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("uncommitted\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeLiveFile(t, main, "a.txt", "uncommitted\n")
 	res, err := promoteOnly(ctx, repo, plan)
 	if err != nil || len(res.Conflicted) != 1 || res.Conflicted[0] != "a.txt" {
 		t.Fatalf("promote = %+v, %v; want a.txt left with conflict markers", res, err)
@@ -308,6 +293,30 @@ func TestPromoteMergesIntoDirtyTargetAfterPlan(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(main, "a.txt"))
 	if !strings.Contains(string(got), "uncommitted\n") || !strings.Contains(string(got), "feature\n") || headOf(main) != before {
 		t.Fatalf("a.txt = %q, head moved = %v; want both sides kept", got, headOf(main) != before)
+	}
+}
+
+func writeLiveFile(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// requireDirtyLandFiles checks f.txt holds every want and, for a lane file other than f.txt, that it landed whole.
+func requireDirtyLandFiles(t *testing.T, main, laneFile, laneBody string, want []string) {
+	t.Helper()
+	got, err := os.ReadFile(filepath.Join(main, "f.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if laneFile == "b.txt" {
+		requireFileContent(t, filepath.Join(main, "b.txt"), laneBody)
+	}
+	for _, w := range want {
+		if !strings.Contains(string(got), w) {
+			t.Errorf("f.txt = %q, want it to hold %q", got, w)
+		}
 	}
 }
 
