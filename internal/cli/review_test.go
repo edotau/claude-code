@@ -12,7 +12,7 @@ import (
 
 func TestWorkflowTarget(t *testing.T) {
 	repo := t.TempDir()
-	for _, d := range []string{".git", "workflows", "internal/assets/files/workflows/blocks", "sub"} {
+	for _, d := range []string{".git", "workflows", "internal/assets/workflows/blocks", "sub"} {
 		if err := os.MkdirAll(filepath.Join(repo, d), 0o755); err != nil {
 			t.Fatal(err)
 		}

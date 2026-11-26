@@ -5,7 +5,7 @@ type BriefFrame struct {
 	Rtk                                                bool // the rtk shell-output line shows
 }
 
-var briefTemplates = loadTemplates("files/brief/*.tmpl")
+var briefTemplates = loadTemplates("brief/*.tmpl")
 
 func renderBriefText(name string, input any) string { return renderFrom(briefTemplates(), name, input) }
 
@@ -16,7 +16,7 @@ func BriefBody(in BriefFrame) string {
 	})
 }
 
-func ReviewLoop() string { return string(read("files/brief/review-loop.txt")) }
+func ReviewLoop() string { return string(read("brief/review-loop.txt")) }
 
 func LoopPlanner(goal string, round, limit, maxParts, maxID, digestChars int, digest string) string {
 	return renderBriefText("loop-planner.tmpl", tmplFields{
@@ -25,7 +25,7 @@ func LoopPlanner(goal string, round, limit, maxParts, maxID, digestChars int, di
 	})
 }
 
-func ReviewNeutral() string { return string(read("files/brief/review-neutral.txt")) }
+func ReviewNeutral() string { return string(read("brief/review-neutral.txt")) }
 
 func ReviewAdversarial(clean string) string {
 	return renderBriefText("review-adversarial.tmpl", tmplFields{"Clean": clean})

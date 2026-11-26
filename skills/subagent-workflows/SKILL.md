@@ -171,13 +171,13 @@ allows (`CLAUDE.md` guideline 3): split until files would overlap or one leaf mu
   `Verify:` a scoped command; `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner
   requested it.
 - A type with no agent file (`general-purpose`, `Explore`) gets no leaf rules: paste the `## Leaf rules` lines of
-  `internal/assets/files/brief/brief.tmpl` (no foreground `sleep`, no git or `sudo` probes in `~/.claude`) into its
+  `internal/assets/brief/brief.tmpl` (no foreground `sleep`, no git or `sudo` probes in `~/.claude`) into its
   brief.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on another
   leaf. Keep the brief scoped: one asking a leaf to verify a whole large doc loops (the opencode run behind this edit
   made 176 shell calls).
 - `claude-code agents brief --task F --own P…` prints the brief: `Owned:`, mode, your task, the leaf
-  rules and the reporting contract from `internal/assets/files/brief/brief.tmpl`; never restate that footer. Pipe it to
+  rules and the reporting contract from `internal/assets/brief/brief.tmpl`; never restate that footer. Pipe it to
   `agents ask -`; `agents diff --verify <id>` reads `Owned:` back.
 
 The hook reads `Agent:` only before the first blank line. Overlay `profile` leads then falls back unless

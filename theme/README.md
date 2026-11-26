@@ -15,5 +15,5 @@ for any file it rewrites); `--dry-run` lists what would change. Edit a file here
 | `ghostty.conf` | `~/.config/ghostty/config` | `theme` (Ubuntu), background/foreground colors, cursor style/color, window padding and behavior, font settings, clipboard permissions |
 
 Claude Code's own `"theme": "auto"` lives in `~/.claude/settings.json` (seeded from
-`internal/assets/files/settings/template.json`), not here. Codex's `appearanceTheme` is set from the ChatGPT desktop app
+`internal/assets/settings/template.json`), not here. Codex's `appearanceTheme` is set from the ChatGPT desktop app
 and is left alone.

@@ -9,7 +9,7 @@ overrides:
     rules:
       empty-section-body: false
       heading-increment: false
-  - glob: ["internal/assets/files/memory/templates/*.md"] # seed blank slots the updater fills; text there would enter the bank
+  - glob: ["internal/assets/memory/templates/*.md"] # seed blank slots the updater fills; text there would enter the bank
     rules:
       empty-section-body: false
   - glob: ["docs/templates/examples/memory/*.md"] # generated verbatim: MEMORY.md/index.md have no H1 and no blanks

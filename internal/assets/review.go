@@ -66,28 +66,28 @@ func renderBrief(cache *briefCache, source string, data any) (string, error) {
 }
 
 func BenchFixBrief(in BenchFixInput) (string, error) {
-	return renderBrief(&benchFixCache, string(read("files/review/bench/briefs/fix.tmpl")), in)
+	return renderBrief(&benchFixCache, string(read("review/bench/briefs/fix.tmpl")), in)
 }
 
 func BenchReviewBrief(in BenchReviewInput) (string, error) {
-	return renderBrief(&benchReviewCache, string(read("files/review/bench/briefs/review.tmpl")), in)
+	return renderBrief(&benchReviewCache, string(read("review/bench/briefs/review.tmpl")), in)
 }
 
 func AutofixBrief(in AutofixInput) (string, error) {
-	return renderBrief(&autofixCache, string(read("files/review/autofix/briefs/fix.tmpl")), in)
+	return renderBrief(&autofixCache, string(read("review/autofix/briefs/fix.tmpl")), in)
 }
 
 func text(b []byte) string { return strings.TrimSuffix(string(b), "\n") }
 
-func BenchNoDiff() string                    { return text(read("files/review/bench/no-diff.txt")) }
-func WebSearchDescription() string           { return text(read("files/tools/search-description.txt")) }
-func WebExtractDescription() string          { return text(read("files/tools/extract-description.txt")) }
-func WebSearchQueryDescription() string      { return text(read("files/tools/search-query.txt")) }
-func WebSearchMaxResultsDescription() string { return text(read("files/tools/search-max-results.txt")) }
-func WebExtractURLsDescription() string      { return text(read("files/tools/extract-urls.txt")) }
-func ProxySearchDescription() string         { return text(read("files/tools/proxy-search-description.txt")) }
-func ProxySearchSchema() string              { return text(read("files/tools/proxy-search-schema.json")) }
-func DatabricksSmokePrompt() string          { return text(read("files/tools/databricks-smoke.txt")) }
-func DatabricksProbePrompt() string          { return text(read("files/tools/databricks-probe.txt")) }
-func DatabricksToolDescription() string      { return text(read("files/tools/databricks-tool.txt")) }
-func PreflightPongPrompt() string            { return text(read("files/tools/preflight-pong.txt")) }
+func BenchNoDiff() string                    { return text(read("review/bench/no-diff.txt")) }
+func WebSearchDescription() string           { return text(read("tools/search-description.txt")) }
+func WebExtractDescription() string          { return text(read("tools/extract-description.txt")) }
+func WebSearchQueryDescription() string      { return text(read("tools/search-query.txt")) }
+func WebSearchMaxResultsDescription() string { return text(read("tools/search-max-results.txt")) }
+func WebExtractURLsDescription() string      { return text(read("tools/extract-urls.txt")) }
+func ProxySearchDescription() string         { return text(read("tools/proxy-search-description.txt")) }
+func ProxySearchSchema() string              { return text(read("tools/proxy-search-schema.json")) }
+func DatabricksSmokePrompt() string          { return text(read("tools/databricks-smoke.txt")) }
+func DatabricksProbePrompt() string          { return text(read("tools/databricks-probe.txt")) }
+func DatabricksToolDescription() string      { return text(read("tools/databricks-tool.txt")) }
+func PreflightPongPrompt() string            { return text(read("tools/preflight-pong.txt")) }

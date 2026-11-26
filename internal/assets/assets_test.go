@@ -42,8 +42,8 @@ func readers(t *testing.T) map[string][]string {
 
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
-	"read": "", "renderMemory": "files/memory/prompts/", "renderAgent": "files/agent/", "renderHook": "files/hooks/", "renderBriefText": "files/brief/", "renderSafety": "files/safety/", "renderRtk": "files/rtk/",
-	"renderSkeleton": "files/workflows/skeletons/",
+	"read": "", "renderMemory": "memory/prompts/", "renderAgent": "agent/", "renderHook": "hooks/", "renderBriefText": "brief/", "renderSafety": "safety/", "renderRtk": "rtk/",
+	"renderSkeleton": "workflows/skeletons/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {
@@ -94,7 +94,7 @@ func parseProduction(t *testing.T) []*ast.File {
 
 func TestInventoryClosed(t *testing.T) {
 	var embedded []string
-	err := fs.WalkDir(files, "files", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(files, ".", func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
 			embedded = append(embedded, p)
 		}
@@ -757,9 +757,9 @@ func TestTemplateFieldsDeclared(t *testing.T) {
 // TestReviewBriefFieldsDeclared holds the text/template review briefs to the same header and to their input struct.
 func TestReviewBriefFieldsDeclared(t *testing.T) {
 	for path, input := range map[string]any{
-		"files/review/bench/briefs/fix.tmpl":    BenchFixInput{},
-		"files/review/bench/briefs/review.tmpl": BenchReviewInput{},
-		"files/review/autofix/briefs/fix.tmpl":  AutofixInput{},
+		"review/bench/briefs/fix.tmpl":    BenchFixInput{},
+		"review/bench/briefs/review.tmpl": BenchReviewInput{},
+		"review/autofix/briefs/fix.tmpl":  AutofixInput{},
 	} {
 		trees := map[string]*parse.Tree{}
 		root := parse.New("brief")

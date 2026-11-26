@@ -274,7 +274,7 @@ paths:
   A pinned `auto` beats a concrete ladder cell exactly as a typed one does, so the label always equals the
   run. A tier the row
   does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
-  `internal/assets/files/catalog/ranks.json`.
+  `internal/assets/catalog/ranks.json`.
   `"model":"auto"` or `configure agents <agent> model=auto` picks the least-recent eligible model on a rotation row
   (Databricks workspace or copilot GitHub login); `auto` rotates models only, never the row. Claude's model never
   rotates: its typed or pinned `auto` runs the brief's tier model (haiku fast, sonnet standard or untiered, opus deep)
@@ -283,9 +283,9 @@ paths:
   holds stay per workspace: a pool-pinned pick skips a model where that workspace skips or holds it, and keeps it
   while another workspace serves it. The pool input is the served listing (a GitHub login: its Copilot catalog
   snapshot) alone; there is no built-in seed pool.
-  Rotation admits only rows not marked `"rotate": false` in `internal/assets/files/catalog/ranks.json`; typed, those
+  Rotation admits only rows not marked `"rotate": false` in `internal/assets/catalog/ranks.json`; typed, those
   still run. The pool admits only models the agent can run within the tier's `rotation` capability floor and cost cap in
-  `internal/assets/files/catalog/ranks.json` (unranked models skip both where the tier admits them); a tier's
+  `internal/assets/catalog/ranks.json` (unranked models skip both where the tier admits them); a tier's
   `defer_cost`/`defer_turns` make a model that dear take one of every `defer_turns` of its turns (standard: cost 5,
   3 turns; a lone or only-remaining dear model still runs). The vault's
   `discovery-models` allowlist only narrows it; held models and, under `tools`, models probed tools `no` are skipped.

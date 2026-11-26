@@ -45,7 +45,7 @@ Chains (each workflow stands alone; the artifact between steps is the whole hand
   `code-analyzer`, `code-looper`, `code-workers` and `code-engineer` (enforced by `workflow lint`). Stages run
   in-script, so a workflow nests one level only. Shell prompts carry a `cd <cwd> &&` prefix (a subagent's cwd does not
   persist between calls; copilot allows a cd inside its roots).
-- Edit `internal/assets/files/workflows/{blocks,prompts}/`, rebuild; `workflow sync` projects marked blocks;
+- Edit `internal/assets/workflows/{blocks,prompts}/`, rebuild; `workflow sync` projects marked blocks;
   `workflow lint` checks drift.
 - Measured, not reported: after every editing stage (fix, shrink, test, implementer, seam, Dedupe, Simplify; a gate's
   fix iterations only under code-looper `measure:true`) a local haiku leaf runs `claude-code agents diff --base HEAD

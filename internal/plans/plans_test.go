@@ -542,8 +542,8 @@ func TestTickCommitsTicksNamedTaskOnce(t *testing.T) {
 
 func TestOwnEntriesWithoutFiles(t *testing.T) {
 	cases := []struct{ in, want []string }{
-		{[]string{"internal/assets/files/workflows/blocks/stages.js", "workflows/code-analyzer.js"},
-			[]string{"internal/assets/files/workflows/blocks/stages.js", "workflows/code-analyzer.js"}},
+		{[]string{"internal/assets/workflows/blocks/stages.js", "workflows/code-analyzer.js"},
+			[]string{"internal/assets/workflows/blocks/stages.js", "workflows/code-analyzer.js"}},
 		{[]string{"internal/hooks/safety/hardblock.go", "hardblock_test.go"},
 			[]string{"internal/hooks/safety/hardblock.go", "internal/hooks/safety/hardblock_test.go"}},
 		{[]string{"internal/a/a.go", "and their tests"}, []string{"internal/a/a.go", "and their tests"}},

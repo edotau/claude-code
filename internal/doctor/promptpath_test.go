@@ -245,7 +245,7 @@ func TestPromptsListJSONAccessorsAreArrays(t *testing.T) {
 func TestPromptsListPrintsOneRowPerText(t *testing.T) {
 	code, out := runCaptured(t, "--prompts", "--list")
 	rows := strings.Split(strings.TrimSpace(out), "\n")
-	if code != 0 || len(rows) != len(assets.Inventory()) || !strings.Contains(rows[0], "files/catalog/ranks.json") {
+	if code != 0 || len(rows) != len(assets.Inventory()) || !strings.Contains(rows[0], "catalog/ranks.json") {
 		t.Fatalf("exit %d, %d rows, first %q", code, len(rows), rows[0])
 	}
 	if Run([]string{"--list"}) != 2 {

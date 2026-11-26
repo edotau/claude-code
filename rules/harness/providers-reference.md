@@ -13,7 +13,7 @@ short commands and precedence are in `providers.md`.
 
 ## Providers
 
-Built-ins live in `internal/assets/files/providers/defaults.json`. The vault's provider overlay (rows added by
+Built-ins live in `internal/assets/providers/defaults.json`. The vault's provider overlay (rows added by
 `configure github` and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes
 it). Each entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see [Naming](#naming).
 
@@ -176,7 +176,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats session profile beats agent record beats default; no profile = off, claude always on |
 
 Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
-bucket" is the exception: an alias's ordered Databricks list in `internal/assets/files/router/table.json`), leg (→
+bucket" is the exception: an alias's ordered Databricks list in `internal/assets/router/table.json`), leg (→
 dispatch), family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its
 name), first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire
 is `serving` (`ai-gateway` is refused).
@@ -232,7 +232,7 @@ claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 ## Proxy teams and scopes
 
 A **team** is one row of the schema in `internal/proxyteam`; the shipped rows are
-`internal/assets/files/proxy/teams.json`.
+`internal/assets/proxy/teams.json`.
 `shared` is the daemon and the default team, so every kind no team claims goes there. `phase` takes kind `group` and
 runs in-process in the wave or batch that owns it, falling back to `shared`.
 

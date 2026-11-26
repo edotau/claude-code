@@ -16,7 +16,7 @@ func TestWorkflowSkeletonMatchesTextTemplate(t *testing.T) {
 		"pipeline": WorkflowPipelineSkeleton, "parallel": WorkflowParallelSkeleton,
 		"evaluator": WorkflowEvaluatorSkeleton, "orchestrator": WorkflowOrchestratorSkeleton,
 	} {
-		ref := template.Must(template.New("").Parse(string(read("files/workflows/skeletons/" + file + ".js.tmpl"))))
+		ref := template.Must(template.New("").Parse(string(read("workflows/skeletons/" + file + ".js.tmpl"))))
 		var want strings.Builder
 		if err := ref.Execute(&want, struct{ Name string }{workflowNameEscaper.Replace(name)}); err != nil {
 			t.Fatal(err)

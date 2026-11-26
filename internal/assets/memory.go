@@ -9,27 +9,27 @@ import (
 
 type MemoryUpdateInput struct{ Worker, Procedure, Historical, Digest, Git, Tags string }
 
-func MemoryActiveContextSeed() string { return string(read("files/memory/templates/activeContext.md")) }
+func MemoryActiveContextSeed() string { return string(read("memory/templates/activeContext.md")) }
 
-func MemoryConventionsSeed() string { return string(read("files/memory/templates/conventions.md")) }
+func MemoryConventionsSeed() string { return string(read("memory/templates/conventions.md")) }
 
-func MemoryDecisionLogSeed() string { return string(read("files/memory/templates/decisionLog.md")) }
+func MemoryDecisionLogSeed() string { return string(read("memory/templates/decisionLog.md")) }
 
-func MemoryProgressSeed() string { return string(read("files/memory/templates/progress.md")) }
+func MemoryProgressSeed() string { return string(read("memory/templates/progress.md")) }
 
 func MemoryProjectContextSeed() string {
-	return string(read("files/memory/templates/projectContext.md"))
+	return string(read("memory/templates/projectContext.md"))
 }
 
 func MemorySessionHistorySeed() string {
-	return string(read("files/memory/templates/sessionHistory.md"))
+	return string(read("memory/templates/sessionHistory.md"))
 }
 
-func MemoryDreamProcedure() string { return memoryProcedure(read("files/memory/prompts/dream.md")) }
+func MemoryDreamProcedure() string { return memoryProcedure(read("memory/prompts/dream.md")) }
 
-func MemoryInitProcedure() string { return memoryProcedure(read("files/memory/prompts/init.md")) }
+func MemoryInitProcedure() string { return memoryProcedure(read("memory/prompts/init.md")) }
 
-func MemoryPromoteProcedure() string { return memoryProcedure(read("files/memory/prompts/promote.md")) }
+func MemoryPromoteProcedure() string { return memoryProcedure(read("memory/prompts/promote.md")) }
 
 // MemoryReviewProcedure is dream's Phase 6, so `feedback list --rank` and dream share one scoring rubric.
 func MemoryReviewProcedure() string {
@@ -42,7 +42,7 @@ func MemoryReviewProcedure() string {
 	return strings.TrimSpace(body)
 }
 
-func MemoryUpdateProcedure() string { return memoryProcedure(read("files/memory/prompts/update.md")) }
+func MemoryUpdateProcedure() string { return memoryProcedure(read("memory/prompts/update.md")) }
 
 func MemoryUpdateWorker(bank string) string {
 	return renderMemory("update-opening.tmpl", tmplFields{"Bank": bank})
@@ -52,7 +52,7 @@ func MemoryDreamWorker(bank string) string {
 	return renderMemory("dream-opening.tmpl", tmplFields{"Bank": bank})
 }
 
-func MemoryHistoricalRule() string { return string(read("files/memory/prompts/historical.txt")) }
+func MemoryHistoricalRule() string { return string(read("memory/prompts/historical.txt")) }
 
 func MemoryUpdatePrompt(in MemoryUpdateInput) string {
 	return renderMemory("update-worker.tmpl", tmplFields{
@@ -81,7 +81,7 @@ func MemoryDreamPrompt(worker, changed, procedure string) string {
 	return renderMemory("dream-worker.tmpl", tmplFields{"Worker": worker, "Changed": changed, "Procedure": procedure})
 }
 
-func MemoryDreamUnchanged() string { return string(read("files/memory/prompts/dream-unchanged.txt")) }
+func MemoryDreamUnchanged() string { return string(read("memory/prompts/dream-unchanged.txt")) }
 
 func MemoryOpenTasks(tasks string) string {
 	return renderMemory("misc/open-tasks", tasks)
@@ -92,10 +92,10 @@ func MemoryRTKMisses(misses string) string {
 }
 
 func MemoryReplacementUnavailable() string {
-	return string(read("files/memory/prompts/replacement-unavailable.txt"))
+	return string(read("memory/prompts/replacement-unavailable.txt"))
 }
 
-func MemoryIndexHint() string { return string(read("files/memory/prompts/index-hint.txt")) }
+func MemoryIndexHint() string { return string(read("memory/prompts/index-hint.txt")) }
 
 var memoryBlockBegin struct {
 	sync.Once
@@ -103,7 +103,7 @@ var memoryBlockBegin struct {
 }
 
 func MemoryBlockBegin() string {
-	memoryBlockBegin.Do(func() { memoryBlockBegin.text = string(read("files/memory/prompts/block-begin.txt")) })
+	memoryBlockBegin.Do(func() { memoryBlockBegin.text = string(read("memory/prompts/block-begin.txt")) })
 	return memoryBlockBegin.text
 }
 
@@ -127,9 +127,9 @@ func MemoryCatalogBank(hook, date string) string {
 	return renderMemory("catalog/bank", tmplFields{"Hook": hook, "Date": date})
 }
 
-func MemoryHomeIndexHeading() string { return string(read("files/memory/prompts/home-index.txt")) }
+func MemoryHomeIndexHeading() string { return string(read("memory/prompts/home-index.txt")) }
 
-func MemoryKnowledgeHeading() string { return string(read("files/memory/prompts/knowledge.txt")) }
+func MemoryKnowledgeHeading() string { return string(read("memory/prompts/knowledge.txt")) }
 
 func MemoryFiledByGo(entries string) string { return renderMemory("misc/filed-by-go", entries) }
 
@@ -150,20 +150,20 @@ var memoryFolderRoles struct {
 
 func MemoryFolderRoles() [][2]string {
 	memoryFolderRoles.Do(func() {
-		if err := json.Unmarshal(read("files/memory/folder-roles.json"), &memoryFolderRoles.rows); err != nil {
+		if err := json.Unmarshal(read("memory/folder-roles.json"), &memoryFolderRoles.rows); err != nil {
 			panic("assets: memory folder roles: " + err.Error())
 		}
 	})
 	return slices.Clone(memoryFolderRoles.rows)
 }
 
-func MemoryLayoutHeading() string { return string(read("files/memory/prompts/layout.txt")) }
+func MemoryLayoutHeading() string { return string(read("memory/prompts/layout.txt")) }
 
 func MemoryLayoutRow(folder, role string, count int) string {
 	return renderMemory("misc/layout-row", tmplFields{"Folder": folder, "Role": role, "Count": count})
 }
 
-func MemoryNativeHeading() string { return string(read("files/memory/prompts/native.txt")) }
+func MemoryNativeHeading() string { return string(read("memory/prompts/native.txt")) }
 
 func MemoryNativeFolder(folder string) string {
 	return renderMemory("native/folder", folder)
@@ -181,9 +181,9 @@ func MemoryRecallHeader(expand bool) string {
 	return renderMemory("recall/header", expand)
 }
 
-func MemoryRecallFooter() string { return string(read("files/memory/prompts/recall-footer.txt")) }
+func MemoryRecallFooter() string { return string(read("memory/prompts/recall-footer.txt")) }
 
-func MemoryRecallMarker() string { return string(read("files/memory/prompts/recall-marker.txt")) }
+func MemoryRecallMarker() string { return string(read("memory/prompts/recall-marker.txt")) }
 
 func MemoryBankLoadNote(prefix string) string {
 	return renderMemory("bank/load", prefix)
@@ -217,7 +217,7 @@ func TranscriptHandoff(cwd, transcript, note string) string {
 	return renderMemory("transcript/handoff", tmplFields{"CWD": cwd, "Transcript": transcript, "Note": note})
 }
 
-var memoryTemplates = loadTemplates("files/memory/prompts/*.tmpl")
+var memoryTemplates = loadTemplates("memory/prompts/*.tmpl")
 
 func renderMemory(name string, input any) string {
 	return renderSet(memoryTemplates(), "memory template", name, input)

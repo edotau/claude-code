@@ -139,11 +139,11 @@ func TestInventoryListing(t *testing.T) {
 	for _, r := range rows {
 		byPath[r.Path] = r
 	}
-	if r := byPath["files/hooks/misc.tmpl"]; r.Family != "hooks" || !slices.Equal(r.Accessors, []string{"HookBusyPeer", "HookDiverged"}) || r.Size == 0 ||
+	if r := byPath["hooks/misc.tmpl"]; r.Family != "hooks" || !slices.Equal(r.Accessors, []string{"HookBusyPeer", "HookDiverged"}) || r.Size == 0 ||
 		!slices.Equal(r.Fields, []string{"Ahead", "Behind", "Branch", "Comm", "Files", "Lanes", "Name", "PID", "Rewritten", "Up"}) {
 		t.Errorf("busy-peer row: %+v", r)
 	}
-	if r := byPath["files/hooks/claim-bare-hint.txt"]; len(r.Fields) != 0 {
+	if r := byPath["hooks/claim-bare-hint.txt"]; len(r.Fields) != 0 {
 		t.Errorf("plain text row has fields: %+v", r)
 	}
 }

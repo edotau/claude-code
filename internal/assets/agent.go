@@ -40,8 +40,8 @@ func loadTemplates(glob string) func() map[string]*parse.ListNode {
 }
 
 var (
-	agentTemplates = loadTemplates("files/agent/*.tmpl")
-	hookTemplates  = loadTemplates("files/hooks/*.tmpl")
+	agentTemplates = loadTemplates("agent/*.tmpl")
+	hookTemplates  = loadTemplates("hooks/*.tmpl")
 )
 
 func renderAgent(name string, input any) string { return renderFrom(agentTemplates(), name, input) }
@@ -71,11 +71,11 @@ func renderSet(set map[string]*parse.ListNode, kind, name string, input any) str
 
 func AgentPreamble(text string) string { return renderAgent("preamble.tmpl", text) }
 
-func AgentWebViaCLI() string { return string(read("files/agent/web-via-cli.txt")) }
+func AgentWebViaCLI() string { return string(read("agent/web-via-cli.txt")) }
 
-func AgentResumePrompt() string { return string(read("files/agent/resume.txt")) }
+func AgentResumePrompt() string { return string(read("agent/resume.txt")) }
 
-func AgentRubricLead() string { return string(read("files/agent/rubric-lead.txt")) }
+func AgentRubricLead() string { return string(read("agent/rubric-lead.txt")) }
 
 func AgentRubricBody(standard, task string) string {
 	return renderAgent("rubric.tmpl", tmplFields{"Standard": standard, "Task": task})
@@ -177,7 +177,7 @@ func PackInventory(included, skipped []string, omitted int) string {
 	return renderAgent("pack/inventory", tmplFields{"Included": included, "Skipped": skipped, "Omitted": omitted})
 }
 
-func PackNoFiles() string { return string(read("files/agent/pack-no-files.txt")) }
+func PackNoFiles() string { return string(read("agent/pack-no-files.txt")) }
 
 func HookSimplicityHeader(n int, rel string) string {
 	return renderHook("simplicity/header", tmplFields{"N": n, "Rel": rel})
@@ -264,18 +264,18 @@ func HookClaimHowTo() string { return renderHook("claim/how-to", nil) }
 
 func HookClaimStageHint() string { return renderHook("claim/stage-hint", nil) }
 
-func HookClaimCommitHint() string { return string(read("files/hooks/claim-commit-hint.txt")) }
+func HookClaimCommitHint() string { return string(read("hooks/claim-commit-hint.txt")) }
 
-func HookClaimBareHint() string { return string(read("files/hooks/claim-bare-hint.txt")) }
+func HookClaimBareHint() string { return string(read("hooks/claim-bare-hint.txt")) }
 
-func HookClaimNestHint() string { return string(read("files/hooks/claim-nest-hint.txt")) }
+func HookClaimNestHint() string { return string(read("hooks/claim-nest-hint.txt")) }
 
-func HookClaimLaneHint() string { return string(read("files/hooks/claim-lane-hint.txt")) }
+func HookClaimLaneHint() string { return string(read("hooks/claim-lane-hint.txt")) }
 
 // The file stores one trailing newline (git diff --check); the preamble ends with a blank line.
-func AgyToolLessPreamble() string { return string(read("files/agent/agy-toolless.txt")) + "\n" }
+func AgyToolLessPreamble() string { return string(read("agent/agy-toolless.txt")) + "\n" }
 
-func PiStdinTask() string { return string(read("files/agent/stdin-task.txt")) }
+func PiStdinTask() string { return string(read("agent/stdin-task.txt")) }
 
 func ClaudeAttachImage(path string) string { return renderAgent("attach/image", path) }
 
@@ -287,13 +287,13 @@ func AttachFile(quotedPath, content string) string {
 func AttachRef(path string) string { return renderAgent("attach/ref", path) }
 
 // The file stores one trailing newline (git diff --check); the head ends with a blank line.
-func PlanTasksHead() string { return string(read("files/agent/plan-tasks-head.txt")) + "\n" }
+func PlanTasksHead() string { return string(read("agent/plan-tasks-head.txt")) + "\n" }
 
-func PlanTasksEmpty() string { return string(read("files/agent/plan-tasks-empty.txt")) }
+func PlanTasksEmpty() string { return string(read("agent/plan-tasks-empty.txt")) }
 
 // PlanCloseout is the checklist tail every plan ends with, one item per line in the file.
 func PlanCloseout() []string {
-	return strings.Split(strings.TrimRight(string(read("files/agent/plan-closeout.txt")), "\n"), "\n")
+	return strings.Split(strings.TrimRight(string(read("agent/plan-closeout.txt")), "\n"), "\n")
 }
 
 func HookPlanPathChoose(err string) string { return renderHook("plan/path-choose", err) }
@@ -337,6 +337,6 @@ func HookMemoryStoreName(from, dest string) string {
 	return renderHook("memory/store-name", tmplFields{"From": from, "Dest": dest})
 }
 
-func HookReviewFixHead() string { return string(read("files/hooks/review-fix-head.txt")) }
+func HookReviewFixHead() string { return string(read("hooks/review-fix-head.txt")) }
 
-func HookReviewNoLine() string { return string(read("files/hooks/review-no-line.txt")) }
+func HookReviewNoLine() string { return string(read("hooks/review-no-line.txt")) }

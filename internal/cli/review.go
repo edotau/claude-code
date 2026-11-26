@@ -170,7 +170,7 @@ func isHarnessCheckout(top string) bool {
 	if top == "" {
 		return false
 	}
-	for _, d := range []string{"workflows", "internal/assets/files/workflows/blocks"} {
+	for _, d := range []string{"workflows", "internal/assets/workflows/blocks"} {
 		if fi, err := os.Stat(filepath.Join(top, d)); err != nil || !fi.IsDir() {
 			return false
 		}

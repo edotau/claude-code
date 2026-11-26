@@ -132,6 +132,6 @@ Returns:     {exit, route, packages, merged, confirmed, dropped, unverified, fix
   JavaScript, `ERR(...)` for bad args, no shell state outside agents; `agent()` pins and the table row:
   [saved-workflows.md](saved-workflows.md) → Authoring.
 - Mark the `stepOf` block (`// <block:stepOf>` to `// </block:stepOf>`) and run `claude-code workflow sync`: it writes
-  the embedded blocks (`internal/assets/files/workflows/blocks/`, the source) into every marked script.
+  the embedded blocks (`internal/assets/workflows/blocks/`, the source) into every marked script.
 - Return the shared result shape above; log the agent estimate at launch and take a `slice` arg for the first run.
 - Run once on a small slice, then update the table and `whenToUse`.

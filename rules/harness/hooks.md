@@ -176,7 +176,7 @@ With the marker, PreToolUse skips the pin and label (the mod's query computes th
 and emits only the recall note; denials are unchanged, and a `pi`/`code-mode` → `coworker` retype stays a hook
 `updatedInput` (the host validates the type before `agent.spawn`). The mod is `mods/dispatch-spawn`
 (`claude plugin test mods/dispatch-spawn`), loaded with `slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS`
-(`internal/assets/files/settings/template.json`; `doctor` row `mods` flags a
+(`internal/assets/settings/template.json`; `doctor` row `mods` flags a
 settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites
 as before.
 
@@ -194,7 +194,7 @@ Prose is the instruction; the hook is the guarantee. Every gate:
 
 Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script reading payloads
 from a data file (quoted payloads in the probe command trip the guard) and tally allow, ask and block. Permission
-guardrails live in `settings.json`'s `permissions` block (`internal/assets/files/settings/template.json`; `ask` beats
+guardrails live in `settings.json`'s `permissions` block (`internal/assets/settings/template.json`; `ask` beats
 `allow`).
 
 ## Hook performance and contract

@@ -28,7 +28,7 @@ paths:
   (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) print `<redacted: N bytes>`
   (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
   (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are
-  `internal/assets/files/providers/defaults.json`; a vault overlay row replaces one by name.
+  `internal/assets/providers/defaults.json`; a vault overlay row replaces one by name.
 - Agent settings live in the vault, one record per agent (`vault` AGENT table); an external agent's shell
   `<AGENT>_MODEL` outranks the record's `model`, and `--model` beats both; `switch` and `<agent> profile` write the
   record (no last-used profile exists).
@@ -101,9 +101,9 @@ paths:
 ## Model selection
 
 Name the alias (`opus`/`sonnet`/`haiku`/`fable`), never a concrete model id:
-`internal/assets/files/providers/defaults.json` plus the vault overlay map each alias per provider.
+`internal/assets/providers/defaults.json` plus the vault overlay map each alias per provider.
 
-- On a Databricks profile an alias picks the first member of its bucket (`internal/assets/files/router/table.json` →
+- On a Databricks profile an alias picks the first member of its bucket (`internal/assets/router/table.json` →
   `databricks`) the agent can run and, with a fresh listing, the workspace lists READY. An explicit `--model`, overlay
   `model` and record model outrank the bucket.
 - A GPT family name (`sol`, `astra`, `terra`, `luna`) is the highest numeric version the row's listing serves READY
@@ -178,7 +178,7 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,
   `gpt-5-5-pro`) are refused for it; run them with codex, copilot or opencode.
 - On its Google sign-in row agy's own models are typed as catalog id plus effort (`gemini-4-hydrogen-xhigh`,
-  `claude-sonnet-5-5-medium`, `gpt-oss-120b`); accepted efforts live in `internal/assets/files/models/catalog.json`
+  `claude-sonnet-5-5-medium`, `gpt-oss-120b`); accepted efforts live in `internal/assets/models/catalog.json`
   `efforts`, and an unlisted one fails before agy launches. The profile in force picks the backend, never the model
   name. `--autonomous` is dropped on gemini (agy's `--mode auto` is account-gated).
 - With no `--profile`, gemini sends a typed `databricks-*` model to the session's Databricks gateway row and a

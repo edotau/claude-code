@@ -31,7 +31,7 @@ func TestMemoryRenderMatchesTextTemplate(t *testing.T) {
 		if !folded {
 			stem, block = strings.TrimSuffix(c.name, ".tmpl"), c.name
 		}
-		ref := template.Must(template.New("").Option("missingkey=error").ParseFS(files, "files/memory/prompts/"+stem+".tmpl"))
+		ref := template.Must(template.New("").Option("missingkey=error").ParseFS(files, "memory/prompts/"+stem+".tmpl"))
 		var want strings.Builder
 		if err := ref.ExecuteTemplate(&want, block, c.input); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
@@ -131,7 +131,7 @@ func TestMemoryRenderersGolden(t *testing.T) {
 }
 
 func TestMemoryGoldenCoversEveryTemplate(t *testing.T) {
-	names, err := fs.Glob(files, "files/memory/prompts/*.tmpl")
+	names, err := fs.Glob(files, "memory/prompts/*.tmpl")
 	if err != nil {
 		t.Fatal(err)
 	}

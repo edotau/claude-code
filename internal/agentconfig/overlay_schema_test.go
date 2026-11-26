@@ -18,12 +18,12 @@ func TestOverlaySchemaGolden(t *testing.T) {
 		return
 	}
 	if os.Getenv("UPDATE_OVERLAY_SCHEMA") != "" {
-		if err := os.WriteFile("../assets/files/agentconfig/overlay.schema.json", got, 0o644); err != nil {
+		if err := os.WriteFile("../assets/agentconfig/overlay.schema.json", got, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return
 	}
-	t.Fatal("internal/assets/files/agentconfig/overlay.schema.json is stale: regenerate with `UPDATE_OVERLAY_SCHEMA=1 go test ./internal/agentconfig -run TestOverlaySchemaGolden`")
+	t.Fatal("internal/assets/agentconfig/overlay.schema.json is stale: regenerate with `UPDATE_OVERLAY_SCHEMA=1 go test ./internal/agentconfig -run TestOverlaySchemaGolden`")
 }
 
 func TestOverlaySchemaCoversEveryKey(t *testing.T) {

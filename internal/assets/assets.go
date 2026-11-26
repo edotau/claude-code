@@ -10,7 +10,8 @@ import (
 	"text/template/parse"
 )
 
-//go:embed files
+//go:embed agent agentconfig brief catalog claude clipboard copilot databricks hooks memory models pi
+//go:embed providers proxy review router rtk safety settings setup shell tools ui workflows
 var files embed.FS
 
 // tmplFields is a template's named inputs; a missing name panics like missingkey=error.
@@ -207,13 +208,13 @@ func read(name string) []byte {
 }
 
 // RankTable is the model rank table (tiers, rotation rules, families).
-func RankTable() []byte { return read("files/catalog/ranks.json") }
+func RankTable() []byte { return read("catalog/ranks.json") }
 
 // RetiredWords is the retired-word vocabulary the source review advises on.
-func RetiredWords() []byte { return read("files/review/source/retired_words.json") }
+func RetiredWords() []byte { return read("review/source/retired_words.json") }
 
 // ThemeDefaultConfig is the statusline config.json default.
-func ThemeDefaultConfig() []byte { return read("files/ui/theme/default_config.json") }
+func ThemeDefaultConfig() []byte { return read("ui/theme/default_config.json") }
 
 // ThemeDefaultPalettes is the statusline palette default.
-func ThemeDefaultPalettes() []byte { return read("files/ui/theme/default_palettes.json") }
+func ThemeDefaultPalettes() []byte { return read("ui/theme/default_palettes.json") }

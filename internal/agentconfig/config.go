@@ -1,9 +1,9 @@
 // Package agentconfig is each agent CLI's spec; this header indexes every agent's allow/deny policy source.
 //
-//   - Claude Code: internal/assets/files/settings/template.json `permissions` (ask/deny), seeded into a missing settings.json.
+//   - Claude Code: internal/assets/settings/template.json `permissions` (ask/deny), seeded into a missing settings.json.
 //   - gemini: Claude's live deny list (template fallback) carried over as GuardRules, on by default unless the
 //     agent's `useGuardRules` extra is "false"; converted in internal/gemini (agyGuardRules).
-//   - codex, copilot, opencode launch knobs: internal/assets/files/agentconfig/agents.json (approvalPolicy, sandboxMode, launch args).
+//   - codex, copilot, opencode launch knobs: internal/assets/agentconfig/agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety/ guards destructive shapes for every agent, on top of all of the above.
 package agentconfig
 
