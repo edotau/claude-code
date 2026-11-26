@@ -279,3 +279,17 @@ func TestAgentType(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifierModelSkipsIgnoredAndAbove(t *testing.T) {
+	for want, ids := range map[string][]string{
+		"claude-haiku-5-5":             {"claude-opus-5", "databricks-claude-sonnet-5-5", "", "claude-haiku-5-5"},
+		"claude-sonnet-5":              {"claude-sonnet-5"},
+		"qwen3-coder":                  {"qwen3-coder"},
+		"":                             {"claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5[1m]"},
+		"databricks-claude-sonnet-4-6": {"databricks-claude-sonnet-4-6"},
+	} {
+		if got := ClassifierModel(ids...); got != want {
+			t.Errorf("ClassifierModel(%v) = %q, want %q", ids, got, want)
+		}
+	}
+}

@@ -75,7 +75,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	warnLostRemoteControl(&plan, proxied, passthrough, args)
-	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p); err != nil {
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, sel); err != nil {
 		return agent.Plan{}, err
 	}
 	if err := renderIfInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
@@ -133,7 +133,7 @@ func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, p
 		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
 	}
 	setModelAliasEnv(&plan, sel)
-	if err := setMainModel(&plan, sel, p, agent.MainAlias(o), o.Model != "" || vault.GetAgentRecord("claude").Model != ""); err != nil {
+	if err := setMainModel(&plan, sel, p, agent.MainAlias(o)); err != nil {
 		return agent.Plan{}, err
 	}
 	set1MOff(&plan, sel, p)
@@ -205,7 +205,7 @@ func typesEffort(args []string) bool {
 // keepShellEndpoint lets a shell ANTHROPIC_MODEL (no --model flag) or ANTHROPIC_BASE_URL win over the vault resolution
 func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOptions) {
 	keep := []string{proc.EnvAnthropicBaseURL}
-	if o.Model == "" {
+	if o.Model == "" && proc.Value(ctx, providers.EnvSessionProfile) == "" { // a parent session's own model is not the user's
 		keep = append(keep, "ANTHROPIC_MODEL")
 	}
 	if o.Dispatch && o.Asked { // a profile the dispatch named owns the endpoint; the caller's own base never overrides it
@@ -469,20 +469,47 @@ func configDirEnvIsDefault() bool {
 	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
 }
 
-// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per alias; Databricks only for explicitly pinned slots.
-func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
+// servedAliases is each alias the profile serves with its client id, in alias order; Databricks serves no Fable id.
+func servedAliases(sel providers.Selection) [][2]string {
 	dbx := sel.Provider.SpellingRule() == "databricks-serving"
+	var out [][2]string
 	for _, alias := range models.AliasNames {
-		m := sel.ClientModel(alias)
-		// Databricks: an unpinned slot is Claude Code's own id
-		if m == "" || dbx && (!sel.Aliases[alias].Pinned || fableSlotMismatch(alias, m)) {
-			continue
+		if m := sel.ClientModel(alias); m != "" && (!dbx || alias != models.Fable && models.FamilyOf(m) != models.Fable) {
+			out = append(out, [2]string{alias, m})
 		}
-		plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 	}
-	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
-		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
+	return out
+}
+
+// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per served alias; an unserved one stays unmapped.
+func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
+	for _, a := range servedAliases(sel) {
+		plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(a[0])+"_MODEL"] = a[1]
 	}
+	setAutoModeModel(plan, sel)
+}
+
+// setAutoModeModel pins the auto-mode classifier to the profile's Sonnet, else Haiku, never above.
+func setAutoModeModel(plan *agent.Plan, sel providers.Selection) {
+	const key = "CLAUDE_CODE_AUTO_MODE_MODEL"
+	m := models.ClassifierModel(sel.ClientModel(models.Sonnet))
+	if m == "" && !defaultClassifierServed(sel.Provider) { // else the default Sonnet 5 answers (the proxy swaps it on Databricks)
+		m = models.ClassifierModel(sel.ClientModel(models.Haiku))
+	}
+	if m == "" {
+		plan.Unset = append(plan.Unset, key) // an inherited parent's pin must not leak in
+		return
+	}
+	plan.Set[key] = m
+}
+
+// modelPicker is the /model lineup: exactly the served aliases, replacing Claude Code's built-in rows.
+func modelPicker(sel providers.Selection) map[string]any {
+	var rows []map[string]string
+	for _, a := range servedAliases(sel) {
+		rows = append(rows, map[string]string{"model": a[1], "label": strings.ToUpper(a[0][:1]) + a[0][1:]})
+	}
+	return map[string]any{"options": rows, "replaceBuiltInOptions": true}
 }
 
 // fableSlotMismatch: the Fable slot must never hold another family's id (Databricks serves no Fable).
@@ -502,15 +529,15 @@ func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) 
 	plan.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
 }
 
-// setMainModel sets the thinking knobs from alias's model, and ANTHROPIC_MODEL only when the user asked for one.
-func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provider, alias string, asked bool) error {
+// setMainModel sets ANTHROPIC_MODEL from alias's model (a settings.json /model never leaks in) and the thinking knobs.
+func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provider, alias string) error {
 	opus := sel.ClientModel(alias)
 	if opus == "" {
 		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, alias, alias)
 	}
-	if asked && p.SpellingRule() == "databricks-serving" && fableSlotMismatch(alias, opus) {
+	if p.SpellingRule() == "databricks-serving" && fableSlotMismatch(alias, opus) {
 		plan.Set["ANTHROPIC_MODEL"] = alias // Claude Code's own Fable id reaches the proxy's Fable refusal
-	} else if asked {
+	} else {
 		plan.Set["ANTHROPIC_MODEL"] = opus
 	}
 	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
@@ -520,6 +547,12 @@ func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provid
 		}
 	}
 	return nil
+}
+
+// defaultClassifierServed: Anthropic's route serves the default classifier, and the Databricks proxy swaps it.
+func defaultClassifierServed(p *providers.Provider) bool {
+	route, ok := p.Route(providers.ProtocolAnthropic)
+	return ok && route == defaultAnthropicBase || p.SpellingRule() == "databricks-serving"
 }
 
 func sessionProviders(sel providers.Selection) []*providers.Provider {
@@ -646,7 +679,8 @@ func claudeLaunchBinaries(o agent.LaunchOptions) (string, string, error) {
 }
 
 // applyOverlay sets the passthrough OAuth handling or the apiKeyHelper, and writes the launch's one --settings layer.
-func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, p *providers.Provider) error {
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, sel providers.Selection) error {
+	p := sel.Provider
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
 	for k, v := range providerEnv(ctx, p.Env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
@@ -663,6 +697,7 @@ func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args 
 		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
 		doc["apiKeyHelper"] = helper
 	}
+	doc["modelPicker"] = modelPicker(sel)
 	plan.Argv = []string{"--settings", path}
 	return putLaunchDoc(plan, path, doc)
 }

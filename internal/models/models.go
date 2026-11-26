@@ -84,6 +84,18 @@ func ParseClaudeID(id string) (family string, major, minor int, ok bool) {
 	return m[1], major, minor, true
 }
 
+// ClassifierModel is the first Sonnet or Haiku id the auto-mode classifier accepts (it ignores Sonnet 5.5).
+func ClassifierModel(ids ...string) string {
+	for _, id := range ids {
+		family, major, minor, ok := ParseClaudeID(id)
+		if id == "" || ok && (family != Sonnet && family != Haiku || family == Sonnet && major == 5 && minor == 5) {
+			continue
+		}
+		return id
+	}
+	return ""
+}
+
 func atLeast(major, minor, wantMajor, wantMinor int) bool {
 	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }

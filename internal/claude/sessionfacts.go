@@ -130,7 +130,7 @@ func sessionPlan(as string, opts *agent.LaunchOptions, args []string) (agent.Pla
 		plan.Values = opts.Values // withOverlay hands the child this snapshot's fence, not the shell's
 	}
 	if id != "" && !opts.PrintEnv {
-		writeFacts(id, launchFacts{Profile: plan.Set[providers.EnvSessionProfile], Model: opts.Model, Fence: fenceOf(ctx)})
+		writeFacts(id, launchFacts{Profile: plan.Set[providers.EnvSessionProfile], Model: cmp.Or(opts.Model, agent.MainAlias(*opts)), Fence: fenceOf(ctx)})
 	}
 	return plan, nil
 }

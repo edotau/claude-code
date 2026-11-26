@@ -206,8 +206,8 @@ func TestAnthropicModelPicksMainTier(t *testing.T) {
 			t.Fatalf("%q: %v", model, err)
 		}
 		got := p.Set["ANTHROPIC_MODEL"]
-		if model == "" && got != "" {
-			t.Errorf("no --model: ANTHROPIC_MODEL %q, want unset", got)
+		if model == "" && !strings.Contains(got, "opus") {
+			t.Errorf("no --model: ANTHROPIC_MODEL %q, want the default opus id", got)
 		}
 		if model != "" && !strings.Contains(got, alias) {
 			t.Errorf("--model %q: ANTHROPIC_MODEL %q, want family %q", model, got, alias)

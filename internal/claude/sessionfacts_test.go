@@ -82,3 +82,30 @@ func TestResumeIgnoresStrayRouteEnv(t *testing.T) {
 		}
 	}
 }
+
+// A launch without --model records the default alias; a resume replays it after the profile's default id changes.
+func TestResumeKeepsDefaultAlias(t *testing.T) {
+	hermetic(t, twoProfiles)
+	_, fresh, err := planLaunch("/opt/claude", []string{"--profile", "ollama"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := flagArg(fresh.Argv, "--session-id")
+	if f, ok := readFacts(id); !ok || f.Model != "opus" {
+		t.Fatalf("recorded facts = %+v (ok %v), want model opus", f, ok)
+	}
+	if got := fresh.Set["ANTHROPIC_MODEL"]; got != "qwen3-coder" {
+		t.Fatalf("fresh ANTHROPIC_MODEL = %q", got)
+	}
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "qwen3-next") // the profile's opus changes after launch
+	_, resumed, err := planLaunch("/opt/claude", []string{"--resume", id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resumed.Set["ANTHROPIC_MODEL"]; got != "qwen3-next" || resumed.Set["ANTHROPIC_DEFAULT_OPUS_MODEL"] != got {
+		t.Errorf("resume ANTHROPIC_MODEL = %q, want the opus alias replayed on the same profile (qwen3-next)", got)
+	}
+	if got := resumed.Set["CLAUDE_PROFILE"]; got != "ollama" {
+		t.Errorf("resume profile = %q", got)
+	}
+}

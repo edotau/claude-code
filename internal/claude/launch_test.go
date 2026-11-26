@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -142,8 +143,8 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, p.Set[k], v)
 		}
 	}
-	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
-		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
+	if m := p.Set["ANTHROPIC_MODEL"]; m != "qwen3-coder" {
+		t.Errorf("ANTHROPIC_MODEL = %q, want the profile's default id", m)
 	}
 	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !regexp.MustCompile(`overlay-ollama-proxy-[0-9a-f]{12}\.json$`).MatchString(overlayFile(p).Path) {
 		t.Errorf("overlay %s at %s", overlayFile(p).Data, overlayFile(p).Path)
@@ -772,23 +773,32 @@ func TestClaudeDatabricksLaunchSkipsRemoteControlWarning(t *testing.T) {
 	}
 }
 
-// The auto-mode classifier model is the provider-qualified opus id, not Claude Code's unserved default.
-func TestSetModelAliasEnvPinsAutoModeModel(t *testing.T) {
-	hermetic(t, armDBX)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sel, err := providers.Select(reg, "dev")
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan := agent.Plan{Set: map[string]string{}}
-	setModelAliasEnv(&plan, sel)
-	want := sel.ClientModel(models.Opus)
-	got := plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"]
-	if !strings.HasPrefix(got, "databricks-") || !strings.Contains(got, "opus") || got != want {
-		t.Errorf("auto-mode model = %q, want opus id %q", got, want)
+// The auto-mode classifier is pinned to the profile's Sonnet, never Opus or Fable; an ignored Sonnet 5.5 is not.
+func TestAutoModeModelNeverAboveSonnet(t *testing.T) {
+	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
+		"auth": {"type": "none"}}},
+		"anthropic": {"old": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic", "auth": {"type": "none"},
+		"models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-4-6", "haiku": "claude-haiku-5-5"}},
+		"new": {"protocol": "anthropic", "base_url": "https://gw2.example/anthropic", "auth": {"type": "none"},
+		"models": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}}}}}`)
+	for profile, want := range map[string]string{
+		"dbx": "",                  // Sonnet 5.5 is ignored; the proxy swaps Claude Code's default Sonnet 5 to the profile's Sonnet
+		"old": "claude-sonnet-4-6", // a usable Sonnet is pinned
+		"new": "claude-haiku-5-5",  // Sonnet 5.5 ignored, default unserved on a gateway: Haiku, never Opus
+	} {
+		sel, err := providers.Select(mustRegistry(t), profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan := agent.Plan{Set: map[string]string{}}
+		setModelAliasEnv(&plan, sel)
+		got := plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"]
+		if got != want {
+			t.Errorf("%s: auto-mode model = %q, want %q", profile, got, want)
+		}
+		if got == "" && !slices.Contains(plan.Unset, "CLAUDE_CODE_AUTO_MODE_MODEL") {
+			t.Errorf("%s: an inherited auto-mode model is not unset", profile)
+		}
 	}
 }
 
@@ -963,8 +973,8 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 	}
 }
 
-// Databricks: an unpinned slot sets no env, a pinned one is steered, Fable never takes another family's id.
-func TestAliasEnvOnDatabricks(t *testing.T) {
+// Each served alias is remapped and ANTHROPIC_MODEL is always set; Fable never takes another family's id on Databricks.
+func TestSessionModelEnvPerProfile(t *testing.T) {
 	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "databricks-claude-opus-5-5", "sonnet": "databricks-claude-sonnet-5-5"}}},
@@ -975,24 +985,28 @@ func TestAliasEnvOnDatabricks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plan := agent.Plan{Set: map[string]string{}}
-		setModelAliasEnv(&plan, sel)
-		delete(plan.Set, "CLAUDE_CODE_AUTO_MODE_MODEL")
+		plan, err := newClaudePlan("claude", agent.LaunchOptions{Provider: profile}, sel, false)
+		if err != nil {
+			t.Fatal(err)
+		}
 		return plan.Set
 	}
-	if got := rows("dbx"); len(got) != 0 {
-		t.Errorf("no pins: %v, want no slot rows", got)
+	for profile, want := range map[string][]string{
+		"dbx": {"OPUS", "SONNET", "HAIKU"}, "gw": {"OPUS", "FABLE"},
+	} {
+		got := rows(profile)
+		for _, slot := range []string{"FABLE", "OPUS", "SONNET", "HAIKU"} {
+			if _, ok := got["ANTHROPIC_DEFAULT_"+slot+"_MODEL"]; ok != slices.Contains(want, slot) {
+				t.Errorf("%s %s remap present = %v: %v", profile, slot, ok, got)
+			}
+		}
+		if got["ANTHROPIC_MODEL"] == "" || got["ANTHROPIC_MODEL"] != got["ANTHROPIC_DEFAULT_OPUS_MODEL"] {
+			t.Errorf("%s ANTHROPIC_MODEL = %q, want the opus id %q", profile, got["ANTHROPIC_MODEL"], got["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+		}
 	}
 	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "databricks-claude-sonnet-5-5")
-	if got := rows("dbx"); len(got) != 1 || got["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "databricks-claude-sonnet-5-5" {
-		t.Errorf("sonnet pin: %v, want only SONNET", got)
-	}
-	vaulttest.SetRecord(t, "claude", "model", "databricks-claude-opus-5-5")
-	if got := rows("dbx"); len(got) != 3 || got["ANTHROPIC_DEFAULT_FABLE_MODEL"] != "" {
-		t.Errorf("all-slot pin: %v, want 3 rows and no FABLE", got)
-	}
-	if got := rows("gw"); got["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "claude-opus-5-5" || len(got) != 4 {
-		t.Errorf("gw: %v, want all four slots", got)
+	if got := rows("dbx"); got["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "databricks-claude-sonnet-5-5" {
+		t.Errorf("sonnet pin: %v", got)
 	}
 }
 
@@ -1002,7 +1016,7 @@ func TestSetMainModelFableOnDatabricksKeepsFable(t *testing.T) {
 	sel := providers.Selection{Provider: dbx, Aliases: map[string]providers.Target{
 		models.Fable: {Provider: dbx, Model: "databricks-claude-opus-5-5", Pinned: true}}}
 	plan := agent.Plan{Set: map[string]string{}}
-	if err := setMainModel(&plan, sel, dbx, models.Fable, true); err != nil {
+	if err := setMainModel(&plan, sel, dbx, models.Fable); err != nil {
 		t.Fatal(err)
 	}
 	if got := plan.Set["ANTHROPIC_MODEL"]; got != models.Fable {
@@ -1019,19 +1033,40 @@ func mustRegistry(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// An interactive Databricks launch keeps Claude Code's own /model lineup: no modelPicker, no picker overlay.
-func TestClaudeLaunchHasNoModelPicker(t *testing.T) {
+// The /model picker lists exactly the aliases the launch profile serves, by its ids; no Fable on Databricks.
+func TestClaudeLaunchModelPickerIsTheProfilesLineup(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{
-	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}},
-	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
-	stubMint(t, func(context.Context, []string, int) (string, error) { return "cct_P", nil })
-	p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: "dev"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := overlayFile(p)
-	if strings.HasSuffix(f.Path, "-picker.json") || strings.Contains(string(f.Data), "modelPicker") {
-		t.Errorf("picker overlay %s: %s", f.Path, f.Data)
+	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}},
+	"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example/anthropic","auth":{"type":"none"},
+	"models":{"opus":"claude-opus-4-6","fable":"claude-fable-5-2"}}}}}`)
+	for profile, want := range map[string][]string{
+		"dev": {"Opus", "Sonnet", "Haiku"}, "gw": {"Fable", "Opus"},
+	} {
+		p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: profile}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			ModelPicker struct {
+				Options []struct{ Model, Label string }
+				Replace bool `json:"replaceBuiltInOptions"`
+			}
+		}
+		if err := json.Unmarshal(overlayFile(p).Data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		var labels []string
+		for _, o := range doc.ModelPicker.Options {
+			labels = append(labels, o.Label)
+			if o.Model != p.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(o.Label)+"_MODEL"] {
+				t.Errorf("%s: row %s model %q is not the remap id", profile, o.Label, o.Model)
+			}
+		}
+		slices.Sort(labels)
+		slices.Sort(want)
+		if !doc.ModelPicker.Replace || !slices.Equal(labels, want) {
+			t.Errorf("%s: picker %v replace=%v, want %v", profile, labels, doc.ModelPicker.Replace, want)
+		}
 	}
 }
 
@@ -1210,5 +1245,18 @@ func TestNormalizeDocCollapses(t *testing.T) {
 	var none []string
 	if _, _ = normalizeDoc(want, &none); len(none) != 0 {
 		t.Fatalf("clean doc reported %v", none)
+	}
+}
+
+// A shell ANTHROPIC_MODEL wins over the profile default, except one a parent harness session exported.
+func TestShellModelKeptOnlyOutsideASession(t *testing.T) {
+	hermetic(t, gwProviders)
+	for session, kept := range map[string]bool{"": true, "ultra": false} {
+		ctx := proc.WithValues(t.Context(), proc.Values{"ANTHROPIC_MODEL": "claude-fable-5-2", providers.EnvSessionProfile: session})
+		plan := agent.Plan{Set: map[string]string{"ANTHROPIC_MODEL": "claude-opus-5-5"}}
+		keepShellEndpoint(ctx, &plan, agent.LaunchOptions{})
+		if got := slices.Contains(plan.Keep, "ANTHROPIC_MODEL"); got != kept {
+			t.Errorf("session %q: kept = %v, want %v", session, got, kept)
+		}
 	}
 }

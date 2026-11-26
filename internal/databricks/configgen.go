@@ -261,7 +261,10 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 	for _, alias := range models.AliasNames {
 		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = p.WireModel(cmp.Or(p.Models[alias], aliasID(alias)))
 	}
-	env["CLAUDE_CODE_AUTO_MODE_MODEL"] = p.WireModel(cmp.Or(p.Models[models.Opus], aliasID(models.Opus))) // classifier default is unserved here
+	delete(env, "CLAUDE_CODE_AUTO_MODE_MODEL") // never above Sonnet; Claude Code ignores a Sonnet 5.5, so Haiku then
+	if m := models.ClassifierModel(env["ANTHROPIC_DEFAULT_SONNET_MODEL"].(string), env["ANTHROPIC_DEFAULT_HAIKU_MODEL"].(string)); m != "" {
+		env["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
+	}
 	if o.Model != "" {
 		env["ANTHROPIC_MODEL"] = p.WireModel(o.Model)
 	}
