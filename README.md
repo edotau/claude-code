@@ -46,7 +46,7 @@ claude-code vault set                 # store a credential in the encrypted vaul
 claude-code anthropic --model opus    # Claude Code on Anthropic; also sonnet, haiku, fable
 claude-code agents list               # which agent CLIs are installed
 claude-code agents ask --agent codex "Review this branch."   # one-shot task, tools off unless you add --tools
-claude-code memory recall <terms>     # search the memory bank
+claude-code memory search <terms>     # search the memory bank
 ```
 
 Every verb takes `-h`; `claude-code -h` lists the menu.

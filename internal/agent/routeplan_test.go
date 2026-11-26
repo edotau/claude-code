@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -243,5 +244,47 @@ func TestHopsLocalLast(t *testing.T) {
 		if hops := p.Hops(); len(hops) != want || want == 2 && hops[1].Workspace.Profile != "local" {
 			t.Errorf("stage %s: hops = %+v, want %d with local last", stage, hops, want)
 		}
+	}
+}
+
+// Given an overlay fence of qa, Then the plan's token scope admits qa and refuses prod.
+func TestPlanRouteOverlayFence(t *testing.T) {
+	autoFixture(t)
+	ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "dev", route.OverlayVar: `{"fence":{"profiles":["qa"]}}`})
+	p, err := PlanRoute(ctx, RunOptions{Agent: "codex", Prompt: "Reply ok", Provider: "prod"}, ParentRoute{Fence: route.Fence{Open: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = withPlan(ctx, p)
+	if _, err := TokenScope(ctx, "prod"); err == nil || !strings.Contains(err.Error(), "outside the confinement fence") {
+		t.Errorf("TokenScope(prod) = %v, want the fence refusal", err)
+	}
+	if _, err := TokenScope(ctx, "qa"); err != nil {
+		t.Errorf("TokenScope(qa) = %v, want it admitted", err)
+	}
+}
+
+// Given an overlay maxDepth of 1, Then a grandchild dispatch is refused.
+func TestOverlayMaxDepthStopsGrandchild(t *testing.T) {
+	setConfigDir(t)
+	one := 1
+	fixtureRecord(t, Record{ID: "kid", Agent: "codex", Status: "running", Depth: 1, MaxDepth: &one})
+	vals := proc.Values{route.OverlayVar: `{"maxDepth":1}`, proc.DispatchIDEnv: "kid", proc.DispatchDepthEnv: "1"}
+	_, err := buildAskRecord(t.Context(), "codex", RunOptions{Agent: "codex", Values: vals}, nil, "", false)
+	var ue *UsageError
+	if !errors.As(err, &ue) || !strings.Contains(ue.Msg, "depth 2 exceeds cap 1") {
+		t.Fatalf("grandchild err = %v, want the depth cap refusal", err)
+	}
+}
+
+// Given a --retry plan that decided a closed empty fence, Then parentRoute keeps it closed.
+func TestParentRouteKeepsClosedEmptyFence(t *testing.T) {
+	ctx := WithRetried(context.Background(), Retried{ID: "r", Plan: &RoutePlan{Fenced: true}})
+	if f := parentRoute(ctx).Fence; f.Open || len(f.Profiles) > 0 {
+		t.Errorf("fence %+v, want closed and empty", f)
+	}
+	ctx = WithRetried(context.Background(), Retried{ID: "r", Plan: &RoutePlan{}})
+	if !parentRoute(ctx).Fence.Open {
+		t.Error("a plan that lacked a fence must read as open")
 	}
 }

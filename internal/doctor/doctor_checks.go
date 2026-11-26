@@ -181,6 +181,10 @@ func fitDoctorDetail() string {
 	return fmt.Sprintf("%s; folded through %s, %d cells", ran, f.Folded.Local().Format("2006-01-02 15:04"), len(f.Cells))
 }
 
+func memoryTruthRow() check {
+	return check{Name: "memory truth", OK: true, Detail: memory.TruthRow()}
+}
+
 // memoryStoreRow reads the stamp directly so an old or unknown store is never initialised.
 func memoryStoreRow() check {
 	row := check{Name: "memory store"}

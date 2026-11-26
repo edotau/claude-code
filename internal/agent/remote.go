@@ -74,7 +74,11 @@ func remoteTarget(agentName string, req RunOptions) string {
 
 // remoteScript is the single-quoted POSIX sh line run remotely, never the prompt; --env values show in both `ps`.
 func remoteScript(bin, agentName, fallback string, req RunOptions) (string, error) {
-	if err := validateRemoteScript(bin, agentName, req); err != nil {
+	doc, err := remoteDoc(req)
+	if err != nil {
+		return "", err
+	}
+	if err := validateRemoteScript(bin, agentName, doc, req); err != nil {
 		return "", err
 	}
 	execBin, err := remoteExec(bin)
@@ -85,9 +89,8 @@ func remoteScript(bin, agentName, fallback string, req RunOptions) (string, erro
 		"--stdin-framed", "--agent", textutil.ShellQuote(remoteTarget(agentName, req))}
 	w = appendOpt(w, "--model", req.Model)
 	w = appendOpt(w, "--profile", req.Provider)
-	w = appendOpt(w, "--effort", req.Effort)
 	w = appendOpt(w, "--as", req.Identity)
-	w = appendOpt(w, "--overlay", confinementDoc(req)) // ApplyRouteOverlay exports the confinement as env, which ssh does not carry
+	w = appendOpt(w, "--overlay", doc) // ApplyRouteOverlay exports the confinement as env, which ssh does not carry
 	w = appendOpt(w, "--session", req.SessionID)
 	w = appendOpt(w, "--system-prompt", req.SystemPrompt)
 	w = appendOpt(w, "--append-system-prompt", req.AppendSystemPrompt)
@@ -130,8 +133,25 @@ func appendOpt(w []string, flag, v string) []string {
 	return append(w, flag, textutil.ShellQuote(v))
 }
 
-func validateRemoteScript(bin, agentName string, req RunOptions) error {
-	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(req), req.WorkDir, req.SessionID, req.SystemPrompt,
+// remoteDoc is the --overlay document of a remote ask: the confinement plus effort; the other keys wait for 3.1a.
+func remoteDoc(req RunOptions) (string, error) {
+	if req.Effort == "" {
+		return confinementDoc(req), nil
+	}
+	o := confinementOverlay(valuesContext(context.Background(), req.Values))
+	o.Fallback = "" // remoteScript always passes --fallback, and a flag and the overlay may not differ
+	if req.Codemode != "" {
+		o.Codemode = "" // --codemode crosses as its own flag
+	}
+	o, err := o.Derive(agentconfig.Overlay{Effort: req.Effort}, agentconfig.HopAppend)
+	if err != nil {
+		return "", fmt.Errorf("remote ask: overlay: %w", err)
+	}
+	return childDoc(o), nil
+}
+
+func validateRemoteScript(bin, agentName, doc string, req RunOptions) error {
+	vals := []string{bin, agentName, req.Model, req.Provider, req.Identity, doc, req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
 	for _, v := range vals {

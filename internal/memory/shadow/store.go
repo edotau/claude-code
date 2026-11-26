@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -20,7 +21,28 @@ import (
 // sqlBankStore is the bank seam over the shadow db: one row per entry; a Version is the row's counter, never reused.
 type sqlBankStore struct{ db *sql.DB }
 
-func init() { memory.ShadowImport = importShadow }
+func init() {
+	memory.ShadowImport = importShadow
+	memory.OpenBankStore = openBankStore
+}
+
+// openBankStore opens, migrates and imports per call; it takes no lock (locked=true means the caller holds it).
+func openBankStore(bool) (memory.BankStore, func() error, error) {
+	db, err := openMigratedShadow(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, _, err := importShadow(); err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	var once sync.Once
+	var cerr error
+	return sqlBankStore{db: db}, func() error {
+		once.Do(func() { cerr = db.Close() })
+		return cerr
+	}, nil
+}
 
 // importShadow imports changed docs and lists the divergent ones; changed means that set moved since meta diverged.
 func importShadow() (docs []string, changed bool, err error) {

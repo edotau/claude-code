@@ -1081,3 +1081,66 @@ func TestUpdateExhaustedValidationUsesTheFallbackOnce(t *testing.T) {
 		t.Errorf("fallback calls %d, runs %d, result %+v", calls, runs, r)
 	}
 }
+
+func TestUpdateDecisionEventsNotFiledOnFailure(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	t.Setenv("HARNESS_KEYRING", "off")
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	typedStore(t, true)
+	write(t, TagEventsPath("failed"), `{"event":"decision","text":"must not appear","at":"2026-11-20T10:00:00Z"}`+"\n")
+	before := mustRead(t, Path("decisionLog.md"))
+	calls := 0
+	run := func(context.Context, string, string) (string, error) {
+		calls++
+		return "stub", errors.New("runner failed")
+	}
+	if err := update(updateOptions{Run: run, CWD: root, Session: "failed"}); err == nil {
+		t.Fatal("expected runner failure")
+	}
+	if calls != 2 || mustRead(t, Path("decisionLog.md")) != before {
+		t.Fatalf("calls %d; decision log changed: %s", calls, mustRead(t, Path("decisionLog.md")))
+	}
+}
+
+func TestUpdateFallbackErrorNamesBothModels(t *testing.T) {
+	clearChildEnv(t)
+	tempConfig(t)
+	t.Setenv("HARNESS_KEYRING", "off")
+	root := repoRoot(t, "proj")
+	if _, err := Init(); err != nil {
+		t.Fatal(err)
+	}
+	typedStore(t, true)
+	standInStoreCopy(t)
+	old := CodeModeRun
+	CodeModeRun = func(context.Context, string, string, string, string) (string, string, error) {
+		return `{"ops":[{"op":"close","id":"z00000000","reason":"done"}]}`, "pi fallback-model", nil
+	}
+	t.Cleanup(func() { CodeModeRun = old })
+	run := func(ctx context.Context, _, _ string) (string, error) {
+		answer, _, err := JobCodeFallback(ctx).Run(ctx, "prompt", root, BatchSchema())
+		AnswerJob(ctx, answer)
+		ReportJob(ctx, JobResult{Agent: "pi", Model: "fallback-model", Primary: "primary-model"})
+		return "pi", err
+	}
+	err := update(updateOptions{Run: run, CWD: root, Session: "names"})
+	if err == nil || !strings.Contains(err.Error(), "primary-model then fallback-model") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUpdateNamedKeepsModelsOnAfterCommit(t *testing.T) {
+	j := JobResult{Agent: "pi", Model: "fallback-model", Primary: "primary-model"}
+	after := &AfterCommitError{errors.New("settle failed")}
+	got := j.named(after)
+	if !strings.Contains(got.Error(), "primary-model then fallback-model") || refused(got) {
+		t.Errorf("after-commit error lost the models or its type: %v", got)
+	}
+	if plain := errors.New("refused"); j.named(plain) != plain {
+		t.Error("a refusal is not wrapped: its retry names the models")
+	}
+}

@@ -3,12 +3,110 @@ package shadow
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
+
+// openStoreEnv builds the shadow db from a fixture bank under a temp config dir and returns the bank dir.
+func openStoreEnv(t *testing.T) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := paths.MemoryStoreDir()
+	writeShadowStore(t, root, false)
+	if _, err := RebuildShadow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestOpenBankStoreLoadsImport(t *testing.T) {
+	root := openStoreEnv(t)
+	for i, locked := range []bool{false, true} {
+		newBody := "# Conventions\n\n- use gofmt\n- wrap errors\n- edit " + strings.Repeat("x", i+1) + "\n"
+		if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(newBody), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s, closeFn, err := memory.OpenBankStore(locked)
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs, _, err := s.Load()
+		if err != nil || string(docs["conventions.md"].Render()) != newBody {
+			t.Errorf("locked=%v render=%q err=%v", locked, docs["conventions.md"].Render(), err)
+		}
+		if err := closeFn(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestOpenBankStoreApplyVisibleOnReopen(t *testing.T) {
+	openStoreEnv(t)
+	s, closeFn, err := memory.OpenBankStore(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, v, _ := s.Load()
+	b := memory.Batch{Ops: []memory.Op{{Op: "update", ID: "0123abcd", Text: "changed body"}}}
+	if _, err := s.Apply(b, v, storeNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := closeFn(); err != nil {
+		t.Fatal(err)
+	}
+	s2, close2, err := memory.OpenBankStore(false)
+	if err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+	defer close2()
+	docs, _, err := s2.Load()
+	if err != nil || !strings.Contains(string(docs["decisionLog.md"].Render()), "changed body") {
+		t.Errorf("apply not visible: err=%v", err)
+	}
+}
+
+func TestOpenBankStoreLockedUnderHeldLock(t *testing.T) {
+	openStoreEnv(t)
+	err := memory.WithBankLock(0, func() error {
+		s, closeFn, err := memory.OpenBankStore(true)
+		if err != nil {
+			return err
+		}
+		if _, _, err := s.Load(); err != nil {
+			t.Error(err)
+		}
+		if err := closeFn(); err != nil {
+			t.Error(err)
+		}
+		if _, _, err := s.Load(); err == nil {
+			t.Error("db still open after close")
+		}
+		return closeFn()
+	})
+	if err != nil {
+		t.Fatalf("locked open under a held bank lock: %v", err)
+	}
+}
+
+func TestOpenBankStoreMigrateFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(ShadowDBPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	junk := []byte(strings.Repeat("not a sqlite database ", 20))
+	if err := os.WriteFile(ShadowDBPath(), junk, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, _, err := memory.OpenBankStore(false); err == nil || s != nil {
+		t.Fatalf("store=%v err=%v; want nil store and an error", s, err)
+	}
+}
 
 var storeNow = time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 

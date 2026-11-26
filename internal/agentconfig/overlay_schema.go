@@ -24,6 +24,7 @@ const (
 	kindList    fieldKind = "[]string"
 	kindStrings fieldKind = "map[string]string"
 	kindFence   fieldKind = "fence"
+	kindObject  fieldKind = "object"
 )
 
 type overlayField struct {
@@ -60,6 +61,9 @@ func kindOf(t reflect.Type) fieldKind {
 	}
 	if t == reflect.TypeFor[route.Fence]() {
 		return kindFence
+	}
+	if t == reflect.TypeFor[json.RawMessage]() {
+		return kindObject
 	}
 	if k, ok := scalarKinds[t.Kind()]; ok {
 		return k
@@ -102,6 +106,9 @@ var settingLimits = map[string]obj{
 	"codemode":      {"enum": []string{"off", "on", "only"}},
 	"budgetUSD":     {"exclusiveMinimum": 0},
 	"budgetCredits": {"minimum": 30},
+	"tier":          {"enum": []string{"fast", "standard", "deep"}},
+	"timeout":       {"pattern": durationPattern, "description": "Go duration, e.g. 9m30s; at most 24h"},
+	"googleTools":   {"pattern": googleToolsPattern()},
 	"providerMode":  {"additionalProperties": obj{"enum": router.ProviderModes}},
 }
 

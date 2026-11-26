@@ -23,7 +23,7 @@ func withTestPlan(t *testing.T, ctx context.Context, o RunOptions, profiles ...s
 	if err != nil {
 		t.Fatal(err)
 	}
-	fence, err := planFence(ctx, ParentRoute{Fence: route.Fence{Open: true}})
+	fence, err := planFence(ctx, ParentRoute{Fence: route.Fence{Open: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

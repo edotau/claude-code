@@ -829,6 +829,12 @@ type AfterCommitError struct{ Err error }
 func (e *AfterCommitError) Error() string { return "batch may be committed: " + e.Err.Error() }
 func (e *AfterCommitError) Unwrap() error { return e.Err }
 
+// committedErr marks an AfterCommitError whose commit is positively confirmed: only the derived settle failed.
+type committedErr struct{ err error }
+
+func (e *committedErr) Error() string { return e.err.Error() }
+func (e *committedErr) Unwrap() error { return e.err }
+
 // refused is true for an atomic refusal (nothing written) and false once the write may have happened.
 func refused(err error) bool {
 	_, after := errors.AsType[*AfterCommitError](err)
@@ -951,7 +957,7 @@ func commitBatchDocs(docs map[string]Doc, raw map[string][]byte, now time.Time) 
 	}
 	// the batch is committed whole; settle only derives files (rotation, index) and the next settle redoes it
 	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
-		return &AfterCommitError{fmt.Errorf("batch committed as %s; settle: %w", rec.Commit, tolerateIndex(err))}
+		return &AfterCommitError{&committedErr{fmt.Errorf("batch committed as %s; settle: %w", rec.Commit, tolerateIndex(err))}}
 	}
 	return nil
 }

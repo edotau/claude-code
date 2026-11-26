@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -29,6 +31,19 @@ func startAttempt(repo *Repo, req LandRequest) *attempt {
 	return &attempt{t: now, a: LandAttempt{Time: now.Unix(), Repo: repo.Main, Lane: req.Name, Attempt: 1,
 		By: cmp.Or(os.Getenv(LandWaitEnv), "manual"), Scope: ScopeNone, Reval: RevalNone,
 		Seconds: StageSeconds{Wait: req.waited.Seconds()}}}
+}
+
+// scoped records what a gate scope covers: its packages, split into the changed ones and the importers only.
+func (r *attempt) scoped(sc gateScope) {
+	r.a.Packages = len(sc.Tested)
+	r.a.ChangedPkgs = slices.Sorted(maps.Keys(sc.Changed))
+	r.a.ImporterPkgs = nil
+	for p := range sc.Tested {
+		if !sc.Changed[p] {
+			r.a.ImporterPkgs = append(r.a.ImporterPkgs, p)
+		}
+	}
+	slices.Sort(r.a.ImporterPkgs)
 }
 
 // stage adds the time since the last mark to dst.
@@ -211,6 +226,9 @@ func (l *relander) recheck(ctx context.Context, from string) error {
 	}
 	fmt.Fprintf(l.req.Out, "re-check:   target moved to %s; reval %s\n", ShortOID(l.plan.TargetOID), l.rec.a.Reval)
 	l.first = next
+	if next.Scoped {
+		l.rec.scoped(next)
+	}
 	return runGate(ctx, l.req, l.h.At(l.plan), gate, source, l.rec)
 }
 

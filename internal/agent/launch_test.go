@@ -521,3 +521,122 @@ func TestProxyRefusalRecordedOnTheAttempt(t *testing.T) {
 		t.Fatalf("ProxyRefused %v, marks %+v", attempt.ProxyRefused, calls)
 	}
 }
+
+func TestEndpointURL(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	routed := false
+	stubRouter(t, func(context.Context) (string, error) { routed = true; return "http://127.0.0.1:9", nil })
+	keyed := &providers.Provider{Name: "qa", Provider: providers.GroupDatabricks, Protocol: providers.ProtocolAnthropic,
+		BaseURL: "https://qa.cloud.databricks.com/serving-endpoints/anthropic", Auth: providers.Auth{Type: providers.AuthPAT}}
+	local := &providers.Provider{Name: "loc", Provider: "openai", Protocol: providers.ProtocolOpenAI, BaseURL: "http://localhost:11434/v1",
+		Auth: providers.Auth{Type: providers.AuthNone}}
+	dry := context.WithValue(t.Context(), launchDryKey{}, true)
+	for _, tc := range []struct {
+		name   string
+		p      *providers.Provider
+		r      route.Route
+		base   string
+		routed bool
+		err    string
+	}{
+		{"missing endpoint on a keyed row is the proxy", keyed, route.Route{}, "http://127.0.0.1:9/p/qa", true, ""},
+		{"proxy", keyed, route.Route{Endpoint: "proxy"}, "http://127.0.0.1:9/p/qa", true, ""},
+		{"direct is the row's own", keyed, route.Route{Endpoint: "direct"}, keyed.BaseURL, false, ""},
+		{"a row with no key has no proxy", local, route.Route{Endpoint: "proxy"}, local.BaseURL, false, ""},
+		{"a team label on a row with no key is direct", local, route.Route{Endpoint: "phase:g1"}, local.BaseURL, false, ""},
+		{"a URL with credentials", keyed, route.Route{Endpoint: "https://user@qa.cloud.databricks.com/x"}, "", false, "no credentials"},
+		{"a URL with a query", keyed, route.Route{Endpoint: "https://qa.cloud.databricks.com/x?k=v"}, "", false, "no credentials"},
+		{"the router URL on a row with no key is refused", local, route.Route{Endpoint: proxy.Base(proxy.DefaultPort)}, "", false, "not the loc row's own"},
+		{"the router URL under another provider's unit", keyed, route.Route{Endpoint: proxy.Base(proxy.DefaultPort), Provider: "openai", Profile: "loc"}, "", false, "names"},
+		{"a URL on the row's host", keyed, route.Route{Endpoint: "https://qa.cloud.databricks.com/x/", Provider: "databricks", Profile: "qa"},
+			"https://qa.cloud.databricks.com/x", false, ""},
+		{"a URL off the row", keyed, route.Route{Endpoint: "https://evil.example/x"}, "", false, "not the qa row's own"},
+		{"a URL for another profile", keyed, route.Route{Endpoint: "https://qa.cloud.databricks.com/x", Provider: "databricks", Profile: "dev"}, "", false, "names"},
+		{"the router's own loopback URL is the proxy", keyed, route.Route{Endpoint: proxy.Base(proxy.DefaultPort)}, "", true, ""},
+		{"a loopback URL that is not the router", keyed, route.Route{Endpoint: "http://127.0.0.1:1"}, "", false, "not the qa row's own"},
+	} {
+		routed = false
+		ep, err := EndpointURL(dry, tc.p, tc.r, tc.p.Protocol)
+		switch {
+		case tc.err != "":
+			if err == nil || !strings.Contains(err.Error(), tc.err) || routed {
+				t.Errorf("%s: err = %v routed=%v, want %q before any router", tc.name, err, routed, tc.err)
+			}
+		case err != nil || ep.Routed != tc.routed || tc.routed && !strings.HasSuffix(ep.Base, "/p/qa") || !tc.routed && ep.Base != tc.base:
+			t.Errorf("%s: %+v, %v; want base %q routed %v", tc.name, ep, err, tc.base, tc.routed)
+		}
+	}
+}
+
+// A failover mint is held to the plan's fence: a candidate outside it is refused before any mint.
+func TestFailoverMintRefusesProfileOutsidePlanFence(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	om := MintSessionWithFailover
+	t.Cleanup(func() { MintSessionWithFailover = om; ResetSessionTokens() })
+	var minted []string
+	MintSessionWithFailover = func(_ context.Context, profiles []string, _ int, _ string) (string, error) {
+		minted = append(minted, strings.Join(profiles, ","))
+		return "cct_" + strings.Join(profiles, "+"), nil
+	}
+	ctx := withPlan(t.Context(), RoutePlan{Fence: route.Fence{Profiles: []string{"qa"}}})
+	const base = "https://router.example"
+	if _, err := SessionTokenWithFailover(ctx, base, "databricks", "prod"); err == nil || !strings.Contains(err.Error(), "outside the plan fence") {
+		t.Fatalf("prod under a [qa] fence: err = %v, want a refusal", err)
+	}
+	if tok, err := SessionTokenWithFailover(ctx, base, "databricks", "qa"); err != nil || tok != "cct_qa" {
+		t.Fatalf("qa under a [qa] fence: %q, %v", tok, err)
+	}
+	if !slices.Equal(minted, []string{"qa"}) {
+		t.Errorf("minted = %v, want only qa", minted)
+	}
+}
+
+// A plan with a zero-value fence mints under the overlay's confinement, not a refusal.
+func TestMintFenceZeroPlanFenceFallsBack(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "")
+	want, err := proxy.ConfinementFence(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mintFence(withPlan(t.Context(), RoutePlan{}))
+	if err != nil || got.Open != want.Open || !slices.Equal(got.Profiles, want.Profiles) {
+		t.Fatalf("mintFence = %+v, %v; want %+v", got, err, want)
+	}
+	if got, err := mintFence(withPlan(t.Context(), RoutePlan{Fenced: true})); err != nil || got.Open || len(got.Profiles) > 0 {
+		t.Fatalf("a decided deny-all fence = %+v, %v; want closed and empty", got, err)
+	}
+}
+
+// A bad overlay fails RunUnit with an error, and the child env slice is not mutated by withChosenDoc.
+func TestRunUnitSurfacesOverlayError(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(route.OverlayVar, "{not json")
+	if _, err := RunUnit(t.Context()); err == nil {
+		t.Fatal("RunUnit swallowed a bad overlay")
+	}
+	if IsDirect(t.Context()) {
+		t.Fatal("a bad overlay must not read as direct")
+	}
+}
+
+func TestWithChosenDocLeavesCallerEnv(t *testing.T) {
+	vaulttest.Use(t)
+	const id = "wcd1"
+	routeMu.Lock()
+	chosenByID[id] = "phase:g1"
+	routeMu.Unlock()
+	t.Cleanup(func() { routeMu.Lock(); delete(chosenByID, id); routeMu.Unlock() })
+	ctx := context.WithValue(t.Context(), dispatchIDKey{}, id)
+	doc := `{"provider":"databricks","profile":"qa"}`
+	env := []string{route.OverlayVar + "=" + doc}
+	out := withChosenDoc(ctx, env)
+	if env[0] != route.OverlayVar+"="+doc {
+		t.Fatalf("caller env mutated: %q", env[0])
+	}
+	if !strings.Contains(out[0], "phase:g1") {
+		t.Fatalf("chosen team not carried: %q", out[0])
+	}
+}

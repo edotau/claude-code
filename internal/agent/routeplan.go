@@ -77,7 +77,7 @@ func parentRoute(ctx context.Context) ParentRoute {
 	pr := ParentRoute{Fence: route.Fence{Open: true}, Carried: carriedChild(ctx, "")}
 	if r, ok := RetriedOf(ctx); ok && r.Plan != nil {
 		pr.Replay = r.Plan
-		if f := r.Plan.Fence; f.Open || len(f.Profiles) > 0 { // a zero fence is a plan that lacked one
+		if f := r.Plan.Fence; r.Plan.Fenced || f.Open || len(f.Profiles) > 0 { // an old plan with a zero fence lacked one
 			pr.Fence = f
 		}
 	}
@@ -91,6 +91,7 @@ type RoutePlan struct {
 	Pool     []Workspace   `json:"pool"`
 	Tier     Tier          `json:"tier"`
 	Fence    route.Fence   `json:"fence"`
+	Fenced   bool          `json:"fenced,omitempty"` // Fence was decided: a closed, empty one is not a plan that lacked it
 	Fallback router.Policy `json:"fallback"`
 	Barred   string        `json:"barred,omitempty"`   // why Runners lacks pi, said once
 	Admitted []PlanHop     `json:"admitted,omitempty"` // validated execution steps; nil before the single routing pass
@@ -148,9 +149,10 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	if err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
-	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parent, ov.Fallback); err != nil {
+	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parent, ov); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
+	p.Fenced = true
 	p.Pool = leadWith(planPool(ctx, reg, o, p), replayLead(parent.Replay)) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
 	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == route.RunnerOwn)
@@ -205,25 +207,29 @@ func leadWith(pool []Workspace, profile string) []Workspace {
 }
 
 // planDecisions is the one fence and policy decision, read by the rotation's pre-pass and by PlanRoute alike.
-func planDecisions(ctx context.Context, o RunOptions, parent ParentRoute, overlayMode string) (route.Fence, router.Policy, error) {
-	f, err := planFence(ctx, parent)
+func planDecisions(ctx context.Context, o RunOptions, parent ParentRoute, ov agentconfig.Overlay) (route.Fence, router.Policy, error) {
+	f, err := planFence(ctx, parent, ov.Fence)
 	if err != nil {
 		return f, router.Policy{}, err
 	}
-	pol, err := planPolicy(ctx, o, overlayMode)
+	pol, err := planPolicy(ctx, o, ov.Fallback)
 	if rp := parent.Replay; err == nil && rp != nil && rp.Fallback.Kind != 0 && o.SessionID == "" {
 		pol = rp.Fallback // a retry keeps the policy it ran under; a resumed session stays put
 	}
 	return f, pol, err
 }
 
-// planFence is the overlay's confinement held to the parent's fence.
-func planFence(ctx context.Context, parent ParentRoute) (route.Fence, error) {
+// planFence is the overlay's confinement and its fence key held to the parent's fence.
+func planFence(ctx context.Context, parent ParentRoute, key *route.Fence) (route.Fence, error) {
 	f, err := proxy.ConfinementFence(ctx)
 	if err != nil {
 		return route.Fence{}, err
 	}
-	return parent.Fence.Narrow(f), nil
+	f = parent.Fence.Narrow(f)
+	if key != nil {
+		f = f.Narrow(*key)
+	}
+	return f, nil
 }
 
 // planPolicy is the typed mode, else the configured one; a session is none, a confinement or pin one workspace.
@@ -363,7 +369,7 @@ func preFence(ctx context.Context, o RunOptions) (RoutePlan, error) {
 		return RoutePlan{}, fmt.Errorf("route plan: %w", err)
 	}
 	var p RoutePlan
-	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parentRoute(ctx), ov.Fallback); err != nil {
+	if p.Fence, p.Fallback, err = planDecisions(ctx, o, parentRoute(ctx), ov); err != nil {
 		return p, fmt.Errorf("route plan: %w", err)
 	}
 	p.Fallback = executablePolicy(p.Fallback)

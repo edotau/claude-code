@@ -424,44 +424,55 @@ func TestEnvironDropsShimPath(t *testing.T) {
 	t.Error("PATH missing from the child env")
 }
 
-func TestEnvironExportsChosenProxy(t *testing.T) {
+func overlayEnvDoc(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, route.OverlayVar+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func unitCtx(ctx context.Context, doc string) context.Context {
+	return proc.WithValues(ctx, proc.Values{route.OverlayVar: doc})
+}
+
+func TestEnvironCarriesChosenProxyAsEndpoint(t *testing.T) {
 	setConfigDir(t)
-	t.Setenv(dispatchProxyEnv, "stale:old")
-	ctx := withDispatchID(t.Context(), "pxid", 1)
+	ctx := unitCtx(withDispatchID(t.Context(), "pxid", 1), `{"provider":"databricks","profile":"qa"}`)
 	routeMu.Lock()
 	chosenByID["pxid"] = "phase:g1"
 	routeMu.Unlock()
 	t.Cleanup(func() { forgetChosenProxy(ctx) })
-	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); !slices.Contains(env, dispatchProxyEnv+"=phase:g1") {
-		t.Fatalf("chosen proxy not exported: %v", slices.DeleteFunc(env, func(e string) bool { return !strings.Contains(e, "PROXY") }))
+	env := (EnvSpec{Mode: EnvClaude}).Environ(ctx)
+	if doc := overlayEnvDoc(env); !strings.Contains(doc, `"endpoint":"phase:g1"`) {
+		t.Fatalf("child overlay %q lacks the chosen endpoint", doc)
+	}
+	if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, "HARNESS_DISPATCH_PROXY=") }) {
+		t.Fatal("the choice must not travel in an env variable")
 	}
 }
 
-func TestEnvironDispatchProxyKeepsInheritedAndTypedEnv(t *testing.T) {
+func TestEnvironEndpointKeepsInheritedAndClearsOnDaemon(t *testing.T) {
 	setConfigDir(t)
-	t.Setenv(dispatchProxyEnv, "phase:g1")
-	ctx := withDispatchID(t.Context(), "pxid2", 1)
-	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); !slices.Contains(env, dispatchProxyEnv+"=phase:g1") {
-		t.Fatal("no choice must keep the inherited value")
+	ctx := unitCtx(withDispatchID(t.Context(), "pxid2", 1), `{"endpoint":"phase:g1","provider":"databricks","profile":"qa"}`)
+	if doc := overlayEnvDoc((EnvSpec{Mode: EnvClaude}).Environ(ctx)); !strings.Contains(doc, `"endpoint":"phase:g1"`) {
+		t.Fatalf("no choice must keep the inherited endpoint: %q", doc)
 	}
 	routeMu.Lock()
 	chosenByID["pxid2"] = "shared"
 	routeMu.Unlock()
 	t.Cleanup(func() { forgetChosenProxy(ctx) })
-	if env := (EnvSpec{Mode: EnvClaude}).Environ(ctx); slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
-		t.Fatal("a daemon choice must clear the inherited value")
-	}
-	typed := dispatchProxyEnv + "=mine:x"
-	if env := (EnvSpec{Mode: EnvClaude, Extra: []string{typed}}).Environ(ctx); !slices.Contains(env, typed) {
-		t.Fatal("a typed --env value must survive")
+	if doc := overlayEnvDoc((EnvSpec{Mode: EnvClaude}).Environ(ctx)); strings.Contains(doc, "phase:g1") {
+		t.Fatalf("a daemon choice must clear the inherited endpoint: %q", doc)
 	}
 }
 
 func TestParentTeamFirst(t *testing.T) {
 	cfg, _ := proxyteam.Load([]byte(`{"schema":1,"teams":[{"name":"phase","kinds":["group"],"host":"phase","lifetime":"phase",` +
 		`"reserved":1,"borrow":"never","fallback":["shared"]}]}`))
-	t.Setenv(dispatchProxyEnv, "phase:g1")
-	got := parentTeamFirst(cfg, cfg.Routes(proxyteam.KindNested))
+	ctx := unitCtx(t.Context(), `{"endpoint":"phase:g1","provider":"databricks","profile":"qa"}`)
+	got := parentTeamFirst(ctx, cfg, cfg.Routes(proxyteam.KindNested))
 	if len(got) == 0 || got[0].Name != "phase" || got[len(got)-1].Name != "shared" {
 		t.Fatalf("routes = %v", got)
 	}

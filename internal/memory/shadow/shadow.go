@@ -3,7 +3,9 @@ package shadow
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,7 +22,8 @@ import (
 )
 
 // memorySteps is the memory store's migration list; step n sets user_version n.
-var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}, {Name: "area", Up: areaV2}}
+var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}, {Name: "area", Up: areaV2},
+	{Name: "conflict-kind", Up: conflictKindV3}, {Name: "vectors", Up: vectorsV4}}
 
 // schemaV1Stmts is schema v1, one statement per Exec so a failure names its statement.
 var schemaV1Stmts = []string{
@@ -48,6 +51,17 @@ var schemaV1Stmts = []string{
 	`CREATE TABLE vectors(entry_rowid INTEGER, model TEXT, dim INTEGER, vec BLOB, minted_at TEXT,
 		PRIMARY KEY(entry_rowid, model))`,
 	`CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)`,
+}
+
+func conflictKindV3(tx *sql.Tx) (string, error) {
+	for _, s := range []string{`ALTER TABLE conflicts ADD COLUMN kind TEXT NOT NULL DEFAULT 'envelope'`,
+		`ALTER TABLE conflicts ADD COLUMN doc TEXT`,
+		`UPDATE conflicts SET kind = peer_origin, doc = payload WHERE entry_rowid = 0 AND peer_origin <> ''`} {
+		if _, err := tx.ExecContext(context.Background(), s); err != nil {
+			return "", err
+		}
+	}
+	return "conflict kind and doc", nil
 }
 
 func schemaV1(tx *sql.Tx) (string, error) {
@@ -129,13 +143,17 @@ type ShadowReport struct {
 }
 
 // RebuildShadow migrates the shadow db (snapshot in state/backups first) and rebuilds it from the memory store.
-func RebuildShadow(ctx context.Context) (ShadowReport, error) {
-	db, err := openMigratedShadow(ctx)
-	if err != nil {
-		return ShadowReport{}, err
-	}
-	defer db.Close()
-	return shadowRebuild(ctx, db, paths.MemoryStoreDir())
+func RebuildShadow(ctx context.Context) (rep ShadowReport, err error) {
+	err = memory.WithBankLock(0, func() error { // an older rebuild must not publish baselines after a newer one
+		db, oerr := openMigratedShadow(ctx)
+		if oerr != nil {
+			return oerr
+		}
+		defer db.Close()
+		rep, oerr = shadowRebuild(ctx, db, paths.MemoryStoreDir())
+		return oerr
+	})
+	return rep, err
 }
 
 func openMigratedShadow(ctx context.Context) (*sql.DB, error) {
@@ -178,8 +196,8 @@ var (
 	shadowRecordDirs = []string{"reports", "handoffs", "worktrees"}
 )
 
-// shadowClear empties every table keyed by entry rowid too: a rebuild reassigns rowids.
-var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts", "DELETE FROM changes",
+// shadowClear empties tables keyed by entry rowid too, as a rebuild reassigns rowids; export conflicts (rowid 0) stay.
+var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts WHERE entry_rowid <> 0", "DELETE FROM changes",
 	"DELETE FROM entries", "DELETE FROM docs"}
 
 // shadowRebuild replaces every docs and entries row with root's files, then checks each render is byte-equal.
@@ -213,7 +231,7 @@ func shadowSync(ctx context.Context, db *sql.DB, root string, full bool) (Shadow
 	err = sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
 		n, changed = ShadowReport{}, nil
 		if known == nil {
-			for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%'") {
+			for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
 				if _, err := tx.ExecContext(ctx, q); err != nil {
 					return err
 				}
@@ -314,13 +332,21 @@ var dropDocStmts = []string{
 	`DELETE FROM vectors WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
 	`DELETE FROM changes WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
 	`DELETE FROM conflicts WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
-	`DELETE FROM entries WHERE doc = ?1`, `DELETE FROM docs WHERE path = ?1`, `DELETE FROM meta WHERE key = 'stat:' || ?1`,
+	`DELETE FROM entries WHERE doc = ?1`, `DELETE FROM docs WHERE path = ?1`, `DELETE FROM meta WHERE key IN ('stat:' || ?1, 'render:' || ?1)`,
 }
 
 // writeFingerprints records each imported doc whose render matched; a mismatched one is re-imported next time.
 func writeFingerprints(ctx context.Context, db *sql.DB, changed []shadowDoc, mismatched []string) error {
 	return sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
 		for _, d := range changed {
+			q, args := `DELETE FROM meta WHERE key = 'render:' || ?`, []any{d.path}
+			if !slices.Contains(mismatched, d.path) {
+				sum := sha256.Sum256(d.raw)
+				q, args = `INSERT OR REPLACE INTO meta(key, value) VALUES('render:' || ?, ?)`, []any{d.path, hex.EncodeToString(sum[:])}
+			}
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil { // the imported bytes are the export baseline
+				return err
+			}
 			if slices.Contains(mismatched, d.path) {
 				continue
 			}
@@ -507,7 +533,9 @@ const renderShadowQuery = `SELECT d.header, d.hidden, d.frontmatter, e.lines FRO
 	LEFT JOIN entries e ON e.doc = d.path AND e.deleted = 0 WHERE d.path = ? ORDER BY e.seq`
 
 // renderShadowDoc rebuilds path's bytes from its rows, joined exactly as Doc.Render joins.
-func renderShadowDoc(ctx context.Context, db *sql.DB, path string) ([]byte, error) {
+func renderShadowDoc(ctx context.Context, db interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, path string) ([]byte, error) {
 	rows, err := db.QueryContext(ctx, renderShadowQuery, path)
 	if err != nil {
 		return nil, fmt.Errorf("memory: shadow render %s: %w", path, err)

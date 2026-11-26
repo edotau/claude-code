@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -779,5 +780,168 @@ func TestDreamApplyFailureFallsBackOnce(t *testing.T) {
 				t.Errorf("dispatches %d, changed %v, err %v", calls, changed, err)
 			}
 		})
+	}
+}
+
+func sideRollbackFixture(t *testing.T) (dreamRan, Batch, []string) {
+	isolatedConfig(t)
+	t.Setenv("HARNESS_KEYRING", "off")
+	initTypedStore(t)
+	work := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "proj"))
+	plan := filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-side.md")
+	write(t, plan, "# P\n\n- [ ] Phase 1.1 One\n")
+	plan = plans.OpenTasks(work)[0].Plan
+	write(t, filepath.Join(paths.MemoryStoreDir(), "feedback", "feedback-a.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "notes", "note-c.md"), "x\n")
+	candidateFile := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel))
+	write(t, candidateFile, "# Feedback candidates\n\n```jsonl\n```\n")
+	write(t, testProposalsFile(), "{\"pkg\":\"old\",\"case\":\"old\",\"reason\":\"old\"}\n")
+	write(t, Path("conventions.md"), "# Conventions\n\n- Old rule <!-- id:1234abcd -->\n")
+	_, base, files, docs, err := dreamListing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := Batch{Ops: []Op{{Op: "update", ID: "1234abcd", Read: string(base["1234abcd"]), Text: "New rule"}},
+		Candidates:    []candidate{{ID: "fc-a", Evidence: []string{"feedback/feedback-a.md", "notes/note-c.md"}, Repeats: 1, Change: "Add a hook.", Target: "unknown", Kind: "hook", Size: "small"}},
+		TestProposals: []testProposal{{Pkg: "internal/x", Case: "empty input", Reason: "nil path"}},
+		PlanTasks:     []PlanTaskOp{{Plan: plan, ID: "Phase 1.1", Action: "done", Sha: "abc1234"}}}
+	return dreamRan{base: base, files: files, docs: docs, plan: startPlanPhase(work)}, b, []string{candidateFile, testProposalsFile(), plan}
+}
+
+func TestDreamSideEntriesWaitForBank(t *testing.T) {
+	r, b, names := sideRollbackFixture(t)
+	before := make([]string, len(names))
+	for i, name := range names {
+		before[i] = mustRead(t, name)
+	}
+	write(t, Path("conventions.md"), "# Conventions\n\n- Peer rule <!-- id:1234abcd -->\n")
+	answer, _ := json.Marshal(b)
+	if err := r.applyAnswer(string(answer), io.Discard); err == nil || !refused(err) {
+		t.Fatalf("expected bank refusal: %v", err)
+	}
+	for i, name := range names {
+		if got := mustRead(t, name); got != before[i] {
+			t.Errorf("side file %s written by a refused batch: %q, want %q", name, got, before[i])
+		}
+	}
+	if len(r.changed) != 0 || len(r.plan.wrote) != 0 {
+		t.Errorf("refused batch recorded writes: %v %v", r.changed, r.plan.wrote)
+	}
+	b.TestProposals[0].Reason = "two\nlines" // one bad side entry fails the whole batch before the bank is written
+	answer, _ = json.Marshal(b)
+	if err := r.applyAnswer(string(answer), io.Discard); err == nil || !strings.Contains(err.Error(), "rejected") {
+		t.Errorf("a bad side entry did not stop the batch: %v", err)
+	}
+}
+
+func TestDreamSideEntriesApplyWithBank(t *testing.T) {
+	r, b, names := sideRollbackFixture(t)
+	before := make([]string, len(names))
+	for i, name := range names {
+		before[i] = mustRead(t, name)
+	}
+	answer, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.applyAnswer(string(answer), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range names {
+		if got := mustRead(t, name); got == before[i] {
+			t.Errorf("valid batch did not change %s", name)
+		}
+	}
+	if !strings.Contains(mustRead(t, Path("conventions.md")), "New rule") {
+		t.Error("bank update missing")
+	}
+}
+
+func TestDreamValidateSideRejectsBadStrikeAndDuplicates(t *testing.T) {
+	r, b, _ := sideRollbackFixture(t)
+	task := b.PlanTasks[0]
+	strike := func(reason, evidence string) Batch {
+		return Batch{PlanTasks: []PlanTaskOp{{Plan: task.Plan, ID: task.ID, Action: "strike", Reason: reason, Evidence: evidence}}}
+	}
+	for name, bad := range map[string]Batch{
+		"reason":    strike("bogus", "note:feedback/x.md"),
+		"evidence":  strike("obsolete", "see notes"),
+		"duplicate": {PlanTasks: []PlanTaskOp{task, task}},
+		"dup-test":  {TestProposals: []testProposal{b.TestProposals[0], b.TestProposals[0]}},
+	} {
+		if err := r.validateSide(bad); err == nil {
+			t.Errorf("%s: validateSide accepted the batch", name)
+		}
+	}
+	if err := r.validateSide(strike("obsolete", "note:feedback/x.md")); err != nil {
+		t.Errorf("valid strike rejected: %v", err)
+	}
+}
+
+func TestDreamPreflightRefusesMalformedSideFile(t *testing.T) {
+	r, b, _ := sideRollbackFixture(t)
+	write(t, testProposalsFile(), "not json\n")
+	answer, _ := json.Marshal(b)
+	err := r.applyAnswer(string(answer), io.Discard)
+	if err == nil || !refused(err) || !strings.Contains(err.Error(), "test proposals file") {
+		t.Fatalf("want a preflight refusal naming the tests file: %v", err)
+	}
+	if !strings.Contains(mustRead(t, Path("conventions.md")), "Old rule") {
+		t.Error("bank was written despite the refusal")
+	}
+}
+
+func TestDreamSideFailureNamesAppliedAndNot(t *testing.T) {
+	r, b, _ := sideRollbackFixture(t)
+	if err := os.Remove(testProposalsFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(testProposalsFile(), 0o700); err != nil { // an unwritable destination: a real I/O failure
+		t.Fatal(err)
+	}
+	err := r.applySide(b, io.Discard)
+	want := "written: [candidate fc-a, plan task " + filepath.Base(b.PlanTasks[0].Plan) + ":Phase 1.1]; not written: [test proposal internal/x/empty input]"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("accounting missing: %v", err)
+	}
+}
+
+func TestDreamPreflightRefusesUnresolvablePlanTask(t *testing.T) {
+	r, b, _ := sideRollbackFixture(t)
+	write(t, b.PlanTasks[0].Plan, "# P\n\n- [x] Phase 1.1 One (abc1234)\n")
+	if err := r.preflightSide(b); err == nil || !strings.Contains(err.Error(), "already closed") {
+		t.Fatalf("preflight accepted a closed task: %v", err)
+	}
+}
+
+func TestDreamPeerCandidateWithSameIDIsNotOurs(t *testing.T) {
+	r, b, _ := sideRollbackFixture(t)
+	peer := b.Candidates[0]
+	peer.Change = "A peer's change."
+	line, _ := json.Marshal(peer)
+	if err := proposeCandidate(io.Discard, string(line)); err != nil {
+		t.Fatal(err)
+	}
+	err := r.applySide(Batch{Candidates: b.Candidates}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "not written: [candidate fc-a]") {
+		t.Fatalf("a peer's same-id record counted as ours: %v", err)
+	}
+}
+
+func TestDreamUncertainCommitAttemptsNoSideEntry(t *testing.T) {
+	_, b, names := sideRollbackFixture(t)
+	before := mustRead(t, names[0])
+	unsure := &AfterCommitError{errors.New("roll back the write: failed")}
+	if _, confirmed := errors.AsType[*committedErr](unsure); confirmed {
+		t.Fatal("an uncertain commit read as confirmed")
+	}
+	if _, confirmed := errors.AsType[*committedErr](&AfterCommitError{&committedErr{errors.New("settle")}}); !confirmed {
+		t.Fatal("a settle-after-commit failure must read as confirmed")
+	}
+	if got := strings.Join(sideLabels(b), ", "); !strings.Contains(got, "candidate fc-a") || !strings.Contains(got, "test proposal internal/x/empty input") {
+		t.Errorf("labels: %s", got)
+	}
+	if mustRead(t, names[0]) != before {
+		t.Error("labels wrote a side file")
 	}
 }

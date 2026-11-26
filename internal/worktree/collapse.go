@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -20,6 +21,7 @@ type CollapseRequest struct {
 	Collector string
 	Lanes     []string
 	DryRun    bool
+	Keep      bool // leave picked lanes in place: the land drainer removes them itself once the batch has landed
 	Out       io.Writer
 }
 
@@ -37,7 +39,7 @@ func Collapse(ctx context.Context, repo *Repo, req CollapseRequest) error {
 	}
 	var picked, dropped []string
 	pick := func() (err error) {
-		picked, dropped, err = collapsePicks(ctx, dir, lanes, req)
+		picked, dropped, err = collapsePicks(ctx, repo, dir, lanes, req)
 		return err
 	}
 	if req.DryRun {
@@ -63,8 +65,11 @@ func Collapse(ctx context.Context, repo *Repo, req CollapseRequest) error {
 }
 
 // collapsePicks picks (or previews) each lane in order, dropping one whose pick fails; a failed rollback stops all.
-func collapsePicks(ctx context.Context, dir string, lanes []collapseLane, req CollapseRequest) (picked, dropped []string, err error) {
+func collapsePicks(ctx context.Context, repo *Repo, dir string, lanes []collapseLane, req CollapseRequest) (picked, dropped []string, err error) {
 	for _, l := range lanes {
+		before := pickPoint{head: headOf(l.dir)}
+		base, _ := gitCmd(ctx, "-C", dir, "merge-base", "HEAD", l.branch).Output() // collector before the pick
+		before.base = strings.TrimSpace(string(base))
 		shas, files, err := collapsePlan(ctx, dir, l.branch)
 		if err == nil && !req.DryRun {
 			err = collapsePick(ctx, dir, shas, files)
@@ -79,12 +84,111 @@ func collapsePicks(ctx context.Context, dir string, lanes []collapseLane, req Co
 		}
 		picked = append(picked, l.name)
 		if req.DryRun {
-			fmt.Fprintf(req.Out, "would pick %s: %d commits, %d files\n  files: %s\n", l.name, len(shas), len(files), strings.Join(files, " "))
-		} else {
-			fmt.Fprintf(req.Out, "picked %s: %d commits, %d files\n", l.name, len(shas), len(files))
+			fmt.Fprintf(req.Out, "would pick %s: %d commits, %d files\n  files: %s\nwould remove %s\n", l.name, len(shas), len(files), strings.Join(files, " "), l.name)
+			continue
 		}
+		afterCollapsePick(l)
+		before.n, before.m = len(shas), laneCommits(ctx, dir, before)
+		count := fmt.Sprintf("%d commits", before.n)
+		if before.m > before.n {
+			count = fmt.Sprintf("%d of %d commits", before.n, before.m)
+		}
+		outcome := "kept: its batch has not landed yet"
+		if !req.Keep {
+			outcome = collapseRemove(ctx, repo, dir, l, before)
+		}
+		fmt.Fprintf(req.Out, "collapsed %s (%s); %s\n", l.name, count, outcome)
 	}
 	return picked, dropped, nil
+}
+
+// pickPoint: lane head as picked, collector merge-base before it, commits picked (n), all past the base (m).
+type pickPoint struct {
+	head, base string
+	n, m       int
+}
+
+// notConverged is why the collector does not hold all of the lane: differing content, or commits not picked this run.
+func notConverged(ctx context.Context, dir string, p pickPoint) string {
+	switch path := contentDiffers(ctx, dir, p); {
+	case path != "":
+		return "content differs from the collector (" + path + ")"
+	case p.m < 0:
+		return "the lane's commits could not be counted"
+	case p.m != p.n:
+		return fmt.Sprintf("%d commits were already in the collector or are merges", p.m-p.n)
+	}
+	return ""
+}
+
+// laneCommits counts the lane's commits past the base, merges included.
+func laneCommits(ctx context.Context, dir string, p pickPoint) int {
+	out, err := gitCmd(ctx, "-C", dir, "rev-list", "--count", p.base+".."+p.head).Output()
+	m, convErr := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || convErr != nil {
+		return -1
+	}
+	return m
+}
+
+// contentDiffers returns the first path the lane changed whose tree entry in the collector's HEAD is not the lane's.
+func contentDiffers(ctx context.Context, dir string, p pickPoint) string {
+	if p.base == "" {
+		return "(no merge base)"
+	}
+	changed, err := gitNames(ctx, dir, "diff", "--no-renames", "--name-only", "-z", p.base, p.head)
+	if err != nil {
+		return "(diff unreadable)"
+	}
+	for _, path := range changed {
+		inCol, err1 := treeEntry(ctx, dir, "HEAD", path)
+		inLane, err2 := treeEntry(ctx, dir, p.head, path)
+		if err1 != nil || err2 != nil || inCol != inLane {
+			return path
+		}
+	}
+	return ""
+}
+
+// treeEntry is path's "mode type id" at rev, "" when absent; a git failure is an error, never "absent".
+func treeEntry(ctx context.Context, dir, rev, path string) (string, error) {
+	out, err := gitCmd(ctx, "-C", dir, "--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", path).Output()
+	if err != nil {
+		return "", err
+	}
+	entry, _, _ := strings.Cut(string(out), "\t")
+	return entry, nil
+}
+
+// afterCollapsePick is a test seam between a lane's pick and its removal.
+var afterCollapsePick = func(collapseLane) {}
+
+// collapseRemove removes a converged lane and returns "removed", or "kept: <why>" for what it left in place.
+func collapseRemove(ctx context.Context, repo *Repo, dir string, l collapseLane, p pickPoint) string {
+	picked := p.head
+	if headOf(l.dir) != picked {
+		return "kept: head moved after the pick"
+	}
+	if why := notConverged(ctx, dir, p); why != "" {
+		return "kept: " + why
+	}
+	out, err := gitCmd(ctx, "-C", l.dir, "status", "--porcelain", "--untracked-files=all").Output()
+	if err != nil || len(strings.TrimSpace(string(out))) > 0 {
+		return "kept: uncommitted or untracked files"
+	}
+	if _, reason := cleanBusyReason(l.dir, "", nil); reason != "" {
+		return "kept: " + reason
+	}
+	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", l.dir).CombinedOutput(); err != nil {
+		return "kept: git worktree remove: " + strings.TrimSpace(string(out))
+	}
+	if out, err := gitCmd(ctx, "-C", repo.Main, "update-ref", "-d", "refs/heads/"+l.branch, picked).CombinedOutput(); err != nil {
+		return "worktree removed; kept: branch " + l.branch + ": " + strings.TrimSpace(string(out))
+	}
+	if err := CloseLedger(repo.Main, l.name, LedgerClose{Via: "collapse", Head: picked, BranchDeleted: true}); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree collapse: warning: ledger: %v\n", err)
+	}
+	return "removed"
 }
 
 // collapseReady refuses a collector with tracked edits or a cherry-pick, merge, revert or rebase in progress.
@@ -123,7 +227,7 @@ func collapseLanes(ctx context.Context, repo *Repo, req CollapseRequest) ([]coll
 			bad = append(bad, name+" (no branch)")
 			continue
 		}
-		out, err := gitCmd(ctx, "-C", dest, "status", "--porcelain").Output()
+		out, err := gitCmd(ctx, "-C", dest, "status", "--porcelain", "--untracked-files=no").Output()
 		if err != nil || strings.TrimSpace(string(out)) != "" {
 			bad = append(bad, name+" (uncommitted changes)")
 			continue

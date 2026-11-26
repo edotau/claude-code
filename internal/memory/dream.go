@@ -455,6 +455,7 @@ func (r *dreamRan) runAgent(o dreamOptions) {
 		if err = r.applyAnswer(*answer, o.Out); err != nil && refused(err) {
 			err = r.retryAnswer(o, prompt, err)
 		}
+		err = r.job.named(err)
 	}
 	r.runErr = err
 	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
@@ -469,7 +470,7 @@ func (r *dreamRan) retryAnswer(o dreamOptions, prompt string, failed error) erro
 	r.base, r.files, r.docs = base, files, docs
 	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1", dreamChildEnv+"=1"), updateTimeout)
 	defer cancel()
-	return r.fb.Retry(ctx, prompt+"\n\nFresh entry listing:"+listing, o.CWD, DreamBatchSchema(), r.job.Model, failed,
+	return r.fb.Retry(ctx, prompt+"\n\nFresh entry listing:"+listing, o.CWD, DreamBatchSchema(), r.job.models(), failed,
 		func(answer string) error { return r.applyAnswer(answer, o.Out) })
 }
 
@@ -490,6 +491,14 @@ func (r *dreamRan) applyAnswer(answer string, out io.Writer) error {
 	if err := r.checkBatch(batch); err != nil {
 		return fmt.Errorf("dream batch: %w", err)
 	}
+	if err := r.validateSide(batch); err != nil {
+		return fmt.Errorf("dream batch: %w", err)
+	}
+	return r.applyChecked(batch, out)
+}
+
+// applyChecked applies a validated batch: the bank first, so a refusal writes nothing; then the side entries.
+func (r *dreamRan) applyChecked(batch Batch, out io.Writer) error {
 	now := time.Now()
 	planned := maps.Clone(r.docs)
 	based, err := withBase(batch, r.base)
@@ -497,67 +506,241 @@ func (r *dreamRan) applyAnswer(answer string, out io.Writer) error {
 		return fmt.Errorf("dream batch: %w", err)
 	}
 	runBatchOps(planned, based, now)
+	if err := r.preflightSide(batch); err != nil {
+		return fmt.Errorf("dream batch: %w", err)
+	}
 	results, err := newBankStore(false).Apply(batch, r.base, now)
+	printResults(out, results)
+	err = withFailedOps(err, results)
+	r.recordApplied(results, planned, err)
+	if err != nil && refused(err) {
+		return fmt.Errorf("dream batch: %w", err)
+	}
+	if _, confirmed := errors.AsType[*committedErr](err); err != nil && !confirmed {
+		// the commit state is uncertain: attempt no side entry and list them all
+		return &AfterCommitError{Err: fmt.Errorf("dream batch: %w; side entries not attempted: [%s]", err, strings.Join(sideLabels(batch), ", "))}
+	}
+	// a confirmed commit (a settle failure included): the side entries apply and no retry may re-apply the bank
+	if err = errors.Join(err, r.applySide(batch, out)); err != nil {
+		return &AfterCommitError{Err: fmt.Errorf("dream batch: %w", err)}
+	}
+	return nil
+}
+
+// sideLabels names each side entry the way the ledger does.
+func sideLabels(b Batch) []string {
+	var out []string
+	for _, c := range b.Candidates {
+		out = append(out, "candidate "+c.ID)
+	}
+	for _, p := range b.TestProposals {
+		out = append(out, "test proposal "+p.Pkg+"/"+p.Case)
+	}
+	for _, t := range b.PlanTasks {
+		out = append(out, "plan task "+filepath.Base(t.Plan)+":"+t.ID)
+	}
+	return out
+}
+
+func printResults(out io.Writer, results []OpResult) {
 	for i, result := range results {
 		fmt.Fprintf(out, "memory dream: op %d: %s %s: %s; %s\n", i, result.Op.Op, result.ID, result.Outcome, result.Reason)
 		if result.Op.Note != "" {
 			fmt.Fprintf(out, "memory dream: note: %s\n", result.Op.Note)
 		}
 	}
-	err = withFailedOps(err, results)
-	r.recordApplied(results, planned, err)
-	if err == nil {
-		r.applySide(batch, out) // a failed bank batch leaves the side entries unapplied too
+}
+
+func checkSideCandidate(c candidate, seen map[string]int) error {
+	line, _ := json.Marshal(c)
+	err := oneLineFields(c.ID, c.Change, c.Target)
+	switch {
+	case err != nil:
+	case len(c.Evidence) > 8:
+		err = errors.New("more than 8 evidence paths")
+	case c.Status != "" || c.EnforcedBy != "":
+		err = errors.New("a proposal carries no status or enforced_by; the owner's --approve sets them")
 	}
-	if err != nil {
-		return fmt.Errorf("dream batch: %w", err)
+	if problems := checkCandidateLine(string(line), 1, seen); err == nil && len(problems) > 0 {
+		err = errors.New(problems[0])
+	}
+	return err
+}
+
+func checkSideTest(p testProposal) error {
+	line, _ := json.Marshal(p)
+	if _, err := parseProposalLine(string(line)); err != nil {
+		return err
+	}
+	return oneLineFields(p.Pkg, p.Case, p.Reason, p.Runtime)
+}
+
+func (r *dreamRan) validateSide(b Batch) error {
+	seen := map[string]int{}
+	for _, c := range b.Candidates {
+		if err := checkSideCandidate(c, seen); err != nil {
+			return fmt.Errorf("candidate %s: rejected: %w", c.ID, err)
+		}
+	}
+	keys := map[string]bool{}
+	for _, p := range b.TestProposals {
+		err := checkSideTest(p)
+		if keys[p.key()] {
+			err = errors.New("listed twice in one batch (same package and case)")
+		}
+		keys[p.key()] = true
+		if err != nil {
+			return fmt.Errorf("test proposal %s: rejected: %w", p.Case, err)
+		}
+	}
+	taken := map[[2]string]bool{}
+	for _, t := range b.PlanTasks {
+		err := r.checkPlanTask(t)
+		if key := [2]string{t.Plan, t.ID}; taken[key] {
+			err = errors.New("listed twice in one batch")
+		} else {
+			taken[key] = true
+		}
+		if err != nil {
+			return fmt.Errorf("plan task %s: rejected: %w", t.ID, err)
+		}
 	}
 	return nil
 }
 
-// applySide applies Phases 5b-5d: each entry stands alone, so a bad one is logged and the rest still run.
-func (r *dreamRan) applySide(b Batch, out io.Writer) {
-	fail := func(what string, err error) {
-		if err != nil {
-			fmt.Fprintf(out, "memory dream: %s: rejected: %v\n", what, err)
+// preflightSide proves every side destination can take its entries, so a malformed file refuses the batch unwritten.
+func (r *dreamRan) preflightSide(b Batch) error {
+	if err := preflightCandidates(b.Candidates); err != nil {
+		return err
+	}
+	if len(b.TestProposals) > 0 {
+		old, err := os.ReadFile(testProposalsFile())
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("test proposals file: %w", err)
+		}
+		if _, err := mergeProposals(b.TestProposals, old); err != nil {
+			return fmt.Errorf("test proposals file: %w", err)
 		}
 	}
+	for _, t := range b.PlanTasks {
+		if err := plans.CheckOpen(t.Plan, t.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func preflightCandidates(cands []candidate) error {
+	if len(cands) == 0 {
+		return nil
+	}
+	text, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
+	if errors.Is(err, os.ErrNotExist) {
+		text, err = []byte("# Feedback candidates\n\n```jsonl\n```\n"), nil
+	}
+	if err != nil {
+		return fmt.Errorf("candidates file: %w", err)
+	}
+	next := string(text)
+	for _, c := range cands {
+		var line bytes.Buffer
+		_ = jsonEncoder(&line).Encode(c) // a plain struct always encodes
+		if next, err = appendCandidateLine(next, strings.TrimRight(line.String(), "\n")); err != nil {
+			return fmt.Errorf("candidates file: %w", err)
+		}
+	}
+	if p := validateCandidates(next); len(p) > 0 {
+		return fmt.Errorf("candidates file: %s", p[0])
+	}
+	return nil
+}
+
+// candidateStored reports whether the file holds a record equal to the proposal's decoded form.
+func candidateStored(line string) bool {
+	want, msg := decodeCandidate(line)
+	if msg != "" {
+		return false
+	}
+	w, _ := json.Marshal(want)
+	return slices.ContainsFunc(readCandidates(), func(x candidate) bool {
+		g, _ := json.Marshal(x)
+		return bytes.Equal(w, g)
+	})
+}
+
+// sideLedger is the partial-success accounting of a side phase that cannot be undone.
+type sideLedger struct {
+	out             io.Writer
+	applied, failed []string
+	errs            []error
+}
+
+func (l *sideLedger) record(what string, err error) {
+	if err == nil {
+		l.applied = append(l.applied, what)
+		return
+	}
+	fmt.Fprintf(l.out, "memory dream: %s: rejected: %v\n", what, err)
+	l.failed = append(l.failed, what)
+	l.errs = append(l.errs, fmt.Errorf("%s: %w", what, err))
+}
+
+func (l *sideLedger) err() error {
+	if len(l.errs) == 0 {
+		return nil
+	}
+	head := fmt.Errorf("side entries written: [%s]; not written: [%s]", strings.Join(l.applied, ", "), strings.Join(l.failed, ", "))
+	return errors.Join(append([]error{head}, l.errs...)...)
+}
+
+// applySide applies Phases 5b-5d after the bank commit and a clean preflight; a failure is I/O or a peer's race.
+func (r *dreamRan) applySide(b Batch, out io.Writer) error {
+	l := &sideLedger{out: out}
 	for _, c := range b.Candidates {
 		line, _ := json.Marshal(c) // a plain struct always encodes
-		err := oneLineFields(c.ID, c.Change, c.Target)
-		if len(c.Evidence) > 8 {
-			err = errors.New("more than 8 evidence paths")
-		}
+		err := checkSideCandidate(c, map[string]int{})
 		if err == nil {
 			err = proposeCandidate(io.Discard, string(line))
+		}
+		if err == nil && !candidateStored(string(line)) {
+			err = errors.New("the stored record differs from the proposal")
 		}
 		if err == nil {
 			r.note(candidatesRel)
 		}
-		fail("candidate "+c.ID, err)
+		l.record("candidate "+c.ID, err)
 	}
+	r.applySideTests(b.TestProposals, l)
+	for _, t := range b.PlanTasks {
+		l.record("plan task "+filepath.Base(t.Plan)+":"+t.ID, r.applyPlanTask(t))
+	}
+	return l.err()
+}
+
+func (r *dreamRan) applySideTests(proposals []testProposal, l *sideLedger) {
 	var tests []testProposal
-	for _, p := range b.TestProposals {
+	for _, p := range proposals {
 		line, _ := json.Marshal(p)
 		checked, err := parseProposalLine(string(line))
 		if err == nil {
-			err = oneLineFields(p.Pkg, p.Case, p.Reason, p.Runtime)
+			err = checkSideTest(p)
 		}
-		fail("test proposal "+p.Case, err)
-		if err == nil {
-			checked.Source = "dream"
-			tests = append(tests, checked)
+		if err != nil {
+			l.record("test proposal "+p.Case, err)
+			continue
 		}
+		checked.Source = "dream"
+		tests = append(tests, checked)
 	}
-	if len(tests) > 0 {
-		_, err := appendTestProposals(testProposalsFile(), tests)
-		if err == nil {
-			r.note("techdebt/tests.jsonl")
-		}
-		fail("test proposals", err)
+	if len(tests) == 0 {
+		return
 	}
-	for _, t := range b.PlanTasks {
-		fail("plan task "+t.ID, r.applyPlanTask(t))
+	_, err := appendTestProposals(testProposalsFile(), tests)
+	if err == nil {
+		r.note("techdebt/tests.jsonl")
+	}
+	for _, p := range tests {
+		l.record("test proposal "+p.Pkg+"/"+p.Case, err)
 	}
 }
 
@@ -583,25 +766,17 @@ var planShaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // applyPlanTask closes a task only when plan and id are in the open-task list the model was shown.
 func (r *dreamRan) applyPlanTask(t PlanTaskOp) error {
-	if r.plan == nil {
-		return errors.New("no plans in this checkout")
-	}
-	if !slices.ContainsFunc(r.plan.open, func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
-		return errors.New("not an open task of the listed plans")
-	}
-	if !slices.ContainsFunc(plans.OpenTasks(r.plan.root), func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
-		return errors.New("the task is already closed")
+	if err := r.checkPlanTask(t); err != nil {
+		return err
 	}
 	r.plan.checkpoint(t.Plan)
 	var err error
 	wrote := false
-	switch {
-	case t.Action == "done" && planShaRE.MatchString(t.Sha):
+	switch t.Action {
+	case "done":
 		wrote, err = plans.MarkDone(t.Plan, t.ID, t.Sha)
-	case t.Action == "strike":
+	case "strike":
 		wrote, err = plans.StrikeWith(t.Plan, t.ID, t.Reason, t.Evidence)
-	default:
-		return fmt.Errorf("action %q with sha %q is not valid", t.Action, t.Sha)
 	}
 	if err == nil && !wrote {
 		return errors.New("a peer closed the task first")
@@ -611,6 +786,26 @@ func (r *dreamRan) applyPlanTask(t PlanTaskOp) error {
 		r.note("plans/" + filepath.Base(t.Plan))
 	}
 	return err
+}
+
+func (r *dreamRan) checkPlanTask(t PlanTaskOp) error {
+	if r.plan == nil {
+		return errors.New("no plans in this checkout")
+	}
+	if !slices.ContainsFunc(r.plan.open, func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
+		return errors.New("not an open task of the listed plans")
+	}
+	if !slices.ContainsFunc(plans.OpenTasks(r.plan.root), func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
+		return errors.New("the task is already closed")
+	}
+	switch {
+	case t.Action == "done" && planShaRE.MatchString(t.Sha):
+		return nil
+	case t.Action == "strike":
+		return plans.CheckStrike(t.Reason, t.Evidence)
+	default:
+		return fmt.Errorf("action %q with sha %q is not valid", t.Action, t.Sha)
+	}
 }
 
 // checkBatch binds every edit to a unique ref and content hash from the model's snapshot.

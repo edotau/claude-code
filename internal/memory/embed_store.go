@@ -1,18 +1,14 @@
 package memory
 
 import (
-	"bytes"
 	"container/heap"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -21,13 +17,55 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"go.etcd.io/bbolt"
-	bolterrors "go.etcd.io/bbolt/errors"
 )
 
-type boltVectorStore struct{}
+// The exported aliases let the shadow package implement VectorStore without renaming the memory types.
+type (
+	VectorRecord = vectorRecord
+	VectorRow    = vectorRow
+	VectorHead   = vectorHead
+	VectorWrite  = vectorWrite
+)
 
-var vectorStore = &boltVectorStore{}
+// VectorStore is the home of the one shared entry-vector record and its minting claim.
+type VectorStore interface {
+	// Put merges a mint while releasing its claim; stored is false when the claim was lost or a newer mint landed.
+	Put(VectorWrite) (stored bool, err error)
+	Vectors() (VectorRecord, error)
+	Head() (VectorHead, error)
+	// Claim takes the mint claim for owner until expiry; held is the live claim's expiry when another has it.
+	Claim(owner int64, now, expiry time.Time) (held time.Time, ok bool, err error)
+	// Release drops owner's claim; a taken-over claim is left alone.
+	Release(owner int64) error
+	// RefreshDue is lock-free: due when the record is outside its lease and no claim is live.
+	RefreshDue(now time.Time) bool
+	// Present reports whether any record store exists, so a query skips the probe when none does.
+	Present() bool
+}
+
+// OpenVectorStore is nil when no shadow store is linked; vectors are then absent and nothing can be minted.
+var OpenVectorStore func() VectorStore
+
+var errNoVectorStore = errors.New("no embedding store is linked")
+
+type noVectors struct{}
+
+func (noVectors) Put(VectorWrite) (bool, error)  { return false, errNoVectorStore }
+func (noVectors) Vectors() (VectorRecord, error) { return VectorRecord{}, nil }
+func (noVectors) Head() (VectorHead, error)      { return VectorHead{}, nil }
+func (noVectors) Release(int64) error            { return nil }
+func (noVectors) RefreshDue(time.Time) bool      { return false }
+func (noVectors) Present() bool                  { return false }
+func (noVectors) Claim(int64, time.Time, time.Time) (time.Time, bool, error) {
+	return time.Time{}, false, errNoVectorStore
+}
+
+func vectorStore() VectorStore {
+	if OpenVectorStore == nil {
+		return noVectors{}
+	}
+	return OpenVectorStore()
+}
 
 // vectorWrite atomically merges a mint while releasing its claim.
 type vectorWrite struct {
@@ -36,44 +74,11 @@ type vectorWrite struct {
 	Merge   func(vectorRecord) vectorRecord
 }
 
-func (s *boltVectorStore) Put(write vectorWrite) (stored bool, err error) {
-	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		if !claimOwnedBy(tx, write.Owner) { // taken over or expired: refuse, stored stays false
-			return nil
-		}
-		if err := dropClaim(tx, write.Owner); err != nil {
-			return err
-		}
-		current := decodeEmbedRecord(tx)
-		if current.MintedAt >= write.Started && current.MintedAt <= time.Now().UnixNano() {
-			return nil
-		}
-		stored = true
-		return putEmbedRecord(tx, write.Merge(current))
-	})
-	return stored, err
-}
-
 const (
 	embedValidity   = time.Hour        // a minted record is left alone for this long
 	embedOverrideAt = 8 * time.Minute  // --reembed opens in the record's final stretch of the lease
 	embedClaimTTL   = 2 * time.Minute  // a minting claim older than this is abandoned
 	embedClaimSlack = 30 * time.Second // added to the caller's ctx deadline when sizing a claim
-)
-
-// The shared cache holds JSON metadata and binary vector rows; claims hold one mint key -> expiry+owner.
-var (
-	embedVectorBucket = []byte("vectors")
-	embedClaimBucket  = []byte("claims")
-	embedClaimKey     = []byte("mint")
-	embedRowsBucket   = []byte("rows")
-	embedMetadataKey  = []byte("metadata")
-)
-
-// Timeouts for the bbolt file lock; a var so tests can shorten them.
-var (
-	embedReadTimeout  = 300 * time.Millisecond
-	embedWriteTimeout = 5 * time.Second
 )
 
 var (
@@ -87,22 +92,10 @@ var (
 	errReembedEarly = errors.New("re-embed is not open yet")
 )
 
-// openEmbedDB opens embeddings.db, refusing a file shorter than its page high-water mark (bbolt would SIGSEGV on read).
-func openEmbedDB(opts *bbolt.Options) (*bbolt.DB, error) {
-	db, err := bbolt.Open(embedDBPath(), 0o600, opts)
-	if err != nil {
-		return nil, err
-	}
-	var want int64
-	_ = db.View(func(tx *bbolt.Tx) error { want = tx.Size(); return nil })
-	if st, err := os.Stat(embedDBPath()); err != nil || st.Size() < want {
-		_ = db.Close()
-		return nil, errors.New("embeddings.db is truncated")
-	}
-	return db, nil
-}
+// EmbedDBPath is the legacy bbolt cache; the shadow store imports it once and never deletes it.
+func EmbedDBPath() string { return embedDBPath() }
 
-// embedDBPath is the one bbolt file holding the shared entry-vector record, scoped like MemoryStateDir.
+// embedDBPath is the legacy bbolt file of the shared entry-vector record, scoped like MemoryStateDir.
 func embedDBPath() string { return filepath.Join(paths.MemoryStateDir(), "embeddings.db") }
 
 func mintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
@@ -111,6 +104,9 @@ func mintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
 func embedValid(f vectorRecord, now time.Time) bool {
 	return f.MintedAt > 0 && !mintedTime(f).After(now) && now.Sub(mintedTime(f)) < embedValidity
 }
+
+// EmbedValid is embedValid for the shadow store's due check.
+func EmbedValid(f VectorRecord, now time.Time) bool { return embedValid(f, now) }
 
 // reembedOpensAt reports the override opening time and whether it is open now.
 func reembedOpensAt(f vectorRecord, now time.Time) (time.Time, bool) {
@@ -131,185 +127,8 @@ func reembedWindow(now time.Time) (opensAt time.Time, open bool, err error) {
 	return at, open, nil
 }
 
-// readEmbedCache reads the shared record without blocking long; a missing file or record is empty. A var for tests.
-var readEmbedCache = vectorStore.Vectors
-
-func (s *boltVectorStore) Vectors() (vectorRecord, error) {
-	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
-	if errors.Is(err, os.ErrNotExist) {
-		return vectorRecord{}, nil
-	}
-	if err != nil {
-		return vectorRecord{}, err
-	}
-	defer db.Close()
-	var f vectorRecord
-	err = db.View(func(tx *bbolt.Tx) error {
-		f = decodeEmbedRecord(tx)
-		return nil
-	})
-	return f, err
-}
-
-// Head reads the shared record's metadata only; a missing file or record is empty.
-func (s *boltVectorStore) Head() (vectorHead, error) {
-	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
-	if errors.Is(err, os.ErrNotExist) {
-		return vectorHead{}, nil
-	}
-	if err != nil {
-		return vectorHead{}, err
-	}
-	defer db.Close()
-	var h vectorHead
-	err = db.View(func(tx *bbolt.Tx) error {
-		h = decodeVectorHead(tx.Bucket(embedVectorBucket), embedFormat)
-		h.Rows = h.Rows && tx.Bucket(embedVectorBucket).Bucket(embedRowsBucket) != nil
-		return nil
-	})
-	return h, err
-}
-
-func decodeEmbedRecord(tx *bbolt.Tx) vectorRecord {
-	return decodeVectorBucket(tx.Bucket(embedVectorBucket), embedFormat)
-}
-
-// decodeVectorMeta reads b's metadata at format f's version; a missing or mismatched one is the empty record.
-func decodeVectorMeta(b *bbolt.Bucket, f schemas.Format) vectorRecord {
-	var rec vectorRecord
-	if b == nil || !schemas.DecodeOK(f, b.Get(embedMetadataKey), &rec) {
-		return vectorRecord{}
-	}
-	return rec
-}
-
-// vectorHead is a record's metadata without its rows; Rows says some are recorded.
-type vectorHead struct {
-	Model    string
-	MintedAt int64
-	Rows     bool
-}
-
-// decodeVectorHead reads the leading metadata fields of the current schema without decoding the row map; else falls back.
-func decodeVectorHead(b *bbolt.Bucket, f schemas.Format) vectorHead {
-	if b == nil {
-		return vectorHead{}
-	}
-	raw := b.Get(embedMetadataKey)
-	if h, ok := scanVectorHead(raw, f.Version); ok && json.Valid(raw) {
-		return h
-	}
-	rec := decodeVectorMeta(b, f)
-	return vectorHead{Model: rec.Model, MintedAt: rec.MintedAt, Rows: len(rec.Rows) > 0}
-}
-
-// scanVectorHead streams raw's fields up to "rows"; false when the schema is not version or anything is unexpected.
-func scanVectorHead(raw []byte, version int) (h vectorHead, ok bool) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return h, false
-	}
-	schema := -1
-	for dec.More() {
-		t, err := dec.Token()
-		key, isKey := t.(string)
-		if err != nil || !isKey {
-			return h, false
-		}
-		if key == "rows" {
-			t, err := dec.Token()
-			h.Rows = t == json.Delim('{') && dec.More()
-			return h, err == nil && schema == version
-		}
-		if dec.Decode(headField(key, &h, &schema)) != nil {
-			return h, false
-		}
-	}
-	return h, schema == version
-}
-
-// headField is where the decoder puts key's value; fields the head does not keep are discarded.
-func headField(key string, h *vectorHead, schema *int) any {
-	switch key {
-	case "schema":
-		return schema
-	case "model":
-		return &h.Model
-	case "minted_at":
-		return &h.MintedAt
-	}
-	return new(json.RawMessage)
-}
-
-// decodeVectorBucket is decodeVectorMeta plus the binary rows; a row that is missing or not whole float32s is dropped.
-func decodeVectorBucket(b *bbolt.Bucket, f schemas.Format) vectorRecord {
-	rec := decodeVectorMeta(b, f)
-	if rec.Rows == nil {
-		return rec
-	}
-	rows := b.Bucket(embedRowsBucket)
-	if rows == nil {
-		return vectorRecord{}
-	}
-	for id, row := range rec.Rows {
-		raw := rows.Get([]byte(id))
-		if raw == nil || len(raw)%4 != 0 {
-			delete(rec.Rows, id)
-			continue
-		}
-		row.Vec = string(raw)
-		rec.Rows[id] = row
-	}
-	return rec
-}
-
-// updateEmbedDB runs fn in one short read-write transaction on embeddings.db, creating the file and buckets.
-func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
-	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
-		return err
-	}
-	db, err := openEmbedDB(&bbolt.Options{Timeout: embedWriteTimeout})
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	return db.Update(func(tx *bbolt.Tx) error {
-		for _, name := range [][]byte{embedVectorBucket, embedClaimBucket} {
-			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
-				return err
-			}
-		}
-		return fn(tx)
-	})
-}
-
-func putEmbedRecord(tx *bbolt.Tx, f vectorRecord) error {
-	f.Schema = embedCacheSchema
-	raw, err := json.Marshal(f)
-	if err != nil {
-		return err
-	}
-	if err := tx.DeleteBucket(embedVectorBucket); err != nil {
-		return err
-	}
-	b, err := tx.CreateBucket(embedVectorBucket)
-	if err != nil {
-		return err
-	}
-	if err := b.Put(embedMetadataKey, raw); err != nil {
-		return err
-	}
-	rows, err := b.CreateBucket(embedRowsBucket)
-	if err != nil {
-		return err
-	}
-	for id, row := range f.Rows {
-		if err := rows.Put([]byte(id), []byte(row.Vec)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// readEmbedCache reads the shared record; a missing store or record is empty. A var for tests.
+var readEmbedCache = func() (vectorRecord, error) { return vectorStore().Vectors() }
 
 // newEmbedOwner is a random claim token, distinct from the mint's start time.
 func newEmbedOwner() (int64, error) {
@@ -328,86 +147,6 @@ func embedClaimExpiry(ctx context.Context, now time.Time) time.Time {
 	return now.Add(embedClaimTTL)
 }
 
-// Claim takes the mint claim for owner until expiry; held is the live claim's expiry when another has it.
-func (s *boltVectorStore) Claim(owner int64, now, expiry time.Time) (held time.Time, ok bool, err error) {
-	err = updateEmbedDB(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(embedClaimBucket)
-		if v := b.Get(embedClaimKey); len(v) == 16 {
-			if exp := time.Unix(0, int64(binary.BigEndian.Uint64(v))); exp.After(now) {
-				held = exp
-				return nil
-			}
-		}
-		var v [16]byte
-		binary.BigEndian.PutUint64(v[:8], uint64(expiry.UnixNano()))
-		binary.BigEndian.PutUint64(v[8:], uint64(owner))
-		ok = true
-		return b.Put(embedClaimKey, v[:])
-	})
-	return held, ok, err
-}
-
-// claimOwnedBy reports whether the mint claim names owner.
-func claimOwnedBy(tx *bbolt.Tx, owner int64) bool {
-	v := tx.Bucket(embedClaimBucket).Get(embedClaimKey)
-	return len(v) == 16 && int64(binary.BigEndian.Uint64(v[8:])) == owner
-}
-
-func dropClaim(tx *bbolt.Tx, owner int64) error {
-	if claimOwnedBy(tx, owner) {
-		return tx.Bucket(embedClaimBucket).Delete(embedClaimKey)
-	}
-	return nil
-}
-
-// Release drops owner's claim and returns the failure that left it behind; a taken-over claim is left alone.
-func (s *boltVectorStore) Release(owner int64) error {
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return dropClaim(tx, owner) })
-}
-
-// embedDBBroken reports an open failure blaming the file's bytes, not a lock timeout, permission or missing file.
-func embedDBBroken(err error) bool {
-	return err != nil && !errors.Is(err, bolterrors.ErrTimeout) && !errors.Is(err, fs.ErrPermission) && !errors.Is(err, os.ErrNotExist)
-}
-
-// quarantineEmbedDB moves a damaged or zero-byte embeddings.db aside so the next write open creates a fresh one.
-func quarantineEmbedDB() error {
-	err := os.Rename(embedDBPath(), embedDBPath()+".damaged")
-	if err == nil {
-		fmt.Fprintln(os.Stderr, "memory: embeddings.db was damaged; set aside as embeddings.db.damaged, rebuilding empty")
-	}
-	return err
-}
-
-// RefreshDue reads the mint lease and claim lock-free: due when the record is outside its lease and no claim is live.
-func (s *boltVectorStore) RefreshDue(now time.Time) bool {
-	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: time.Nanosecond})
-	if errors.Is(err, os.ErrNotExist) {
-		return true
-	}
-	if err != nil {
-		return embedDBBroken(err) // the spawned mint quarantines it; a busy or unreadable-by-permission file waits
-	}
-	defer db.Close()
-	due := false
-	err = db.View(func(tx *bbolt.Tx) error {
-		head := decodeVectorHead(tx.Bucket(embedVectorBucket), embedFormat)
-		due = !embedValid(vectorRecord{MintedAt: head.MintedAt}, now) && !embedClaimLive(tx, now)
-		return nil
-	})
-	return err == nil && due
-}
-
-// embedClaimLive reports whether another worker's unexpired mint claim is recorded.
-func embedClaimLive(tx *bbolt.Tx, now time.Time) bool {
-	b := tx.Bucket(embedClaimBucket)
-	if b == nil {
-		return false
-	}
-	v := b.Get(embedClaimKey)
-	return len(v) == 16 && time.Unix(0, int64(binary.BigEndian.Uint64(v))).After(now)
-}
-
 // refreshEmbeddings starts a detached mint at most once per claim TTL, whichever workspace it runs through.
 func refreshEmbeddings(root, profile string, now time.Time) bool {
 	stamp := filepath.Join(paths.MemoryStateDir(), "embeddings.refresh")
@@ -419,7 +158,7 @@ func refreshEmbeddings(root, profile string, now time.Time) bool {
 	}
 	spawned := false
 	_, _ = paths.TryFileLock(stamp+".lock", 0, func() error {
-		if refreshStampFresh(stamp, now) || !vectorStore.RefreshDue(now) {
+		if refreshStampFresh(stamp, now) || !vectorStore().RefreshDue(now) {
 			return nil
 		}
 		if err := paths.AtomicWriteNoSync(stamp, nil, 0o600); err != nil {
@@ -597,8 +336,18 @@ func (s *semanticQuery) hitFor(f corpusFile, block string, floor float64) (Searc
 // embedCacheSchema is the embedding cache's schema version.
 const embedCacheSchema = 3
 
-var embedFormat = schemas.Register(schemas.Format{
+// EmbedCacheSchema is the version stamped on every stored record.
+const EmbedCacheSchema = embedCacheSchema
+
+var _ = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
 	Glob: embedDBPath,
 	Keep: "bbolt metadata and binary float32 rows of one shared cache; a version mismatch is a miss",
 })
+
+// vectorHead is a record's metadata without its rows; Rows says some are recorded.
+type vectorHead struct {
+	Model    string
+	MintedAt int64
+	Rows     bool
+}

@@ -262,27 +262,37 @@ func benchmarkFunc(name string) string {
 	return procSuffix.ReplaceAllString(root, "")
 }
 
+type testFile struct {
+	pkg   string
+	rel   string
+	body  []byte
+	decls []*ast.FuncDecl
+	other []ast.Decl
+}
+
 func benchmarkEpochs(top, pkg string) (map[string]benchmarkEpoch, error) {
 	dir := filepath.Join(top, pkg)
-	files, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]benchmarkEpoch{}
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), "_test.go") {
+	var files []*testFile
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
-		epochs, err := fileEpochs(top, filepath.Join(dir, file.Name()))
+		tf, err := loadTestFile(top, filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
-		maps.Copy(out, epochs)
+		if tf != nil {
+			files = append(files, tf)
+		}
 	}
-	return out, nil
+	return epochsOf(files), nil
 }
 
-func fileEpochs(top, file string) (map[string]benchmarkEpoch, error) {
+func loadTestFile(top, file string) (*testFile, error) {
 	active, err := build.Default.MatchFile(filepath.Dir(file), filepath.Base(file))
 	if err != nil || !active {
 		return nil, err
@@ -300,15 +310,219 @@ func fileEpochs(top, file string) (map[string]benchmarkEpoch, error) {
 		return nil, err
 	}
 	// CRLF folds to LF so an autocrlf checkout keeps the epoch.
-	hash := sha256.Sum256(bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n")))
-	out := map[string]benchmarkEpoch{}
+	tf := &testFile{pkg: f.Name.Name, rel: filepath.ToSlash(rel), body: bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))}
 	for _, decl := range f.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Benchmark") {
-			out[fn.Name.Name] = benchmarkEpoch{File: filepath.ToSlash(rel), Hash: hex.EncodeToString(hash[:])}
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			tf.decls = append(tf.decls, fn)
+		} else {
+			tf.other = append(tf.other, decl)
 		}
 	}
-	return out, nil
+	return tf, nil
+}
+
+// declNode is a top-level declaration; the empty name marks code that runs before every benchmark.
+type declNode struct {
+	file  *testFile
+	refs  map[string]bool
+	names []string
+}
+
+// namespaces lists the packages whose test files a name resolves in; p_test also sees p.
+func namespaces(pkg, name string) []string {
+	base, ok := strings.CutSuffix(pkg, "_test")
+	switch {
+	case name == "": // both test packages link into one binary, so their setup runs for every benchmark
+		return []string{base, base + "_test"}
+	case ok:
+		return []string{pkg, base}
+	}
+	return []string{pkg}
+}
+
+// epochsOf hashes each benchmark's declaring file plus the test files that define what it reaches by name.
+func epochsOf(files []*testFile) map[string]benchmarkEpoch {
+	defs := map[string][]*declNode{}
+	types := localTypes(files)
+	for _, tf := range files {
+		for _, node := range fileNodes(tf, types) {
+			for _, name := range node.names {
+				defs[tf.pkg+"\x00"+name] = append(defs[tf.pkg+"\x00"+name], node)
+			}
+		}
+	}
+	out := map[string]benchmarkEpoch{}
+	for _, tf := range files {
+		for _, fn := range tf.decls {
+			if fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Benchmark") {
+				out[fn.Name.Name] = benchmarkEpoch{File: tf.rel, Hash: reachHash(tf, fn, defs)}
+			}
+		}
+	}
+	return out
+}
+
+func fileNodes(tf *testFile, types map[string]bool) []*declNode {
+	var out []*declNode
+	for _, fn := range tf.decls {
+		node := &declNode{file: tf, refs: identNames(fn), names: []string{fn.Name.Name}}
+		if recv := recvTypeName(fn); recv != "" {
+			node.names = append(node.names, recv)
+		}
+		if fn.Recv == nil && (fn.Name.Name == "init" || fn.Name.Name == "TestMain") {
+			node.names = append(node.names, "")
+		}
+		out = append(out, node)
+	}
+	for _, decl := range tf.other {
+		out = append(out, specNodes(tf, decl, types)...)
+	}
+	return out
+}
+
+func reachHash(decl *testFile, bench *ast.FuncDecl, defs map[string][]*declNode) string {
+	seen := map[string]bool{}
+	reached := map[*testFile]bool{}
+	queue := append(slices.Collect(maps.Keys(identNames(bench))), "")
+	for len(queue) > 0 {
+		name := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		for _, pkg := range namespaces(decl.pkg, name) {
+			for _, node := range defs[pkg+"\x00"+name] {
+				reached[node.file] = true
+				queue = append(queue, slices.Collect(maps.Keys(node.refs))...)
+			}
+		}
+	}
+	delete(reached, decl)
+	h := sha256.New()
+	h.Write(decl.body)
+	extra := slices.Collect(maps.Keys(reached))
+	slices.SortFunc(extra, func(a, b *testFile) int { return cmp.Compare(a.rel, b.rel) })
+	for _, tf := range extra {
+		h.Write([]byte("\x00" + tf.rel + "\x00"))
+		h.Write(tf.body)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// hasCall reports a function call that runs at init: not a conversion, not inside a function literal.
+func hasCall(e ast.Expr, types map[string]bool) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			found = found || !isConversion(v.Fun, types)
+		}
+		return !found
+	})
+	return found
+}
+
+func isConversion(fun ast.Expr, types map[string]bool) bool {
+	switch f := fun.(type) {
+	case *ast.ParenExpr:
+		return isConversion(f.X, types)
+	case *ast.ArrayType, *ast.MapType, *ast.ChanType, *ast.FuncType, *ast.InterfaceType, *ast.StarExpr:
+		return true
+	case *ast.Ident:
+		return types[f.Name]
+	}
+	return false
+}
+
+// localTypes holds the predeclared types and every type the test files declare, by name.
+func localTypes(files []*testFile) map[string]bool {
+	out := map[string]bool{}
+	for name := range strings.FieldsSeq("bool byte rune string error any int int8 int16 int32 int64 uint uint8 uint16 " +
+		"uint32 uint64 uintptr float32 float64 complex64 complex128") {
+		out[name] = true
+	}
+	for _, tf := range files {
+		for _, decl := range tf.other {
+			if gen, ok := decl.(*ast.GenDecl); ok && gen.Tok == token.TYPE {
+				for _, spec := range gen.Specs {
+					out[spec.(*ast.TypeSpec).Name.Name] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+func identNames(n ast.Node) map[string]bool {
+	out := map[string]bool{}
+	ast.Inspect(n, func(x ast.Node) bool {
+		if id, ok := x.(*ast.Ident); ok && id.Name != "_" {
+			out[id.Name] = true
+		}
+		return true
+	})
+	return out
+}
+
+func recvTypeName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return ""
+	}
+	t := fn.Recv.List[0].Type
+	for {
+		switch v := t.(type) {
+		case *ast.StarExpr:
+			t = v.X
+		case *ast.IndexExpr:
+			t = v.X
+		case *ast.IndexListExpr:
+			t = v.X
+		case *ast.Ident:
+			return v.Name
+		default:
+			return ""
+		}
+	}
+}
+
+func valueNames(tok token.Token, sp *ast.ValueSpec, types map[string]bool) []string {
+	var names []string
+	for _, id := range sp.Names {
+		names = append(names, id.Name)
+	}
+	if tok == token.VAR && slices.ContainsFunc(sp.Values, func(e ast.Expr) bool { return hasCall(e, types) }) {
+		names = append(names, "")
+	}
+	return names
+}
+
+// specNodes splits a type/var/const group per spec; an implicit const repeat inherits the previous spec's refs.
+func specNodes(tf *testFile, decl ast.Decl, types map[string]bool) []*declNode {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok {
+		return nil
+	}
+	var out []*declNode
+	var prev map[string]bool
+	for _, spec := range gen.Specs {
+		node := &declNode{file: tf, refs: identNames(spec)}
+		switch sp := spec.(type) {
+		case *ast.TypeSpec:
+			node.names = []string{sp.Name.Name}
+		case *ast.ValueSpec:
+			node.names = valueNames(gen.Tok, sp, types)
+			if gen.Tok == token.CONST && len(sp.Values) == 0 && sp.Type == nil {
+				maps.Copy(node.refs, prev)
+			} else {
+				prev = node.refs
+			}
+		}
+		out = append(out, node)
+	}
+	return out
 }
 
 func epochHeader(epochs map[string]benchmarkEpoch) string {

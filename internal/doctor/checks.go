@@ -178,6 +178,7 @@ func checkHostHealth(ctx context.Context, report func(bool, bool, string, string
 	soft(routingRows()...)
 	store := memoryStoreRow()
 	report(store.OK, store.Hard, store.Name, store.Detail)
+	soft(memoryTruthRow())
 	soft(dbProtectRow())
 	soft(dbVersionRows()...)
 	soft(memorySyncRows()...)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,8 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxyteam"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 type (
@@ -59,30 +62,46 @@ func DispatchFacts(rec Record) proxyteam.Facts {
 	return f
 }
 
-// proxyGroupID is the ctx group id, else the id part of HARNESS_DISPATCH_PROXY when its team part is team.
+// inheritedScope is the team and id of the unit's endpoint when it names a scope proxy, else ok false.
+func inheritedScope(ctx context.Context) (team, id string, ok bool) {
+	u, err := RunUnit(ctx)
+	e := u.Endpoint
+	if err != nil || !isTeamLabel(e) { // a bad overlay already failed the ask; none inherits
+		return "", "", false
+	}
+	team, id, _ = strings.Cut(e, ":")
+	return team, id, true
+}
+
+// proxyGroupID is the ctx group id, else the id part of the unit's endpoint when its team part is team.
 func proxyGroupID(ctx context.Context, team string) string {
 	if g, _ := ctx.Value(proxyGroupKey{}).(string); g != "" {
 		return g
 	}
-	if t, id, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":"); ok && t == team {
+	if t, id, ok := inheritedScope(ctx); ok && t == team {
 		return id
 	}
 	return ""
 }
 
-// InheritedProxyLive reports whether HARNESS_DISPATCH_PROXY names a live scope proxy.
+// InheritedProxyLive reports whether the unit's endpoint names a live scope proxy.
 func InheritedProxyLive(ctx context.Context) bool {
-	team, id, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":")
+	team, id, ok := inheritedScope(ctx)
 	if !ok {
 		return false
+	}
+	if reg, err := providers.Load(); err == nil {
+		if u, _ := RunUnit(ctx); u.Profile != "" && reg.Row(u.Profile) != nil && reg.Row(u.Profile).Auth.Method() == providers.AuthNone {
+			return false // a keyless row resolves direct, so its team label sits behind no proxy
+		}
 	}
 	sc, err := proxy.ReadScope(team, id)
 	return err == nil && scopeLive(ctx, sc) == ""
 }
 
 // parentTeamFirst puts the parent's phase team first per the plan; the fence is this process's own, so nothing widens.
-func parentTeamFirst(cfg proxyteam.Config, routes []proxyteam.Team) []proxyteam.Team {
-	name, _, ok := strings.Cut(os.Getenv(dispatchProxyEnv), ":")
+func parentTeamFirst(ctx context.Context, cfg proxyteam.Config, routes []proxyteam.Team) []proxyteam.Team {
+	name, _, ok := inheritedScope(ctx)
 	i := slices.IndexFunc(cfg.Teams, func(t proxyteam.Team) bool { return t.Name == name && t.Host == proxyteam.HostPhase })
 	if !ok || i < 0 || routes[0].Name == name {
 		return routes
@@ -106,7 +125,7 @@ func routeCands(ctx context.Context) []routeCand {
 	var out []routeCand
 	routes := cfg.Routes(proxyteam.KindOf(facts))
 	if rec.ID != "" {
-		routes = parentTeamFirst(cfg, routes)
+		routes = parentTeamFirst(ctx, cfg, routes)
 	}
 	for _, t := range routes {
 		sc := proxy.Scope{Team: t.Name}
@@ -374,3 +393,38 @@ func ValidProxyGroup(id string) bool { return proxy.ValidScopePart(id) }
 
 // HostPhaseProxy opens the group team's phase proxy as scope id; internal/proxy/phase sets it, else none is hosted.
 var HostPhaseProxy = func(context.Context, string) (string, func()) { return "", func() {} }
+
+// isRouterURL is true for exactly the shared daemon's loopback origin; a scope proxy is chosen by team label, not URL.
+func isRouterURL(ctx context.Context, raw string) bool {
+	port := proxy.DefaultPort
+	if st, ok := proxy.Running(ctx); ok {
+		port = st.Port
+	}
+	return raw == proxy.Base(port)
+}
+
+// unitMatchesRow refuses a unit that names another row than p.
+func unitMatchesRow(p *providers.Provider, r route.Route) error {
+	if r.Provider != "" && r.Provider != p.Provider || r.Profile != "" && r.Profile != route.AutoArm && r.Profile != p.Name {
+		return fmt.Errorf("endpoint: the unit names %s, not this row (%s %s)", r.Label(), p.Provider, p.Name)
+	}
+	return nil
+}
+
+// urlMatchesRow refuses a URL with credentials, a query or a fragment, or whose origin is none of the row's own.
+func urlMatchesRow(p *providers.Provider, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("endpoint: not a URL")
+	}
+	if u.User != nil || strings.ContainsAny(raw, "?#") {
+		return errors.New("endpoint: want a URL with no credentials, query or fragment")
+	}
+	for _, d := range p.Dialects() {
+		base, _ := p.Route(d)
+		if b, err := url.Parse(base); err == nil && b.Scheme == u.Scheme && b.Host == u.Host {
+			return nil
+		}
+	}
+	return fmt.Errorf("endpoint: the host %s is not the %s row's own; no credential was sent", u.Host, p.Name)
+}

@@ -283,11 +283,11 @@ func applyLand(ctx context.Context, repo *Repo, plan *LandPlan, req LandRequest,
 		h = nil
 	}
 	rec.a.Scope = scopeOf(gate, gateSource, req)
+	rec.scoped(first)
 	if err := runGate(ctx, req, h.At(plan), gate, gateSource, rec); err != nil {
 		return nil, err
 	}
 
-	rec.a.Packages = len(first.Tested)
 	l := &relander{repo: repo, plan: plan, req: req, gate: gate, source: gateSource, first: first, rec: rec, h: h}
 	landed, err := l.promoteLoop(ctx)
 	if err != nil {
@@ -332,11 +332,21 @@ type testTally struct {
 	w      io.Writer
 	passed int
 	failed []string
-	line   []byte // the current line, capped at tallyLineCap
+	built  []string // packages whose "# pkg" header was followed by an error line
+	header string   // the "# pkg" header whose lines are being read
+	errs   bool     // an error line followed header
+	line   []byte   // the current line, capped at tallyLineCap
 }
 
+// tallyHeader matches the "# <import path>" line go build and go vet print above a package's errors.
+var tallyHeader = regexp.MustCompile(`^# (\S+)`)
+
 // tallyResult matches bare "ok  \t<import path>" and "FAIL\t<import path>" lines (also "[build failed]").
-var tallyResult = regexp.MustCompile(`^(ok|FAIL) *\t(\S+)`)
+var tallyResult = regexp.MustCompile(`^(ok *\t|FAIL[ \t]+)(\S+)`)
+
+// tallyError matches a compiler or vet "file:line: message" line that is not a warning or note.
+var tallyError = regexp.MustCompile(`^(vet: )?[^\s:]+:\d+(:\d+)?: (\S)`)
+var tallyWarn = regexp.MustCompile(`^(vet: )?[^\s:]+:\d+(:\d+)?: (warning|note):`)
 
 // tallyLineCap bounds the bytes kept of one line; a package line fits well within it.
 const tallyLineCap = 512
@@ -357,14 +367,28 @@ func (c *testTally) Write(p []byte) (int, error) {
 func (c *testTally) flush() {
 	line := c.line
 	c.line = c.line[:0]
+	if h := tallyHeader.FindSubmatch(line); h != nil {
+		c.endHeader()
+		c.header = string(h[1])
+	} else if c.header != "" && tallyError.Match(line) && !tallyWarn.Match(line) {
+		c.errs = true
+	}
 	m := tallyResult.FindSubmatch(line)
 	switch {
 	case m == nil:
-	case string(m[1]) == "ok":
+	case m[1][0] == 'o':
 		c.passed++
 	case !slices.Contains(c.failed, string(m[2])):
 		c.failed = append(c.failed, string(m[2]))
 	}
+}
+
+// endHeader keeps the open "# pkg" header as a failed build when an error line followed it.
+func (c *testTally) endHeader() {
+	if c.errs {
+		c.built = appendNew(c.built, c.header)
+	}
+	c.header, c.errs = "", false
 }
 
 // runGate runs the verify gate at at (or announces its absence), recording seconds and package results in rec.
@@ -373,8 +397,8 @@ func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource s
 		fmt.Fprintln(req.Out, "verify: skipped (--no-verify) — promoting unverified")
 		return nil
 	}
-	tally := &testTally{w: req.Out}
-	req.Out = tally
+	tally, errTally := &testTally{w: req.Out}, &testTally{w: req.Err}
+	req.Out, req.Err = tally, errTally
 	stages := gateStages(gate, gateSource)
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
 	if len(stages) > 1 {
@@ -382,16 +406,29 @@ func runGate(ctx context.Context, req LandRequest, at gateAt, gate, gateSource s
 	}
 	secs, err := runStages(ctx, at, stages, req.Out, req.Err)
 	rec.gated(secs)
-	tally.flush()
+	for _, t := range []*testTally{tally, errTally} {
+		t.flush()
+		t.endHeader()
+	}
 	rec.a.Tests += tally.passed
-	rec.a.FailedPkgs = append(rec.a.FailedPkgs, tally.failed...)
 	if err != nil {
+		rec.a.FailedPkgs = appendNew(rec.a.FailedPkgs, slices.Concat(tally.failed, tally.built, errTally.built, errTally.failed)...)
 		rec.gateFail = gateFailText(gate, err)
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", at.Lane)
 		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}
 	fmt.Fprintf(req.Out, "verify: passed (%s)\n", gateSource)
 	return nil
+}
+
+// appendNew appends each of add that dst does not hold yet.
+func appendNew(dst []string, add ...string) []string {
+	for _, p := range add {
+		if !slices.Contains(dst, p) {
+			dst = append(dst, p)
+		}
+	}
+	return dst
 }
 
 // gateFailText is "verify `<cmd>` exited <code>", the command cut so the broadcast summary stays within its 160 bytes.
@@ -872,7 +909,12 @@ func Dequeue(lane string) error {
 }
 
 // Queued lists main's queued lanes, dropping (and persisting the drop of) entries whose lane no longer exists.
-func Queued(main string) []QueuedLane {
+func Queued(main string) []QueuedLane { return queuedLanes(main, true) }
+
+// QueuedReadOnly is Queued without the prune: it never writes the queue file, so a dry run changes nothing.
+func QueuedReadOnly(main string) []QueuedLane { return queuedLanes(main, false) }
+
+func queuedLanes(main string, prune bool) []QueuedLane {
 	q, err := readQueue(LandQueueFile())
 	if err != nil || len(q.Lanes) == 0 {
 		return nil
@@ -886,7 +928,7 @@ func Queued(main string) []QueuedLane {
 			out = append(out, e)
 		}
 	}
-	if gone { // best effort: a busy lock leaves the prune to the next read, so a prompt hook never waits on it
+	if gone && prune { // best effort: a busy lock leaves the prune to the next read, so a prompt hook never waits on it
 		_ = editQueueWithin(queuePruneWait, func(lanes []QueuedLane) []QueuedLane {
 			return slices.DeleteFunc(slices.Clone(lanes), func(e QueuedLane) bool { return !paths.IsDir(e.Lane) })
 		})

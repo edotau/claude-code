@@ -475,7 +475,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	for verb, want := range map[string][]string{
 		"vault":   {"ls", "set", "get", "rm", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
-		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
+		"memory": {"search", "remember", "init", "review", "promote", "update", "dream",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "upgrade", "extract", "shadow"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},

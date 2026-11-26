@@ -820,7 +820,7 @@ func recallTracePick(h SearchHit) recallPick {
 	return recallPick{Entry: entry, Hit: h}
 }
 
-// recallLoadCap bounds `memory recall --load N`'s total appended bytes across every loaded block.
+// recallLoadCap bounds `memory search --open N`'s total appended bytes across every loaded block.
 const recallLoadCap = 4096
 
 // RecallReport lists the hits as "id — title" and appends the top load bodies; load failures go to errw.
@@ -846,7 +846,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 	for _, h := range hits[:n] {
 		_, block, err := ShowBlock(h.ID)
 		if err != nil {
-			fmt.Fprintf(errw, "claude-code: memory recall --load: %s: %v\n", h.ID, err)
+			fmt.Fprintf(errw, "claude-code: memory search --open: %s: %v\n", h.ID, err)
 			continue
 		}
 		block = strings.TrimSpace(block)

@@ -77,8 +77,10 @@ type LandAttempt struct {
 	IntegratedOID string       `json:"integrated_oid"`
 	Scope         Scope        `json:"scope"`
 	Packages      int          `json:"packages"`
-	Tests         int          `json:"tests"`                 // passed packages from bare go test ok lines
-	FailedPkgs    []string     `json:"failed_pkgs,omitempty"` // full import paths
+	Tests         int          `json:"tests"`                   // passed packages from bare go test ok lines
+	FailedPkgs    []string     `json:"failed_pkgs,omitempty"`   // full import paths, from go test FAIL and build "# pkg" lines
+	ChangedPkgs   []string     `json:"changed_pkgs,omitempty"`  // repo-relative dirs of the lane's changed Go packages
+	ImporterPkgs  []string     `json:"importer_pkgs,omitempty"` // tested packages that are importers only
 	Seconds       StageSeconds `json:"seconds"`
 	Reval         Reval        `json:"reval"`
 	Retested      int          `json:"retested"`
@@ -90,14 +92,14 @@ const (
 	landAttemptSchema = 1
 	// landKeepLines is how many newest lines a trim keeps; landMaxBytes is the size that triggers a trim.
 	landKeepLines  = 2000
-	landMaxBytes   = 1 << 20
+	landMaxBytes   = 4 << 20
 	landRecordWait = 250 * time.Millisecond
 )
 
 var _ = schemas.Register(schemas.Format{
 	Name: "land-attempts", Owner: "internal/worktree", Kind: schemas.Log, Version: landAttemptSchema,
 	Glob: LandAttemptsFile, New: func() any { return &LandAttempt{} },
-	Keep: "newest 2000 lines, trimmed when the file passes 1 MiB",
+	Keep: "newest 2000 lines, trimmed when the file passes 4 MiB",
 })
 
 // LandAttemptsFile is the one attempt log every session appends to.

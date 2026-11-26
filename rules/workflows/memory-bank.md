@@ -32,7 +32,7 @@ On a disagreement the earlier wins; each fact lives in one place.
 lists flags. A verb needing judgment prints its embedded procedure for the live session or the headless `memory
 update`; the rest print none.
 
-- Read: `recall <terms>` (`--load` appends top bodies), `search <terms>`, `show <id>`, `path`,
+- Read: `search <terms>`, `search --open N <terms>` (appends top bodies), `search --id <id>`, `path`,
   `review` (caps, staleness; `--candidates` prints the promotion-ranking procedure; `--timeline [--n N]` lists recent
   sessions).
 - Write: `remember <fact> [--type]`, `init` (prints a procedure while `projectContext.md` is the template), `update`

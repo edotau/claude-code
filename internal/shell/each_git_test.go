@@ -167,7 +167,7 @@ func TestEachGitStringArgs(t *testing.T) {
 		}
 	}
 	for _, cmd := range []string{"claude-code doctor git x", "claude-code --host h git x", "claude-code memory update git x",
-		"claude-code memory recall y && git x", "echo git x | sh", "claude-code memory recall $(git x)",
+		"claude-code memory search y && git x", "echo git x | sh", "claude-code memory search $(git x)",
 		"$(echo git x)", "`echo git x`", `eval "$(echo git x)"`, "bash <(echo git x)", ". <(echo git x)",
 		"echo git x | xargs -I{} sh -c {}", "echo git x > /tmp/s.sh; sh /tmp/s.sh"} { // echo output that runs
 		if got := collectGit(cmd, "/w"); len(got) != 1 || got[0] != (gitCall{"/w", "x"}) {
@@ -175,7 +175,7 @@ func TestEachGitStringArgs(t *testing.T) {
 		}
 	}
 	for _, cmd := range []string{"echo 'git x'", "git commit -m 'git y fix'", "xargs echo", "echo hi | bash -c 'cat'", "echo hi | bash",
-		"echo run git x later", "grep -rn git x internal", "claude-code memory recall git x", "claude-code memory recall 'git x'",
+		"echo run git x later", "grep -rn git x internal", "claude-code memory search git x", "claude-code memory search 'git x'",
 		"claude-code network websearch --query 'git x vs git y'", "claude-code worktree pr create --title 'git x guard'",
 		"claude-code memory remember 'never git x'", "claude-code worktree comment 1 git x"} {
 		if got := collectGit(cmd, "/w"); len(got) > 1 || len(got) == 1 && got[0].verb != "commit" {
@@ -224,7 +224,7 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"git commit -F - <<'EOF'\n" + ph + " -m 'fix: x' f\nEOF", "git tag -F - v1 <<'EOF'\n" + ph + "\nEOF",
 		"xargs -- grep '" + ph + "'", "xargs -0 grep '" + ph + "'", "parallel grep '" + ph + "' ::: a",
 		"tee notes.md <<'EOF'\n" + ph + " -m x\nEOF", "tee notes.md <<'EOF'\n" + ph + " -m x\nEOF\ngit add notes.md",
-		"cat > notes.md <<'EOF'\n" + ph + "\nEOF\ncat notes.md", "claude-code memory recall '" + ph + "'",
+		"cat > notes.md <<'EOF'\n" + ph + "\nEOF\ncat notes.md", "claude-code memory search '" + ph + "'",
 	}
 	for _, cmd := range text {
 		for _, c := range collectGit(cmd, "/w") {

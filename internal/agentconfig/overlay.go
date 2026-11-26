@@ -37,6 +37,7 @@ const overlayMaxBytes = 64 << 10
 type Overlay struct {
 	Schema int `json:"schema,omitempty"`
 	routeUnit
+	runKeys
 	Model         string            `json:"model,omitempty"`
 	Effort        string            `json:"effort,omitempty"`
 	Fallback      string            `json:"fallback,omitempty"`
@@ -252,7 +253,7 @@ func parseOverlayFrom(raw []byte, origin string, stored bool) (Overlay, error) {
 		raw = dropStoredUnknown(raw, origin)
 	}
 	var o Overlay
-	if err := checkOverlaySchema(raw); err != nil {
+	if err := cmp.Or(checkOverlaySchema(raw), checkEmptyRun(raw)); err != nil {
 		return Overlay{}, err
 	}
 	if _, err := schemas.Decode(overlayFormat, raw, &o); err != nil {
@@ -329,6 +330,8 @@ func keyType(key string) string {
 			return "a list of strings"
 		case kindFence:
 			return "an object with profiles and open"
+		case kindObject:
+			return "an object"
 		}
 	}
 	return "a string"
@@ -354,7 +357,7 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 func (o Overlay) Empty() bool {
 	return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork && !o.Cloud &&
 		o.MaxChildren == nil && o.MaxTreeTokens == nil && o.MaxDepth == nil && o.Codemode == "" && o.Fence == nil &&
-		o.BudgetUSD == nil && o.BudgetCredits == nil
+		o.BudgetUSD == nil && o.BudgetCredits == nil && o.isZero()
 }
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
@@ -415,7 +418,7 @@ func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
 	out.Model, out.Effort = cmp.Or(add.Model, out.Model), cmp.Or(add.Effort, out.Effort)
 	out.Fallback, out.Runner = cmp.Or(add.Fallback, out.Fallback), cmp.Or(add.Runner, out.Runner)
 	out.Codemode = cmp.Or(add.Codemode, out.Codemode)
-	out.CodexNetwork, out.Cloud = out.CodexNetwork || add.CodexNetwork, out.Cloud || add.Cloud
+	out.mergeRun(add, hop)
 	out.MaxChildren, out.MaxTreeTokens, out.MaxDepth = smaller(out.MaxChildren, add.MaxChildren),
 		smaller(out.MaxTreeTokens, add.MaxTreeTokens), smaller(out.MaxDepth, add.MaxDepth)
 	out.BudgetUSD = budget(out.BudgetUSD, add.BudgetUSD, parent.BudgetUSD, hop)
@@ -446,13 +449,14 @@ func (base Overlay) Derive(add Overlay, hop Hop) (Overlay, error) {
 	return out, nil
 }
 
-// childCopy is the subset of o a child inherits (D5): unit, as/account, fence, caps, fallback, runner, code mode.
+// childCopy is the subset of o a child inherits (D5): unit, account, fence, caps, fallback, runner, mode, restrictions.
 func (o Overlay) childCopy(hop Hop) Overlay {
 	out := Overlay{
 		Schema: overlaySchema, Fallback: o.Fallback, Runner: o.Runner, Codemode: o.Codemode, Fence: clonePtr(o.Fence),
 		MaxChildren: clonePtr(o.MaxChildren), MaxTreeTokens: clonePtr(o.MaxTreeTokens), MaxDepth: clonePtr(o.MaxDepth),
 	}
 	out.Endpoint, out.Provider, out.Profile, out.Identity, out.Account = o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account
+	out.runKeys = o.restrictions()
 	if hop == HopDispatchChild && o.Profile != "" && o.Profile != route.AutoArm { // the leaf's own profile is its fence
 		leaf := route.Fence{Profiles: []string{o.Profile}}
 		if out.Fence != nil {
@@ -467,6 +471,7 @@ func (o Overlay) childCopy(hop Hop) Overlay {
 func (o Overlay) clone() Overlay {
 	o.ProviderMode, o.Set = maps.Clone(o.ProviderMode), maps.Clone(o.Set)
 	o.Unset, o.Keep, o.Files = slices.Clone(o.Unset), slices.Clone(o.Keep), slices.Clone(o.Files)
+	o.detach()
 	o.TokenCommand = clonePtr(o.TokenCommand)
 	if o.TokenCommand != nil {
 		*o.TokenCommand = slices.Clone(*o.TokenCommand)
@@ -590,7 +595,7 @@ func (o Overlay) validate(src overlaySrc) error {
 	if len(o.Files) > 0 { // present at all: [] and null too
 		return errors.New("files: not supported yet")
 	}
-	if err := cmp.Or(o.checkRouting(), o.checkProviderMode()); err != nil {
+	if err := cmp.Or(o.checkRouting(), o.checkProviderMode(), o.checkRun()); err != nil {
 		return err
 	}
 	keep, err := o.checkKeep(src)

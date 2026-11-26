@@ -57,6 +57,18 @@
       "minLength": 1,
       "type": "string"
     },
+    "agent": {
+      "type": "string"
+    },
+    "agents": {
+      "type": "object"
+    },
+    "appendSystemPrompt": {
+      "type": "string"
+    },
+    "autonomous": {
+      "type": "boolean"
+    },
     "budgetCredits": {
       "minimum": 30,
       "type": "integer"
@@ -79,6 +91,9 @@
     "codexNetwork": {
       "type": "boolean"
     },
+    "debugFile": {
+      "type": "string"
+    },
     "effort": {
       "enum": [
         "minimal",
@@ -88,6 +103,9 @@
         "xhigh",
         "max"
       ]
+    },
+    "enableMemory": {
+      "type": "boolean"
     },
     "endpoint": {
       "type": "string"
@@ -114,6 +132,16 @@
         }
       },
       "type": "object"
+    },
+    "file": {
+      "type": "string"
+    },
+    "fleet": {
+      "type": "boolean"
+    },
+    "googleTools": {
+      "pattern": "^(?:search|url|code)(?:, *(?:search|url|code))*$",
+      "type": "string"
     },
     "host": {
       "type": "string"
@@ -143,6 +171,18 @@
     "model": {
       "description": "plain id or alias; no \u003cprofile\u003e: prefix",
       "minLength": 1,
+      "type": "string"
+    },
+    "native": {
+      "type": "boolean"
+    },
+    "noPersist": {
+      "type": "boolean"
+    },
+    "noTools": {
+      "type": "boolean"
+    },
+    "outputSchema": {
       "type": "string"
     },
     "profile": {
@@ -189,12 +229,31 @@
       },
       "type": "object"
     },
+    "systemPrompt": {
+      "type": "string"
+    },
+    "tier": {
+      "enum": [
+        "fast",
+        "standard",
+        "deep"
+      ],
+      "type": "string"
+    },
+    "timeout": {
+      "description": "Go duration, e.g. 9m30s; at most 24h",
+      "pattern": "^(?:(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:ns|us|µs|μs|ms|s|m|h))+$",
+      "type": "string"
+    },
     "tokenCommand": {
       "items": {
         "type": "string"
       },
       "minItems": 1,
       "type": "array"
+    },
+    "tools": {
+      "type": "boolean"
     },
     "unset": {
       "items": {

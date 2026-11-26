@@ -315,7 +315,7 @@ func (x *e2eRun) remember(t *testing.T) {
 }
 
 func (x *e2eRun) recallAndSearch(t *testing.T) {
-	if out := x.e.mustRun(t, "", "memory", "recall", "zebrafish", "kestrel"); !strings.Contains(out, x.factID) {
+	if out := x.e.mustRun(t, "", "memory", "search", "--open", "1", "zebrafish", "kestrel"); !strings.Contains(out, x.factID) {
 		t.Errorf("recall misses id %s:\n%s", x.factID, out)
 	}
 	if out := x.e.mustRun(t, "", "memory", "search", "zebrafish", "kestrel"); !strings.Contains(out, x.factID) {
@@ -711,5 +711,18 @@ func TestDoctorRoundTripRow(t *testing.T) {
 	write(t, filepath.Join(paths.MemorySubDir("notes"), "n.md"), "---\nname: n\n---\nbody\n")
 	if got := roundTripProblems(statBank()); len(got) != 0 {
 		t.Fatalf("clean store: got %v, want none", got)
+	}
+}
+
+func TestDoctorTruthRow(t *testing.T) {
+	tempConfig(t)
+	if got := TruthRow(); got != "truth: files, diverged: 0" {
+		t.Fatalf("default row = %q", got)
+	}
+	if err := appendShadowLog(time.Now(), []string{"a.md", "b.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := TruthRow(); got != "truth: files, diverged: 2" {
+		t.Fatalf("diverged row = %q", got)
 	}
 }

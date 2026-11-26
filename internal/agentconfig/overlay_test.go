@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -497,5 +498,136 @@ func TestDeriveCarriesEndpointWithTheUnit(t *testing.T) {
 	plain.Endpoint, plain.Provider, plain.Profile = "http://example.com", "databricks", "qa"
 	if _, err := parent.Derive(plain, HopAppend); err == nil {
 		t.Error("a plain-http endpoint was accepted")
+	}
+}
+
+func TestOverlayRunKeys(t *testing.T) {
+	raw := `{"agent":"codex","tier":"fast","tools":false,"noPersist":true,"timeout":"2m","googleTools":"search, url",` +
+		`"agents":{"a":{"prompt":"x"}},"systemPrompt":"p","file":"c.toml","native":true,"fleet":true}`
+	o, err := parseOverlay([]byte(raw))
+	if err != nil || o.Agent != "codex" || o.Tools == nil || *o.Tools || o.NoPersist == nil || !*o.NoPersist || o.Timeout != "2m" || o.Empty() {
+		t.Fatalf("run keys did not decode: %+v, %v", o, err)
+	}
+	for _, bad := range []string{`{"tier":"huge"}`, `{"tier":""}`, `{"timeout":""}`, `{"googleTools":""}`, `{"timeout":"25h"}`, `{"timeout":"soon"}`, `{"timeout":"-1s"}`, `{"googleTools":"maps"}`,
+		`{"agents":[1]}`, `{"tools":true,"noTools":true}`, `{"agent":" "}`, `{"debugFile":"a\nb"}`} {
+		if _, err := parseOverlay([]byte(bad)); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	if _, err := parseOverlay([]byte(`{"no-tools":true}`)); err == nil || !strings.Contains(err.Error(), "noTools") {
+		t.Errorf("an unknown key must name itself and the nearest key: %v", err)
+	}
+}
+
+func TestDeriveRunKeysChildren(t *testing.T) {
+	parent := withRun(runKeys{Agent: "codex", Tools: new(false), NoTools: new(true), NoPersist: new(true), Native: new(true),
+		Timeout: "5m", Agents: json.RawMessage(`{}`)})
+	parent.Model = "opus"
+	for _, hop := range []Hop{HopSessionChild, HopDispatchChild} {
+		child, err := parent.Derive(withRun(runKeys{Tier: "deep", Timeout: "9m"}), hop)
+		if err != nil || child.Agent != "" || child.Native != nil || child.Agents != nil || child.Tier != "deep" {
+			t.Fatalf("hop %d: a non-restriction crossed or the child's own key was lost: %+v, %v", hop, child, err)
+		}
+		if !*child.NoTools || !*child.NoPersist || *child.Tools || child.Timeout != "5m" {
+			t.Errorf("hop %d: restrictions did not carry: %+v", hop, child.runKeys)
+		}
+		loose, err := parent.Derive(withRun(runKeys{NoTools: new(false), NoPersist: new(false), Tools: new(false), Timeout: "1m"}), hop)
+		if err != nil || !*loose.NoTools || !*loose.NoPersist || loose.Timeout != "1m" {
+			t.Errorf("hop %d: a child tightens the timeout and cannot loosen the flags: %+v, %v", hop, loose.runKeys, err)
+		}
+		if _, err := (withRun(runKeys{NoTools: new(true)})).Derive(withRun(runKeys{Tools: new(true)}), hop); err == nil {
+			t.Errorf("hop %d: tools:true over an inherited noTools was accepted", hop)
+		}
+		if free, err := (withRun(runKeys{Tools: new(false)})).Derive(withRun(runKeys{Tools: new(true)}), hop); err != nil || *free.Tools {
+			t.Errorf("hop %d: tools:false was loosened: %+v, %v", hop, free.runKeys, err)
+		}
+	}
+	if got, err := parent.Derive(withRun(runKeys{NoTools: new(false), NoPersist: new(false)}), HopFallback); err != nil || !*got.NoTools || !*got.NoPersist {
+		t.Errorf("fallback loosened a restriction: %+v, %v", got.runKeys, err)
+	}
+	for _, hop := range []Hop{HopAppend, HopResume} {
+		got, err := parent.Derive(withRun(runKeys{NoTools: new(false), NoPersist: new(false), Native: new(false), Timeout: "9m"}), hop)
+		if err != nil || *got.NoTools || *got.NoPersist || *got.Native || got.Agent != "codex" || got.Timeout != "9m" || *got.Tools {
+			t.Errorf("hop %d: typed false must override and the rest stay: %+v, %v", hop, got.runKeys, err)
+		}
+		*got.Tools = true
+		got.Agents[0] = 'x'
+		*got.Native = true
+		if *parent.Tools || parent.Agents[0] != '{' || !*parent.Native {
+			t.Errorf("hop %d: derived overlay shares run-key state with its base", hop)
+		}
+	}
+}
+
+func TestOverlayRunKeysJSON(t *testing.T) {
+	if b, _ := json.Marshal(runKeys{}); string(b) != "{}" {
+		t.Errorf("zero keys must all omit: %s", b)
+	}
+	f, tr := false, true
+	all := runKeys{Agent: "a", Agents: json.RawMessage(`{}`), Tier: "fast", Tools: &f, NoTools: &f, NoPersist: &tr, DebugFile: "d",
+		SystemPrompt: "s", AppendSystemPrompt: "p", OutputSchema: "o", Native: &f, Autonomous: &f, Fleet: &f, EnableMemory: &f,
+		GoogleTools: "url", Timeout: "1m", File: "f"}
+	want := `{"agent":"a","agents":{},"tier":"fast","tools":false,"noTools":false,"noPersist":true,"debugFile":"d","systemPrompt":"s",` +
+		`"appendSystemPrompt":"p","outputSchema":"o","native":false,"autonomous":false,"fleet":false,"enableMemory":false,` +
+		`"googleTools":"url","timeout":"1m","file":"f"}`
+	b, err := json.Marshal(all)
+	if err != nil || string(b) != want {
+		t.Fatalf("order or omitempty drifted:\n%s\n%s (%v)", b, want, err)
+	}
+	var back runKeys
+	if err := json.Unmarshal(b, &back); err != nil || !reflect.DeepEqual(back, all) {
+		t.Errorf("round trip lost a key: %+v, %v", back, err)
+	}
+}
+
+func TestOverlayRunKeysSchemaAgrees(t *testing.T) {
+	var doc struct {
+		Properties map[string]struct {
+			Enum      []string
+			Pattern   string
+			MinLength int
+		}
+	}
+	if err := json.Unmarshal(OverlaySchema(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	accepts := func(key, v string) bool {
+		p := doc.Properties[key]
+		if len(v) < p.MinLength || (p.Enum != nil && !slices.Contains(p.Enum, v)) {
+			return false
+		}
+		return p.Pattern == "" || regexp.MustCompile(p.Pattern).MatchString(v)
+	}
+	cases := []struct {
+		key, v string
+		ok     bool
+	}{
+		{"tier", "", false}, {"tier", "huge", false}, {"tier", "deep", true},
+		{"timeout", "", false}, {"timeout", "soon", false}, {"timeout", "-1s", false}, {"timeout", "+5m", false}, {"timeout", "9m30s", true},
+		{"googleTools", "", false}, {"googleTools", "maps", false}, {"googleTools", "search,,url", false}, {"googleTools", "search,", false},
+		{"googleTools", " search", false}, {"googleTools", "search,url", true}, {"googleTools", "search, url,  code", true},
+	}
+	for _, c := range cases {
+		_, err := parseOverlay([]byte(fmt.Sprintf(`{%q:%q}`, c.key, c.v)))
+		if (err == nil) != c.ok || accepts(c.key, c.v) != c.ok {
+			t.Errorf("%s=%q: want accepted=%v, Go err=%v, schema=%v", c.key, c.v, c.ok, err, accepts(c.key, c.v))
+		}
+	}
+	if _, err := parseOverlay([]byte(`{"timeout":"24h"}`)); err != nil {
+		t.Errorf("24h refused: %v", err)
+	}
+	if _, err := parseOverlay([]byte(`{"timeout":"24h1s"}`)); err == nil {
+		t.Error("a timeout past 24h was accepted")
+	}
+}
+
+func withRun(k runKeys) Overlay { return Overlay{runKeys: k} }
+
+// An empty run value is refused whatever the key's letter case, as the schema refuses it.
+func TestOverlayRunKeysEmptyAnyCase(t *testing.T) {
+	for _, doc := range []string{`{"Tier":""}`, `{"TIMEOUT":""}`, `{"googletools":""}`} {
+		if _, err := parseOverlay([]byte(doc)); err == nil {
+			t.Errorf("%s accepted", doc)
+		}
 	}
 }

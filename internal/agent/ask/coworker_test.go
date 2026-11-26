@@ -795,7 +795,6 @@ func TestChildRouteFenceRespectsParentAuthority(t *testing.T) {
 		"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}},
 		"prod":{"preset":"databricks","host":"https://prod.cloud.databricks.com","auth":{"type":"pat"}}
 	}}}`)
-	t.Setenv("HARNESS_DISPATCH_PROXY", "group:owner")
 	for _, parent := range []string{"databricks:auto", "databricks:dev"} {
 		confine(t, parent)
 		for _, profile := range []string{"dev", "qa", "prod"} {

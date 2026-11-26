@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -322,5 +323,134 @@ func TestVerdictsResetHistoryAtEpochAndIgnoreOtherHosts(t *testing.T) {
 	newer.ProductionPath, newer.Decisive = "on", true
 	if got := evaluateHistory([]observation{old, newer}, now); got[0].Verdict != "working" {
 		t.Fatalf("new baseline: %+v", got)
+	}
+}
+
+func TestBenchmarkEpochsFollowReachedTestFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("bench_test.go", "package p\nfunc BenchmarkA(b *testing.B) { fixture() }\nfunc BenchmarkB(b *testing.B) {}\n")
+	write("helpers_test.go", "package p\nfunc fixture() { inner() }\n")
+	write("deep_test.go", "package p\nfunc inner() {}\n")
+	write("other_test.go", "package p\nfunc unrelated() {}\n")
+	epochs := func() map[string]benchmarkEpoch {
+		t.Helper()
+		e, err := benchmarkEpochs(dir, ".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	base := epochs()
+	write("other_test.go", "package p\nfunc unrelated() { _ = 1 }\n")
+	if got := epochs(); got["BenchmarkA"] != base["BenchmarkA"] || got["BenchmarkB"] != base["BenchmarkB"] {
+		t.Fatal("an unrelated _test.go changed an epoch")
+	}
+	write("helpers_test.go", "package p\nfunc fixture() { inner(); _ = 2 }\n")
+	got := epochs()
+	if got["BenchmarkA"] == base["BenchmarkA"] || got["BenchmarkB"] != base["BenchmarkB"] {
+		t.Fatalf("helper edit: A=%v B=%v", got["BenchmarkA"] != base["BenchmarkA"], got["BenchmarkB"] == base["BenchmarkB"])
+	}
+	write("deep_test.go", "package p\nfunc inner() { _ = 3 }\n")
+	if epochs()["BenchmarkA"] == got["BenchmarkA"] {
+		t.Fatal("a transitively reached file did not change the epoch")
+	}
+}
+
+func TestBenchmarkEpochsIsolatePackagesAndSpecs(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("bench_test.go", "package p\nconst (\n\tused = 1\n\tunused = remote\n)\nfunc BenchmarkA(b *testing.B) { _ = used; fixture() }\nfunc fixture() {}\n")
+	write("remote_test.go", "package p\nconst remote = 1\n")
+	write("ext_test.go", "package p_test\nfunc fixture() { _ = 1 }\n")
+	before, err := benchmarkEpochs(dir, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("remote_test.go", "package p\nconst remote = 2\n")
+	write("ext_test.go", "package p_test\nfunc fixture() { _ = 2 }\n")
+	after, err := benchmarkEpochs(dir, ".")
+	if err != nil || after["BenchmarkA"] != before["BenchmarkA"] {
+		t.Fatalf("unrelated spec or package changed the epoch: err=%v", err)
+	}
+}
+
+func TestBenchmarkEpochsReachExportsAndReceivers(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("bench_test.go", "package p_test\nfunc BenchmarkA(b *testing.B) { var r rig; r.run(); _ = 1 }\n")
+	write("export_test.go", "package p\ntype rig struct{}\n")
+	write("methods_test.go", "package p\nfunc (r *rig) run() {}\n")
+	write("blank_test.go", "package p\nvar _ = 1\n")
+	before, err := benchmarkEpochs(dir, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("blank_test.go", "package p\nvar _ = 2\n")
+	if again, _ := benchmarkEpochs(dir, "."); again["BenchmarkA"] != before["BenchmarkA"] {
+		t.Fatal("a blank-identifier file changed the epoch")
+	}
+	for _, name := range []string{"export_test.go", "methods_test.go"} {
+		write(name, "package p\n// edit\n"+map[string]string{"export_test.go": "type rig struct{}\n", "methods_test.go": "func (r *rig) run() {}\n"}[name])
+		after, _ := benchmarkEpochs(dir, ".")
+		if after["BenchmarkA"] == before["BenchmarkA"] {
+			t.Fatalf("editing %s did not change the epoch", name)
+		}
+		before = after
+	}
+}
+
+func TestBenchmarkEpochsIncludeInitFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	epoch := func(name string) string {
+		t.Helper()
+		e, err := benchmarkEpochs(dir, ".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e[name].Hash
+	}
+	write("bench_test.go", "package p\nfunc BenchmarkA(b *testing.B) {}\n")
+	write("ext_bench_test.go", "package p_test\nfunc BenchmarkE(b *testing.B) {}\n")
+	write("plain_test.go", "package p\ntype T int\nvar w = T(1)\nvar f = func() { setup() }\nvar s = []int(nil)\n")
+	edits := map[string]string{
+		"main_test.go":  "package p\nfunc TestMain(m *testing.M) { _ = %d }\n",
+		"init_test.go":  "package p\nfunc init() { _ = %d }\n",
+		"var_test.go":   "package p\nvar v = setup(%d)\n",
+		"xinit_test.go": "package p_test\nfunc init() { _ = %d }\n",
+	}
+	for i, name := range []string{"main_test.go", "init_test.go", "var_test.go", "xinit_test.go"} {
+		write(name, fmt.Sprintf(edits[name], 0))
+		a, e := epoch("BenchmarkA"), epoch("BenchmarkE")
+		write(name, fmt.Sprintf(edits[name], i+1))
+		if epoch("BenchmarkA") == a || epoch("BenchmarkE") == e {
+			t.Fatalf("editing %s did not change both package epochs", name)
+		}
+	}
+	a := epoch("BenchmarkA")
+	write("plain_test.go", "package p\ntype T int\nvar w = T(2)\nvar f = func() { setup(1) }\nvar s = []int(nil)\n")
+	if epoch("BenchmarkA") != a {
+		t.Fatal("a conversion or function-literal var changed the epoch")
 	}
 }

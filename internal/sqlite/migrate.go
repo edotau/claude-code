@@ -19,7 +19,7 @@ const (
 	snapshotStamp = "20060102T150405Z"
 )
 
-var snapshotRE = regexp.MustCompile(`-v(\d+)-(\d{8}T\d{6}Z)\.db$`)
+var snapshotRE = regexp.MustCompile(`-v(\d+)-(?:\d+-\d+-)?(\d{8}T\d{6}Z)\.db$`)
 
 // Step is migration number index+1; Up returns a one-line summary of what it changed.
 type Step struct {
@@ -78,15 +78,22 @@ func Migrate(ctx context.Context, db *sql.DB, steps []Step, opts MigrateOptions)
 			return rep, err
 		}
 		rep.To = n
-		rep.Applied = append(rep.Applied, line)
+		if line != "" { // empty: a concurrent migrator applied it first
+			rep.Applied = append(rep.Applied, line)
+		}
 	}
 	return rep, nil
 }
 
-// apply runs step n and its version bump in one transaction.
+// apply runs step n and its version bump in one transaction; a step another process applied first is skipped.
 func apply(ctx context.Context, db *sql.DB, n int, s Step) (string, error) {
 	var line string
 	err := Tx(ctx, db, func(tx *sql.Tx) (e error) {
+		line = ""
+		var have int
+		if e = tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&have); e != nil || have >= n {
+			return e
+		}
 		if line, e = runStep(tx, n, s); e != nil {
 			return e
 		}
@@ -132,7 +139,7 @@ func snapshot(ctx context.Context, db *sql.DB, from int, opts MigrateOptions) (s
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	name := fmt.Sprintf("%s-v%d-%s.db", opts.Name, from, now().UTC().Format(snapshotStamp))
+	name := fmt.Sprintf("%s-v%d-%d-%d-%s.db", opts.Name, from, time.Now().UnixNano(), os.Getpid(), now().UTC().Format(snapshotStamp))
 	path := filepath.Join(opts.SnapshotDir, name)
 	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
 		return "", fmt.Errorf("sqlite: snapshot %s: %w", path, err)
@@ -170,7 +177,7 @@ func prune(opts MigrateOptions) error {
 		if perVer[s.ver] <= 1 {
 			continue
 		}
-		if err := os.Remove(filepath.Join(opts.SnapshotDir, s.file)); err != nil {
+		if err := os.Remove(filepath.Join(opts.SnapshotDir, s.file)); err != nil && !errors.Is(err, os.ErrNotExist) { // a peer pruned it
 			return err
 		}
 		perVer[s.ver]--

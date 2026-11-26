@@ -214,6 +214,26 @@ func refreshBankNotice(w io.Writer, verb, root string) {
 	}
 }
 
+// TruthRow is the store's doctor row; diverged is the doc count of the last shadow.log entry (settle's record).
+func TruthRow() string {
+	return "truth: " + Truth() + ", diverged: " + strconv.Itoa(lastDivergence())
+}
+
+func lastDivergence() int {
+	b, err := os.ReadFile(shadowLogPath())
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	var e struct {
+		Docs []string `json:"docs"`
+	}
+	if json.Unmarshal([]byte(lines[len(lines)-1]), &e) != nil {
+		return 0
+	}
+	return len(e.Docs)
+}
+
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
 	return doctorBank(root, staleDays, now)

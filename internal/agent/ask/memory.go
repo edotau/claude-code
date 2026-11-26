@@ -115,7 +115,7 @@ func answerJob(ctx context.Context, opts agent.RunOptions, res wire.Result, reje
 				return nil, fmt.Errorf("%s answered an invalid batch (%v); code-mode fallback on %s failed: %w", cmp.Or(res.Model, res.Agent), bad, cmp.Or(who, "opus"), err)
 			}
 			fmt.Fprintln(note, "memory job: code-mode fallback answered on", who)
-			text, by = alt, &memory.JobResult{Agent: "pi", Model: strings.TrimPrefix(who, "pi ")}
+			text, by = alt, &memory.JobResult{Agent: "pi", Model: strings.TrimPrefix(who, "pi "), Primary: cmp.Or(res.Model, res.Agent)}
 		}
 	}
 	memory.AnswerJob(ctx, text)

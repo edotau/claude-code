@@ -33,6 +33,9 @@ func Scan(in *core.Input) core.Result {
 	if r := suppressVerdict(in); r.Decision != core.Allow {
 		return r
 	}
+	if r := wholeTreeVerdict(in); r.Decision != core.Allow {
+		return r
+	}
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	d, msg, detail := commandVerdict(in, cmd)
 	if d == core.Allow {

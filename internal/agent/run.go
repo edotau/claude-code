@@ -311,6 +311,9 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	}
 	ctx, _ = RunValues(ctx, p.Opts.Values)
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
+	if pl := p.Chain.Plan; pl != nil {
+		ctx = withPlan(ctx, *pl) // the hop guard and token scope read the admitted plan's fence
+	}
 	ctx = context.WithValue(ctx, repickBudgetKey{}, &p.Opts.Repicks)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {

@@ -265,7 +265,7 @@ func requireReplaced(old, newID string) error {
 
 // stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
 func stampAndSettle(file string, now time.Time) error {
-	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
+	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory search --open`.
 	for name, prefix := range idFiles {
 		if name == file { // already stamped in memory before its one write
 			continue

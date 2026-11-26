@@ -853,3 +853,27 @@ func saveVerifiedLaneContract(t *testing.T, plan string) {
 		t.Fatal(err)
 	}
 }
+
+// --drain --dry-run prints the plan and changes nothing: the lane stays queued, on disk and out of the live tree.
+func TestCmdWorktreeLandDrainDryRunChangesNothing(t *testing.T) {
+	repo := landFixtureCLISetup(t)
+	wt := landFixtureCLIWorktreePath(t, repo)
+	landFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+	if err := worktree.Enqueue(worktree.QueuedLane{Lane: wt, Repo: repo, Reason: worktree.QueueReady, Next: "land"}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"land", "--drain", "--dry-run", "--no-verify"}) })
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errb)
+	}
+	requireStdout(t, out, []string{"dry run", "feature", "would land feature"}, []string{"landed"})
+	if _, err := os.Stat(filepath.Join(repo, "g.txt")); err == nil {
+		t.Error("dry-run drain landed the lane into the live tree")
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("dry-run drain removed the worktree: %v", err)
+	}
+	if q := worktree.Queued(repo); len(q) != 1 {
+		t.Errorf("queue = %+v, want the lane still queued", q)
+	}
+}

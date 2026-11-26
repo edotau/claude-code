@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,10 +50,22 @@ func (h *LocalHop) hop(agent string) (PlanHop, bool) {
 
 // admitLocal is f plus profile when it is p's admitted last-resort row: only the local hop's token may reach it.
 func (p RoutePlan) admitLocal(f route.Fence, profile string) route.Fence {
-	if h, ok := p.Local.hop(""); ok && h.Workspace.Profile == profile && !f.Open {
+	if h, ok := p.Local.hop(""); ok && h.Workspace.Profile == profile && !f.Open && len(f.Profiles) > 0 { // a fence that admits nothing stays closed
 		f.Profiles = append(slices.Clone(f.Profiles), profile)
 	}
 	return f
+}
+
+// fenceErr refuses a hop on profile outside the plan's fence; the local hop's own row is admitted.
+func (p RoutePlan) fenceErr(profile string) error {
+	f := p.admitLocal(p.Fence, profile)
+	if f.Allows(profile) {
+		return nil
+	}
+	if len(f.Profiles) == 0 {
+		return fmt.Errorf("token scope: the confinement fence admits no profile (%s refused)", profile)
+	}
+	return fmt.Errorf("token scope: %s is outside the confinement fence (%s)", profile, strings.Join(f.Profiles, ","))
 }
 
 // localFenced is f, widened to the local hop's own row when profiles is that row alone.

@@ -640,20 +640,19 @@ func (r *updateRun) locked(o updateOptions) error {
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
 func runAgentUpdate(ctx context.Context, o updateOptions) error {
-	var fileErr error
-	if o.Session != "" {
-		fileErr = fileDecisionEvents(o.Session, time.Now())
-	}
 	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
 	if err != nil {
-		return errors.Join(fileErr, err)
+		return err
 	}
 	prompt += filedByGoBlock(o.Session) + o.Handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
-	return errors.Join(fileErr, err)
+	if err == nil && o.Session != "" {
+		err = errors.Join(err, fileDecisionEvents(o.Session, time.Now()))
+	}
+	return err
 }
 
 // maxListedEntries and maxListedRunes cap what the model sees of each file and entry.
@@ -678,10 +677,6 @@ func (r *updateRun) typedPass(o updateOptions) {
 		r.typed = "fallback"
 		return
 	}
-	var fileErr error
-	if o.Session != "" {
-		fileErr = fileDecisionEvents(o.Session, time.Now())
-	}
 	listing, base, err := bankListing(o.Historical)
 	if err != nil {
 		r.typed = "fallback"
@@ -705,13 +700,20 @@ func (r *updateRun) typedPass(o updateOptions) {
 		return
 	}
 	r.typed = "ok"
-	b = withTags(o, b)
-	err = applyTyped(o, b, base)
+	r.runErr = r.report.named(r.applyAndFile(o, head, withTags(o, b), base))
+	RefreshStaleEmbeddings(o.CWD)
+}
+
+// applyAndFile applies b (one fallback retry on a refusal), then files the session's decision events only on success.
+func (r *updateRun) applyAndFile(o updateOptions, head string, b Batch, base Versions) error {
+	err := applyTyped(o, b, base)
 	if err != nil && refused(err) {
 		err = r.retryApply(o, head, err)
 	}
-	r.runErr = errors.Join(fileErr, err)
-	RefreshStaleEmbeddings(o.CWD)
+	if err == nil && o.Session != "" {
+		err = fileDecisionEvents(o.Session, time.Now())
+	}
+	return err
 }
 
 // withTags puts the session's Go-filed tag ops ahead of the model's; an older session drops current-state targets.
@@ -756,7 +758,7 @@ func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {
 func (r *updateRun) fallbackBatch(o updateOptions, prompt string, rejected error) (b Batch, ok bool) {
 	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
 	defer cancel()
-	err := r.fb.Retry(ctx, prompt, o.CWD, BatchSchema(), cmp.Or(r.report.Model, r.report.Agent), rejected, func(answer string) (derr error) {
+	err := r.fb.Retry(ctx, prompt, o.CWD, BatchSchema(), r.report.models(), rejected, func(answer string) (derr error) {
 		b, derr = decodeBatch(answer)
 		return derr
 	})
@@ -819,7 +821,7 @@ func (r *updateRun) retryApply(o updateOptions, head string, failed error) error
 	}
 	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
 	defer cancel()
-	first := cmp.Or(r.report.Model, r.report.Agent)
+	first := r.report.models()
 	return r.fb.Retry(ctx, head+listing, o.CWD, BatchSchema(), first, failed, func(answer string) error {
 		nb, err := decodeBatch(answer)
 		if err != nil {
@@ -1046,8 +1048,24 @@ const (
 
 // JobResult is what the injected runner says about its run: the route that answered, a failure's class and fix.
 type JobResult struct {
-	Agent, Profile, Model, Class, Fix string
-	Local                             bool // a local-model run: lower trust, same caps and validation
+	Agent, Profile, Model, Primary, Class, Fix string
+	Local                                      bool // a local-model run: lower trust, same caps and validation
+}
+
+func (j JobResult) models() string {
+	model := cmp.Or(j.Model, j.Agent)
+	if j.Primary != "" {
+		return j.Primary + " then " + model
+	}
+	return model
+}
+
+// named prefixes a post-commit failure (never retried, so no fallback line names the models) with who answered.
+func (j JobResult) named(err error) error {
+	if err == nil || refused(err) || j.models() == "" {
+		return err
+	}
+	return fmt.Errorf("%s: %w", j.models(), err)
 }
 
 type jobReportKey struct{}

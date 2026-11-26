@@ -32,6 +32,7 @@ type ModelRoute struct {
 	Alias         string `json:"alias,omitempty"`          // the alias typed, when one was
 	Source        string `json:"source"`                   // prefix|type|flag|account|pool|session|pin|default|own-login
 	Identity      string `json:"identity,omitempty"`       // the overlay's identity, echoed
+	Endpoint      string `json:"endpoint,omitempty"`       // the overlay's endpoint, echoed
 	Host          string `json:"host,omitempty"`
 	Remote        string `json:"remote,omitempty"`
 	Fallback      string `json:"fallback,omitempty"` // the overlay's fallback mode, echoed
@@ -323,7 +324,7 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, now time.Time
 		selected = route.Route{}
 	}
 	r := ModelRoute{Agent: q.Agent, Provider: p.Provider, Profile: p.Name, Account: p.Account(), Source: source,
-		Identity: selected.Identity, Host: selected.Host, Remote: selected.Remote, Fallback: q.Fallback}
+		Identity: selected.Identity, Endpoint: selected.Endpoint, Host: selected.Host, Remote: selected.Remote, Fallback: q.Fallback}
 	if p.Provider == "github" {
 		r.Login = cmp.Or(selected.Account, p.Login)
 	}
@@ -589,7 +590,7 @@ func agentFamily(r *ModelRoute, p *providers.Provider) error {
 // Overlay is r as the keyed overlay document a dispatch carries.
 func (r ModelRoute) Overlay() agentconfig.Overlay {
 	o := agentconfig.Overlay{Schema: 1, Provider: r.Provider, Profile: r.Profile, Model: r.Model, Effort: r.Effort,
-		Fallback: r.Fallback, Identity: r.Identity, Host: r.Host, Remote: r.Remote}
+		Fallback: r.Fallback, Identity: r.Identity, Endpoint: r.Endpoint, Host: r.Host, Remote: r.Remote}
 	if r.Provider == "github" {
 		o.Account = cmp.Or(r.Login, r.Profile)
 	}

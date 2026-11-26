@@ -103,10 +103,7 @@ func (s EnvSpec) dispatchMarks(ctx context.Context, env []string, id string) []s
 	env = append(slices.DeleteFunc(env, func(e string) bool {
 		return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
 	}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
-	if !slices.ContainsFunc(s.Extra, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") }) {
-		env = withDispatchProxy(env, id) // a typed --env value wins
-	}
-	return env
+	return withChosenDoc(ctx, env)
 }
 
 // ChildDoc is the overlay document a child of ctx's run gets for the unit provider/profile; "" when nothing crosses.
@@ -206,21 +203,51 @@ func ambientOverlay(ctx context.Context) agentconfig.Overlay {
 	return o
 }
 
-const dispatchProxyEnv = "HARNESS_DISPATCH_PROXY"
+// withChosenDoc is a copy of env with the chosen scope proxy in its inline overlay document; a path document is left.
+func withChosenDoc(ctx context.Context, env []string) []string {
+	i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, route.OverlayVar+"=") })
+	if i < 0 {
+		return env
+	}
+	doc := strings.TrimPrefix(env[i], route.OverlayVar+"=")
+	o, err := agentconfig.LoadOverlayContext(ctx, doc, nil)
+	if err != nil || !strings.HasPrefix(doc, "{") {
+		return env
+	}
+	n := withChosenEndpoint(ctx, o)
+	if n.Endpoint == o.Endpoint {
+		return env
+	}
+	out := slices.Clone(env)
+	out[i] = route.OverlayVar + "=" + n.Doc()
+	return out
+}
 
-// withDispatchProxy exports the chosen scope proxy to child asks; no choice keeps the inherited, a daemon clears it.
-func withDispatchProxy(env []string, id string) []string {
+// withChosenEndpoint sets the chosen team on a whole unit (a daemon choice clears it); direct and URL endpoints stand.
+func withChosenEndpoint(ctx context.Context, o agentconfig.Overlay) agentconfig.Overlay {
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	if id == "" {
+		return o
+	}
 	routeMu.Lock()
 	label, chosen := chosenByID[id]
 	routeMu.Unlock()
-	if !chosen {
-		return env
+	if !chosen || o.Endpoint != "" && o.Endpoint != EndpointProxy && !isTeamLabel(o.Endpoint) {
+		return o
 	}
-	env = slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, dispatchProxyEnv+"=") })
-	if strings.Contains(label, ":") {
-		env = append(env, dispatchProxyEnv+"="+label)
+	switch {
+	case isTeamLabel(label) && o.Provider != "" && o.Profile != "":
+		o.Endpoint = label
+	case isTeamLabel(o.Endpoint):
+		o.Endpoint = ""
 	}
-	return env
+	return o
+}
+
+// isTeamLabel is a scope proxy endpoint, <team>:<id>; a URL has a colon too.
+func isTeamLabel(e string) bool {
+	team, id, ok := strings.Cut(e, ":")
+	return ok && team != "" && id != "" && !strings.Contains(e, "/")
 }
 
 // withRTKQuiet adds the rtk banner and telemetry switches unless env already sets them.

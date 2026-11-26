@@ -592,14 +592,38 @@ var StrikeReasons = []string{"superseded", "duplicate", "obsolete", "out_of_scop
 
 // StrikeWith strikes taskID with an enum reason and a decision:|commit:|note: cite; wrote is false if already closed.
 func StrikeWith(planPath, taskID, reason, evidence string) (bool, error) {
+	if err := CheckStrike(reason, evidence); err != nil {
+		return false, err
+	}
+	return strikeWrote(planPath, taskID, reason+" — evidence: "+evidence)
+}
+
+// CheckStrike reports why reason or evidence is not valid for StrikeWith; nil means both are.
+func CheckStrike(reason, evidence string) error {
 	if !slices.Contains(StrikeReasons, reason) {
-		return false, fmt.Errorf("plans: --reason %q is not one of %s", reason, strings.Join(StrikeReasons, ", "))
+		return fmt.Errorf("plans: --reason %q is not one of %s", reason, strings.Join(StrikeReasons, ", "))
 	}
 	m := citeRe().FindStringSubmatch(evidence)
 	if m == nil || m[0] != evidence || len(strings.Fields(evidence)) != 1 || m[1] == "commit" && !shaHex().MatchString(m[2]) {
-		return false, fmt.Errorf("plans: --evidence %q is not decision:<id>, commit:<sha> or note:<path>", evidence)
+		return fmt.Errorf("plans: --evidence %q is not decision:<id>, commit:<sha> or note:<path>", evidence)
 	}
-	return strikeWrote(planPath, taskID, reason+" — evidence: "+evidence)
+	return nil
+}
+
+// CheckOpen reports why taskID cannot be closed in planPath, resolving it as MarkDone and StrikeWith do.
+func CheckOpen(planPath, taskID string) error {
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return err
+	}
+	t, ok := findTask(parseBytes(planPath, data), taskID)
+	switch {
+	case !ok:
+		return fmt.Errorf("plans: no task %q in %s", taskID, planPath)
+	case t.Done || t.Dropped:
+		return fmt.Errorf("plans: task %q in %s is already closed", taskID, planPath)
+	}
+	return nil
 }
 
 // strikeWidth is the column cap of a struck task's lines.

@@ -128,9 +128,6 @@ func checkEmbedLease(rec vectorRecord, now time.Time, force bool) error {
 // embedBase is the cache a mint starts from: the shared record, or a fresh one when forced or from another model.
 func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) {
 	rec, err := readEmbedCache()
-	if embedDBBroken(err) && quarantineEmbedDB() == nil { // a derived cache: set the damaged file aside and mint anew
-		rec, err = readEmbedCache()
-	}
 	if err != nil {
 		return vectorRecord{}, err
 	}
@@ -165,7 +162,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
 	current, cerr := currentEntryHashes()
 	if cerr != nil {
-		rerr := vectorStore.Release(owner) // nothing was stored, so the claim is still ours to drop
+		rerr := vectorStore().Release(owner) // nothing was stored, so the claim is still ours to drop
 		return embedded, total, errors.Join(embedErr, cerr, rerr)
 	}
 	run.current = current
@@ -183,7 +180,7 @@ func claimEmbed(ctx context.Context, c *EmbedClient, now time.Time, force bool) 
 	if err != nil {
 		return 0, err
 	}
-	held, ok, err := vectorStore.Claim(owner, now, embedClaimExpiry(ctx, now))
+	held, ok, err := vectorStore().Claim(owner, now, embedClaimExpiry(ctx, now))
 	if err != nil {
 		return 0, err
 	}
@@ -191,14 +188,14 @@ func claimEmbed(ctx context.Context, c *EmbedClient, now time.Time, force bool) 
 		return 0, fmt.Errorf("%w until %s", errEmbedBusy, held.Format("15:04"))
 	}
 	if _, err := embedBase(c, now, force); err != nil {
-		return 0, errors.Join(err, vectorStore.Release(owner))
+		return 0, errors.Join(err, vectorStore().Release(owner))
 	}
 	return owner, nil
 }
 
 // store merges the run into the current record under owner's claim; complete starts the lease, a partial run does not.
 func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
-	stored, err = vectorStore.Put(vectorWrite{Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
+	stored, err = vectorStore().Put(vectorWrite{Owner: owner, Started: r.started, Merge: func(cur vectorRecord) vectorRecord {
 		out := r.merge(cur)
 		if complete && r.covers(out) { // a partial or migrated-incomplete run keeps its rows but does not start the lease
 			out.MintedAt = time.Now().UnixNano()
@@ -206,7 +203,7 @@ func (r *embedRun) store(owner int64, complete bool) (stored bool, err error) {
 		return out
 	}})
 	if err != nil {
-		err = errors.Join(err, vectorStore.Release(owner)) // the tx rolled back, so the claim is still ours
+		err = errors.Join(err, vectorStore().Release(owner)) // the tx rolled back, so the claim is still ours
 	}
 	return stored, err
 }
@@ -784,13 +781,13 @@ func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecor
 	if err != nil {
 		return "", vectorHead{}, nil, err
 	}
-	if _, err := os.Stat(embedDBPath()); err == nil { // no cache file means no semantic query, so no probe
+	if vectorStore().Present() { // no cache store means no semantic query, so no probe
 		if f, _ := ctx.Value(linkKey{}).(*linkFuture); f != nil {
 			f.start(ctx) // the secret read (a keyring exec) runs while the cache loads
 		}
 	}
 	rows := within(ctx, readEmbedCache)
-	head, err := within(ctx, vectorStore.Head)()
+	head, err := within(ctx, vectorStore().Head)()
 	switch {
 	case ctx.Err() != nil:
 		return "", vectorHead{}, nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)

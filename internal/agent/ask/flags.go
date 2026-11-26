@@ -640,7 +640,7 @@ func replayPlan(fs *flag.FlagSet, rec agent.Record, moved bool) *agent.RoutePlan
 		p.Fallback = router.Policy{}
 	}
 	if helptext.Explicit(fs, "profile") || helptext.Explicit(fs, "provider") {
-		p.Pool, p.Admitted, p.Fence = nil, nil, route.Fence{}
+		p.Pool, p.Admitted, p.Fence, p.Fenced = nil, nil, route.Fence{}, false
 	}
 	return &p
 }

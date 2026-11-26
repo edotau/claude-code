@@ -82,7 +82,7 @@ func TestReadOnlyTools(t *testing.T) {
 		{"claude-code agents diff --check", false},
 		{"claude-code agents diff -check", false},
 		{"claude-code agents find foo", true},
-		{"claude-code memory recall x | head -5", true},
+		{"claude-code memory search x | head -5", true},
 		{"claude-code network websearch --query q", true},
 		{"claude-code agents ask x", false},
 		{"claude-code doctor -h", true},
@@ -224,7 +224,7 @@ func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 		"cat README.md": Allow, "cat .env": Deny, "cat sub/.env": Deny, "head -3 ./.env": Deny, "cat *.env": Deny,
 		"cat $HOME/x": Deny, "wc -l a.go b.go": Allow, "git log -1": Allow, "git status": Allow, "git diff": Deny,
 		"git show HEAD:.env": Deny, "git log -p": Deny, "rg foo": Deny, "grep -r foo .": Deny, "grep foo a.go": Allow,
-		"sed -n 1,3p .env": Deny, "claude-code agents find x": Deny, "claude-code memory recall x": Allow,
+		"sed -n 1,3p .env": Deny, "claude-code agents find x": Deny, "claude-code memory search x": Allow,
 		"go doc fmt": Allow, "git log --stat | head -3": Allow,
 		"rtk read .env": Deny, "rtk read README.md": Allow, "rtk git -C .env status": Deny, "rtk git -C d status": Allow,
 	} {

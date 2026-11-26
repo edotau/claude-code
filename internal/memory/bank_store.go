@@ -1,10 +1,17 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Version is an opaque per-entry token issued by the store; callers pass it back untouched and never parse it.
@@ -33,10 +40,131 @@ type BankStore interface {
 // ShadowImport is nil when no shadow store is linked; changed means the divergent set moved since the last import.
 var ShadowImport func() (diverged []string, changed bool, err error)
 
+// OpenBankStore is nil when no db store is linked; the close func releases the db.
+var OpenBankStore func(locked bool) (BankStore, func() error, error)
+
+// ExportBeforeFlip runs under the bank lock (not reentrant) when SetTruth leaves "db"; nil refuses; TODO(7.0): wire it.
+var ExportBeforeFlip func() error
+
+const (
+	truthFiles = "files"
+	truthDB    = "db"
+)
+
+func truthPath() string { return filepath.Join(paths.StateDir(), "memory", "truth") }
+
+// TruthErr reports "files" or "db"; a missing file is "files", an unreadable or unknown one an error.
+func TruthErr() (string, error) {
+	b, err := os.ReadFile(truthPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return truthFiles, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("memory truth: %w", err)
+	}
+	if v := strings.TrimSpace(string(b)); v == truthFiles || v == truthDB {
+		return v, nil
+	}
+	return "", fmt.Errorf("memory truth: unknown value %q in %s", strings.TrimSpace(string(b)), truthPath())
+}
+
+// Truth is TruthErr for display: an error reads as "files".
+func Truth() string {
+	t, err := TruthErr()
+	if err != nil {
+		return truthFiles
+	}
+	return t
+}
+
+// SetTruth records the source of truth under the bank lock; leaving "db" only flips after a successful export.
+func SetTruth(t string) error {
+	if t != truthFiles && t != truthDB {
+		return fmt.Errorf("truth %q: want %q or %q", t, truthFiles, truthDB)
+	}
+	return WithBankLock(BankLockWait, func() error {
+		cur, err := TruthErr()
+		if err != nil {
+			return err
+		}
+		if t == truthFiles && cur == truthDB {
+			if ExportBeforeFlip == nil {
+				return errors.New("db export unavailable: cannot flip back without losing db-only changes")
+			}
+			if err := ExportBeforeFlip(); err != nil {
+				return fmt.Errorf("export before flip to files: %w", err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(truthPath()), 0o755); err != nil {
+			return err
+		}
+		return paths.AtomicWrite(truthPath(), []byte(t+"\n"), 0o644)
+	})
+}
+
 // fileBankStore keeps the bank in its markdown files; locked means the caller already holds the bank lock.
 type fileBankStore struct{ locked bool }
 
-func newBankStore(locked bool) BankStore { return fileBankStore{locked: locked} }
+// failedStore refuses every call with err, so a truth that cannot be read never falls back to files.
+type failedStore struct{ err error }
+
+func (f failedStore) Load() (map[string]Doc, Versions, error) { return nil, nil, f.err }
+func (f failedStore) Apply(Batch, Versions, time.Time) ([]OpResult, error) {
+	return nil, f.err
+}
+
+// truthStore reads the truth per call, in Apply under the bank lock, so a flip never writes to the old store.
+type truthStore struct{ locked bool }
+
+func newBankStore(locked bool) BankStore { return truthStore{locked: locked} }
+
+func (s truthStore) Load() (map[string]Doc, Versions, error) { return pick(s.locked).Load() }
+
+func (s truthStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
+	if s.locked {
+		return pick(true).Apply(b, base, now)
+	}
+	err = withFlatLock(BankLockWait, func() (e error) { rs, e = pick(true).Apply(b, base, now); return })
+	return
+}
+
+// pick is the store for the current truth, a failing one on a bad truth; locked: the caller holds the bank lock.
+func pick(locked bool) BankStore {
+	switch t, err := TruthErr(); {
+	case err != nil:
+		return failedStore{err}
+	case t == truthDB && OpenBankStore == nil:
+		return failedStore{errors.New("memory truth is db but no db store is linked")}
+	case t == truthDB:
+		return dbBankStore{locked: locked}
+	}
+	return fileBankStore{locked: locked}
+}
+
+// dbBankStore opens the db store for each call and closes it after, so callers need no close func.
+type dbBankStore struct{ locked bool }
+
+func (s dbBankStore) with(f func(BankStore) error) error {
+	st, closeFn, err := OpenBankStore(s.locked)
+	if err != nil {
+		return fmt.Errorf("open db store: %w", err)
+	}
+	err = f(st)
+	if cerr := closeFn(); cerr != nil { // a committed batch must not look retryable
+		fmt.Fprintf(os.Stderr, "memory: closing db store: %v\n", cerr)
+	}
+	return err
+}
+
+func (s dbBankStore) Load() (docs map[string]Doc, v Versions, err error) {
+	err = s.with(func(st BankStore) (e error) { docs, v, e = st.Load(); return })
+	return
+}
+
+func (s dbBankStore) Apply(b Batch, base Versions, now time.Time) (rs []OpResult, err error) {
+	err = s.with(func(st BankStore) (e error) { rs, e = st.Apply(b, base, now); return })
+	return
+}
 
 func (fileBankStore) Load() (map[string]Doc, Versions, error) {
 	docs, _, err := loadBatchDocs()

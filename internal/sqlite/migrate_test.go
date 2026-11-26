@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,14 +165,43 @@ func TestSnapshotRetention(t *testing.T) {
 	if _, err := Migrate(context.Background(), db, twoSteps(), opts); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{"m-v0-20261125T100009Z.db": true, "m-v1-20260101T000003Z.db": true}
+	want := map[string]bool{"m-v0-*-20261125T100009Z.db": true, "m-v1-20260101T000003Z.db": true}
 	ents, _ := os.ReadDir(snaps)
 	if len(ents) != len(want) {
 		t.Fatalf("kept %d files, want %v", len(ents), want)
 	}
 	for _, e := range ents {
-		if !want[e.Name()] {
+		fresh := strings.HasPrefix(e.Name(), "m-v0-") && strings.HasSuffix(e.Name(), "-20261125T100009Z.db")
+		if !want[e.Name()] && !fresh {
 			t.Fatalf("unexpected survivor %s", e.Name())
 		}
+	}
+}
+
+// Two migrators on one file in the same second apply each step once and both finish at the newest version.
+func TestConcurrentMigrateAppliesEachStepOnce(t *testing.T) {
+	first, path := openTemp(t, Options{})
+	second, err := Open(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { second.Close() })
+	snaps := t.TempDir()
+	opts := MigrateOptions{Name: "m", SnapshotDir: snaps, Now: fixedNow(0)}
+	errs := make(chan error, 2)
+	for _, db := range []*sql.DB{first, second} {
+		go func() { _, err := Migrate(context.Background(), db, twoSteps(), opts); errs <- err }()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rows, v int
+	if err := first.QueryRow("SELECT count(*) FROM a").Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("step 2 ran %d times (%v), want once", rows, err)
+	}
+	if v, _ = Version(first); v != 2 {
+		t.Fatalf("version = %d, want 2", v)
 	}
 }

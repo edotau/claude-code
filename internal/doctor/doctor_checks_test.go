@@ -269,6 +269,13 @@ func seedHarness(t *testing.T, name, body string) {
 	}
 }
 
+func TestMemoryTruthRow(t *testing.T) {
+	hermetic(t)
+	if row := memoryTruthRow(); !row.OK || row.Name != "memory truth" || !strings.HasPrefix(row.Detail, "truth: files, diverged: ") {
+		t.Fatalf("row = %+v", row)
+	}
+}
+
 func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	hermetic(t)
 	seedHarness(t, "quota.json", `{"acct":{"until":"2099-01-01T00:00:00Z"}}`)

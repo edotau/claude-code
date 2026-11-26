@@ -63,7 +63,7 @@
   },
   "inert_harness_verbs": {
     "purpose": "claude-code verbs whose arguments are search terms, facts or PR text, never run",
-    "words": ["memory recall", "memory search", "memory remember", "network websearch", "worktree pr", "worktree comment"]
+    "words": ["memory search", "memory remember", "network websearch", "worktree pr", "worktree comment"]
   },
   "runner_value_flags": {
     "purpose": "xargs, parallel and watch options whose value is the next word",
@@ -266,7 +266,7 @@
     "purpose": "claude-code group -> verbs a read-only run may call",
     "tools": {
       "agents": ["find", "diff", "result", "wait", "status", "tree", "list", "label"],
-      "memory": ["recall", "search", "show", "path"],
+      "memory": ["search", "path"],
       "review": ["simplify", "scope", "quality"],
       "plan": ["status", "assumptions", "goals"],
       "models": ["preflight"],

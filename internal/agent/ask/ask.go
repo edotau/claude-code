@@ -603,7 +603,7 @@ func (r *askRun) batchBase() (agent.RunOptions, error) {
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: cmp.Or(f.runner, r.ov.Runner), GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted(),
-		FenceTyped: r.ovSrc == srcCmd && !r.ov.Confinement().IsZero()}, nil
+		FenceTyped: r.ovSrc == srcCmd && (!r.ov.Confinement().IsZero() || r.ov.Fence != nil)}, nil
 }
 
 // fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.

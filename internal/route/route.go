@@ -116,20 +116,32 @@ func (r Route) checkEndpoint() error {
 		return nil
 	}
 	if !strings.Contains(e, "://") {
-		if strings.ContainsFunc(e, func(c rune) bool {
-			return c > unicode.MaxASCII || !unicode.IsLower(c) && !unicode.IsDigit(c) && c != '-' && c != '_'
-		}) {
-			return errors.New("endpoint: want proxy, direct, a route name or an https URL")
-		}
-		return nil
+		return checkShortName(e)
 	}
 	u, err := url.Parse(e)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.Hostname() == "" || u.User != nil || strings.ContainsAny(e, "?#") {
 		return errors.New("endpoint: want a URL with a host and no credentials, query or fragment")
 	}
 	ip := net.ParseIP(u.Hostname())
 	if u.Scheme != "https" && (u.Scheme != "http" || u.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback())) {
 		return errors.New("endpoint: a URL must be https (http only on loopback)")
+	}
+	return nil
+}
+
+// checkShortName takes proxy, direct, a team or <team>:<id>; '.' is for scope ids only and proxy:/direct: are no teams.
+func checkShortName(e string) error {
+	if strings.ContainsFunc(e, func(c rune) bool {
+		return c > unicode.MaxASCII || !unicode.IsLower(c) && !unicode.IsDigit(c) && c != '-' && c != '_' && c != ':' && c != '.'
+	}) {
+		return errors.New("endpoint: want proxy, direct, a route name or an https URL")
+	}
+	team, id, scoped := strings.Cut(e, ":")
+	if team == "" || strings.Contains(team, ".") || scoped && (id == "" || strings.Contains(id, ":")) {
+		return errors.New("endpoint: a route name is <team> or <team>:<id>")
+	}
+	if scoped && (team == "proxy" || team == "direct") {
+		return errors.New("endpoint: proxy and direct are not team names")
 	}
 	return nil
 }

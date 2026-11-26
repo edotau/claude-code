@@ -187,7 +187,7 @@ func TestShadowImportIncremental(t *testing.T) {
 func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	t.Helper()
 	ctx := context.Background()
-	execShadow(t, db, "INSERT INTO conflicts SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
+	execShadow(t, db, "INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
 		"INSERT INTO changes SELECT 'o', 1, 1, rowid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'")
 	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
 		t.Fatal(err)
@@ -341,7 +341,7 @@ func TestShadowRebuildAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	execShadow(t, db, "INSERT INTO vectors VALUES(1, 'm', 1, x'00', 't')",
-		"INSERT INTO conflicts VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't')")
+		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't')")
 	before := dumpShadow(t, db)
 	if _, err := shadowRebuild(ctx, db, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("rebuild from a missing root succeeded")
@@ -370,8 +370,8 @@ func TestShadowRebuildAtomic(t *testing.T) {
 func TestShadowMigrateVersion(t *testing.T) {
 	ctx := context.Background()
 	db := openShadowDB(t, nil)
-	if v, err := sqlite.Version(db); err != nil || v != 2 {
-		t.Fatalf("version = %d (%v), want 2", v, err)
+	if v, err := sqlite.Version(db); err != nil || v != SchemaVersion() {
+		t.Fatalf("version = %d (%v), want %d", v, err, SchemaVersion())
 	}
 	rep, err := migrateMemoryDB(ctx, db, sqlite.MigrateOptions{})
 	if err != nil || len(rep.Applied) != 0 {
@@ -440,5 +440,31 @@ func TestShadowRebuildKeepsArea(t *testing.T) {
 		WHERE entries_fts MATCH 'area:zzpkg' AND e.area = 'zzpkg'`).Scan(&id)
 	if err != nil {
 		t.Fatalf("area column match: %v", err)
+	}
+}
+
+func TestShadowConflictKindStep(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "memory.db"), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := sqlite.Migrate(ctx, db, memorySteps[:2], sqlite.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	execShadow(t, db, `INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at) VALUES(7, 'p', 1, 'x', 't')`,
+		`INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at) VALUES(0, 'both-changed', 0, 'a.md', 't')`)
+	if _, err := migrateMemoryDB(ctx, db, sqlite.MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var kind string
+	var doc sql.NullString
+	var legacy string
+	if err := db.QueryRowContext(ctx, `SELECT kind || '|' || doc FROM conflicts WHERE entry_rowid = 0`).Scan(&legacy); err != nil || legacy != "both-changed|a.md" {
+		t.Fatalf("legacy export row = %q (%v), want both-changed|a.md", legacy, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT kind, doc FROM conflicts WHERE entry_rowid = 7`).Scan(&kind, &doc); err != nil || kind != "envelope" || doc.Valid {
+		t.Fatalf("migrated conflict = %q %v (%v), want envelope, NULL", kind, doc, err)
 	}
 }

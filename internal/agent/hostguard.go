@@ -166,7 +166,9 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	ctx = withLaunchAgent(ctx, r.Name()) // every headless child built from this ctx keeps r's own login names
 	arm := router.ArmProfileContext(ctx)
 	cp, _ := router.ConfinedContext(ctx)
-	confined := arm != "" || cp != ""
+	plan, planned := PlanOf(ctx)
+	fenced := planned && plan.Fenced && !plan.Fence.Open // a bare overlay fence confines too
+	confined := arm != "" || cp != "" || fenced
 	if confined { // inside any confinement every hop keeps only its own credential names
 		ctx = withIsolation(ctx)
 	}
@@ -181,10 +183,26 @@ func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Contex
 	if confined { // arm "": a confined hop keeps its own agent's login, the confined provider's, and drops the others
 		ctx = withOverlayLogins(ctx, arm, r.Name(), gp)
 	}
+	if fenced {
+		if err := fenceHop(plan, r, gp); err != nil {
+			return ctx, &retry.Error{Kind: retry.KindFatal, Agent: r.Name(), Err: err}
+		}
+	}
 	if gp == nil {
 		return ctx, nil
 	}
 	return guardHopProvider(ctx, arm, r, gp)
+}
+
+// fenceHop refuses every hop when the fence admits nothing, else one outside it; own-login and hub hops are exempt.
+func fenceHop(plan RoutePlan, r Engine, gp *providers.Provider) error {
+	if len(plan.Fence.Profiles) == 0 {
+		return plan.fenceErr(r.Name())
+	}
+	if _, isHub := r.(HubEngine); gp == nil || isHub {
+		return nil
+	}
+	return plan.fenceErr(gp.Name)
 }
 
 // guardHopProvider checks gp's route host and marks gp the hop's own credential.

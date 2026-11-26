@@ -665,7 +665,7 @@ type SearchHit struct {
 	Bank                  string  `json:"bank"`    // home | archive | native | knowledge | techdebt
 	File                  string  `json:"file"`
 	Block                 string  `json:"block"`
-	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
+	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory search --id <id>`)
 	sum                   uint64  // blockSum(Block) when the segment supplied it, else 0; reset when Block changes
 	replaced              uint8   // 0 unknown, 1 live, 2 superseded: the segment's flag for Block
 }

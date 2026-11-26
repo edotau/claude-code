@@ -29,7 +29,10 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostile := []string{"a'b", `a"b`, "$(touch " + marker + ")", "`touch " + marker + "`", "x; touch " + marker, "l1\nl2 'q' \\", "-oProxyCommand=x", "tab\there"}
-	req := RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
+	t.Setenv(route.OverlayVar, "")
+	t.Setenv("AGENT_ERROR_FALLBACK", "")
+	t.Setenv("CODEMODE", "")
+	req := RunOptions{Model: hostile[0], Provider: hostile[1], Effort: "high", SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
 	argv, err := remoteArgv("devhost", stub, "codex", "", req)
@@ -44,7 +47,7 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 		t.Fatalf("remote line failed: %v", err)
 	}
 	want := []string{"agents", "ask", "--format", "stream-json", "--fallback", "none", "--stdin-framed", "--agent", "codex", "--model", hostile[0], "--profile", hostile[1],
-		"--effort", hostile[2], "--session", hostile[3], "--system-prompt", hostile[4], "--append-system-prompt", hostile[5],
+		"--overlay", `{"schema":2,"effort":"high"}`, "--session", hostile[3], "--system-prompt", hostile[4], "--append-system-prompt", hostile[5],
 		"--output-schema", hostile[6], "--workdir", "/w/" + hostile[7], "--timeout", "1m0s", "--env", "K=" + hostile[0] + hostile[5], "--tools"}
 	if got := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00"); !slices.Equal(got, want) {
 		t.Fatalf("argv mangled:\n got %q\nwant %q", got, want)
@@ -217,6 +220,16 @@ func TestRemoteScriptRelaysCoworker(t *testing.T) {
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
 	if err != nil || !strings.Contains(script, ` --overlay '{"schema":2,"provider":"databricks","profile":"dev"}'`) {
 		t.Fatalf("script = %s, err = %v; want the databricks:dev overlay relayed", script, err)
+	}
+}
+
+// The effort crosses as an overlay key merged into the confinement, never as --effort.
+func TestRemoteScriptRelaysEffortAsOverlayKey(t *testing.T) {
+	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
+	t.Setenv("AGENT_ERROR_FALLBACK", "")
+	script, err := remoteScript("claude-code", "codex", "", RunOptions{Effort: "high"})
+	if err != nil || strings.Contains(script, "--effort") || strings.Count(script, "--overlay") != 1 || !strings.Contains(script, `"effort":"high"`) || !strings.Contains(script, `"profile":"dev"`) {
+		t.Fatalf("script = %s, err = %v; want effort merged into the one --overlay document", script, err)
 	}
 }
 

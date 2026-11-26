@@ -38,7 +38,7 @@ func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := mustRead(t, path)
-	want := "~~Keep the old shard layout for audit tests~~ <!-- id:a0000001 -->\n\nReplaced by b0000002 (2026-11-13)."
+	want := "~~Keep the old shard layout for audit tests~~ <!-- id:a0000001 -->\nReplaced by b0000002 (2026-11-13)."
 	if !strings.Contains(got, want) {
 		t.Fatalf("old entry not struck with its pointer and id kept; want %q in:\n%s", want, got)
 	}

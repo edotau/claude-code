@@ -194,3 +194,11 @@ func checkLocalRun(t *testing.T, name string, want bool, wait, timeout time.Dura
 		t.Errorf("%s: kind=%q noted=%q slot wait bounded by the timeout=%v", name, res.FallbackKind, noted, bounded)
 	}
 }
+
+// Given a closed empty fence, Then the admitted local row does not open it.
+func TestAdmitLocalKeepsClosedEmptyFence(t *testing.T) {
+	p := RoutePlan{Local: &LocalHop{Workspace: Workspace{Profile: "local"}}}
+	if f := p.admitLocal(route.Fence{}, "local"); f.Allows("local") {
+		t.Errorf("fence %+v admitted local", f)
+	}
+}

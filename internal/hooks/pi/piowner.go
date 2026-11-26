@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/contract"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -33,7 +35,7 @@ func piOwner() (contract.Contract, error) {
 	return c, nil
 }
 
-// piDispatchArgv builds `agents ask --background --format json --spec <object>`; Go writes the object.
+// piDispatchArgv builds `agents ask --background --format json --overlay <run keys> --spec <task>`; Go writes both.
 func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	c, err := piOwner()
 	if err != nil {
@@ -54,17 +56,28 @@ func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// agent and tier ride the overlay; the spec keeps them too until ask reads the overlay's run keys (plan 3.1a)
 	spec := map[string]any{"agent": "claude", "tier": tier, "own": own, "prompt": prompt,
 		"contract": map[string]any{"unit": unit, "kind": string(kind), "role": string(contract.RoleFleet), "parent": c.ID,
 			"limits": map[string]int{"tokens": max(c.Limits.Tokens-wire.SpentBy(c).Tokens, 1)}}}
 	if c.Scope.Verify != "" { // the owner's typed verify, so a test-repair child's tests term can pass
 		spec["verify"] = c.Scope.Verify
 	}
-	return piSpecArgv(spec, unit)
+	return piSpecArgv(piRunOverlay(tier), spec, unit)
 }
 
-// piSpecArgv adds a Go-derived report path to spec and builds the ask argv.
-func piSpecArgv(spec map[string]any, unit string) ([]string, error) {
+// piRunOverlay is the run's agent and tier as an overlay; "" when one is inherited, which --overlay would replace.
+func piRunOverlay(tier string) string {
+	if agentconfig.DispatchOverlayContext(context.Background(), "") != "" {
+		return ""
+	}
+	var ov agentconfig.Overlay
+	ov.Agent, ov.Tier = "claude", tier
+	return ov.Doc()
+}
+
+// piSpecArgv adds a Go-derived report path to the task spec and builds the ask argv; overlay "" adds no --overlay.
+func piSpecArgv(overlay string, spec map[string]any, unit string) ([]string, error) {
 	report, err := piReportPath(unit)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
@@ -74,7 +87,11 @@ func piSpecArgv(spec map[string]any, unit string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
-	return []string{"agents", "ask", "--background", "--format", "json", "--spec", string(b)}, nil
+	argv := []string{"agents", "ask", "--background", "--format", "json"}
+	if overlay != "" {
+		argv = append(argv, "--overlay", overlay)
+	}
+	return append(argv, "--spec", string(b)), nil
 }
 
 // piReportPath is a fresh dated report file under the memory reports dir, so a leaf's report term passes by any tool.

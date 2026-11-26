@@ -99,9 +99,14 @@ func suppressVerdict(in *core.Input) core.Result {
 	return core.Result{}
 }
 
+// isMainSession is false in a subagent (agent_id) and in any dispatched agent (the dispatch id env).
+func isMainSession(in *core.Input) bool {
+	return in.AgentID == "" && os.Getenv(proc.DispatchIDEnv) == ""
+}
+
 // suppressResult asks in the main session (a rare exception) and blocks in every agent.
 func suppressResult(in *core.Input, where, line, reason string) core.Result {
-	main := in.AgentID == "" && os.Getenv(proc.DispatchIDEnv) == ""
+	main := isMainSession(in)
 	audit.LogSession(audit.HookBlocked, in.SessionID, "safety", "lint suppression")
 	if main && core.SupportsAsk(in.Agent()) {
 		if reason == "" {

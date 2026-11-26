@@ -3,6 +3,7 @@ internal/memory/bank.go:requireFlat	unversioned: marker: flat-layout stamp of a 
 internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_commit.go:save	memory-journal
 internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
+internal/memory/bank_export.go:writeTemp	unversioned: memory-bank: exported memory store file
 internal/memory/bank_fmt.go:formatFiles	unversioned: memory-bank: bank markdown format
 internal/memory/bank_region.go:appendToCatalog	unversioned: memory-bank: memory/index.md entry records, append-only
 internal/memory/bank_region.go:refreshNativeIndex	unversioned: memory-bank: state/harness/memory/memory-md.gen, the last MEMORY.md installed
@@ -14,6 +15,7 @@ internal/memory/bank_settle.go:appendShadowLog	unversioned: log: the shadow impo
 internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report restored after a failed decisions append
 internal/memory/bank_settle.go:rotateSessionHistory	unversioned: memory-bank: sessionHistory rotation
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router
+internal/memory/bank_store.go:SetTruth	unversioned: marker: which store is the memory source of truth
 internal/memory/bank_supersede.go:writeDirtyDocs	unversioned: memory-bank: replaced-entry pointers
 internal/memory/candidates.go:appendLocked	unversioned: text: proposed-test list, one JSON object per line
 internal/memory/candidates.go:ingestTestProposals	unversioned: text: report ingestion watermark, one timestamp

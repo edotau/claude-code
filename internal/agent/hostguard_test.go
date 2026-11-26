@@ -268,3 +268,28 @@ func TestLaunchedModelRecordsAsAsked(t *testing.T) {
 		t.Errorf("pinned auto recorded %q, want %q", got, AutoModel)
 	}
 }
+
+// Given a fenced plan of dev, Then a hop on qa is refused fatally and a hop on dev passes.
+func TestGuardAttemptRefusesHopOutsidePlanFence(t *testing.T) {
+	armRegistry(t)
+	t.Setenv(route.OverlayVar, "")
+	ctx := withPlan(context.Background(), RoutePlan{Fenced: true, Fence: route.Fence{Profiles: []string{"dev"}}})
+	_, gerr := guardAttempt(ctx, &fakeRunner{name: "claude"}, RunOptions{Provider: "qa", Model: "opus"})
+	if gerr == nil || gerr.Kind != retry.KindFatal || !strings.Contains(gerr.Error(), "outside the confinement fence") {
+		t.Errorf("hop on qa = %v, want the fence refusal", gerr)
+	}
+	if _, gerr := guardAttempt(ctx, &fakeRunner{name: "claude"}, RunOptions{Provider: "dev", Model: "opus"}); gerr != nil {
+		t.Errorf("hop on dev = %v, want a pass", gerr)
+	}
+}
+
+// Given a fenced plan that admits no profile, Then every hop is refused, an own-login one included.
+func TestGuardAttemptClosedEmptyFenceRefusesOwnLogin(t *testing.T) {
+	armRegistry(t)
+	t.Setenv(route.OverlayVar, "")
+	ctx := context.WithValue(withPlan(context.Background(), RoutePlan{Fenced: true}), frozenKey{}, frozenTarget{own: true})
+	_, gerr := guardAttempt(ctx, &fakeRunner{name: "copilot"}, RunOptions{})
+	if gerr == nil || gerr.Kind != retry.KindFatal || !strings.Contains(gerr.Error(), "admits no profile") {
+		t.Errorf("own-login hop = %v, want the empty-fence refusal", gerr)
+	}
+}

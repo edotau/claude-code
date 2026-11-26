@@ -28,7 +28,7 @@ var worktreePage = helptext.Page{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
 		{"land", "verified land on local, uncommitted; --dry-run, --resume"},
-		{"collapse", "merge finished lanes into one collector lane (--dry-run)"},
+		{"collapse", "merge finished lanes into one collector, removing each (--dry-run)"},
 		{"clean", "remove a landed worktree or its kept branch (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"base", "pin the status line's diff base to <ref>, or --clear"},
@@ -318,6 +318,7 @@ func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
 	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
 	resolveAgent := fs.String("resolve-agent", "", "resolve a conflict in the lane with a tools-capable agent")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
+	drain := fs.Bool("drain", false, "land every ready queued lane: one batch gate, a result per lane (no <name>)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
@@ -325,13 +326,17 @@ func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
 		return helptext.Fail("worktree land: --resolve-agent %q unknown (%s)", *resolveAgent, strings.Join(worktree.ResolveAgents(), "|"))
 	}
 	rest := fs.Args()
-	if len(rest) != 1 {
-		return helptext.Fail("worktree land: give exactly one name")
+	if *drain && len(rest) > 0 || !*drain && len(rest) != 1 {
+		return helptext.Fail("worktree land: give exactly one name (--drain takes none)")
 	}
-	name := rest[0]
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *drain {
+		return landDrain(ctx, repo, worktree.LandRequest{Target: *target, ResolveAgent: *resolveAgent, Verify: *verify,
+			NoClean: *noClean, FullVerify: *fullVerify, NoVerify: *noVerify, Out: os.Stdout, Err: os.Stderr,
+			ShowPlan: printLandPlan, ShowResolved: printResolved}, *dryRun)
+	}
+	name := rest[0]
 
 	var landed string
 	req := worktree.LandRequest{
@@ -347,6 +352,35 @@ func cmdWorktreeLand(repo *worktree.Repo, args []string) int {
 	code := landUnderLease(ctx, repo, req)
 	if landed != "" { // landed even when the clean failed
 		recordCloseTerms(onLane(name, plans.Home(repo.Main)), landed, os.Stderr)
+	}
+	return code
+}
+
+// landDrain lands the ready queued lanes as one batch, a line per lane (dryRun: the plan only); busy exits 0.
+func landDrain(ctx context.Context, repo *worktree.Repo, req worktree.LandRequest, dryRun bool) int {
+	if dryRun { // the plan only: nothing is picked, gated, landed, dequeued or removed
+		for _, line := range worktree.DrainPlan(ctx, repo, req) {
+			fmt.Println(line)
+		}
+		return 0
+	}
+	results, err := worktree.DrainQueue(ctx, repo, req)
+	if errors.Is(err, worktree.ErrDrainerBusy) {
+		fmt.Println(err)
+		return 0
+	}
+	if err != nil {
+		return helptext.Fail("worktree land: %v", err)
+	}
+	if len(results) == 0 {
+		fmt.Println("drain: no ready lanes queued")
+	}
+	code := 0
+	for _, r := range results {
+		fmt.Println(r.Line())
+		if r.Err != nil {
+			code = 1
+		}
 	}
 	return code
 }
@@ -580,7 +614,7 @@ func worktreeSpec() *helptext.Node {
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
 		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("type"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("list")}},
 		"land": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
-			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
+			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.BoolFlag("drain"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
 		"base":      {Flags: []helptext.Flag{helptext.BoolFlag("clear")}},

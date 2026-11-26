@@ -58,9 +58,9 @@ func TestUnitWhole(t *testing.T) {
 		endpoint string
 		ok       bool
 	}{
-		{"proxy", true}, {"direct", true}, {"team-a", true}, {"https://x.cloud.databricks.com/serving-endpoints", true},
-		{"http://127.0.0.1:9", true}, {"http://example.com", false}, {"https://u:p@h/x", false}, {"https://h/x?k=v", false},
-		{"Proxy", false}, {"a b", false}, {"https://", false},
+		{"proxy", true}, {"direct", true}, {"team-a", true}, {"phase:g1", true}, {"phase:batch-20261126t120000.123-abc", true}, {"a:b:c", false}, {":g1", false}, {"phase:", false}, {"https://x.cloud.databricks.com/serving-endpoints", true},
+		{"http://127.0.0.1:9", true}, {"http://example.com", false}, {"https://u:p@h/x", false}, {"https://h/x?k=v", false}, {"https://h/x?", false}, {"https://h/x#", false},
+		{"Proxy", false}, {"a b", false}, {"https://", false}, {"direct:x", false}, {"proxy:x", false}, {"team.x", false}, {"team.x:g1", false},
 	} {
 		r := db
 		r.Endpoint = tc.endpoint

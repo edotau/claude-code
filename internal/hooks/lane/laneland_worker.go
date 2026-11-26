@@ -165,8 +165,8 @@ func judgeLane(j laneJob, base string) {
 	case hold:
 		queueLane(j, q)
 	default:
-		q.Reason, q.QueuedAt = "finished and clean, ready to land", time.Now().Unix() // fresh: an older stamp hides it
-		queueLane(j, q)                                                               // the main session lands it; the worker never touches the live checkout
+		q.Reason, q.QueuedAt = worktree.QueueReady, time.Now().Unix() // fresh: an older stamp hides it
+		queueLane(j, q)                                               // the main session lands it; the worker never touches the live checkout
 	}
 }
 

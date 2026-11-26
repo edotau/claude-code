@@ -30,7 +30,7 @@ import (
 type memorySub struct{ name, args, about string }
 
 var memorySubs = []memorySub{
-	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
+	{"search", "<terms>", "rank bank blocks for terms; --open N appends bodies, --id one block"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the bank"},
 	{"review", "", "doctor + bank stats + hook signals; --timeline lists entries"},
@@ -46,7 +46,7 @@ var memoryPage = helptext.Page{
 		"injects it, the Stop/SessionEnd update writes it. Recall and save facts, then\n" +
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
-	Hint: "plumbing: search, show, path, report, fmt, watch,\n" +
+	Hint: "plumbing: path, report, fmt, watch,\n" +
 		"          import, sandbox, upgrade, extract, shadow (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
@@ -62,8 +62,6 @@ func memoryCommandRows() [][2]string {
 
 // memoryPlumbing is the off-menu sub-verbs' {args, blurb} for their own -h pages.
 var memoryPlumbing = map[string][2]string{
-	"search":  {"<terms> | --id <id>", "rank blocks for terms, with scores; --id prints one block"},
-	"show":    {"<id>", "print one block (id from memory search or a MEMORY.md region)"},
 	"path":    {"[SUB] [NAME]", "print the store root or a SUB path: handoffs|reports|knowledge|worktrees"},
 	"report":  {"--label L [--file F | --stdin]", "write a report to a new reports/<date>-<label>[-N].md and append its decisions"},
 	"fmt":     {"", "wrap the bank files"},
@@ -192,11 +190,29 @@ func cmdMemoryUpgrade(args []string) int {
 func cmdMemoryShadow(args []string) int {
 	fs := memoryFlagSet("shadow")
 	rebuild := fs.Bool("rebuild", false, "import every in-scope memory file into state/memory.db")
+	conflicts := fs.Bool("conflicts", false, "list the unresolved export conflicts (kind, file, time)")
+	clearID := fs.String("clear", "", "with --conflicts: delete the kept copy at this store path and resolve its conflict")
 	if code, done := memoryParseNoArgs(fs, "shadow", args); done {
 		return code
 	}
+	if *clearID != "" {
+		if err := shadow.ClearExportConflict(*clearID); err != nil {
+			return helptext.Fail("memory shadow: %v", err)
+		}
+		return 0
+	}
+	if *conflicts {
+		list, err := shadow.ExportConflicts()
+		if err != nil {
+			return helptext.Fail("memory shadow: %v", err)
+		}
+		for _, l := range list {
+			fmt.Println(l)
+		}
+		return 0
+	}
 	if !*rebuild {
-		return helptext.FailUsage("memory shadow: name the action: --rebuild")
+		return helptext.FailUsage("memory shadow: name the action: --rebuild or --conflicts")
 	}
 	rep, err := shadow.RebuildShadow(context.Background())
 	if err != nil {
@@ -228,7 +244,7 @@ func cmdMemoryWatch(args []string) int {
 func memorySubcommands() map[string]func([]string) int {
 	return map[string]func([]string) int{
 		// public
-		"recall":   cmdMemoryRecall,
+		"search":   cmdMemorySearch,
 		"remember": cmdMemoryRemember,
 		"init":     cmdMemoryInit,
 		"review":   cmdMemoryReview,
@@ -236,8 +252,6 @@ func memorySubcommands() map[string]func([]string) int {
 		"update":   cmdMemoryUpdate,
 		"dream":    cmdMemoryDream,
 		// private: plumbing
-		"search":  cmdMemorySearch,
-		"show":    cmdMemoryShow,
 		"index":   cmdMemoryIndex,
 		"path":    cmdMemoryPath,
 		"report":  cmdMemoryReport,
@@ -260,7 +274,7 @@ func cmdMemory(args []string) int {
 	sub := args[0]
 	h, ok := memorySubcommands()[sub]
 	if !ok {
-		return helptext.Fail("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
+		return helptext.FailUsage("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
 	return h(args[1:])
 }
@@ -268,8 +282,8 @@ func cmdMemory(args []string) int {
 // memorySpec describes memory subcommands and their completion domains.
 func memorySpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
-		"recall": {Flags: []helptext.Flag{helptext.Plain("k"),
-			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
+		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.Plain("id"), helptext.Plain("open"),
+			helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
 		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes), helptext.Plain("supersedes")}},
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
@@ -280,11 +294,9 @@ func memorySpec() *helptext.Node {
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
-		"dream":  {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run"), helptext.Plain("trigger")}},
-		"search": {Flags: []helptext.Flag{helptext.Plain("k"), helptext.Plain("id"), helptext.CompletionFormatFlag()}},
-		"show":   {},
-		"index":  {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
-		"path":   {},
+		"dream": {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run"), helptext.Plain("trigger")}},
+		"index": {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
+		"path":  {},
 		"report": {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.Plain("job"),
 			helptext.ValuedFlag("kind", func() []string { return memory.ReportKinds }), helptext.CompletionFormatFlag()}},
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
@@ -292,7 +304,7 @@ func memorySpec() *helptext.Node {
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"upgrade": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("to"), helptext.Plain("model"), helptext.BoolFlag("no-resolve")}},
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
-		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild")}},
+		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild"), helptext.BoolFlag("conflicts"), helptext.ValuedFlag("clear", nil)}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
 			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace"),
 			helptext.Plain("remove"), helptext.Plain("primary"), helptext.BoolFlag("plans")}},
@@ -379,9 +391,20 @@ func (q *memoryQuery) json() bool { return *q.format == helptext.JSON }
 
 func cmdMemorySearch(args []string) int {
 	q := newMemoryQuery("search", 8)
-	q.id = q.fs.String("id", "", "print the one block with this id (as memory show did)")
+	q.id = q.fs.String("id", "", "print the one block with this id")
+	open := q.fs.Int("open", 0, "append the bodies of the top N hits (4KB cap; -k 3)")
+	explain := q.fs.Bool("explain", false, "explain hook recall; rejects --id+--open, --id+--explain, --open+--explain")
 	if code, done := q.parse(args); done {
 		return code
+	}
+	if msg := memorySearchConflict(q.fs, *open, *explain); msg != "" {
+		return helptext.FailUsage("memory search: %s", msg)
+	}
+	if *explain {
+		return memorySearchExplain(q.terms, q.json())
+	}
+	if helptext.Explicit(q.fs, "open") {
+		return memorySearchOpen(q, *open)
 	}
 	if helptext.Explicit(q.fs, "id") {
 		return memoryShowID(*q.id, q.termCount, q.json())
@@ -396,6 +419,22 @@ func cmdMemorySearch(args []string) int {
 	}
 	printMemorySearchHits(res.Hits)
 	return 0
+}
+
+// memorySearchConflict names the first incompatible flag pair (or a bad --open) among --id, --open and --explain.
+func memorySearchConflict(fs *flag.FlagSet, open int, explain bool) string {
+	id, opened := helptext.Explicit(fs, "id"), helptext.Explicit(fs, "open")
+	switch {
+	case opened && open < 0:
+		return "--open must be 0 or more"
+	case id && opened:
+		return "--id and --open cannot be combined"
+	case id && explain:
+		return "--id and --explain cannot be combined"
+	case opened && explain:
+		return "--open and --explain cannot be combined"
+	}
+	return ""
 }
 
 func printMemorySearchHits(hits []memory.SearchHit) {
@@ -414,18 +453,7 @@ func printMemorySearchHits(hits []memory.SearchHit) {
 	}
 }
 
-func cmdMemoryShow(args []string) int {
-	fs := memoryFlagSet("show")
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() != 1 {
-		return helptext.FailUsage("memory show: give one block id (from `memory search` or a MEMORY.md region)")
-	}
-	return printMemoryID("memory show", fs.Arg(0))
-}
-
-// memoryShowID is `memory search --id`: one id, no query terms; the access still logs as AccessShow.
+// memoryShowID is `memory search --id`: one id, no query terms; the access logs as AccessShow.
 func memoryShowID(id string, extra int, json bool) int {
 	if id == "" || extra != 0 || json {
 		return helptext.FailUsage("memory search --id: give one block id (from `memory search` or a MEMORY.md region)")
@@ -816,34 +844,26 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 	return dir, host, err
 }
 
-// memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.
-func memoryRecallExplain(query string, conflict bool) int {
-	if conflict {
-		return helptext.Fail("memory recall: --explain does not support --format json or --load")
+// memorySearchExplain prints the hook's recall selection; --explain refuses --format json.
+func memorySearchExplain(query string, json bool) int {
+	if json {
+		return helptext.FailUsage("memory search: --explain and --format json cannot be combined")
 	}
 	memory.RecallExplain(os.Stdout, query)
 	return 0
 }
 
-func cmdMemoryRecall(args []string) int {
-	q := newMemoryQuery("recall", 3)
-	load := q.fs.Int("load", 0, "append the show bodies of the top N hits (4KB cap)")
-	explain := q.fs.Bool("explain", false, "explain hook recall (not with --load or json)")
-	if code, done := q.parse(args); done {
-		return code
+// memorySearchOpen is the recall ranking (-k 3 unless given) as JSON, or as "id — title" lines plus n bodies.
+func memorySearchOpen(q *memoryQuery, n int) int {
+	k := *q.k
+	if !helptext.Explicit(q.fs, "k") {
+		k = 3
 	}
-	if *explain {
-		return memoryRecallExplain(q.terms, q.json() || *load != 0)
+	hits := memory.RecallBank(q.terms, k)
+	if q.json() {
+		return helptext.WriteJSONOrFail("memory search", hits)
 	}
-	return memoryRecallEmit(memory.RecallBank(q.terms, *q.k), *q.format, *load)
-}
-
-// memoryRecallEmit writes hits as JSON, or as the text report with an optional body load.
-func memoryRecallEmit(hits []memory.SearchHit, format string, load int) int {
-	if format == helptext.JSON {
-		return helptext.WriteJSONOrFail("memory recall", hits)
-	}
-	memory.RecallReport(os.Stdout, os.Stderr, hits, load)
+	memory.RecallReport(os.Stdout, os.Stderr, hits, n)
 	return 0
 }
 

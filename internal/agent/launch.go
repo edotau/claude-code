@@ -144,19 +144,23 @@ func (s Schema) configureWire(ctx context.Context, e Driver, t providers.Target,
 	p := t.Provider
 	dialect, base := s.firstRoute(p)
 	model := p.WireModel(models.Strip1M(t.Model)) // idempotent: targets not built by ResolveAgent get the wire id too
-	var cred string
-	var err error
-	routed := false
-	if p.Auth.Method() != providers.AuthNone && !IsDirect(ctx) {
-		// Keyed provider: the agent gets the router base + a session token; the real credential stays in the router.
-		if p, base, cred, err = routerRoute(ctx, s, p, dialect); err != nil {
-			return nil, nil, err
-		}
-		routed = true
+	unit, err := RunUnit(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", s.Name, err)
+	}
+	ep, err := EndpointURL(s.scopedCtx(ctx), p, unit, dialect)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", s.Name, err)
+	}
+	cred := ep.Key
+	if ep.Routed {
+		p, base = s.routedProvider(ctx, p), ep.Base+s.CLI.RouterSuffix[dialect]
 	} else if cred, err = credential(ctx, p); err != nil {
 		return nil, nil, err
+	} else if ep.Base != "" {
+		base = ep.Base
 	}
-	return e.Wire(ctx, WireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: routed}, h)
+	return e.Wire(ctx, WireRoute{Target: t, Provider: p, Dialect: dialect, Base: base, Model: model, Cred: cred, Routed: ep.Routed}, h)
 }
 
 func (s Schema) firstRoute(p *providers.Provider) (string, string) {
@@ -167,6 +171,85 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 	}
 	return "", ""
 }
+
+func (s Schema) scopedCtx(ctx context.Context) context.Context {
+	if s.CLI.ScopedProxy {
+		return WithScopedProxy(ctx, s.Name)
+	}
+	return ctx
+}
+
+// Endpoint is where an agent calls: Base, and on the proxy the session token (Key) its credential is.
+type Endpoint struct {
+	Base   string
+	Key    string
+	Routed bool
+}
+
+// RunUnit is the run's overlay unit as its launch reads it: the endpoint --direct or the overlay chose, else none.
+func RunUnit(ctx context.Context) (route.Route, error) {
+	o, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return route.Route{}, fmt.Errorf("overlay: %w", err)
+	}
+	r := o.Route()
+	if e, _ := ctx.Value(endpointKey{}).(string); e != "" {
+		r.Endpoint = e
+	}
+	return r, nil
+}
+
+// EndpointURL is unit r's base on row p: a URL is checked against the row before any credential goes to it (no suffix).
+func EndpointURL(ctx context.Context, p *providers.Provider, r route.Route, dialect string) (Endpoint, error) {
+	name, isURL, err := endpointName(ctx, p, r)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	if isURL || name == EndpointDirect {
+		if host := egress.HostContext(ctx); host != "" && (isURL || r.Endpoint == EndpointDirect) {
+			return Endpoint{}, fmt.Errorf("endpoint %s cannot be combined with --remote %s: it would bypass the egress host", EndpointDirect, host)
+		}
+		base, _ := p.Route(dialect)
+		if isURL {
+			base = name
+		}
+		return Endpoint{Base: base}, nil
+	}
+	rb, key, err := launchRouter(ctx, p.Name)
+	if err != nil {
+		return Endpoint{}, fmt.Errorf("router: %w", err)
+	}
+	return Endpoint{Base: proxy.SessionBase(rb, p.Name), Key: key, Routed: true}, nil
+}
+
+// endpointName is r's endpoint as proxy, direct, a team label or a checked URL; a keyless row is always direct.
+func endpointName(ctx context.Context, p *providers.Provider, r route.Route) (name string, isURL bool, err error) {
+	keyed := p.Auth.Method() != providers.AuthNone
+	name = r.Endpoint
+	if isURL = strings.Contains(name, "://"); !isURL {
+		if name == "" && keyed {
+			return EndpointProxy, false, nil
+		}
+		if name == "" || !keyed {
+			return EndpointDirect, false, nil
+		}
+		return name, false, nil
+	}
+	if err = unitMatchesRow(p, r); err != nil {
+		return "", false, err
+	}
+	name = strings.TrimRight(name, "/")
+	if keyed && isRouterURL(ctx, name) {
+		return EndpointProxy, false, nil
+	}
+	return name, true, urlMatchesRow(p, name)
+}
+
+// Endpoint short names; any other short name is a proxy team route (its scope read from the overlay).
+const (
+	EndpointProxy  = "proxy"
+	EndpointDirect = "direct"
+)
 
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
@@ -207,36 +290,41 @@ func refuseDirectContext(ctx context.Context, direct bool) error {
 	return nil
 }
 
-type directKey struct{}
+type endpointKey struct{}
 
-// WithDirect makes configure skip the router and hand the agent the provider's own route and credential.
+// WithDirect is the overlay's `endpoint: direct`: the agent gets the provider's own route and credential.
 func WithDirect(ctx context.Context) context.Context {
-	return context.WithValue(ctx, directKey{}, true)
+	return context.WithValue(ctx, endpointKey{}, EndpointDirect)
 }
 
-func IsDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
+// IsDirect reports a run whose unit endpoint is direct, set by --direct or by its overlay (D2); a bad overlay is not.
+func IsDirect(ctx context.Context) bool {
+	u, err := RunUnit(ctx)
+	return err == nil && u.Endpoint == EndpointDirect
+}
 
 type launchDryKey struct{}
 
 // IsDryRun is true on a --print-env preview; an engine's Wire reads it to leave no per-run files behind.
 func IsDryRun(ctx context.Context) bool { v, _ := ctx.Value(launchDryKey{}).(bool); return v }
 
-// routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
-func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
-	if s.CLI.ScopedProxy {
-		ctx = WithScopedProxy(ctx, s.Name)
-	}
-	rb, key, err := launchRouter(ctx, p.Name)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
-	}
-	base := proxy.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
+// routedProvider is a copy of p whose requests the router attributes to this agent and identity.
+func (s Schema) routedProvider(ctx context.Context, p *providers.Provider) *providers.Provider {
 	rp := *p
 	rp.Headers = map[string]string{proxy.AgentHeader: s.Name} // the router adds the provider's own headers upstream
 	if id := providers.IdentityFrom(ctx); id != "" {
 		rp.Headers[proxy.IdentityHeader] = id
 	}
-	return &rp, base, key, nil
+	return &rp
+}
+
+// routerRoute is a copy of p routed through the router with a session token as key (the proxy endpoint).
+func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
+	ep, err := EndpointURL(s.scopedCtx(ctx), p, route.Route{Endpoint: EndpointProxy}, dialect)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("%s: %w", s.Name, err)
+	}
+	return s.routedProvider(ctx, p), ep.Base + s.CLI.RouterSuffix[dialect], ep.Key, nil
 }
 
 // PreviewRouterBase returns the loopback router base for --print-env without starting the daemon.
@@ -362,13 +450,24 @@ func SessionToken(ctx context.Context, routerBase string, profiles ...string) (s
 	return SessionTokenWithFailover(ctx, routerBase, "", profiles...)
 }
 
+// mintFence is the plan's fence when it has one (open or naming profiles), else the overlay's confinement.
+func mintFence(ctx context.Context) (route.Fence, error) {
+	if plan, ok := PlanOf(ctx); ok && (plan.Fenced || plan.Fence.Open || len(plan.Fence.Profiles) > 0) {
+		return plan.Fence, nil
+	}
+	return proxy.ConfinementFence(ctx)
+}
+
 // SessionTokenWithFailover mints a token strictly bound to profiles, with optional server-side same-provider failover.
 func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider string, profiles ...string) (string, error) {
-	f, err := proxy.ConfinementFence(ctx)
+	f, err := mintFence(ctx)
 	if err != nil {
 		return "", err
 	}
 	f = localFenced(ctx, f, profiles)
+	if i := slices.IndexFunc(profiles, func(p string) bool { return !f.Allows(p) }); i >= 0 {
+		return "", fmt.Errorf("session token: %s is outside the plan fence (%s)", profiles[i], strings.Join(f.Profiles, ","))
+	}
 	fence, open := f.Profiles, f.Open
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
 	ctx = proxy.WithFence(ctx, fence, open)                          // one snapshot for the slot key and the mint

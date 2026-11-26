@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -115,13 +116,12 @@ func TestMemoryCLIRejections(t *testing.T) {
 		{"fmt --own outside the config dir", []string{"fmt", "--own"}, 1, []string{"is not the live config dir"}},
 		{"update bare --repo", []string{"update", "--repo", "/x"}, 2, nil},
 		{"dream bare --repo", []string{"dream", "--repo", "/x"}, 2, nil},
-		{"show bare --repo", []string{"show", "--repo", "/x"}, 2, nil},
+		{"show is retired", []string{"show", "abcd1234"}, 2, []string{`unknown subcommand "show"`}},
+		{"recall is retired", []string{"recall", "x"}, 2, []string{`unknown subcommand "recall"`}},
 		{"promote without --to", []string{"promote", "abc123"}, 2, nil},
 		{"promote two positionals", []string{"promote", "abc123", "extra", "--to", "home"}, 2, nil},
 		{"remember unknown type", []string{"remember", "--type", "bogus", "a fact"}, 1, []string{"want"}},
-		{"recall no query", []string{"recall"}, 1, []string{"memory recall: no query (usage: claude-code memory recall"}},
 		{"search no query", []string{"search"}, 1, []string{"memory search: no query (usage: claude-code memory search"}},
-		{"recall bad format", []string{"recall", "x", "--format", "xml"}, 2, []string{"memory recall: ", "format"}},
 		{"search bad format", []string{"search", "x", "--format", "xml"}, 2, []string{"memory search: ", "format"}},
 	}
 	for _, c := range cases {
@@ -229,9 +229,9 @@ func TestMemoryRememberCLIRoundTripsThroughRecall(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "remembered [") {
 		t.Fatalf("memory remember: code=%d out=%q stderr=%q", code, out, stderr)
 	}
-	code, out, stderr = memCLI(t, "recall", "ship", "recall", "verb")
+	code, out, stderr = memCLI(t, "search", "ship", "recall", "verb")
 	if code != 0 || !strings.Contains(out, "ship the recall verb") {
-		t.Fatalf("memory recall after remember: code=%d out=%q stderr=%q", code, out, stderr)
+		t.Fatalf("memory search after remember: code=%d out=%q stderr=%q", code, out, stderr)
 	}
 }
 
@@ -358,13 +358,13 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 }
 
 func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
-	for _, v := range []string{"recall", "remember", "init", "review", "promote", "update", "dream"} {
+	for _, v := range []string{"search", "remember", "init", "review", "promote", "update", "dream"} {
 		if !helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage missing public verb %q", v)
 		}
 	}
 	subs := memorySubcommands()
-	for _, v := range []string{"search", "show", "path", "fmt", "watch"} {
+	for _, v := range []string{"path", "fmt", "watch"} {
 		if helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage lists private verb %q as if public", v)
 		}
@@ -396,7 +396,7 @@ func TestMemoryUpdateLiveSession(t *testing.T) {
 	}
 }
 
-// `memory show` and `memory search` append id-keyed lines with their reasons to the owning bank's access log.
+// `memory search --id` and `memory search` append id-keyed lines with their reasons to the owning bank's access log.
 func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
@@ -404,9 +404,9 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
 	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", body)
 
-	code, out, _ := memCLI(t, "show", "abcd1234")
+	code, out, _ := memCLI(t, "search", "--id", "abcd1234")
 	if code != 0 || !strings.Contains(out, "Zebra quota limiter choice") {
-		t.Fatalf("memory show: code=%d out=%q", code, out)
+		t.Fatalf("memory search --id: code=%d out=%q", code, out)
 	}
 	code, out, _ = memCLI(t, "search", "zebra quota limiter")
 	if code != 0 || !strings.Contains(out, "decisionLog.md") {
@@ -436,7 +436,7 @@ func TestMemoryCompletion(t *testing.T) {
 		{"update catchup flags", []string{"memory", "update", "--"}, []string{"--catchup", "--skip"}},
 		{"review timeline flags", []string{"memory", "review", "--"}, []string{"--timeline", "--n"}},
 		{"index flags", []string{"memory", "index", "--"}, []string{"--reembed", "--mint-only"}},
-		{"recall flags", []string{"memory", "recall", "--"}, []string{"--explain"}},
+		{"search open flag", []string{"memory", "search", "--"}, []string{"--open", "--explain"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -466,16 +466,7 @@ func TestMemorySearchJSONWriteError(t *testing.T) {
 	}
 }
 
-// Regression: memory show returns helptext.Fail's usage code (2) when no argument is given.
-func TestMemoryShowFailReturnValue(t *testing.T) {
-	memCfg(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryShow([]string{}) })
-	if code != 2 {
-		t.Errorf("memory show (no args) exit %d, want 2; stderr=%q", code, stderr)
-	}
-}
-
-// An unstamped hit prints a content-derived ref, never a bare "-", and that ref resolves through `memory show`.
+// An unstamped hit prints a content-derived ref, never a bare "-", and that ref resolves through `memory search --id`.
 func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	memCfg(t)
 	memMust(t, memory.StoreRepo().Ensure())
@@ -484,7 +475,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	// activeContext.md is never id-assigned, so this line stays unstamped (SearchBanks still indexes it).
 	hosttest.WriteRel(t, paths.MemorySubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
 
-	out := memCLIOK(t, "recall", "stamped", "id-marked", "rule")
+	out := memCLIOK(t, "search", "--open", "0", "stamped", "id-marked", "rule")
 	if !strings.Contains(out, "deadbeef — ") {
 		t.Errorf("recall output missing the stamped id line: %q", out)
 	}
@@ -501,7 +492,7 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 		t.Fatalf("recall output missing a content-derived ref for the unstamped hit: %q", out)
 	}
 	if _, block, err := memory.ShowBlock(contentRef); err != nil || !strings.Contains(block, "never settled here") {
-		t.Errorf("memory show %s = %q, %v; want the unstamped block", contentRef, block, err)
+		t.Errorf("memory.ShowBlock(%s) = %q, %v; want the unstamped block", contentRef, block, err)
 	}
 }
 
@@ -511,9 +502,9 @@ func TestMemoryRecallLoad(t *testing.T) {
 		memMust(t, memory.StoreRepo().Ensure())
 		memoryBankRepo(t)
 		hosttest.WriteRel(t, paths.MemorySubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
-		out := memCLIOK(t, "recall", "--load", "1", "never", "settled", "widget", "rollout")
+		out := memCLIOK(t, "search", "--open", "1", "never", "settled", "widget", "rollout")
 		if !strings.Contains(out, "never settled widget rollout detail") {
-			t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
+			t.Errorf("search --open did not resolve the unstamped hit's body: %q", out)
 		}
 	})
 	t.Run("appends bodies under the byte cap", func(t *testing.T) {
@@ -522,12 +513,12 @@ func TestMemoryRecallLoad(t *testing.T) {
 		if _, err := memory.Remember("feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
 			t.Fatal(err)
 		}
-		out := memCLIOK(t, "recall", "--load", "3", "loadable", "widgets", "gadgets", "fact")
+		out := memCLIOK(t, "search", "--open", "3", "loadable", "widgets", "gadgets", "fact")
 		if !strings.Contains(out, "loadable fact about widgets and gadgets") {
-			t.Errorf("recall --load output missing the loaded body: %q", out)
+			t.Errorf("search --open output missing the loaded body: %q", out)
 		}
 		if len(out) > 20000 { // generous ceiling: --load must not dump the whole bank unbounded
-			t.Errorf("recall --load output suspiciously large (%d bytes), want it capped near recallLoadCap", len(out))
+			t.Errorf("search --open output suspiciously large (%d bytes), want it capped near recallLoadCap", len(out))
 		}
 	})
 }
@@ -763,29 +754,97 @@ func TestImportReplaceFile(t *testing.T) {
 	}
 }
 
-// `memory search --id` matches `memory show`: stdout and exit code equal, stderr equal bar the verb's name.
-func TestMemorySearchIDMatchesShow(t *testing.T) {
+// `memory search --open` reproduces the retired `recall --load` output, exit code and stderr (goldens from main).
+func TestMemorySearchOpenParity(t *testing.T) {
 	memCfg(t)
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
+	dir, _ := os.Getwd()
 	t.Chdir(t.TempDir())
-	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
-	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", body)
+	seedMemoryOpenFixtures(t, dir)
 	for _, tc := range []struct {
-		name         string
-		show, search []string
+		name string // golden basename: .golden is stdout, .stderr and .code sit beside it
+		args []string
 	}{
-		{"found", []string{"show", "abcd1234"}, []string{"search", "--id", "abcd1234"}},
-		{"unknown id", []string{"show", "ffffffff"}, []string{"search", "--id", "ffffffff"}},
-		{"extra term", []string{"show", "abcd1234", "x"}, []string{"search", "--id", "abcd1234", "x"}},
-		{"no id", []string{"show"}, []string{"search", "--id", ""}},
+		{"load3", []string{"search", "--open", "3", "zebrafish", "kestrel"}},
+		{"nomatch", []string{"search", "--open", "2", "qqqqxyz"}},
+		{"json", []string{"search", "--open", "3", "--format", "json", "zebrafish", "kestrel"}},
+		{"nomatchjson", []string{"search", "--open", "2", "--format", "json", "qqqqxyz"}},
+		{"explicitk", []string{"search", "-k", "2", "--open", "2", "zebrafish", "kestrel"}},
+		{"manyopen", []string{"search", "--open", "12", "ibis", "colony"}}, // 12 hits: --open defaults to -k 3
+		{"manyk", []string{"search", "-k", "10", "--open", "12", "ibis", "colony"}},
+		{"manysearch", []string{"search", "ibis", "colony"}}, // 12 hits: search defaults to -k 8
+		{"manysearchjson", []string{"search", "--format", "json", "ibis", "colony"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			wantCode, wantOut, wantErr := memCLI(t, tc.show...)
-			code, out, errOut := memCLI(t, tc.search...)
-			wantErr = strings.ReplaceAll(wantErr, "memory show", "memory search --id")
-			if code != wantCode || out != wantOut || errOut != wantErr {
-				t.Errorf("search --id = (%d, %q, %q); show = (%d, %q, %q)", code, out, errOut, wantCode, wantOut, wantErr)
+			read := func(ext string) string {
+				b, err := os.ReadFile(filepath.Join(dir, "testdata/memory_open", tc.name+ext))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(b)
+			}
+			before := memoryAccessLogBytes(t)
+			code, out, stderr := memCLI(t, tc.args...)
+			if after := memoryAccessLogBytes(t); slices.Contains(tc.args, "--open") && after != before {
+				t.Errorf("%v wrote access logs; recall --load wrote none", tc.args)
+			}
+			if want := strings.TrimSpace(read(".code")); strconv.Itoa(code) != want {
+				t.Errorf("%v exit = %d, want %s", tc.args, code, want)
+			}
+			if want := read(".golden"); out != want {
+				t.Errorf("%v stdout = %d bytes, want the golden's %d bytes", tc.args, len(out), len(want))
+			}
+			if want := read(".stderr"); stderr != want {
+				t.Errorf("%v stderr = %q, want %q", tc.args, stderr, want)
 			}
 		})
+	}
+}
+
+// search rejects --id, --open and --explain in any pair, and --open below 1, with exit 2 naming the flags.
+func TestMemorySearchFlagConflicts(t *testing.T) {
+	memCfg(t)
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"search", "--id", "abc12345", "--open", "1"}, []string{"--id", "--open"}},
+		{[]string{"search", "--id", "abc12345", "--explain"}, []string{"--id", "--explain"}},
+		{[]string{"search", "--explain", "--open", "1", "q"}, []string{"--open", "--explain"}},
+		{[]string{"search", "--explain", "--format", "json", "q"}, []string{"--explain", "json"}},
+	} {
+		code, _, stderr := memCLI(t, tc.args...)
+		if code != 2 {
+			t.Errorf("%v exit = %d, want 2", tc.args, code)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(stderr, w) {
+				t.Errorf("%v stderr %q lacks %q", tc.args, stderr, w)
+			}
+		}
+	}
+}
+
+// memoryAccessLogBytes totals the access logs' sizes so a case can prove it left them alone.
+func memoryAccessLogBytes(t *testing.T) (n int64) {
+	t.Helper()
+	logs, _ := filepath.Glob(filepath.Join(memory.AccessStateDir(), "*.log"))
+	for _, l := range logs {
+		if fi, err := os.Stat(l); err == nil {
+			n += fi.Size()
+		}
+	}
+	return n
+}
+
+// seedMemoryOpenFixtures copies the golden set's two fixture files from dir/testdata into the store.
+func seedMemoryOpenFixtures(t *testing.T, dir string) {
+	t.Helper()
+	for _, f := range []string{"conventions.md", "decisionLog.md"} {
+		fixture, err := os.ReadFile(filepath.Join(dir, "testdata/memory_open", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hosttest.WriteRel(t, paths.MemoryStoreDir(), f, string(fixture))
 	}
 }

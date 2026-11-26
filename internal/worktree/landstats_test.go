@@ -1,7 +1,11 @@
 package worktree
 
 import (
+	"bytes"
+	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,5 +90,64 @@ func TestShortDur(t *testing.T) {
 		if got := shortDur(d); got != want {
 			t.Errorf("shortDur(%v) = %q, want %q", d, got, want)
 		}
+	}
+}
+
+// A failing gate records the packages it named; a scope records the changed and importer-only packages apart.
+func TestLandAttemptRecordsScopeAndFailedPkgs(t *testing.T) {
+	rec := &attempt{}
+	rec.scoped(gateScope{Changed: map[string]bool{"x/a": true}, Tested: map[string]bool{"x/a": true, "x/c": true, "x/b": true}})
+	if got := rec.a; got.Packages != 3 || strings.Join(got.ChangedPkgs, ",") != "x/a" || strings.Join(got.ImporterPkgs, ",") != "x/b,x/c" {
+		t.Fatalf("record = %+v", got)
+	}
+	var out, errOut bytes.Buffer
+	gate := "echo 'FAIL\tm/p1\t0.1s'; echo '# m/p2' >&2; echo './p.go:3:4: undefined: y' >&2; exit 1"
+	req := LandRequest{Out: &out, Err: &errOut}
+	if err := runGate(t.Context(), req, gateAt{Dir: t.TempDir()}, gate, "flag", rec); err == nil {
+		t.Fatal("gate passed, want failure")
+	}
+	if got := strings.Join(rec.a.FailedPkgs, ","); got != "m/p1,m/p2" {
+		t.Fatalf("failed_pkgs = %q, want m/p1,m/p2", got)
+	}
+}
+
+// Only a FAIL line or a header followed by an error line fails a package; a warning or a bare header does not.
+func TestRunGateFailedPkgsNeedErrorLines(t *testing.T) {
+	rec := &attempt{}
+	gate := "printf '# m/cgo\\nw.c:1:2: warning: unused\\n# m/bad\\n./b.go:3:4: undefined: y\\n# m/lone\\n' >&2; " +
+		"echo 'FAIL\tm/t\t0.1s'; exit 1"
+	req := LandRequest{Out: io.Discard, Err: io.Discard}
+	if err := runGate(t.Context(), req, gateAt{Dir: t.TempDir()}, gate, "flag", rec); err == nil {
+		t.Fatal("gate passed, want failure")
+	}
+	got := slices.Sorted(slices.Values(rec.a.FailedPkgs))
+	if strings.Join(got, ",") != "m/bad,m/t" {
+		t.Fatalf("failed_pkgs = %v, want m/bad,m/t", got)
+	}
+}
+
+// A first gate that fails still leaves the changed and importer scope in the attempt.
+func TestLandFailedFirstGateRecordsScope(t *testing.T) {
+	repo, main, _ := laneLandFixture(t)
+	landFixtureWrite(t, main, "go.mod", "module example.com/m\n\ngo 1.22\n", "mod")
+	landFixtureWrite(t, main, "Makefile", "test:\n\ttrue\n", "make")
+	wt, err := Create(repo, "c", CreateOptions{Session: "session-c", Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(wt, "internal/foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	landFixtureWrite(t, wt, "internal/foo/foo.go", "package foo\n", "foo")
+	landFixtureWrite(t, wt, "internal/foo/foo_test.go", "package foo\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Fatal(\"x\") }\n", "foo test")
+	var out bytes.Buffer
+	req := laneRequest("c", &out)
+	req.NoVerify = false
+	if _, err := Land(t.Context(), repo, req); err == nil || !strings.Contains(err.Error(), "verify failed") {
+		t.Fatalf("Land = %v, want verify failed\n%s", err, out.String())
+	}
+	got := readAttempts(t)
+	if len(got) == 0 || strings.Join(got[len(got)-1].ChangedPkgs, ",") != "internal/foo" {
+		t.Fatalf("attempts %+v, want changed_pkgs internal/foo\n%s", got, out.String())
 	}
 }

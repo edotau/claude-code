@@ -2,22 +2,21 @@ package memory
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
-	"fmt"
+	"maps"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
-	"go.etcd.io/bbolt"
 )
 
 // leaseClient embeds each text as a 3-dim vector and counts the texts sent.
@@ -197,20 +196,10 @@ func leaseFixture(t *testing.T) string {
 // readClaim returns the live mint claim's expiry and owner.
 func readClaim(t *testing.T) (exp time.Time, owner int64, ok bool) {
 	t.Helper()
-	db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	_ = db.View(func(tx *bbolt.Tx) error {
-		if b := tx.Bucket(embedClaimBucket); b != nil {
-			if v := b.Get(embedClaimKey); len(v) == 16 {
-				exp, owner, ok = time.Unix(0, int64(binary.BigEndian.Uint64(v))), int64(binary.BigEndian.Uint64(v[8:])), true
-			}
-		}
-		return nil
-	})
-	return exp, owner, ok
+	f := vectorStore().(*fakeVectors)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return time.Unix(0, f.claimExp), f.owner, f.claim
 }
 
 // A live claim held by someone else yields errEmbedBusy with no endpoint call and no commit, even with nothing pending.
@@ -225,7 +214,7 @@ func TestEmbedBusyClaimBlocksEveryRun(t *testing.T) {
 	other := t.TempDir() // a second root with no entries of its own: nothing is pending for it
 	old := backdate(t, embedValidity+time.Minute)
 	now := time.Now()
-	if _, ok, err := vectorStore.Claim(42, now, now.Add(time.Minute)); err != nil || !ok {
+	if _, ok, err := vectorStore().Claim(42, now, now.Add(time.Minute)); err != nil || !ok {
 		t.Fatalf("seed claim: ok=%v err=%v", ok, err)
 	}
 	before := calls
@@ -301,32 +290,14 @@ func TestEmbedSupersededIsReported(t *testing.T) {
 	}
 }
 
-// A commit that errors (write lock timeout) releases our claim instead of leaving it to the TTL.
+// A commit that errors releases our claim instead of leaving it to the TTL.
 func TestEmbedCommitErrorReleasesClaim(t *testing.T) {
 	root := leaseFixture(t)
-	prev := embedWriteTimeout
-	embedWriteTimeout = 250 * time.Millisecond // bbolt gives up 50ms early: commit fails near 200ms, release near 400ms
-	t.Cleanup(func() { embedWriteTimeout = prev })
 	var calls int
-	freed := make(chan struct{})
-	c := leaseClient(&calls, func() {
-		db, err := bbolt.Open(embedDBPath(), 0o600, &bbolt.Options{Timeout: time.Second})
-		if err != nil {
-			t.Error(err)
-			close(freed)
-			return
-		}
-		go func() { // hold the write lock past the commit's timeout, free it before the release gives up
-			time.Sleep(350 * time.Millisecond)
-			_ = db.Close()
-			close(freed)
-		}()
-		_ = db.Update(func(*bbolt.Tx) error { return nil })
-	})
+	c := leaseClient(&calls, func() { vectorStore().(*fakeVectors).putErr = errors.New("write lock timeout") })
 	if _, _, err := embedChanged(context.Background(), root, c); err == nil {
 		t.Fatal("want the commit error")
 	}
-	<-freed
 	if _, _, ok := readClaim(t); ok {
 		t.Fatal("a failed commit left our claim behind")
 	}
@@ -401,10 +372,10 @@ func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
 func TestEmbedPutRejectsTakenOverClaim(t *testing.T) {
 	isolatedConfig1(t)
 	now := time.Now()
-	if _, ok, err := vectorStore.Claim(11, now.Add(-2*time.Minute), now.Add(-time.Minute)); err != nil || !ok {
+	if _, ok, err := vectorStore().Claim(11, now.Add(-2*time.Minute), now.Add(-time.Minute)); err != nil || !ok {
 		t.Fatalf("seed expired claim: ok=%v err=%v", ok, err)
 	}
-	if _, ok, err := vectorStore.Claim(22, now, now.Add(time.Minute)); err != nil || !ok {
+	if _, ok, err := vectorStore().Claim(22, now, now.Add(time.Minute)); err != nil || !ok {
 		t.Fatalf("take over expired claim: ok=%v err=%v", ok, err)
 	}
 	merged := false
@@ -412,7 +383,7 @@ func TestEmbedPutRejectsTakenOverClaim(t *testing.T) {
 		merged = true
 		return vectorRecord{MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"stale": {Hash: "old"}}}
 	}}
-	stored, err := vectorStore.Put(stale)
+	stored, err := vectorStore().Put(stale)
 	if err != nil || stored || merged {
 		t.Fatalf("displaced owner committed: stored=%v merged=%v err=%v", stored, merged, err)
 	}
@@ -427,7 +398,7 @@ func assertTakenOverClaimCommits(t *testing.T, started time.Time) {
 	if rec := loadEmbedCache(); rec.MintedAt != 0 || len(rec.Rows) != 0 {
 		t.Fatalf("displaced owner wrote a cache record: %+v", rec)
 	}
-	stored, err := vectorStore.Put(vectorWrite{Owner: 22, Started: started.UnixNano(), Merge: func(vectorRecord) vectorRecord {
+	stored, err := vectorStore().Put(vectorWrite{Owner: 22, Started: started.UnixNano(), Merge: func(vectorRecord) vectorRecord {
 		return vectorRecord{MintedAt: time.Now().UnixNano(), Rows: map[string]vectorRow{"winner": {Hash: "new"}}}
 	}})
 	if err != nil || !stored {
@@ -529,14 +500,28 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	}
 }
 
-// Given an unopenable embeddings.db, When Release runs, Then the failure that left the claim behind is returned.
-func TestReleaseReturnsUpdateFailure(t *testing.T) {
-	isolatedConfig1(t)
-	if err := os.MkdirAll(embedDBPath(), 0o700); err != nil { // a directory where the bbolt file belongs
-		t.Fatal(err)
+func assertNoVectors(t *testing.T, s VectorStore) {
+	t.Helper()
+	rec, err := s.Vectors()
+	h, herr := s.Head()
+	if err != nil || herr != nil || rec.Model != "" || len(rec.Rows) != 0 || h != (vectorHead{}) {
+		t.Fatalf("an unlinked store must read empty: %+v %+v %v %v", rec, h, err, herr)
 	}
-	if err := vectorStore.Release(42); err == nil {
-		t.Fatal("Release swallowed the failure that left the claim behind")
+	if s.Present() || s.RefreshDue(time.Now()) || s.Release(1) != nil {
+		t.Fatal("a missing store must be absent, never due, and release without error")
+	}
+}
+
+// With no store linked, nothing is stored, probed or minted and a mint reports why.
+func TestVectorSeamNilFallsBack(t *testing.T) {
+	root := leaseFixture(t)
+	prev := OpenVectorStore
+	t.Cleanup(func() { OpenVectorStore = prev })
+	OpenVectorStore = nil
+	assertNoVectors(t, vectorStore())
+	var calls int
+	if _, _, err := embedChanged(context.Background(), root, leaseClient(&calls, nil)); !errors.Is(err, errNoVectorStore) || calls != 0 {
+		t.Fatalf("mint with no store: calls=%d err=%v", calls, err)
 	}
 }
 
@@ -598,98 +583,6 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 	}
 }
 
-// Given a zero-byte or damaged embeddings.db, When a due mint runs, Then the file is set aside and re-minted.
-func TestBrokenEmbedDBHeals(t *testing.T) {
-	for name, body := range map[string][]byte{"zero-byte": nil, "damaged": append([]byte("not a bbolt file"), make([]byte, 16384)...), "truncated": nil} {
-		t.Run(name, func(t *testing.T) {
-			root := leaseFixture(t)
-			if name == "truncated" { // bbolt maps a cut-short file and faults on read: half of a real one
-				body = truncatedEmbedDB(t)
-			}
-			if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			write(t, embedDBPath(), string(body))
-			if !vectorStore.RefreshDue(time.Now()) {
-				t.Fatal("RefreshDue = false for a broken embeddings.db")
-			}
-			var calls int
-			if n, _, err := embedChanged(context.Background(), root, leaseClient(&calls, nil)); err != nil || n != 1 {
-				t.Fatalf("mint over a broken db: n=%d err=%v", n, err)
-			}
-			if got := loadEmbedCache(); len(got.Rows) != 1 {
-				t.Errorf("healed cache rows = %d, want 1", len(got.Rows))
-			}
-			if _, err := os.Stat(embedDBPath() + ".damaged"); err != nil {
-				t.Errorf("the damaged file was not set aside: %v", err)
-			}
-		})
-	}
-}
-
-// truncatedEmbedDB is a real embeddings.db cut to half its length, and removes the original.
-func truncatedEmbedDB(t *testing.T) []byte {
-	t.Helper()
-	rows := map[string]vectorRow{}
-	for i := range 60 {
-		rows[fmt.Sprintf("r%d", i)] = vectorRow{Hash: "h", Vec: encodeVec(make([]float32, 512))}
-	}
-	if err := saveEmbedCache(vectorRecord{Model: "m", Rows: rows}); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(embedDBPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(embedDBPath()); err != nil {
-		t.Fatal(err)
-	}
-	return raw[:len(raw)/2]
-}
-
-func BenchmarkDecodeEmbedRecord(b *testing.B) {
-	const rows, dims = 2000, 1024
-	want := vectorRecord{Schema: embedCacheSchema, Model: "bench-gte", MintedAt: 1, Rows: make(map[string]vectorRow, rows)}
-	for i := range rows {
-		vec := make([]float32, dims)
-		for j := range vec {
-			vec[j] = float32((i+j)%257-128) / 128
-		}
-		want.Rows[fmt.Sprintf("entry-%04d", i)] = vectorRow{Hash: fmt.Sprintf("hash-%04d", i), Vec: encodeVec(vec)}
-	}
-	db, err := bbolt.Open(filepath.Join(b.TempDir(), "vectors.db"), 0o600, nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() {
-		if err := db.Close(); err != nil {
-			b.Error(err)
-		}
-	})
-	if err := db.Update(func(tx *bbolt.Tx) error {
-		if _, err := tx.CreateBucket(embedVectorBucket); err != nil {
-			return err
-		}
-		return putEmbedRecord(tx, want)
-	}); err != nil {
-		b.Fatal(err)
-	}
-	var got vectorRecord
-	b.SetBytes(rows * dims * 4)
-	b.ReportAllocs()
-	for b.Loop() {
-		if err := db.View(func(tx *bbolt.Tx) error {
-			got = decodeEmbedRecord(tx)
-			return nil
-		}); err != nil {
-			b.Fatal(err)
-		}
-	}
-	if !reflect.DeepEqual(got, want) {
-		b.Fatal("decoded metadata or vector bytes differ from the 2000 x 1024 fixture")
-	}
-}
-
 func synthHits(n, buckets int, seed int64) []scoredHit {
 	r := rand.New(rand.NewSource(seed))
 	all := make([]scoredHit, n)
@@ -737,4 +630,95 @@ func BenchmarkCandidatesTopK(b *testing.B) {
 			_ = topK(all, 8)
 		}
 	})
+}
+
+// fakeVectors is an in-memory VectorStore keyed by the state dir, so every test's temp dir has its own.
+type fakeVectors struct {
+	mu       sync.Mutex
+	rec      vectorRecord
+	has      bool
+	claim    bool
+	claimExp int64
+	owner    int64
+	putErr   error
+}
+
+var fakeVecs sync.Map
+
+func init() {
+	OpenVectorStore = func() VectorStore {
+		v, _ := fakeVecs.LoadOrStore(paths.MemoryStateDir(), &fakeVectors{})
+		return v.(*fakeVectors)
+	}
+}
+
+func (f *fakeVectors) Present() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.has || f.claim }
+
+func (f *fakeVectors) Vectors() (vectorRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.copyRec(), nil
+}
+
+func (f *fakeVectors) copyRec() vectorRecord {
+	out := f.rec
+	out.Rows = maps.Clone(f.rec.Rows)
+	if out.Rows == nil {
+		out.Rows = map[string]vectorRow{}
+	}
+	return out
+}
+
+func (f *fakeVectors) Head() (vectorHead, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return vectorHead{Model: f.rec.Model, MintedAt: f.rec.MintedAt, Rows: len(f.rec.Rows) > 0}, nil
+}
+
+func (f *fakeVectors) Claim(owner int64, now, expiry time.Time) (time.Time, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claim && time.Unix(0, f.claimExp).After(now) {
+		return time.Unix(0, f.claimExp), false, nil
+	}
+	f.claim, f.claimExp, f.owner = true, expiry.UnixNano(), owner
+	return time.Time{}, true, nil
+}
+
+func (f *fakeVectors) Release(owner int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.claim && f.owner == owner {
+		f.claim = false
+	}
+	return nil
+}
+
+func (f *fakeVectors) Put(w vectorWrite) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.putErr != nil {
+		err := f.putErr
+		f.putErr = nil
+		return false, err
+	}
+	if !f.claim || f.owner != w.Owner {
+		return false, nil
+	}
+	f.claim = false
+	if f.rec.MintedAt >= w.Started && f.rec.MintedAt <= time.Now().UnixNano() {
+		return false, nil
+	}
+	f.put(w.Merge(f.copyRec()))
+	time.Sleep(time.Millisecond) // a real commit outlasts the clock tick; the next run must start after MintedAt
+	return true, nil
+}
+
+func (f *fakeVectors) put(r vectorRecord) { f.rec, f.has = r, true }
+
+func (f *fakeVectors) RefreshDue(now time.Time) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	live := f.claim && time.Unix(0, f.claimExp).After(now)
+	return !embedValid(f.rec, now) && !live
 }

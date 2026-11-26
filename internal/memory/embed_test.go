@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"go.etcd.io/bbolt"
 )
 
 // fakeEmbedServer answers {"input":[...]} with one 3-dim vector per text and counts the texts it embedded.
@@ -550,7 +549,11 @@ func loadEmbedCache() vectorRecord {
 
 // saveEmbedCache stores f as the shared record unconditionally; the mint path merges through vectorStore.Put.
 func saveEmbedCache(f vectorRecord) error {
-	return updateEmbedDB(func(tx *bbolt.Tx) error { return putEmbedRecord(tx, f) })
+	fv := vectorStore().(*fakeVectors)
+	fv.mu.Lock()
+	defer fv.mu.Unlock()
+	fv.put(f)
+	return nil
 }
 
 // dimEmbedClient answers every text with a dim-wide unit vector, calling hook (if any) before each batch.
