@@ -634,3 +634,22 @@ func TestRecordDiffRouteFormRedactsEnv(t *testing.T) {
 		t.Fatalf("diff = %q", got)
 	}
 }
+
+func TestStoredSessionProfileAndNote(t *testing.T) {
+	reg := selectTestRegistry(t)
+	if got := StoredSessionProfile(reg); got != reg.Default {
+		t.Fatalf("no record = %q, want default %q", got, reg.Default)
+	}
+	vaulttest.SetRecord(t, "claude", "profile", "gateway")
+	if got := StoredSessionProfile(reg); got != "gateway" {
+		t.Fatalf("record = %q, want gateway", got)
+	}
+	if got := SessionNote("gateway"); got != "" {
+		t.Fatalf("no stamp note = %q", got)
+	}
+	t.Setenv(EnvSessionProfile, "ultra")
+	want := "this session: ultra (launched on it; relaunch to use gateway)"
+	if got := SessionNote("gateway"); got != want {
+		t.Fatalf("note = %q, want %q", got, want)
+	}
+}

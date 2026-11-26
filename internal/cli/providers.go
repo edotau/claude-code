@@ -217,6 +217,11 @@ func applySwitchProfile(reg *providers.Registry, profile string) int {
 	if err := stdoutf("switch", "profile pinned: %s (relaunch to apply)\n", profile); err != nil {
 		return helptext.Fail("%v", err)
 	}
+	if note := providers.SessionNote(profile); note != "" {
+		if err := stdoutf("switch", "%s\n", note); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
 	preflight.Warm(context.Background(), os.Stdout, reg, time.Now())
 	return 0
 }

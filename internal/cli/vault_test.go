@@ -808,6 +808,7 @@ func seedVaultListFixture(t *testing.T) {
 // List renders providers as tables and keeps generic config rows without exposing values.
 func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 	vaulttest.UseFreshKey(t)
+	t.Setenv(providers.EnvSessionProfile, "")
 	seedVaultListFixture(t)
 	code, stdout, stderr := vaultRun(t, "ls", "--format", "text")
 	if strings.Contains(stdout+stderr, vaultLeakSecret) {
@@ -831,7 +832,7 @@ func TestVaultListTextFixtureFlattensEverySection(t *testing.T) {
 			t.Errorf("stdout missing row %s=%s; stdout = %q", tc.key, tc.value, stdout)
 		}
 	}
-	if !strings.Contains(stdout, "AGENT\n  claude\n") || strings.Contains(stdout, "AGENTS") {
+	if !strings.Contains(stdout, "AGENT ") || !strings.Contains(stdout, " (default)\n") || strings.Contains(stdout, "AGENTS") {
 		t.Errorf("stdout = %q, want an AGENT table with no AGENTS heading", stdout)
 	}
 	flat := strings.Join(strings.Fields(stdout), " ")
@@ -851,8 +852,9 @@ func vaultTextHasRow(stdout, key, value string) bool {
 // A bare list hides empty sections; named sections still render (none), including absent overlay documents.
 func TestVaultListTextEmptyVaultAllSectionsNone(t *testing.T) {
 	vaulttest.UseFreshKey(t)
+	t.Setenv(providers.EnvSessionProfile, "")
 	code, stdout, stderr := vaultRun(t, "ls", "--format", "text")
-	if code != 0 || !strings.HasPrefix(stdout, "  AGENT\n  claude\n") {
+	if code != 0 || !strings.HasPrefix(stdout, "  AGENT ") || !strings.Contains(stdout, " (default)\n") {
 		t.Fatalf("bare vault ls = %d %q (stderr %q), want 0 and only the AGENT table", code, stdout, stderr)
 	}
 	named := append([]string{"ls"}, vaultdoc.Sections...)

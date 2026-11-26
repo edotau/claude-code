@@ -414,12 +414,22 @@ func vaultAgentTable(names []string, width int, color bool) string {
 	for _, c := range cols {
 		colMax = append(colMax, map[string]int{"MODEL": 60, "PROFILE": 24}[c])
 	}
+	stored := providers.StoredSessionProfile(nil)
+	for i, n := range names {
+		if agent.VaultAgentIsClaude(n) && per[i]["PROFILE"] == "" && stored != "" {
+			per[i]["PROFILE"] = stored + " (default)"
+		}
+	}
 	rows, codes := make([][]string, len(names)), make([]string, len(names))
 	for i, n := range names {
 		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Route.IsZero(), color)
 	}
 	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
-	return table.Styled(head, colMax, rows, width, codes, color)
+	out := table.Styled(head, colMax, rows, width, codes, color)
+	if note := providers.SessionNote(stored); note != "" {
+		out += "\n" + note + "\n"
+	}
+	return out
 }
 
 // vaultAgentCells is each agent's record cells plus the columns: the fixed ones, then any extra sorted.

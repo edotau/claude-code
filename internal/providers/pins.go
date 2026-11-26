@@ -17,8 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers/structdiff"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/structdiff"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -71,7 +71,7 @@ func recordProfile(r vault.AgentRecord) string {
 	return strings.TrimSpace(rt.Profile)
 }
 
-// CopilotLogin is the copilot record's github profile Login and name; ("", "") = gh's account; ignores github-auth.
+// CopilotLogin is the copilot record's github profile Login and name; ("", "") = gh's account.
 func CopilotLogin(reg *Registry) (login, profile string) {
 	pin := recordProfile(AgentRecord("copilot"))
 	if pin == "" {
@@ -362,7 +362,7 @@ func CopilotPlanName(raw string) string {
 
 // SessionProfileOnly refuses a pin for profile other than the session's: every alias resolves on the session profile.
 func SessionProfileOnly(reg *Registry, profile string) error {
-	session := cmp.Or(recordProfile(AgentRecord("claude")), reg.Default)
+	session := StoredSessionProfile(reg)
 	if profile == "" || profile == session {
 		return nil
 	}
@@ -430,12 +430,35 @@ func ApplyClaudeModels(set map[string]string) error {
 	return nil
 }
 
+// StoredSessionProfile is claude's record profile, else the registry default (nil reg loads the shared one).
+func StoredSessionProfile(reg *Registry) string {
+	if p := recordProfile(AgentRecord("claude")); p != "" {
+		return p
+	}
+	if reg == nil {
+		reg, _ = LoadShared()
+	}
+	if reg == nil {
+		return ""
+	}
+	return reg.Default
+}
+
+// SessionNote is the "this session" line when the process launched on a profile other than stored, else "".
+func SessionNote(stored string) string {
+	stamp := SessionProfileContext(context.Background())
+	if stamp == "" || stamp == stored {
+		return ""
+	}
+	return fmt.Sprintf("this session: %s (launched on it; relaunch to use %s)", stamp, stored)
+}
+
 // SessionProfileContext is the profile of the session a run belongs to ("" outside a launched session).
 func SessionProfileContext(ctx context.Context) string {
 	return strings.TrimSpace(proc.Value(ctx, EnvSessionProfile))
 }
 
-// SessionLeadContext is the session's profile, else (withRecord) claude's record profile; a non-nil reg drops unknowns.
+// SessionLeadContext is the session's profile, else (withRecord) claude's record profile, never the registry default.
 func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) string {
 	name := SessionProfileContext(ctx)
 	if name == "" && withRecord {
@@ -458,10 +481,7 @@ func SessionName() (name string, routed bool) {
 	if p := SessionLeadContext(context.Background(), nil, true); p != "" {
 		return p, false
 	}
-	if reg, _ := LoadShared(); reg != nil {
-		return reg.Default, false
-	}
-	return "", false
+	return StoredSessionProfile(nil), false
 }
 
 // SessionProvider is the provider SessionName resolves, nil when the registry does not know it.
