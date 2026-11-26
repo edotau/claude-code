@@ -250,7 +250,7 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 
 // typedProfile is o's typed --provider profile, "" for none or the session lead.
 func typedProfile(o RunOptions) string {
-	if p := route.ParseLegacy(o.Provider).Profile; p != LeadSession {
+	if p := route.FromWord(o.Provider).Profile; p != LeadSession {
 		return p
 	}
 	return ""

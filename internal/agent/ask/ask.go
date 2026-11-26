@@ -71,7 +71,7 @@ type askRun struct {
 	ov          agentconfig.Overlay // --overlay, else $COWORKER_OVERLAY: routing keys fold under typed flags
 	ovSrc       ovSource            // where ov came from: its route is a fence only when inherited
 	flagRoute   bool                // --profile / --provider name a route: it replaces every lower layer
-	recCoworker string              // the confinement a --retry/--job record ran on
+	recCoworker route.Route         // the confinement a --retry/--job record ran on
 	confined    bool                // the confinement filled the lead: resolveLead treats it as typed
 	schema      string
 	jobRec      *agent.Record
@@ -243,10 +243,10 @@ func takeRoute(r *askRun) error {
 }
 
 // confinementValue is the fence: overlay's provider[:profile], else a replayed record's; typed route flags drop that.
-func confinementValue(r *askRun) (string, error) {
+func confinementValue(r *askRun) (route.Route, error) {
 	rec := r.recCoworker
 	if r.flagRoute {
-		rec = ""
+		rec = route.Route{}
 	}
 	return recordConfinement(r.ov.Confinement(), rec)
 }
@@ -417,7 +417,7 @@ func (r *askRun) checkArm() (int, bool) {
 // markAuto records an auto-picked workspace, including a replay that keeps the recorded route rather than a new fence.
 func (r *askRun) markAuto(picks, moves bool) {
 	picks = picks || moves // a typed start retries on the next workspace after a rate limit, like auto
-	retryAuto := r.f.retry != "" && r.replayed.AutoArm && !r.flagRoute && r.ov.Confinement() == ""
+	retryAuto := r.f.retry != "" && r.replayed.AutoArm && !r.flagRoute && r.ov.Confinement().IsZero()
 	if !picks && !r.jobAutoArm() && !retryAuto {
 		return
 	}
@@ -460,13 +460,13 @@ func recordRefusal(r *askRun, err error, fallback string) {
 }
 
 // poolValue is value, or the pool confinement for --provider databricks alone, a pool pin, or a model the pin lacks.
-func (r *askRun) poolValue(value string) string {
+func (r *askRun) poolValue(value route.Route) route.Route {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != route.FallbackNone
-	auto := route.Join(router.RouteDatabricks, route.AutoArm)
+	auto := route.Route{Provider: router.RouteDatabricks, Profile: route.AutoArm}
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
-	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
+	case !value.IsZero() || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
 	case f.provider == router.RouteDatabricks:
 		r.typedProv, f.provider = f.provider, ""
 		return auto
@@ -485,7 +485,7 @@ func poolPinned(r *askRun) bool {
 }
 
 // storedWorkspace is the pool pick, except a live or resumed run stays on databricks:<its session's workspace>.
-func storedWorkspace(r *askRun, pool string) string {
+func storedWorkspace(r *askRun, pool route.Route) route.Route {
 	reg, err := providers.Load()
 	if err != nil || !r.f.live && r.f.session == "" {
 		return pool
@@ -494,7 +494,7 @@ func storedWorkspace(r *askRun, pool string) string {
 	if err != nil || q.Profile == "" {
 		return pool
 	}
-	return route.Join(router.RouteDatabricks, q.Profile)
+	return route.Route{Provider: router.RouteDatabricks, Profile: q.Profile}
 }
 
 // pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks.
@@ -530,13 +530,13 @@ func confineLead(ctx context.Context, ag string, f *askFlags) bool {
 	return changed
 }
 
-// recordConfinement is the overlay's confinement, else a replayed record's: "default" is none, a retired value errs.
-func recordConfinement(own, rec string) (string, error) {
-	if own != "" || rec == "" || rec == "default" {
+// recordConfinement is the overlay's confinement, else a replayed record's: a retired value errs.
+func recordConfinement(own, rec route.Route) (route.Route, error) {
+	if !own.IsZero() || rec.IsZero() || rec.Provider == "default" { // an old record's "default" is none
 		return own, nil
 	}
-	if _, _, err := route.Parse(rec); err != nil {
-		return "", fmt.Errorf("the replayed record ran under route %q, which no longer exists: pass --overlay with a provider", rec)
+	if err := rec.CheckProvider(); err != nil {
+		return route.Route{}, fmt.Errorf("the replayed record ran under route %q, which no longer exists: pass --overlay with a provider", route.Join(rec.Provider, rec.Profile))
 	}
 	return rec, nil
 }
@@ -619,7 +619,7 @@ func (r *askRun) batchBase() (agent.RunOptions, error) {
 		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: cmp.Or(f.runner, r.ov.Runner), GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted(),
-		FenceTyped: r.ovSrc == srcCmd && r.ov.Confinement() != ""}, nil
+		FenceTyped: r.ovSrc == srcCmd && !r.ov.Confinement().IsZero()}, nil
 }
 
 // fallbackDefaulted: --fallback was not typed, and a --job/--retry replay's record says its mode was a default too.

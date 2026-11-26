@@ -25,19 +25,18 @@ import (
 	"github.com/edotau/claude-code/internal/serving"
 )
 
-// ApplyRouteOverlay is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
-func ApplyRouteOverlay(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
+// ApplyRouteOverlay is ApplyRoute for an overlay's confinement: the model is checked and the provider named first.
+func ApplyRouteOverlay(ctx context.Context, value route.Route, profile, agentName, model, fallback string) (context.Context, error) {
 	if err := providers.CheckModelShared(model); err != nil { // before any arm preflight: an old --retry record too (D6)
 		return ctx, err
 	}
-	provider, p, err := route.Parse(value)
-	if err != nil {
+	if err := value.CheckProvider(); err != nil {
 		if _, _, cerr := router.OverlayRoute(ctx); cerr != nil {
 			return ctx, cerr
 		}
 		return ctx, err
 	}
-	return ApplyRoute(ctx, route.Route{Provider: provider, Profile: p}, profile, agentName, model, fallback)
+	return ApplyRoute(ctx, value, profile, agentName, model, fallback)
 }
 
 // ApplyRoute is ctx with want as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
@@ -63,20 +62,20 @@ func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model
 	return applyArm(ctx, p, profile, agentName, model, fallback)
 }
 
-// typedArm is databricks:<workspace> for a typed --profile naming one, so nested dispatches inherit its fence.
-func typedArm(f *askFlags) string {
+// typedArm is the Databricks workspace a typed --profile names, so nested dispatches inherit its fence.
+func typedArm(f *askFlags) route.Route {
 	if f.profile == "" || cmp.Or(f.host, f.job, f.retry, f.batchSrc) != "" {
-		return ""
+		return route.Route{}
 	}
 	return TypedWorkspace(f.profile)
 }
 
-// TypedWorkspace is databricks:<workspace> for a --profile naming one Databricks workspace, else "".
-func TypedWorkspace(profile string) string {
+// TypedWorkspace is the Databricks workspace a --profile names, else the zero route.
+func TypedWorkspace(profile string) route.Route {
 	if fr := flagRoute(&askFlags{profile: profile}); fr.Provider == router.RouteDatabricks && fr.Profile != route.AutoArm {
-		return route.Join(fr.Provider, fr.Profile)
+		return route.Route{Provider: fr.Provider, Profile: fr.Profile}
 	}
-	return ""
+	return route.Route{}
 }
 
 // typedMoves reports a typed --profile p that is a start, not a lock: unfenced, and not under --fallback none.
@@ -85,9 +84,9 @@ func typedMoves(ctx context.Context, p, profile, fallback string) bool {
 }
 
 // typedStart reports value is r's own typed --profile workspace and typedMoves lets it move.
-func (r *askRun) typedStart(value, fallback string) bool {
+func (r *askRun) typedStart(value route.Route, fallback string) bool {
 	f := r.f
-	return value != "" && value == typedArm(f) && typedMoves(r.ctx, f.profile, f.profile, fallback)
+	return !value.IsZero() && value == typedArm(f) && typedMoves(r.ctx, f.profile, f.profile, fallback)
 }
 
 // withValues is ctx whose run values are set laid over its own: what the run exports, with nothing set process-wide.
@@ -584,8 +583,8 @@ func (r *askRun) pinLacks(model string) bool {
 }
 
 // ownLoginNative is f.native, or true for a typed opencode own-login model with no confinement: it wins over a pin.
-func ownLoginNative(agentName string, f *askFlags, value string) bool {
-	return f.native || value == "" && agentName == agentid.OpenCode && f.profile == "" && f.provider == "" && f.host == "" &&
+func ownLoginNative(agentName string, f *askFlags, value route.Route) bool {
+	return f.native || value.IsZero() && agentName == agentid.OpenCode && f.profile == "" && f.provider == "" && f.host == "" &&
 		providers.OpencodeOwnModel(f.model)
 }
 

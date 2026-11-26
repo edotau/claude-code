@@ -113,7 +113,7 @@ func TestSecretLogin(t *testing.T) {
 
 	StdinIsTerminal = func() bool { return false }
 	err := SigninFor(p).Login(context.Background(), nil, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "claude-code vault set "+name) || prompts != 0 || len(stored) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "claude-code vault set secrets "+name) || prompts != 0 || len(stored) != 0 {
 		t.Fatalf("non-TTY: err=%v prompts=%d stored=%v", err, prompts, stored)
 	}
 

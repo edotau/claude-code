@@ -797,6 +797,7 @@ func (r *Record) UnmarshalJSON(b []byte) error {
 	r.Route, r.RanRoute = route.Route(aux.Route), route.Route(aux.RanRoute)
 	r.Provider, r.Account = cmp.Or(r.RanRoute.Profile, aux.OldProvider), wire.Older(b, "billing_key", r.Account, aux.OldAccount)
 	r.RanIdentity = cmp.Or(r.RanRoute.Identity, aux.OldIdentity)
+	r.Request.readLegacyProvider()
 	return nil
 }
 

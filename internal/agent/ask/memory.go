@@ -256,7 +256,7 @@ func MemoryRunner() memory.AgentFunc {
 // hopOptions aims opts at one hop: route and legacy provider agree, and no lead or account from the pin survives.
 func hopOptions(opts agent.RunOptions, hop route.Route) agent.RunOptions {
 	opts.Route = hop
-	opts.Provider = hop.Provider + ":" + hop.Profile
+	opts.Provider = hop.Profile
 	opts.Lead, opts.Account, opts.CellRoute = hop.Profile, "", route.Route{}
 	return opts
 }

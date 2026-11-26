@@ -29,9 +29,8 @@ const (
 )
 
 // armAutoPick reports whether applying the confinement value makes this process pick the workspace (databricks:auto).
-func armAutoPick(ctx context.Context, value string) bool {
-	provider, p, err := route.Parse(value)
-	return err == nil && provider == router.RouteDatabricks && p == route.AutoArm && router.ArmProfileContext(ctx) == ""
+func armAutoPick(ctx context.Context, value route.Route) bool {
+	return value.Provider == router.RouteDatabricks && value.Profile == route.AutoArm && router.ArmProfileContext(ctx) == ""
 }
 
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.

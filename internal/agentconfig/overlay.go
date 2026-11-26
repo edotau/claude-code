@@ -296,8 +296,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := overlayNames()
-		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
+		return route.UnknownKey(key, overlayNames())
 	}
 	return err
 }
@@ -360,8 +359,13 @@ func (o Overlay) Routed() bool {
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
 }
 
-// Confinement is the internal provider[:profile] value ("databricks:qa", "anthropic"); "" when no provider is named.
-func (o Overlay) Confinement() string { return route.Join(o.Provider, o.Profile) }
+// Confinement is the provider and profile the overlay confines to; zero when no provider is named.
+func (o Overlay) Confinement() route.Route {
+	if o.Provider == "" {
+		return route.Route{}
+	}
+	return route.Route{Provider: o.Provider, Profile: o.Profile}
+}
 
 // InlineOverlay carries confinement and inherited dispatch caps without the parent's env or vendor budget.
 func InlineOverlay(provider, profile string, limits ...Overlay) string {

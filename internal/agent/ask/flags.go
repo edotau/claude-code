@@ -514,7 +514,8 @@ type askTarget struct {
 	Tools, NoTools, Autonomous, Fleet, EnableMemory, Direct   *bool
 	NoPersist, Native                                         *bool
 	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
-	Host, Fallback, Coworker, Codemode, Runner, Verify        *string
+	Host, Fallback, Codemode, Runner, Verify                  *string
+	Coworker                                                  *route.Route
 	GoogleTools                                               *string
 	Timeout                                                   *time.Duration
 	Persona                                                   **agent.Schema
@@ -544,8 +545,8 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy
 	}
-	if !rec.Route.IsZero() { // the workspace the run was confined to; an overlay provider still wins (checkArm)
-		*t.Coworker = route.Join(rec.Route.Provider, rec.Route.Profile)
+	if rec.Route.Provider != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
+		*t.Coworker = route.Route{Provider: rec.Route.Provider, Profile: rec.Route.Profile}
 	}
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
@@ -685,7 +686,7 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)
 		return false
 	}
-	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", ""
+	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", route.Route{}
 	force := "--agent " + ran + " forces the original"
 	if ago != "" {
 		force = "--model or --fallback none keeps the original"

@@ -44,7 +44,7 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		`{"files":[]}`:              "files: not supported yet",
 		`{"profile":"dev"}`:         "provider: required with profile",
 		`{"provider":"databricks"}`: "profile: required with provider",
-		`{"bogus":1}`:               "unknown key bogus (schema|provider|profile|identity|account|host|remote|model|effort|fallback|",
+		`{"fallback_mode":"pin"}`:   `unknown key "fallback_mode" (nearest valid key: fallback)`,
 		`{"identity":"x"}`:          "identity: want auto, user, sp",
 		`{"fallback":"x"}`:          "fallback_mode: ",
 		`{"provider":"databricks","profile":"d\u0007ev"}`: "profile: blank or holds a control character",
@@ -69,7 +69,7 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		o.Fallback != "pin" || o.Route().Identity != "sp" || !o.Routed() {
 		t.Errorf("account/identity/pin overlay = %+v, %v", o, err)
 	}
-	if o, err := LoadOverlayContext(t.Context(), own, nil); err != nil || o.Confinement() != "databricks:dev" {
+	if o, err := LoadOverlayContext(t.Context(), own, nil); err != nil || o.Confinement() != (route.Route{Provider: "databricks", Profile: "dev"}) {
 		t.Errorf("own 0600 file: overlay %+v, err %v; want databricks:dev", o, err)
 	}
 }
@@ -185,8 +185,8 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 	}
 	t.Setenv(route.OverlayVar, "")
 	o, err := LoadOverlayContext(t.Context(), DispatchOverlayContext(t.Context(), ""), strings.NewReader(""))
-	if err != nil || o.Confinement() != "databricks:auto" {
-		t.Errorf("stored overlay loaded as %q (err %v), want confinement databricks:auto", o.Confinement(), err)
+	if err != nil || o.Confinement() != (route.Route{Provider: "databricks", Profile: "auto"}) {
+		t.Errorf("stored overlay loaded as %+v (err %v), want confinement databricks:auto", o.Confinement(), err)
 	}
 }
 

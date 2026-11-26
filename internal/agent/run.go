@@ -646,12 +646,19 @@ type RunOptions struct {
 	Rotated bool `json:"rotated,omitempty"`
 }
 
+// readLegacyProvider moves an older record's "provider:profile" Provider into Route, leaving the profile in Provider.
+func (o *RunOptions) readLegacyProvider() {
+	if legacy := route.ParseLegacy(o.Provider); o.Route.IsZero() && legacy.Provider != "" && strings.Contains(o.Provider, ":") {
+		o.Route, o.Provider = legacy, legacy.Profile
+	}
+}
+
 // EffectiveRoute is Route when set, else built from the legacy Provider, Account and the cell's row.
 func (o RunOptions) EffectiveRoute() route.Route {
 	if !o.Route.IsZero() {
 		return o.Route
 	}
-	r := route.ParseLegacy(o.Provider)
+	r := route.FromWord(o.Provider)
 	if r.IsZero() {
 		r = o.CellRoute
 	}

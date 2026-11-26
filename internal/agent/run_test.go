@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -969,5 +970,16 @@ func TestRunDeadlineAfterStreamIsPartial(t *testing.T) {
 	res, err := Run(context.Background(), eng, RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, wire.Discard, nil)
 	if err == nil || res.Status != wire.StatusPartial || res.Answer != "half an answer" {
 		t.Fatalf("status=%q answer=%q err=%v, want partial with the streamed text", res.Status, res.Answer, err)
+	}
+}
+
+// An older record stored "provider:profile" in the request's Provider; loading reads it into the route once.
+func TestRecordReadsColonRequestProvider(t *testing.T) {
+	var rec Record
+	if err := json.Unmarshal([]byte(`{"request":{"Provider":"databricks:qa"}}`), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := rec.Request.EffectiveRoute(), (route.Route{Provider: "databricks", Profile: "qa"}); got != want || rec.Request.Provider != "qa" {
+		t.Errorf("request route %+v provider %q, want %+v and qa", got, rec.Request.Provider, want)
 	}
 }

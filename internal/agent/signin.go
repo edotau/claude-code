@@ -161,7 +161,7 @@ func (s secretSignin) Login(_ context.Context, _ io.Reader, _ io.Writer) error {
 		return fmt.Errorf("%s: no vault secret to set; edit its auth.command or auth.file", s.p.Name)
 	}
 	if !StdinIsTerminal() {
-		return fmt.Errorf("not a terminal; run `claude-code vault set %s`", name)
+		return fmt.Errorf("not a terminal; run `claude-code vault set secrets %s`", name)
 	}
 	v, err := PromptSecret(name)
 	if err != nil {
