@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -167,7 +168,56 @@ func settleBankWith(now time.Time, extra []string, subject string) (rotated int,
 	if rep.notable() {
 		fmt.Fprintln(os.Stderr, "memory index:", rep)
 	}
-	return rotated, errors.Join(commitBanks(subject), ierr)
+	commitErr := commitBanks(subject)
+	if commitErr == nil {
+		shadowSettle(now)
+	}
+	return rotated, errors.Join(commitErr, ierr)
+}
+
+// shadowSettle imports into the shadow db and logs a change in its divergent docs; it never fails the settle.
+func shadowSettle(now time.Time) {
+	if ShadowImport == nil {
+		return
+	}
+	docs, changed, err := guardedShadowImport()
+	if changed { // a failed import still logs the partial set it found
+		err = errors.Join(err, appendShadowLog(now, append([]string{}, docs...)))
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "notice: memory shadow:", err)
+	}
+}
+
+func guardedShadowImport() (docs []string, changed bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			docs, changed, err = nil, false, fmt.Errorf("import panicked: %v", r)
+		}
+	}()
+	return ShadowImport()
+}
+
+func shadowLogPath() string { return filepath.Join(paths.MemoryStateDir(), "shadow.log") }
+
+func appendShadowLog(now time.Time, docs []string) error {
+	b, err := json.Marshal(struct {
+		Time string   `json:"time"`
+		Docs []string `json:"docs"`
+	}{now.UTC().Format(time.RFC3339), docs})
+	if err != nil {
+		return err
+	}
+	path := shadowLogPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, werr := f.Write(append(b, '\n'))
+	return errors.Join(werr, f.Close())
 }
 
 // refreshIndexFiles writes catalog.md and refreshes MEMORY.md, after the alias check that guards both.

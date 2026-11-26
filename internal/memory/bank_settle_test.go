@@ -2,6 +2,8 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -157,6 +159,126 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 			t.Errorf("%s remains dirty after settle: %v, %v", name, dirty, err)
 		}
 	}
+}
+
+// shadowStep is one settle's stubbed import result.
+type shadowStep struct {
+	docs    []string
+	changed bool
+	err     error
+	panic   bool
+}
+
+func TestSettleShadowLog(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		steps  []shadowStep
+		lines  []string // docs of each log line, in order, "-" for a cleared set
+		notice bool
+	}{
+		{name: "diverged", steps: []shadowStep{{docs: []string{"a.md"}, changed: true}}, lines: []string{"a.md"}},
+		{name: "matched", steps: []shadowStep{{}}},
+		{name: "import error", steps: []shadowStep{{err: errors.New("shadow unavailable")}}, notice: true},
+		{name: "partial result kept", steps: []shadowStep{{docs: []string{"a.md"}, changed: true, err: errors.New("late")}},
+			lines: []string{"a.md"}, notice: true},
+		{name: "error keeps the set", steps: []shadowStep{{docs: []string{"a.md"}, changed: true}, {err: errors.New("late")}},
+			lines: []string{"a.md"}, notice: true},
+		{name: "panic", steps: []shadowStep{{panic: true}}, notice: true},
+		{name: "change only", steps: []shadowStep{{docs: []string{"a.md", "b.md"}, changed: true}, {docs: []string{"a.md", "b.md"}},
+			{docs: []string{"a.md"}, changed: true}, {changed: true}, {}}, lines: []string{"a.md b.md", "a.md", "-"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runBank(t, func(t *testing.T) {
+				var got []string
+				for _, st := range tc.steps {
+					stubShadowImport(t, st)
+					got = append(got, stderrOf(t, func() {
+						if _, err := settleBank(time.Now()); err != nil {
+							t.Fatal(err)
+						}
+					}))
+				}
+				if has := strings.Contains(strings.Join(got, ""), "notice: memory shadow: "); has != tc.notice {
+					t.Fatalf("shadow notice = %q, want notice %v", got, tc.notice)
+				}
+				if lines := shadowLogDocs(t); !slices.Equal(lines, tc.lines) {
+					t.Fatalf("shadow log lines = %q, want %q", lines, tc.lines)
+				}
+			})
+		})
+	}
+}
+
+func TestSettleShadowLogWriteFails(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		if err := os.MkdirAll(shadowLogPath(), 0o700); err != nil { // a directory where the log file goes
+			t.Fatal(err)
+		}
+		stubShadowImport(t, shadowStep{docs: []string{"a.md"}, changed: true})
+		out := stderrOf(t, func() {
+			if _, err := settleBank(time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if !strings.Contains(out, "notice: memory shadow: ") {
+			t.Fatalf("no notice for a failed log write: %q", out)
+		}
+	})
+}
+
+func stubShadowImport(t *testing.T, st shadowStep) {
+	t.Helper()
+	old := ShadowImport
+	t.Cleanup(func() { ShadowImport = old })
+	ShadowImport = func() ([]string, bool, error) {
+		if st.panic {
+			panic("boom")
+		}
+		return st.docs, st.changed, st.err
+	}
+}
+
+// shadowLogDocs is each log line's docs joined by space, "-" for an empty set; nil when there is no log.
+func shadowLogDocs(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(shadowLogPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for l := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
+		var line struct {
+			Time string   `json:"time"`
+			Docs []string `json:"docs"`
+		}
+		if err := json.Unmarshal([]byte(l), &line); err != nil || line.Time == "" || line.Docs == nil {
+			t.Fatalf("bad shadow log line %q: %v", l, err)
+		}
+		out = append(out, cmp.Or(strings.Join(line.Docs, " "), "-"))
+	}
+	return out
+}
+
+// stderrOf runs fn and returns what it wrote to os.Stderr, restored by t.Cleanup; never use it in a parallel test.
+func stderrOf(t *testing.T, fn func()) string {
+	t.Helper()
+	f, err := os.Create(filepath.Join(t.TempDir(), "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	t.Cleanup(func() { os.Stderr = orig; _ = f.Close() })
+	os.Stderr = f
+	fn()
+	os.Stderr = orig
+	b, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // writeNote writes a native note under the store's folder.

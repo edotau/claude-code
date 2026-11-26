@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/memory"
@@ -129,17 +130,26 @@ type ShadowReport struct {
 
 // RebuildShadow migrates the shadow db (snapshot in state/backups first) and rebuilds it from the memory store.
 func RebuildShadow(ctx context.Context) (ShadowReport, error) {
+	db, err := openMigratedShadow(ctx)
+	if err != nil {
+		return ShadowReport{}, err
+	}
+	defer db.Close()
+	return shadowRebuild(ctx, db, paths.MemoryStoreDir())
+}
+
+func openMigratedShadow(ctx context.Context) (*sql.DB, error) {
 	path := ShadowDBPath()
 	db, err := sqlite.Open(path, sqlite.Options{})
 	if err != nil {
-		return ShadowReport{}, fmt.Errorf("memory: shadow open: %w", err)
+		return nil, fmt.Errorf("memory: shadow open: %w", err)
 	}
-	defer db.Close()
 	opts := sqlite.MigrateOptions{SnapshotDir: filepath.Join(filepath.Dir(path), "backups")}
 	if _, err := migrateMemoryDB(ctx, db, opts); err != nil {
-		return ShadowReport{}, fmt.Errorf("memory: shadow migrate: %w", err)
+		_ = db.Close()
+		return nil, fmt.Errorf("memory: shadow migrate: %w", err)
 	}
-	return shadowRebuild(ctx, db, paths.MemoryStoreDir())
+	return db, nil
 }
 
 // shadowEntry is one entries row before insert.
@@ -154,6 +164,8 @@ type shadowDoc struct {
 	hidden, front               *string
 	entries                     []shadowEntry
 	raw                         []byte // the file as read, for the round-trip check
+	same                        bool   // unchanged since its recorded fingerprint: not parsed, not imported
+	stamp                       string // size:mtime, read before the file
 }
 
 var (
@@ -172,25 +184,51 @@ var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts", "DELE
 
 // shadowRebuild replaces every docs and entries row with root's files, then checks each render is byte-equal.
 func shadowRebuild(ctx context.Context, db *sql.DB, root string) (ShadowReport, error) {
+	return shadowSync(ctx, db, root, true)
+}
+
+const (
+	metaImported = "imported_schema"
+	// renderVersion is bumped when ParseDoc or renderShadowDoc changes, so every doc is imported again.
+	renderVersion = "1"
+)
+
+func importMarker() string { return strconv.Itoa(len(memorySteps)) + ":" + renderVersion }
+
+// shadowSync imports root's files, only the docs whose stat fingerprint moved unless full (new db, moved schema).
+func shadowSync(ctx context.Context, db *sql.DB, root string, full bool) (ShadowReport, error) {
 	if fi, err := os.Stat(root); err != nil || !fi.IsDir() { // a missing root must never empty the db
 		return ShadowReport{}, fmt.Errorf("memory: shadow rebuild: store root %s is not a directory (%v)", root, err)
 	}
-	docs, err := shadowDocs(root)
+	known, err := readFingerprints(ctx, db, full)
+	if err != nil {
+		return ShadowReport{}, err
+	}
+	docs, err := shadowDocs(root, known)
 	if err != nil {
 		return ShadowReport{}, err
 	}
 	var n ShadowReport
+	var changed []shadowDoc
 	err = sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
-		n = ShadowReport{}
-		for _, q := range shadowClear {
-			if _, err := tx.ExecContext(ctx, q); err != nil {
-				return err
+		n, changed = ShadowReport{}, nil
+		if known == nil {
+			for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%'") {
+				if _, err := tx.ExecContext(ctx, q); err != nil {
+					return err
+				}
 			}
+		} else if err := dropStale(ctx, tx, docs); err != nil {
+			return err
 		}
 		for _, d := range docs {
+			if d.same {
+				continue
+			}
 			if err := insertShadowDoc(ctx, tx, d); err != nil {
 				return err
 			}
+			changed = append(changed, d)
 			n.Docs, n.Entries = n.Docs+1, n.Entries+len(d.entries)
 		}
 		return nil
@@ -198,8 +236,102 @@ func shadowRebuild(ctx context.Context, db *sql.DB, root string) (ShadowReport, 
 	if err != nil {
 		return ShadowReport{}, fmt.Errorf("memory: shadow rebuild: %w", err)
 	}
-	n.Mismatched, err = shadowMismatches(ctx, db, docs)
-	return n, err
+	n.Mismatched, err = shadowMismatches(ctx, db, changed)
+	if err != nil {
+		return n, err
+	}
+	return n, writeFingerprints(ctx, db, changed, n.Mismatched)
+}
+
+// readFingerprints maps imported paths to their "size:mtime_ns" (meta stat:<path>); nil means import everything.
+func readFingerprints(ctx context.Context, db *sql.DB, full bool) (map[string]string, error) {
+	if full {
+		return nil, nil
+	}
+	var v string
+	err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, metaImported).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && v != importMarker()) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("memory: shadow meta: %w", err)
+	}
+	rows, err := db.QueryContext(ctx, `SELECT substr(key, 6), value FROM meta WHERE key LIKE 'stat:%'`)
+	if err != nil {
+		return nil, fmt.Errorf("memory: shadow meta: %w", err)
+	}
+	defer rows.Close()
+	known := map[string]string{}
+	for rows.Next() {
+		var p, h string
+		if err := rows.Scan(&p, &h); err != nil {
+			return nil, err
+		}
+		known[p] = h
+	}
+	return known, rows.Err()
+}
+
+// dropStale deletes the rows of every changed doc and of every doc row whose file is gone.
+func dropStale(ctx context.Context, tx *sql.Tx, docs []shadowDoc) error {
+	live := map[string]bool{}
+	var drop []string
+	for _, d := range docs {
+		live[d.path] = true
+		if !d.same {
+			drop = append(drop, d.path)
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT path FROM docs`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !live[p] {
+			drop = append(drop, p)
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, p := range drop {
+		for _, q := range dropDocStmts {
+			if _, err := tx.ExecContext(ctx, q, p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// dropDocStmts remove one doc and every row keyed by its entries' rowids (rowids are reused).
+var dropDocStmts = []string{
+	`DELETE FROM vectors WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
+	`DELETE FROM changes WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
+	`DELETE FROM conflicts WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
+	`DELETE FROM entries WHERE doc = ?1`, `DELETE FROM docs WHERE path = ?1`, `DELETE FROM meta WHERE key = 'stat:' || ?1`,
+}
+
+// writeFingerprints records each imported doc whose render matched; a mismatched one is re-imported next time.
+func writeFingerprints(ctx context.Context, db *sql.DB, changed []shadowDoc, mismatched []string) error {
+	return sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
+		for _, d := range changed {
+			if slices.Contains(mismatched, d.path) {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO meta(key, value) VALUES('stat:' || ?, ?)`, d.path, d.stamp); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?),
+			('entries', (SELECT count(*) FROM entries WHERE deleted = 0))`, metaImported, importMarker())
+		return err
+	})
 }
 
 // shadowMismatches lists the docs whose render from rows differs from the bytes read.
@@ -233,10 +365,10 @@ func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
 }
 
 // shadowDocs reads and parses every in-scope file under root, sorted by path.
-func shadowDocs(root string) ([]shadowDoc, error) {
+func shadowDocs(root string, known map[string]string) ([]shadowDoc, error) {
 	var docs []shadowDoc
 	for _, name := range memory.BankFiles() {
-		d, ok, err := readShadowDoc(root, name, "bank", true)
+		d, ok, err := readShadowDoc(root, name, "bank", true, known)
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +376,7 @@ func shadowDocs(root string) ([]shadowDoc, error) {
 			docs = append(docs, d)
 		}
 	}
-	more, err := scopedDocs(root)
+	more, err := scopedDocs(root, known)
 	if err != nil {
 		return nil, err
 	}
@@ -254,10 +386,10 @@ func shadowDocs(root string) ([]shadowDoc, error) {
 }
 
 // scopedDocs is the archive, note and record files; a missing folder contributes nothing.
-func scopedDocs(root string) ([]shadowDoc, error) {
+func scopedDocs(root string, known map[string]string) ([]shadowDoc, error) {
 	var docs []shadowDoc
 	add := func(rel, kind string, perEntry bool) error {
-		d, ok, err := readShadowDoc(root, rel, kind, perEntry)
+		d, ok, err := readShadowDoc(root, rel, kind, perEntry, known)
 		if ok {
 			docs = append(docs, d)
 		}
@@ -320,17 +452,26 @@ func shadowFile(d fs.DirEntry) bool {
 		!slices.Contains(shadowGenerated, n)
 }
 
-// readShadowDoc reads rel; ok is false for a missing bank file.
-func readShadowDoc(root, rel, kind string, perEntry bool) (shadowDoc, bool, error) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+// readShadowDoc reads rel (ok false for a missing bank file); a doc matching its recorded fingerprint is not parsed.
+func readShadowDoc(root, rel, kind string, perEntry bool, known map[string]string) (shadowDoc, bool, error) {
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	fi, err := os.Stat(full)                              // stamped before the read, so a racing edit only costs a re-read
 	if errors.Is(err, fs.ErrNotExist) && kind == "bank" { // a walked file that vanished must fail, not drop its rows
 		return shadowDoc{}, false, nil
 	}
 	if err != nil {
 		return shadowDoc{}, false, fmt.Errorf("memory: shadow read %s: %w", rel, err)
 	}
+	stamp := fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
+	if known[rel] == stamp {
+		return shadowDoc{path: rel, same: true}, true, nil
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return shadowDoc{}, false, fmt.Errorf("memory: shadow read %s: %w", rel, err)
+	}
 	doc := memory.ParseDoc(rel, data)
-	d := shadowDoc{path: rel, kind: kind, header: doc.Header, front: joinedOrNil(doc.Front, doc.Front == nil), raw: data}
+	d := shadowDoc{path: rel, kind: kind, header: doc.Header, front: joinedOrNil(doc.Front, doc.Front == nil), raw: data, stamp: stamp}
 	if !perEntry {
 		d.grammar = kind
 		if kind == "archive" { // an unmapped archive file has no source grammar

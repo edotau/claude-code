@@ -12,6 +12,7 @@ internal/memory/bank_remember.go:appendText	unversioned: memory-bank: report and
 internal/memory/bank_remember.go:createUnique	unversioned: memory-bank: dispatch report file, created exclusively
 internal/memory/bank_remember.go:writeNoteLocked	unversioned: memory-bank: feedback note
 internal/memory/bank_remember.go:writeRememberFact	unversioned: memory-bank: bank remember
+internal/memory/bank_settle.go:appendShadowLog	unversioned: log: the shadow import's divergent docs, one JSON object per line
 internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report restored after a failed decisions append
 internal/memory/bank_settle.go:rotateSessionHistory	unversioned: memory-bank: sessionHistory rotation
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router

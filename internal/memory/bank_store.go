@@ -30,6 +30,9 @@ type BankStore interface {
 	Apply(b Batch, base Versions, now time.Time) ([]OpResult, error) // all or nothing
 }
 
+// ShadowImport is nil when no shadow store is linked; changed means the divergent set moved since the last import.
+var ShadowImport func() (diverged []string, changed bool, err error)
+
 // fileBankStore keeps the bank in its markdown files; locked means the caller already holds the bank lock.
 type fileBankStore struct{ locked bool }
 

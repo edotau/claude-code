@@ -3,17 +3,54 @@ package shadow
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/sqlite"
 )
 
 // sqlBankStore is the bank seam over the shadow db: one row per entry; a Version is the row's counter, never reused.
 type sqlBankStore struct{ db *sql.DB }
+
+func init() { memory.ShadowImport = importShadow }
+
+// importShadow imports changed docs and lists the divergent ones; changed means that set moved since meta diverged.
+func importShadow() (docs []string, changed bool, err error) {
+	if _, err := os.Stat(ShadowDBPath()); err != nil {
+		if errors.Is(err, fs.ErrNotExist) { // no shadow yet: nothing verified, nothing logged
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	ctx := context.Background()
+	db, err := openMigratedShadow(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer db.Close()
+	report, err := shadowSync(ctx, db, paths.MemoryStoreDir(), false)
+	docs = report.Mismatched
+	slices.Sort(docs)
+	var prev string
+	qerr := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'diverged'`).Scan(&prev)
+	if qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
+		return docs, false, errors.Join(err, qerr)
+	}
+	now := strings.Join(docs, "\n")
+	if changed = now != prev; changed { // stored even on a failed import, so a partial set logs once
+		_, serr := db.ExecContext(ctx, `INSERT OR REPLACE INTO meta(key, value) VALUES('diverged', ?)`, now)
+		err = errors.Join(err, serr)
+	}
+	return docs, changed, err
+}
 
 var _ memory.BankStore = sqlBankStore{}
 

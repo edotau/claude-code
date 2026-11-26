@@ -2,7 +2,9 @@ package shadow
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/sqlite"
 )
 
@@ -98,6 +102,149 @@ func TestShadowRoundTrip(t *testing.T) {
 	wantShadowMatch(t, db, "zebrafish", "decisionLog.md", "0123abcd")
 }
 
+func TestShadowImportRegistration(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := paths.MemoryStoreDir()
+	if memory.ShadowImport == nil {
+		t.Fatal("shadow import not registered")
+	}
+	if docs, changed, err := memory.ShadowImport(); err != nil || changed || len(docs) != 0 {
+		t.Fatalf("missing db import = %v, %v, %v", docs, changed, err)
+	}
+	if _, err := os.Stat(ShadowDBPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing db was created: %v", err)
+	}
+	writeShadowStore(t, root, false)
+	if _, err := RebuildShadow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	newBody := "# Conventions\n\n- use gofmt\n- wrap errors\n- keep edits\n"
+	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(newBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+		t.Fatalf("edited file import = %v, %v", docs, err)
+	}
+	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	got, err := renderShadowDoc(context.Background(), db, "conventions.md")
+	if err != nil || string(got) != newBody {
+		t.Fatalf("imported render = %q, %v; want %q", got, err, newBody)
+	}
+}
+
+func TestShadowImportIncremental(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := paths.MemoryStoreDir()
+	writeShadowStore(t, root, false)
+	ctx := context.Background()
+	if _, err := RebuildShadow(ctx); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// a trigger makes the next import of conventions.md render unequal: divergence through the real seam
+	execShadow(t, db, `CREATE TRIGGER skew AFTER INSERT ON entries WHEN new.doc = 'conventions.md'
+		BEGIN UPDATE entries SET lines = lines || 'x' WHERE rowid = new.rowid; END`)
+	before := dumpShadow(t, db)
+	if docs, changed, err := memory.ShadowImport(); err != nil || changed || len(docs) != 0 {
+		t.Fatalf("unchanged import = %v, %v", docs, err)
+	}
+	if dumpShadow(t, db) != before {
+		t.Fatal("an unchanged store rewrote rows")
+	}
+	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte("# Conventions\n\n- one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 2 { // a divergent doc is never recorded, so it is reported again, but changed only the first time
+		docs, changed, err := memory.ShadowImport()
+		if err != nil || !slices.Equal(docs, []string{"conventions.md"}) || changed != (i == 0) {
+			t.Fatalf("divergent import %d = %v, %v, %v", i, docs, changed, err)
+		}
+	}
+	execShadow(t, db, "DROP TRIGGER skew")
+	wantVanishedDropped(t, db, root)
+	wantFullOnMovedSchema(t, db)
+	if err := os.Remove(filepath.Join(root, "reports", "r.md")); err != nil {
+		t.Fatal(err)
+	}
+	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+		t.Fatalf("settled import = %v, %v", docs, err)
+	}
+	var n int
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM docs WHERE path = 'reports/r.md'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("removed file still has a docs row: %d (%v)", n, err)
+	}
+}
+
+// wantVanishedDropped: entry-keyed rows go with their doc; a never-fingerprinted doc that vanishes is dropped.
+func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
+	t.Helper()
+	ctx := context.Background()
+	execShadow(t, db, "INSERT INTO conflicts SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
+		"INSERT INTO changes SELECT 'o', 1, 1, rowid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'")
+	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
+		t.Fatal(err)
+	}
+	if docs, changed, err := memory.ShadowImport(); err != nil || !changed || len(docs) != 0 { // the set cleared
+		t.Fatalf("vanished divergent doc import = %v, %v, %v", docs, changed, err)
+	}
+	var entries, live int
+	if err := db.QueryRowContext(ctx, `SELECT (SELECT value FROM meta WHERE key = 'entries'),
+		(SELECT count(*) FROM entries WHERE deleted = 0)`).Scan(&entries, &live); err != nil || entries != live {
+		t.Fatalf("meta entries = %d, live rows %d (%v)", entries, live, err)
+	}
+	var left int
+	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM docs WHERE path = 'conventions.md') +
+		(SELECT count(*) FROM entries WHERE doc = 'conventions.md') + (SELECT count(*) FROM conflicts) +
+		(SELECT count(*) FROM changes)`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("rows left for a vanished doc: %d (%v)", left, err)
+	}
+}
+
+// wantFullOnMovedSchema: a moved schema marker forces a full import, so an unchanged-looking doc is re-imported.
+func wantFullOnMovedSchema(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	execShadow(t, db, "UPDATE meta SET value = '0' WHERE key = 'imported_schema'", "UPDATE entries SET lines = 'tampered' WHERE doc = 'progress.md'")
+	if docs, _, err := memory.ShadowImport(); err != nil || len(docs) != 0 {
+		t.Fatalf("full import = %v, %v", docs, err)
+	}
+	var tampered int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM entries WHERE lines = 'tampered'`).Scan(&tampered); err != nil || tampered != 0 {
+		t.Fatalf("moved schema did not force a full import: %d (%v)", tampered, err)
+	}
+}
+
+// TestShadowRenderVersion fails when parsing or rendering changes: bump renderVersion, then update want here.
+func TestShadowRenderVersion(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeShadowStore(t, root, false)
+	db := openShadowDB(t, nil)
+	if _, err := shadowRebuild(ctx, db, root); err != nil {
+		t.Fatal(err)
+	}
+	h := sha256.New()
+	for _, f := range shadowFixture[:shadowImported] {
+		got, err := renderShadowDoc(ctx, db, f.rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Write(got)
+	}
+	const want = "a2a36b630358ba553893fc53a16bb70cf4cb756f8df341e38655baee3337ab42"
+	if got := hex.EncodeToString(h.Sum(nil)); got != want {
+		t.Fatalf("render hash %s (renderVersion %s): bump renderVersion and update want", got, renderVersion)
+	}
+}
+
 func TestShadowMismatch(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -106,7 +253,7 @@ func TestShadowMismatch(t *testing.T) {
 	if _, err := shadowRebuild(ctx, db, root); err != nil {
 		t.Fatal(err)
 	}
-	docs, err := shadowDocs(root)
+	docs, err := shadowDocs(root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
