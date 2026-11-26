@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 type pendingRow struct {
@@ -177,10 +177,10 @@ func orphaned(top string, row pendingRow) bool {
 	if top == "" {
 		return false
 	}
-	if _, err := source.GitInherit(top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+row.Lane); err == nil {
+	if _, err := proc.GitInheritTimeout(top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+row.Lane); err == nil {
 		return false
 	}
-	out, err := source.GitInherit(top, "for-each-ref", "--count=1", "--format=%(refname)", "--contains="+row.Sha,
+	out, err := proc.GitInheritTimeout(top, "for-each-ref", "--count=1", "--format=%(refname)", "--contains="+row.Sha,
 		"refs/heads")
 	return err != nil || out == ""
 }

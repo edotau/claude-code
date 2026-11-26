@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -228,7 +229,7 @@ func rangeFiles(repo, diffRange string, paths []string) ([]scopeFile, error) {
 		paths = []string{"."}
 	}
 	args := append([]string{"diff", "--numstat", "-z", diffRange, "--"}, paths...)
-	out, err := source.GitInherit(repo, args...)
+	out, err := proc.GitInheritTimeout(repo, args...)
 	if err != nil {
 		return nil, err
 	}

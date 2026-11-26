@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/source"
 )
 
 // abOptions is an interleaved run: A is the parent worktree, B the fix; rounds alternate A, B, A, B, ...
@@ -228,15 +227,6 @@ func mergeRuns(dst string, files []string) error {
 		}
 	}
 	return paths.AtomicWriteNoSync(dst, []byte(sb.String()), 0o644)
-}
-
-func gitCommit(dir string) (string, error) {
-	return source.GitInherit(dir, "rev-parse", "--short", "HEAD")
-}
-
-func gitDirty(dir string) (bool, error) {
-	out, err := source.GitInherit(dir, "status", "--porcelain")
-	return out != "", err
 }
 
 // execBench runs `review bench --out` of this binary in dir, so one side's run is its own process.

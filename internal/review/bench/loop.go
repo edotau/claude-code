@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // loopOpts are the improvement-loop modes of `review bench`: --queue, --decide and --record.
@@ -725,7 +725,7 @@ func recordRow(l loopOpts) error {
 		return err
 	}
 	if l.sha == "" {
-		l.sha, _ = source.GitInherit(".", "rev-parse", "--short", "HEAD")
+		l.sha, _ = proc.GitInheritTimeout(".", "rev-parse", "--short", "HEAD")
 	}
 	l, err := fromDispatch(l)
 	if err != nil {

@@ -1,7 +1,6 @@
 package source
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -91,16 +89,9 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail}, 0, false
 }
 
-// GitInherit runs git in repo with the caller's env under a 30s timeout; proc trims the output's trailing newlines.
-func GitInherit(repo string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	return proc.RunGitInherit(ctx, repo, args...)
-}
-
 // gitLines runs git with list args in dir and returns its non-empty output lines.
 func gitLines(dir string, args ...string) ([]string, error) {
-	out, err := GitInherit(dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
+	out, err := proc.GitInheritTimeout(dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
 	if err != nil {
 		return nil, err
 	}

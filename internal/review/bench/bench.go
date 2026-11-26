@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -257,7 +257,7 @@ func checkRepo(repo string) error {
 }
 
 func repoTop() (string, error) {
-	out, err := source.GitInherit(".", "rev-parse", "--show-toplevel")
+	out, err := proc.GitInheritTimeout(".", "rev-parse", "--show-toplevel")
 	if err != nil || out == "" {
 		return "", errors.New("not a git repository")
 	}
@@ -316,11 +316,11 @@ func targetDir(t string) string {
 }
 
 func changedFiles(top string) ([]string, error) {
-	names, err := source.GitInherit(top, "diff", "--name-only", "HEAD", "--")
+	names, err := proc.GitInheritTimeout(top, "diff", "--name-only", "HEAD", "--")
 	if err != nil {
 		return nil, fmt.Errorf("git diff: %w", err)
 	}
-	untracked, _ := source.GitInherit(top, "ls-files", "--others", "--exclude-standard")
+	untracked, _ := proc.GitInheritTimeout(top, "ls-files", "--others", "--exclude-standard")
 	var out []string
 	for n := range strings.SplitSeq(names+"\n"+untracked, "\n") {
 		if n != "" {
@@ -515,7 +515,7 @@ func rolledBack(top, old, body string) string {
 	if top == "" || oc == nil || nc == nil || strings.HasPrefix(oc[1], nc[1]) || strings.HasPrefix(nc[1], oc[1]) {
 		return ""
 	}
-	if _, err := source.GitInherit(top, "merge-base", "--is-ancestor", nc[1], oc[1]); err != nil {
+	if _, err := proc.GitInheritTimeout(top, "merge-base", "--is-ancestor", nc[1], oc[1]); err != nil {
 		return ""
 	}
 	return "this run's commit " + nc[1] + " predates the baseline's " + oc[1]
@@ -853,8 +853,8 @@ type RunStats struct {
 }
 
 func collectEnv(top string) Env {
-	sha, shaErr := source.GitInherit(top, "rev-parse", "--short", "HEAD")
-	dirty, dirtyErr := source.GitInherit(top, "status", "--porcelain")
+	sha, shaErr := proc.GitInheritTimeout(top, "rev-parse", "--short", "HEAD")
+	dirty, dirtyErr := proc.GitInheritTimeout(top, "status", "--porcelain")
 	gov, _ := out("go", "version")
 	total, avail := memInfo()
 	load, loadOK := readLoad()

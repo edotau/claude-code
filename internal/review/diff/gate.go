@@ -2,6 +2,7 @@ package diff
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
@@ -21,7 +23,7 @@ var gateNoiseLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustC
 
 // stagedFiles lists the staged paths; a git failure is an error, never an empty index.
 func stagedFiles(repo string) ([]string, error) {
-	out, err := source.GitInherit(repo, "diff", "--cached", "--name-only")
+	out, err := proc.GitInheritTimeout(repo, "diff", "--cached", "--name-only")
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +38,7 @@ func stagedFiles(repo string) ([]string, error) {
 
 // stagedSourceFiles lists the staged source files (added, copied, modified, renamed), as paths under repo.
 func stagedSourceFiles(repo string) ([]string, error) {
-	out, err := source.GitInherit(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
+	out, err := proc.GitInheritTimeout(repo, "diff", "--cached", "-z", "--name-only", "--relative", "--diff-filter=ACMR")
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +58,7 @@ func stagedBlob(repo string) func(string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		ctx, cancel := gitCtx()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		out, err := proc.RunGitInheritRaw(ctx, repo, "show", ":./"+rel)
 		return []byte(out), err

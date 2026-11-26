@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/rtkwrap"
 )
 
@@ -360,7 +359,7 @@ func (d *driver) openLane(ctx context.Context, it Item) (candidate, error) {
 	c.lane = lastLine(out)
 	c.work = filepath.Join(benchRoot(), "loop", c.slug)
 	c.before = filepath.Join(c.work, "before-run.txt")
-	if c.parent, err = source.GitInherit(c.lane, "rev-parse", "--short", "HEAD"); err == nil {
+	if c.parent, err = proc.GitInheritTimeout(c.lane, "rev-parse", "--short", "HEAD"); err == nil {
 		err = measured(func() error {
 			_, _, err := d.run(ctx, c.lane, "", d.exe, "review", "bench", "--path", it.Pkg, "--count", "8", "--out", c.before)
 			return err
@@ -377,7 +376,7 @@ func (d *driver) nextSlug(pkg string) string {
 	day := time.Now().Format("20060102")
 	for n := 1; ; n++ {
 		slug := fmt.Sprintf("bench-%s-%s-%d", pkgDirName(pkg), day, n)
-		if _, err := source.GitInherit(d.top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+slug); err != nil {
+		if _, err := proc.GitInheritTimeout(d.top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+slug); err != nil {
 			return slug
 		}
 	}
@@ -426,11 +425,11 @@ func (d *driver) spend(id string) {
 
 // gates is step 6's commit and step 7: a reason to revert, or "" when the fix passes.
 func (d *driver) gates(ctx context.Context, c *candidate) (string, error) {
-	head, err := source.GitInherit(c.lane, "rev-parse", "HEAD")
+	head, err := proc.GitInheritTimeout(c.lane, "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	parent, err := source.GitInherit(c.lane, "rev-parse", "--verify", cmp.Or(c.parent, "HEAD")+"^{commit}")
+	parent, err := proc.GitInheritTimeout(c.lane, "rev-parse", "--verify", cmp.Or(c.parent, "HEAD")+"^{commit}")
 	if err != nil {
 		return "", err
 	}
@@ -463,7 +462,7 @@ func (d *driver) gates(ctx context.Context, c *candidate) (string, error) {
 }
 
 func laneStatusFiles(lane string) ([]string, error) {
-	status, err := source.GitInherit(lane, "status", "--porcelain", "-z", "--untracked-files=all")
+	status, err := proc.GitInheritTimeout(lane, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +487,7 @@ func laneStatusFiles(lane string) ([]string, error) {
 
 // commit puts the fix on the lane branch, never main; the interleave refuses a dirty tree.
 func (d *driver) commit(ctx context.Context, c *candidate) error {
-	branch, err := source.GitInherit(c.lane, "symbolic-ref", "--short", "HEAD")
+	branch, err := proc.GitInheritTimeout(c.lane, "symbolic-ref", "--short", "HEAD")
 	if err != nil || branch != "worktree-"+c.slug {
 		return errors.Join(fmt.Errorf("lane %s is on branch %q, not worktree-%s", c.lane, branch, c.slug), err)
 	}
@@ -500,7 +499,7 @@ func (d *driver) commit(ctx context.Context, c *candidate) error {
 	if _, _, err := d.run(ctx, c.lane, "", d.exe, args...); err != nil {
 		return err
 	}
-	c.fixSHA, err = source.GitInherit(c.lane, "rev-parse", "--short", "HEAD")
+	c.fixSHA, err = proc.GitInheritTimeout(c.lane, "rev-parse", "--short", "HEAD")
 	return err
 }
 
@@ -511,14 +510,20 @@ func (d *driver) interleave(ctx context.Context, c *candidate) error {
 
 func (d *driver) interleaveLocked(ctx context.Context, c *candidate) error {
 	parent := filepath.Join(c.work, "parent")
-	if _, err := source.GitInherit(c.lane, "worktree", "add", "--detach", parent, c.parent); err != nil {
+	if _, err := proc.GitInheritTimeout(c.lane, "worktree", "add", "--detach", parent, c.parent); err != nil {
 		return err
 	}
 	var err error
 	c.res, err = interleave(ctx, abOptions{A: parent, B: c.lane, Pkg: c.Pkg, Rounds: abRounds, Count: abCount,
 		Work: filepath.Join(c.work, "ab")},
-		abSeam{gitCommit, gitDirty, execBench, decideFiles}, d.log)
-	if _, removeErr := source.GitInherit(c.lane, "worktree", "remove", "--force", parent); removeErr != nil {
+		abSeam{
+			func(dir string) (string, error) { return proc.GitInheritTimeout(dir, "rev-parse", "--short", "HEAD") },
+			func(dir string) (bool, error) {
+				out, err := proc.GitInheritTimeout(dir, "status", "--porcelain")
+				return out != "", err
+			},
+			execBench, decideFiles}, d.log)
+	if _, removeErr := proc.GitInheritTimeout(c.lane, "worktree", "remove", "--force", parent); removeErr != nil {
 		err = errors.Join(err, fmt.Errorf("%w: %s: %w", errParentWorktree, parent, removeErr))
 	}
 	return err
@@ -526,7 +531,7 @@ func (d *driver) interleaveLocked(ctx context.Context, c *candidate) error {
 
 // judge is steps 9-12 after a deterministic KEEP: the Opus behaviour review, then keep, revert or hold.
 func (d *driver) judge(ctx context.Context, c candidate) (outcome, error) {
-	diff, err := source.GitInherit(c.lane, "diff", "--no-ext-diff", "--no-textconv", c.parent, "HEAD")
+	diff, err := proc.GitInheritTimeout(c.lane, "diff", "--no-ext-diff", "--no-textconv", c.parent, "HEAD")
 	if err != nil {
 		return d.hold(c, "prepare review diff: "+err.Error())
 	}

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 const canned = `goos: darwin
@@ -178,7 +178,7 @@ func TestCompareRollingHeldRunKeepsBaselineAndSaysWhy(t *testing.T) {
 func TestRolledBackOnlyForAnAncestorRun(t *testing.T) {
 	top := gitRepo(t)
 	rev := func() string {
-		sha, err := source.GitInherit(top, "rev-parse", "--short", "HEAD")
+		sha, err := proc.GitInheritTimeout(top, "rev-parse", "--short", "HEAD")
 		if err != nil {
 			t.Fatal(err)
 		}

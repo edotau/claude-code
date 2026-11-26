@@ -30,7 +30,7 @@ func templateFixture(name string) bool {
 	switch name {
 	case "BenchFixBrief":
 		out, err = BenchFixBrief(fix)
-		hash = "b2f3e25aa45acad15bd8960da89d837b6abc451a34183146a9028f0a612927f0"
+		hash = "7e8668052edd4a792eb384e1414924860fe24a861399019464163c461bcbff93"
 	case "BenchReviewBrief":
 		out, err = BenchReviewBrief(review)
 		hash = "2283e17c3fe8d6aa3f658f75438f4910ce7062e1a6551b2e37be02b1fbf31c48"

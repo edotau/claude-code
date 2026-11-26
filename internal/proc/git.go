@@ -53,6 +53,20 @@ func GitTimeout(d time.Duration, dir string, args ...string) (string, error) {
 	return RunGit(ctx, dir, args...)
 }
 
+// GitInheritTimeout is RunGitInherit under a 30s deadline, trailing newlines trimmed.
+func GitInheritTimeout(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return RunGitInherit(ctx, dir, args...)
+}
+
+// GitRawTimeout is RunGitRaw under a 30s deadline, stdout kept byte-for-byte.
+func GitRawTimeout(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return RunGitRaw(ctx, dir, args...)
+}
+
 // GitNUL runs git (args carry -z) and returns its NUL-separated fields, empty ones dropped.
 func GitNUL(ctx context.Context, dir string, args ...string) ([]string, error) {
 	out, err := RunGitRaw(ctx, dir, args...)

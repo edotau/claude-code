@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -72,7 +73,7 @@ func runGitDiff(repo, diffRange string, stderr io.Writer) (string, bool) {
 		rev = diffRange
 	}
 	args := []string{"diff", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", rev}
-	out, err := source.GitInherit(repo, args...)
+	out, err := proc.GitInheritTimeout(repo, args...)
 	if err != nil {
 		fmt.Fprintf(stderr, "[error] git diff failed: %v\n", err)
 		return "", false

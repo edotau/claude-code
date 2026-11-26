@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -139,18 +137,6 @@ type PRReport struct {
 	ReviewOrder  []string         `json:"review_order,omitempty"`
 }
 
-// gitCtx is the 30s deadline every git call in this package runs under.
-func gitCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 30*time.Second)
-}
-
-// gitRaw is source.GitInherit with the sanitized git env and stdout kept byte-for-byte (file contents).
-func gitRaw(repo string, args ...string) (string, error) {
-	ctx, cancel := gitCtx()
-	defer cancel()
-	return proc.RunGitRaw(ctx, repo, args...)
-}
-
 // refDiff runs `git diff <opts> base...head [-- paths]`, retrying two-dot only when the merge-base form errors.
 func refDiff(repo, base, head string, opts []string, paths ...string) (string, error) {
 	run := func(revs ...string) (string, error) {
@@ -158,7 +144,7 @@ func refDiff(repo, base, head string, opts []string, paths ...string) (string, e
 		if len(paths) > 0 {
 			args = append(append(args, "--"), paths...)
 		}
-		return source.GitInherit(repo, args...)
+		return proc.GitInheritTimeout(repo, args...)
 	}
 	out, err := run(base + "..." + head)
 	if err != nil {
@@ -321,7 +307,7 @@ func tierPoints(n, top, mid, low int) int {
 
 func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) {
 	// Custom format, not --oneline: log.decorate and color.ui would put "(HEAD -> main)" or escapes before the subject.
-	out, err := source.GitInherit(repo, "log", "--format=%h %s", base+".."+head)
+	out, err := proc.GitInheritTimeout(repo, "log", "--format=%h %s", base+".."+head)
 	issues := []CommitIssue{}
 	if err != nil {
 		return 0, nil, err
@@ -577,7 +563,7 @@ func resolveGitRepo(positional []string, stderr io.Writer) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	top, err := source.GitInherit(repoPath, "rev-parse", "--show-toplevel")
+	top, err := proc.GitInheritTimeout(repoPath, "rev-parse", "--show-toplevel")
 	if err != nil {
 		if strings.Contains(err.Error(), "not a git repository (or any ") {
 			fmt.Fprintf(stderr, "Error: %s is not a git repository\n", repoPath)

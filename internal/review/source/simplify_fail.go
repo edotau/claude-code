@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // lineSpans are inclusive 1-based line ranges of the added or changed lines of one file.
@@ -66,7 +68,7 @@ type gitBatch struct {
 // renameMap maps each path git pairs as a rename against base to the path it had there.
 func renameMap(base string) map[string]string {
 	out := map[string]string{}
-	text, err := GitInherit(".", "diff", "-M", "--relative", "--name-status", base)
+	text, err := proc.GitInheritTimeout(".", "diff", "-M", "--relative", "--name-status", base)
 	if err != nil {
 		return out
 	}
@@ -92,7 +94,7 @@ func diffHeaderPath(head string) string {
 
 // batchSpans parses one repo-wide `git diff -U0` into each .go file's changed spans (nil when git fails).
 func batchSpans(base string) map[string]lineSpans {
-	text, err := GitInherit(".", "-c", "core.quotepath=false", "diff", "--no-renames", "-U0", "--relative",
+	text, err := proc.GitInheritTimeout(".", "-c", "core.quotepath=false", "diff", "--no-renames", "-U0", "--relative",
 		"--src-prefix=a/", "--dst-prefix=b/", base, "--", "*.go")
 	if err != nil {
 		return nil
@@ -180,7 +182,7 @@ func changedSpans(path, old, base string) (lineSpans, error) {
 	if l, err := gitLines(".", "ls-files", "--others", "--exclude-standard", "--", path); err == nil && len(l) > 0 {
 		return lineSpans{{1, 1 << 30}}, nil
 	}
-	diff, err := GitInherit(".", "diff", "-M", "-U0", base, "--", path, old)
+	diff, err := proc.GitInheritTimeout(".", "diff", "-M", "-U0", base, "--", path, old)
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", path, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -137,7 +138,7 @@ func changedSourceFiles(repo, base, head string) ([]string, error) {
 
 // headContent returns the bytes of the file name (relative to repo) at rev, so a score matches the reviewed commit.
 func headContent(repo, rev, name string) (string, error) {
-	return gitRaw(repo, "show", rev+":./"+name)
+	return proc.GitRawTimeout(repo, "show", rev+":./"+name)
 }
 
 // runQualityChecker ports run_quality_checker: source.QualityContent over each changed file as of the head commit.
