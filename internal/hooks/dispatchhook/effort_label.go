@@ -142,18 +142,26 @@ func (r *dispatchRun) inheritedID(session string) string {
 	if c, _, ok := models.Resolve(id); !ok || models.FamilyOf(c) != models.Fable {
 		return id
 	}
+	if reg, p, _ := r.servingRow(); p != nil {
+		return opusPin(reg, p)
+	}
+	return id
+}
+
+// servingRow is the run's profile (--profile, else the session's routed one) when it is a databricks-serving row.
+func (r *dispatchRun) servingRow() (*providers.Registry, *providers.Provider, string) {
 	name, routed := providers.SessionName()
 	if r.profile != "" {
 		name, routed = r.profile, true
 	}
 	reg, err := r.registry()
 	if err != nil || !routed {
-		return id
+		return nil, nil, ""
 	}
 	if p := reg.Row(name); p != nil && p.SpellingRule() == "databricks-serving" {
-		return opusPin(reg, p)
+		return reg, p, name
 	}
-	return id
+	return nil, nil, ""
 }
 
 // databricksID is a Claude alias or id spelled as its `databricks-` id on a Databricks-routed session; else m as is.
@@ -305,16 +313,8 @@ func (r *dispatchRun) fableNote(route agentpkg.ModelRoute, label string) string 
 	if c, _, ok := models.Resolve(label); !ok || models.FamilyOf(c) != models.Fable || (route.Agent != "" && r.profile == "") {
 		return "" // an external agent's own route is not the session's
 	}
-	name, routed := providers.SessionName()
-	if r.profile != "" {
-		name, routed = r.profile, true
-	}
-	reg, err := r.registry()
-	if err != nil || !routed {
-		return ""
-	}
-	p := reg.Row(name)
-	if p == nil || p.SpellingRule() != "databricks-serving" {
+	_, p, name := r.servingRow()
+	if p == nil {
 		return ""
 	}
 	return fmt.Sprintf("dispatch-effort: label %s: profile %s serves no Fable; the proxy sends this call to first-party "+
@@ -359,7 +359,7 @@ func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
 func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
 	agent := workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Profile: run.profile}
-	q.Provider, q.Profile = askRoute(st, task, q.Profile)
+	q.Provider, q.Profile = askRoute(agent, q.Profile)
 	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
@@ -377,8 +377,7 @@ func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agen
 }
 
 // askRoute is the agent file's baked --provider and --profile for the leaf's work agent, unless a profile is typed.
-func askRoute(st, task, profile string) (provider, prof string) {
-	agent := workAgent(st, task)
+func askRoute(agent, profile string) (provider, prof string) {
 	if profile != "" || agent == "" {
 		return "", profile
 	}

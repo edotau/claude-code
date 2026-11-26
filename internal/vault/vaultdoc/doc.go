@@ -1,7 +1,6 @@
 package vaultdoc
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,7 +27,7 @@ func mergeAgentRecords(overlay json.RawMessage, recs map[string]vault.AgentRecor
 		return overlay, nil
 	}
 	top := map[string]json.RawMessage{}
-	if overlay = presentJSON(overlay); len(overlay) != 0 { // a JSON null would decode top to a nil map
+	if !isBlankJSON(overlay) { // a JSON null would decode top to a nil map
 		if err := json.Unmarshal(overlay, &top); err != nil {
 			return nil, fmt.Errorf("vault overlay/agents: %w", err)
 		}
@@ -63,15 +62,6 @@ func docFrom(t *vault.Tx) (Doc, error) {
 	return d, nil
 }
 
-// render is the canonical indented doc bytes.
-func render(d Doc) ([]byte, error) {
-	b, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(b, '\n'), nil
-}
-
 // Export renders the vault's non-secret config as indented JSON.
 func Export() ([]byte, error) {
 	var d Doc
@@ -82,15 +72,11 @@ func Export() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return render(d)
-}
-
-// presentJSON maps a JSON null section to absent.
-func presentJSON(raw json.RawMessage) json.RawMessage {
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return nil, err
 	}
-	return raw
+	return append(b, '\n'), nil
 }
 
 // RotateKey retains the old key so archived copies of this vault remain readable.

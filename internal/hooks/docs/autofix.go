@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/autofix"
 	"github.com/edotau/claude-code/internal/review/bench"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -338,7 +339,7 @@ func uniqueFindings(in []autofix.Finding) []autofix.Finding {
 	})
 }
 
-func firstErrLine(err error) string { return strings.SplitN(err.Error(), "\n", 2)[0] }
+func firstErrLine(err error) string { return textutil.FirstLine(err.Error()) }
 
 const maxNoticeRunes = 300
 
@@ -351,8 +352,7 @@ var (
 
 // autofixNotice is the one sanitiser: first line, no command line, lanes by name, files repo-relative, capped.
 func autofixNotice(line string) string {
-	line = strings.SplitN(line, "\n", 2)[0]
-	line = reRunCmd.ReplaceAllString(line, "")
+	line = reRunCmd.ReplaceAllString(textutil.FirstLine(line), "")
 	line = reAbsPath.ReplaceAllStringFunc(line, func(s string) string {
 		m := reAbsPath.FindStringSubmatch(s)
 		if lane := reLane.FindStringSubmatch(m[2]); lane != nil {
@@ -366,10 +366,7 @@ func autofixNotice(line string) string {
 		}
 		return r
 	}, line)
-	if r := []rune(line); len(r) > maxNoticeRunes {
-		line = string(r[:maxNoticeRunes]) + "…"
-	}
-	return line
+	return textutil.CapRunes(line, maxNoticeRunes, "…")
 }
 
 // autofixRunVerb runs a claude-code lane verb, refused from a test binary that would re-run itself.

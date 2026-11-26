@@ -65,11 +65,15 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 	if err != nil {
 		return nil, fmt.Errorf("copilot: discover %s models: %w", t.Provider.Name, err)
 	}
-	base, tok, err := copilotRouter(ctx, t.Provider)
-	if err != nil {
-		return nil, err
+	// empty stays nil so the pin or default applies
+	var requested []string
+	if m := models.Strip1M(t.Model); m != "" {
+		requested = []string{m}
 	}
-	cr, ref, err := selectTargetModel(ctx, reg, t, eps, base)
+	cr, ref, tok, err := registrySelection(ctx, reg, t.Provider, eps, copilotChoice(requested, ""))
+	if cr.Note != "" {
+		wire.EventLogFor(ctx).Emit("note", cr.Note)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -81,25 +85,6 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 		wire.EventLogFor(ctx).Emit("note", w)
 	}
 	return &copilotRegistryRoute{providers: cr.Providers, models: cr.Models, ref: ref, token: tok, home: home}, nil
-}
-
-// selectTargetModel selects t.Model (none: the pin or default) from eps, logging the selection's note.
-func selectTargetModel(ctx context.Context, reg *providers.Registry, t providers.Target, eps []CopilotEndpoint,
-	base string,
-) (copilotRegistry, string, error) {
-	// empty stays nil so the pin or default applies
-	var requested []string
-	if m := models.Strip1M(t.Model); m != "" {
-		requested = []string{m}
-	}
-	cr, ref, err := copilotSelect(ctx, reg, t.Provider, eps, base, copilotChoice(requested, ""))
-	if cr.Note != "" {
-		wire.EventLogFor(ctx).Emit("note", cr.Note)
-	}
-	if err != nil {
-		return cr, "", fmt.Errorf("copilot: %w", err)
-	}
-	return cr, ref, nil
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
@@ -412,7 +397,11 @@ func configureCopilotRegistry(
 	if err != nil {
 		return agent.RegistryLaunch{}, err
 	}
-	r, ref, key, err := registrySelection(ctx, reg, t, requested)
+	eps, err := discoverModels(ctx, reg, p)
+	if err != nil {
+		return agent.RegistryLaunch{}, fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
+	}
+	r, ref, key, err := registrySelection(ctx, reg, p, eps, copilotChoice(requested, t.Model))
 	if err != nil {
 		return agent.RegistryLaunch{}, err
 	}
@@ -450,21 +439,15 @@ func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Pro
 	return out, nil
 }
 
-// registrySelection discovers t's profile models and selects requested (else t.Model, pin, default) on the router.
-func registrySelection(ctx context.Context, reg *providers.Registry, t providers.Target, requested []string,
-) (copilotRegistry, string, string, error) {
-	p := t.Provider
-	eps, err := discoverModels(ctx, reg, p)
-	if err != nil {
-		return copilotRegistry{}, "", "", fmt.Errorf("copilot: list models for profile %s: %w", p.Name, err)
-	}
+// registrySelection selects c from eps behind p's router; r keeps its note even when the selection fails.
+func registrySelection(ctx context.Context, reg *providers.Registry, p *providers.Provider, eps []CopilotEndpoint, c modelChoice,
+) (r copilotRegistry, ref, key string, err error) {
 	rb, key, err := copilotRouter(ctx, p)
 	if err != nil {
-		return copilotRegistry{}, "", "", err
+		return r, "", "", err
 	}
-	r, ref, err := copilotSelect(ctx, reg, p, eps, rb, copilotChoice(requested, t.Model))
-	if err != nil {
-		return copilotRegistry{}, "", "", fmt.Errorf("copilot: %w", err)
+	if r, ref, err = copilotSelect(ctx, reg, p, eps, rb, c); err != nil {
+		return r, "", "", fmt.Errorf("copilot: %w", err)
 	}
 	return r, ref, key, nil
 }

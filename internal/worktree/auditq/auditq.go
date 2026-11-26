@@ -89,13 +89,8 @@ func (w *worker) drain(ctx context.Context) error {
 	}
 }
 
-// publish runs fn in one transaction with the spool's import, then writes the committed rows to verdicts.json.
-func (w *worker) publish(ctx context.Context, fn func(*sql.Tx, int64) error) error {
-	return w.publishThen(ctx, fn, nil)
-}
-
-// publishThen is publish with then run after it succeeds, still under the spool lock.
-func (w *worker) publishThen(ctx context.Context, fn func(*sql.Tx, int64) error, then func()) error {
+// publish runs fn in one transaction with the spool's import, writes verdicts.json, then runs then under its lock.
+func (w *worker) publish(ctx context.Context, fn func(*sql.Tx, int64) error, then func()) error {
 	spool := worktree.AuditSpool()
 	return paths.WithFileLock(spool, func() error {
 		items, err := worktree.ReadAuditSpool(spool)
@@ -165,7 +160,7 @@ func (w *worker) claim(ctx context.Context) (jobs []worktree.AuditItem, err erro
 	if err != nil {
 		return nil, err
 	}
-	err = w.publishThen(ctx, func(tx *sql.Tx, now int64) error {
+	err = w.publish(ctx, func(tx *sql.Tx, now int64) error {
 		jobs = nil
 		for _, it := range free {
 			if _, err := tx.ExecContext(ctx, `UPDATE audits SET state = 'queued' WHERE sha = ? AND queued = ? AND state = 'running'`,
@@ -239,7 +234,7 @@ func (w *worker) update(ctx context.Context, items []worktree.AuditItem, stmt st
 			}
 		}
 		return nil
-	})
+	}, nil)
 }
 
 // markRun points each item's row at the run now covering it, its slot and its tree tag.
@@ -303,7 +298,7 @@ func (w *worker) prune(ctx context.Context) error {
 			kept[r.Log] = true
 		}
 		return err
-	}); err != nil {
+	}, nil); err != nil {
 		return err
 	}
 	for _, base := range legacy {

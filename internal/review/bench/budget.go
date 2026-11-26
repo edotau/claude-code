@@ -134,8 +134,7 @@ func ledgerTokenStop(now time.Time) (string, error) {
 
 const whyLoopLocked = "loop already locked"
 
-// admitLoop is whether a bench loop may start: a worker-reserved run (reserved is its sha) consumes that ledger row
-// and takes no slot; a hand run reserves its own slot. A non-empty reason refuses.
+// admitLoop gates a loop start: a worker run (reserved sha) consumes its row, a hand run reserves a slot; why refuses.
 func admitLoop(reserved string, now time.Time) (why string, err error) {
 	if reserved != "" {
 		return consumeReservation(reserved, now)
@@ -265,11 +264,6 @@ func Reserve(kind, id string, now time.Time) (ok bool, why string) {
 		return false, "budget record failed"
 	}
 	return why == "", why
-}
-
-// Record appends one ledger row; an empty id is spend only, so a run's tokens never count it twice.
-func Record(kind, id string, tokens int, now time.Time) error {
-	return appendBudgetRow(budgetRow{At: now, Kind: kind, ID: id, Tokens: tokens})
 }
 
 func appendBudgetRow(row budgetRow) error {

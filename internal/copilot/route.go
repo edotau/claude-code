@@ -536,10 +536,12 @@ func modelEffort(s agent.Settings) (string, string) {
 	if id == agent.AutoModel {
 		return "", "copilot: auto takes no reasoning effort; not sent"
 	}
-	accepted := catalogEfforts(id)
 	// a gateway-served (BYOK) row; a nil, github or own-login row reads the Copilot catalog
+	var accepted []string
 	if p := s.Target.Provider; p != nil && !catalog.IsGithubProfile(p) && p.Auth.Login == "" {
 		accepted = servedEfforts(id)
+	} else {
+		accepted = catalogEfforts(id)
 	}
 	native := nearestEffort(accepted, s.Effort)
 	switch {

@@ -328,14 +328,10 @@ func chosenProfile(ctx context.Context, reg *providers.Registry, name string) (s
 
 // providerHasBetaOff reports whether the profile's row Env already sets the experimental-beta opt-out.
 func providerHasBetaOff(reg *providers.Registry, name string) bool {
-	if reg == nil {
+	if reg == nil || reg.Providers[name] == nil {
 		return false
 	}
-	pr, ok := reg.Providers[name]
-	if !ok || pr == nil {
-		return false
-	}
-	_, ok = pr.Env[providers.BetaOffKey]
+	_, ok := reg.Providers[name].Env[providers.BetaOffKey]
 	return ok
 }
 
@@ -435,12 +431,11 @@ func usage(check bool) {
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
 	profileFlagVar(fs, new(string), profileUsage)
-	if !check {
-		fs.Bool("desktop", false, "point Claude Desktop at the proxy until Ctrl+C")
-	}
 	if check {
 		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
+	} else {
+		fs.Bool("desktop", false, "point Claude Desktop at the proxy until Ctrl+C")
 	}
 	fs.Usage()
 }
@@ -482,8 +477,7 @@ func checkAll(args []string) int {
 		return 2
 	}
 	if err := checkProfileFlag(fs, *only); err != nil {
-		fail("check: %v", err)
-		return 2
+		return failCode(2, "check: %v", err)
 	}
 	if len(rest) == 1 {
 		*model = rest[0]

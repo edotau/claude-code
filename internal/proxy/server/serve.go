@@ -76,10 +76,7 @@ func listen(ctx context.Context, port int) (net.Listener, error) {
 			ln, err = lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	return ln, nil
+	return ln, err
 }
 
 func serve(ctx context.Context, srv *http.Server, ln net.Listener, r *Router) error {

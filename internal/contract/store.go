@@ -108,12 +108,6 @@ func Update(id string, fn func(Contract) (Contract, error)) (Contract, error) {
 	return out, err
 }
 
-// Record appends one term record to id's contract under its lock.
-func Record(id string, r TermRecord) error {
-	_, err := Update(id, func(c Contract) (Contract, error) { return c.WithRecord(r) })
-	return err
-}
-
 // Pending lists every saved contract not yet closed or failed, by id; an unreadable file is joined into the error.
 func Pending() ([]Contract, error) {
 	all, err := List()

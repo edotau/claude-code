@@ -122,11 +122,14 @@ func scanUsage(claudeDir, session string, days int, errw io.Writer) (*transcript
 	return &transcriptScan{agg: agg, files: files, daily: dailyFromCounts(counts)}, nil
 }
 
-// foldResponses keeps responses stamped at or after cutoff (zero keeps all) and adds each to its local day.
+// foldResponses keeps unstamped responses and those stamped at or after cutoff, adding each to its local day.
 func foldResponses(path string, resps []transcript.Response, cutoff time.Time, counts map[string]*dayCount) []transcript.Response {
 	var mtimeDay string
 	var kept []transcript.Response
-	for _, r := range inWindowResponses(resps, cutoff) {
+	for _, r := range resps {
+		if !r.At.IsZero() && r.At.Before(cutoff) {
+			continue
+		}
 		if r.Usage.Total() == 0 {
 			kept = append(kept, r)
 			continue
@@ -525,11 +528,7 @@ func newestModTime(dir string) (time.Time, error) {
 func printQuotaWarnings(errw io.Writer, qs []quota) {
 	for _, q := range qs {
 		if q.State == "warn" || q.State == "exceeded" {
-			account := q.Account
-			if account == "" {
-				account = "-"
-			}
-			fmt.Fprintf(errw, "usage: %s %s at %.0f%% (%s)\n", q.Provider, account, q.UsedPct, q.State)
+			fmt.Fprintf(errw, "usage: %s %s at %.0f%% (%s)\n", q.Provider, dash(q.Account), q.UsedPct, q.State)
 		}
 	}
 }
@@ -641,8 +640,7 @@ func costForJSON(entries []tokenledger.Entry, session string, days int) ([]costJ
 		if math.IsNaN(r.USD) {
 			t.Unpriced++
 			t.Partial = true
-		}
-		if !math.IsNaN(r.USD) {
+		} else {
 			t.USD = knownUSD(addKnown(valueOr(t.USD, math.NaN()), r.USD))
 		}
 	}
@@ -666,17 +664,6 @@ func valueOr(p *float64, d float64) float64 {
 		return d
 	}
 	return *p
-}
-
-// inWindowResponses keeps the responses stamped at or after cutoff; an unstamped response is kept, as in foldResponses.
-func inWindowResponses(resps []transcript.Response, cutoff time.Time) []transcript.Response {
-	kept := make([]transcript.Response, 0, len(resps))
-	for _, r := range resps {
-		if r.At.IsZero() || !r.At.Before(cutoff) {
-			kept = append(kept, r)
-		}
-	}
-	return kept
 }
 
 // googleLimits is the agy /usage seam; tests stub it so no run reaches the binary.

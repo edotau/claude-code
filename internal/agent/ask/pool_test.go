@@ -778,23 +778,25 @@ func TestBatchCapsConcurrency(t *testing.T) {
 	}{{"billed account across agent names", "agent", "shared·acct", false}, {"own login on one agent", "own", "", true}}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var cur, peak atomic.Int32
-			var tasks []batchTask
-			for i := range retry.DefaultPerKey + 3 {
-				id := fmt.Sprintf("%s%d", c.prefix, i)
-				ag := id
-				if c.sameAgent {
-					ag = "opencode"
+			synctest.Test(t, func(t *testing.T) { // the runners' pauses run on the bubble's fake clock
+				var cur, peak atomic.Int32
+				var tasks []batchTask
+				for i := range retry.DefaultPerKey + 3 {
+					id := fmt.Sprintf("%s%d", c.prefix, i)
+					ag := id
+					if c.sameAgent {
+						ag = "opencode"
+					}
+					r := gaugeRunner(ag, &cur, &peak, 60*time.Millisecond, nil)
+					tasks = append(tasks, chainTask(t, id, ag, ag, keepCaller(agent.Dispatch{Agent: r, Account: c.account})))
 				}
-				r := gaugeRunner(ag, &cur, &peak, 60*time.Millisecond, nil)
-				tasks = append(tasks, chainTask(t, id, ag, ag, keepCaller(agent.Dispatch{Agent: r, Account: c.account})))
-			}
-			if out, ok := runPool(t, poolOptions{Jobs: len(tasks)}, tasks...); !ok {
-				t.Fatalf("batch failed: %s", out)
-			}
-			if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
-				t.Errorf("peak concurrent dispatches = %d, want 2..%d", got, retry.DefaultPerKey)
-			}
+				if out, ok := runPool(t, poolOptions{Jobs: len(tasks)}, tasks...); !ok {
+					t.Fatalf("batch failed: %s", out)
+				}
+				if got := int(peak.Load()); got > retry.DefaultPerKey || got < 2 {
+					t.Errorf("peak concurrent dispatches = %d, want 2..%d", got, retry.DefaultPerKey)
+				}
+			})
 		})
 	}
 }
@@ -862,26 +864,28 @@ func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 
 // Dispatches in flight never exceed --jobs while tasks fall back from a full account A to account B.
 func TestBatchJobsCapHoldsAcrossFallbackHops(t *testing.T) {
-	const jobs = 5
-	var cur, peak atomic.Int32
-	var tasks []batchTask
-	for i := range 12 { // distinct task agents: the old per-key gate would cap at 4
-		name := fmt.Sprintf("f%d", i)
-		first := gaugeRunner("codex", &cur, &peak, 40*time.Millisecond, errors.New("HTTP 401 unauthorized"))
-		second := gaugeRunner("gemini", &cur, &peak, 40*time.Millisecond, nil)
-		tasks = append(tasks, chainTask(t, name, name, "codex",
-			keepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), agent.Dispatch{Agent: second, Account: "B·acct"}))
-	}
-	out, ok := runPool(t, poolOptions{Jobs: jobs}, tasks...)
-	if !ok {
-		t.Fatalf("batch failed: %s", out)
-	}
-	if got := int(peak.Load()); got > jobs || got < 2 {
-		t.Errorf("peak in-flight dispatches = %d, want 2..%d", got, jobs)
-	}
-	if n := strings.Count(out, `"hops"`); n != len(tasks) {
-		t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
-	}
+	synctest.Test(t, func(t *testing.T) { // the runners' pauses run on the bubble's fake clock
+		const jobs = 5
+		var cur, peak atomic.Int32
+		var tasks []batchTask
+		for i := range 12 { // distinct task agents: the old per-key gate would cap at 4
+			name := fmt.Sprintf("f%d", i)
+			first := gaugeRunner("codex", &cur, &peak, 40*time.Millisecond, errors.New("HTTP 401 unauthorized"))
+			second := gaugeRunner("gemini", &cur, &peak, 40*time.Millisecond, nil)
+			tasks = append(tasks, chainTask(t, name, name, "codex",
+				keepCaller(agent.Dispatch{Agent: first, Account: "A·acct"}), agent.Dispatch{Agent: second, Account: "B·acct"}))
+		}
+		out, ok := runPool(t, poolOptions{Jobs: jobs}, tasks...)
+		if !ok {
+			t.Fatalf("batch failed: %s", out)
+		}
+		if got := int(peak.Load()); got > jobs || got < 2 {
+			t.Errorf("peak in-flight dispatches = %d, want 2..%d", got, jobs)
+		}
+		if n := strings.Count(out, `"hops"`); n != len(tasks) {
+			t.Errorf("%d envelopes carry hops, want %d (every task fell back)", n, len(tasks))
+		}
+	})
 }
 
 // --fail-fast: whatever way the first task fails, the second neither prepares nor runs and reports cancelled.
@@ -997,16 +1001,19 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 
 // A retry resumes after the backoff only if its account is still usable: one marked auth-dead meanwhile is skipped.
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
-	var n atomic.Int32
-	out, _ := runPool(t, poolOptions{Jobs: 1},
-		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n, time.Second)),
-		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
-	if n.Load() != 1 {
-		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
-	}
-	if ln := envLine(out, "limited"); !strings.Contains(ln, `"kind":"auth"`) {
-		t.Errorf("limited task's envelope = %s, want an auth error", ln)
-	}
+	synctest.Test(t, func(t *testing.T) { // the 1s backoff runs on the bubble's fake clock
+		retry.ResetCooldowns() // an earlier bubble's hold on rate·A is on this bubble's clock too
+		var n atomic.Int32
+		out, _ := runPool(t, poolOptions{Jobs: 1},
+			acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n, time.Second)),
+			acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
+		if n.Load() != 1 {
+			t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())
+		}
+		if ln := envLine(out, "limited"); !strings.Contains(ln, `"kind":"auth"`) {
+			t.Errorf("limited task's envelope = %s, want an auth error", ln)
+		}
+	})
 }
 
 // A cooldown that idles the dispatch before attempt 1 is followed by a recheck: an auth-dead account is not attempted.

@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const (
@@ -356,7 +357,7 @@ func (d *driver) openLane(ctx context.Context, it Item) (candidate, error) {
 	if err != nil {
 		return c, err
 	}
-	c.lane = lastLine(out)
+	c.lane = textutil.LastLine(out)
 	c.work = filepath.Join(benchRoot(), "loop", c.slug)
 	c.before = filepath.Join(c.work, "before-run.txt")
 	if c.parent, err = proc.GitInheritTimeout(c.lane, "rev-parse", "--short", "HEAD"); err == nil {
@@ -626,7 +627,7 @@ func (d *driver) ask(ctx context.Context, dir, brief string, cfg benchOverlay) (
 	var job struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal([]byte(lastLine(out)), &job); err != nil || job.ID == "" {
+	if err := json.Unmarshal([]byte(textutil.LastLine(out)), &job); err != nil || job.ID == "" {
 		return env, fmt.Errorf("agents ask: no job id in %q", out)
 	}
 	env.DispatchID = job.ID
@@ -721,11 +722,6 @@ func savedMSDay(c candidate) float64 {
 		}
 	}
 	return round(c.CallsPerDay * best / 1e6)
-}
-
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 func firstLine(s string) string {

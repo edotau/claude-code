@@ -33,9 +33,6 @@ type pollCall struct {
 // jobArgRe is a dispatch id or its timestamp prefix; a substitution such as `$(ls …)` never matches.
 var jobArgRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{8}T\d{6}\.\d{3}(?:-[A-Za-z0-9._-]+)?$`) })
 
-// pollJob is the job id a command's `claude-code agents result [-f] <id>` segment names.
-func pollJob(cmd string) (job string, follow, ok bool) { return verbJob(cmd, "result") }
-
 // verbJob is the job id a command's `claude-code agents <verb> [flags] <id>` segment names.
 func verbJob(cmd, verb string) (job string, follow, ok bool) {
 	if !strings.Contains(cmd, verb) {
@@ -87,7 +84,7 @@ func leafTranscript(in *core.Input, id string) string {
 
 // relayPoll is the relay's transcript read and its own job id for a Bash call that polls one; ok false otherwise.
 func relayPoll(in *core.Input) (lr leafRead, job, own string, follow, ok bool) {
-	job, follow, ok = pollJob(in.Nested("tool_input", "command"))
+	job, follow, ok = verbJob(in.Nested("tool_input", "command"), "result")
 	if !ok {
 		return lr, "", "", false, false
 	}
@@ -136,7 +133,7 @@ var (
 
 // appendOutputFiles adds the task output files one transcript line's Bash tool results named that seen lacks.
 func appendOutputFiles(files []string, seen map[string]bool, b []byte) []string {
-	if !bytes.Contains(b, []byte(`"tool_result"`)) {
+	if !bytes.Contains(b, toolResultKey) {
 		return files
 	}
 	for _, m := range bgOutputPattern().FindAllSubmatch(b, -1) {

@@ -3,7 +3,6 @@ package memory
 import (
 	"bytes"
 	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,10 +14,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // ExportDB is the db side of the export guard; the shadow package implements it over the shadow store.
@@ -88,13 +89,7 @@ func (r *ExportReport) syncTouched(root string) error {
 // OpenExportDB opens the export db; the shadow package sets it in init, nil until then.
 var OpenExportDB func() (ExportDB, func() error, error)
 
-// ExportGuard reconciles root's Markdown files with db and refreshes MEMORY.md.
-func ExportGuard(db ExportDB, root string) (rep ExportReport, err error) {
-	err = WithBankLock(0, func() (e error) { rep, e = ExportGuardLocked(db, root); return })
-	return rep, err
-}
-
-// ExportGuardLocked is ExportGuard for a caller already holding the bank lock, which is not reentrant.
+// ExportGuardLocked reconciles root's Markdown files with db and refreshes MEMORY.md; the caller holds the bank lock.
 func ExportGuardLocked(db ExportDB, root string) (ExportReport, error) {
 	var rep ExportReport
 	walked, err := db.Walk()
@@ -158,10 +153,10 @@ func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error
 	if err != nil {
 		return fmt.Errorf("memory: export guard render %s: %w", rel, err)
 	}
-	dbbSum := sha256Hex(dbb)
+	dbbSum := textutil.SHA256Hex(dbb)
 	if !diskOK {
 		if last != "" {
-			return conflictKeep(db, dest, rel, "deleted-outside", dbb, rep)
+			return conflictKeep(db, dest, rel, rel, "deleted-outside", dbb, rep)
 		}
 		return writeExport(db, rel, dest, "", dbb, dbbSum, rep)
 	}
@@ -171,7 +166,7 @@ func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error
 		}
 		return nil
 	}
-	if sha256Hex(disk) == last {
+	if textutil.SHA256Hex(disk) == last {
 		return writeExport(db, rel, dest, last, dbb, dbbSum, rep)
 	}
 	if dbbSum == last {
@@ -184,18 +179,18 @@ func guardOne(db ExportDB, root, rel string, inDB bool, rep *ExportReport) error
 func bothChanged(db ExportDB, dest, rel, last string, disk, dbb []byte, rep *ExportReport) error {
 	merged, ok := mergeSides(rel, historyVersion(storeRootOf(dest, rel), rel, last), disk, dbb)
 	if !ok {
-		return conflictKeep(db, dest, rel, "both-changed", dbb, rep)
+		return conflictKeep(db, dest, rel, rel, "both-changed", dbb, rep)
 	}
 	if !bytes.Equal(merged, disk) {
-		placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
+		placed, stranded, err := placeFile(dest, rel, textutil.SHA256Hex(disk), merged, rep)
 		if stranded != "" {
-			return conflictKeepAs(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", dbb, rep)
+			return conflictKeep(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", dbb, rep)
 		}
 		if err != nil || !placed {
 			return err // an edit landed meanwhile: the db is untouched, so the next pass merges again
 		}
 	}
-	return importExport(db, dest, rel, sha256Hex(dbb), dbb, rep)
+	return importExport(db, dest, rel, textutil.SHA256Hex(dbb), dbb, rep)
 }
 
 // HeldDir is the state folder for the guard's kept copies, mirroring bank-relative paths; never inside the bank.
@@ -216,13 +211,8 @@ func storeRootOf(dest, rel string) string {
 	return filepath.Clean(strings.TrimSuffix(dest, filepath.FromSlash(rel)))
 }
 
-// conflictKeep keeps the db side in the held dir and records the conflict, unless nothing would be lost.
-func conflictKeep(db ExportDB, dest, rel, kind string, dbb []byte, rep *ExportReport) error {
-	return conflictKeepAs(db, dest, rel, rel, kind, dbb, rep)
-}
-
-// conflictKeepAs is conflictKeep recording the conflict under doc.
-func conflictKeepAs(db ExportDB, dest, rel, doc, kind string, dbb []byte, rep *ExportReport) error {
+// conflictKeep keeps the db side in the held dir and records the conflict under doc, unless nothing would be lost.
+func conflictKeep(db ExportDB, dest, rel, doc, kind string, dbb []byte, rep *ExportReport) error {
 	cur, _ := os.ReadFile(dest) // the bank file as it stands after the write; absent reads as nil
 	if !worthKeeping(storeRootOf(dest, rel), rel, dbb, cur) {
 		if kind == "deleted-outside" { // the deletion itself is unsettled, so it stays listed with no copy
@@ -230,7 +220,7 @@ func conflictKeepAs(db ExportDB, dest, rel, doc, kind string, dbb []byte, rep *E
 		}
 		return nil
 	}
-	name, err := heldName(rel, ".db-conflict-"+sha256Hex(dbb)[:12])
+	name, err := heldName(rel, ".db-conflict-"+textutil.SHA256Hex(dbb)[:12])
 	if err == nil {
 		err = keepSidecar(name, dbb)
 	}
@@ -277,7 +267,7 @@ func importExport(db ExportDB, dest, rel, want string, dbb []byte, rep *ExportRe
 		if rerr != nil {
 			return fmt.Errorf("memory: export guard render %s: %w", rel, rerr)
 		}
-		return conflictKeep(db, dest, rel, "changed-during-export", cur, rep)
+		return conflictKeep(db, dest, rel, rel, "changed-during-export", cur, rep)
 	}
 	if err != nil {
 		return fmt.Errorf("memory: export guard import %s: %w", rel, err)
@@ -289,13 +279,13 @@ func importExport(db ExportDB, dest, rel, want string, dbb []byte, rep *ExportRe
 func writeExport(db ExportDB, rel, dest, seen string, data []byte, sum string, rep *ExportReport) error {
 	placed, stranded, err := placeFile(dest, rel, seen, data, rep)
 	if stranded != "" {
-		return conflictKeepAs(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", data, rep)
+		return conflictKeep(db, dest, rel, rel+strandedSuffix(stranded, rel), "stranded-outside-copy", data, rep)
 	}
 	if err != nil {
 		return err
 	}
 	if !placed {
-		return conflictKeep(db, dest, rel, "changed-during-export", data, rep)
+		return conflictKeep(db, dest, rel, rel, "changed-during-export", data, rep)
 	}
 	if err := db.MarkRendered(rel, sum); err != nil {
 		return fmt.Errorf("memory: export guard mark %s: %w", rel, err)
@@ -373,7 +363,7 @@ func swapIn(dest, holdBase string, data []byte, seen string) (swapped bool, kept
 		return false, "", err
 	}
 	cur, err := os.ReadFile(hold)
-	if err != nil || sha256Hex(cur) != seen {
+	if err != nil || textutil.SHA256Hex(cur) != seen {
 		if lerr := linkBack(hold, dest); lerr != nil {
 			return false, hold, err
 		}
@@ -466,7 +456,7 @@ func sweepHolds(db ExportDB, dest, rel string, holds []string, rep *ExportReport
 		if err != nil {
 			return fmt.Errorf("memory: export guard read held copy %s: %w", h, err)
 		}
-		if strings.HasPrefix(sha256Hex(cur), want) {
+		if strings.HasPrefix(textutil.SHA256Hex(cur), want) {
 			continue
 		}
 		if err := releaseHold(db, dest, rel, h, want, cur, rep); err != nil {
@@ -490,7 +480,7 @@ func releaseHold(db ExportDB, dest, rel, h, want string, cur []byte, rep *Export
 	if folded || !worthKeeping(root, rel, cur, disk) {
 		return removeHold(h)
 	}
-	kept, err := heldName(rel, ".outside-"+sha256Hex(cur)[:12])
+	kept, err := heldName(rel, ".outside-"+textutil.SHA256Hex(cur)[:12])
 	if err == nil {
 		_, err = keepUnique(h, kept)
 	}
@@ -513,7 +503,7 @@ func foldHold(dest, rel string, base, disk, cur []byte, rep *ExportReport) (fold
 	if bytes.Equal(merged, disk) {
 		return true, nil
 	}
-	placed, stranded, err := placeFile(dest, rel, sha256Hex(disk), merged, rep)
+	placed, stranded, err := placeFile(dest, rel, textutil.SHA256Hex(disk), merged, rep)
 	return err == nil && placed && stranded == "", err
 }
 
@@ -584,7 +574,7 @@ func unchanged(dest, seen string) (bool, error) {
 		return false, err
 	}
 	cur, err := os.ReadFile(dest)
-	if err != nil || sha256Hex(cur) != seen {
+	if err != nil || textutil.SHA256Hex(cur) != seen {
 		return false, err
 	}
 	fi2, err := os.Stat(dest)
@@ -607,10 +597,8 @@ func unionSorted(a, b []string) []string {
 	return out
 }
 
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
+// sha256Hex stays only for bank_settle.go; new code calls textutil.SHA256Hex.
+var sha256Hex = textutil.SHA256Hex
 
 // worthKeeping is false when a copy would save nothing: its bytes are in the store's git history, or cur holds it all.
 func worthKeeping(root, rel string, data, cur []byte) bool {
@@ -634,16 +622,59 @@ func entriesHeld(rel string, data, cur []byte) bool {
 	return true
 }
 
+// historyMemo maps root and rel to the refs stamp and blob ids of its last `git log`; unchanged refs mean one history.
+var historyMemo sync.Map
+
+type historyEntry struct {
+	stamp string
+	ids   []string
+}
+
+// refsStamp fingerprints what `log --all` walks from, each ref file by size and mtime; "" when unreadable.
+func refsStamp(gitDir string) string {
+	var b []byte
+	for _, name := range []string{"HEAD", "packed-refs", "shallow", "refs", "reftable"} {
+		err := filepath.WalkDir(filepath.Join(gitDir, name), func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			fi, err := d.Info()
+			if err == nil {
+				b = strconv.AppendInt(append(strconv.AppendInt(append(append(b, p...), ':'), fi.Size(), 10), ':'), fi.ModTime().UnixNano(), 36)
+				b = append(b, ';')
+			}
+			return err
+		})
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return ""
+		}
+	}
+	return string(b)
+}
+
 // historyBlobs lists the blob ids rel had in the store's git history, newest first; none without a repo.
 func historyBlobs(root, rel string) []string {
 	repo := storeRepo{Dir: root}
 	if !repo.Exists() {
 		return nil
 	}
+	key, stamp := root+"\x00"+rel, refsStamp(filepath.Join(root, ".git"))
+	if v, ok := historyMemo.Load(key); ok && stamp != "" && v.(historyEntry).stamp == stamp {
+		return v.(historyEntry).ids
+	}
 	out, err := repo.run("log", "--all", "--format=", "--raw", "--no-abbrev", "--", rel)
 	if err != nil {
 		return nil
 	}
+	ids := rawBlobIDs(out)
+	if stamp != "" && stamp == refsStamp(filepath.Join(root, ".git")) { // refs held still across the log
+		historyMemo.Store(key, historyEntry{stamp, ids})
+	}
+	return ids
+}
+
+// rawBlobIDs collects the distinct nonzero blob ids of `log --raw` output in order.
+func rawBlobIDs(out string) []string {
 	var ids []string
 	for _, ln := range splitLines(out) {
 		f := strings.Fields(ln)
@@ -680,13 +711,24 @@ func historyVersion(root, rel, sum string) []byte {
 		if i == historyMax {
 			break
 		}
+		if s, ok := blobSums.Load(id); ok && !strings.HasPrefix(s.(string), sum) {
+			continue // a blob id names fixed bytes, so a known mismatch needs no read
+		}
 		out, err := proc.GitRawTimeout(root, "-C", root, "--git-dir="+gitDir, "cat-file", "blob", id)
-		if err == nil && strings.HasPrefix(sha256Hex([]byte(out)), sum) {
+		if err != nil {
+			continue
+		}
+		s := textutil.SHA256Hex([]byte(out))
+		blobSums.Store(id, s)
+		if strings.HasPrefix(s, sum) {
 			return []byte(out)
 		}
 	}
 	return nil
 }
+
+// blobSums maps a git blob id to its bytes' sha256, which never changes.
+var blobSums sync.Map
 
 // mergeable reports a top-level or archived id-keyed log the grammar orders newest-first or appended.
 func mergeable(rel string) bool {

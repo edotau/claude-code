@@ -56,15 +56,10 @@ func RememberTypeHelp() string {
 	return b.String()
 }
 
-// afterRememberWrite runs between Remember's stamped write and its settle, under the lock; tests race a rival there.
+// afterRememberWrite runs between the stamped write and its settle, under the lock; tests race a rival there.
 var afterRememberWrite = func() {}
 
-// Remember writes fact under kind's file, settles to stamp an id, and returns that id.
-func Remember(kind, fact string, now time.Time) (string, error) {
-	return RememberSupersedes(kind, fact, "", now)
-}
-
-// RememberSupersedes is Remember for a fact that replaces the live entry old: Go writes the `Supersedes` edge.
+// RememberSupersedes writes and settles fact under kind's file, returns its id; old gets a `Supersedes` edge.
 func RememberSupersedes(kind, fact, old string, now time.Time) (string, error) {
 	file, ok := RememberTypes[kind]
 	if !ok {
@@ -130,7 +125,11 @@ func rememberLocked(file, kind, fact, old string, now time.Time) (string, error)
 			return "", err
 		}
 	}
-	snap, err := snapshotPaths(Path(file), Path("decisionLog.md"), Path("conventions.md"))
+	banks := []string{Path("decisionLog.md"), Path("conventions.md")} // file is one of them: snapshot each once
+	if !slices.Contains(banks, Path(file)) {
+		banks = append([]string{Path(file)}, banks...)
+	}
+	snap, err := snapshotPaths(banks...)
 	if err != nil {
 		return "", err
 	}
@@ -263,10 +262,13 @@ func requireReplaced(old, newID string) error {
 	return nil
 }
 
-// settleAfterWrite settles inside Remember's critical section: no writer slips in; other entries keep their bytes.
+// settleAfterWrite settles inside the remember critical section: no writer slips in; other entries keep their bytes.
 func settleAfterWrite(now time.Time) error {
 	afterRememberWrite()
-	return settleLockedBank(now)
+	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
+		return fmt.Errorf("settle: %w", err)
+	}
+	return nil
 }
 
 // writeRememberFact adds fact to the file, stamps its id in memory, writes the file once, and returns the id.

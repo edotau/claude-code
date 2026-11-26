@@ -25,7 +25,7 @@ func drainFixture(t *testing.T, bFile string) (*Repo, string, LandRequest) {
 	landFixtureWrite(t, wtA, "a.txt", "A\n", "feat: a")
 	landFixtureWrite(t, wtB, bFile, "B\n", "feat: b")
 	for _, wt := range []string{wtA, wtB} {
-		if err := Enqueue(QueuedLane{Lane: wt, Repo: main, Reason: QueueReady, Next: "land"}); err != nil {
+		if err := EnqueueWithin(queueEditWait, QueuedLane{Lane: wt, Repo: main, Reason: QueueReady, Next: "land"}); err != nil {
 			t.Fatal(err)
 		}
 	}

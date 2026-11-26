@@ -60,7 +60,7 @@ func foreignSnapshot(fp FingerprintFunc, spec Spec, wave []Spec) (map[foreignKey
 		for _, p := range other.Owns {
 			h, err := fp(p)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("package %s: fingerprint the other packages' files: %w", spec.ID, err)
 			}
 			snap[foreignKey{other.ID, p}] = h
 		}
@@ -77,11 +77,11 @@ func watchAlone(o LaunchOptions, spec Spec, fn func()) ([]CheckViolation, error)
 	before, err := foreignSnapshot(o.Fingerprint, spec, o.Wave)
 	fn()
 	if err != nil {
-		return nil, fmt.Errorf("package %s: fingerprint the other packages' files: %w", spec.ID, err)
+		return nil, err
 	}
 	after, err := foreignSnapshot(o.Fingerprint, spec, o.Wave)
 	if err != nil {
-		return nil, fmt.Errorf("package %s: fingerprint the other packages' files: %w", spec.ID, err)
+		return nil, err
 	}
 	return foreignWrites(spec, before, after), nil
 }

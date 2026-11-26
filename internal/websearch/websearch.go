@@ -44,12 +44,8 @@ const (
 // keyName is the secret name Tavily's API key resolves under (the vault, or env).
 const keyName = "TAVILY_API_KEY"
 
-// mintHint points at where a fresh key comes from; keyHint names the fix when none is set.
+// mintHint points at where a fresh key comes from.
 const mintHint = "mint one at app.tavily.com → API keys"
-
-func keyHint() string {
-	return fmt.Sprintf("run `claude-code vault set secrets %s` (%s)", keyName, mintHint)
-}
 
 // ResolveKey returns the Tavily API key (vault, then env); an unreadable vault is its own error, never "unset".
 func ResolveKey() (string, error) {
@@ -58,7 +54,7 @@ func ResolveKey() (string, error) {
 		return "", fmt.Errorf("%s: the vault could not be read (%w); export %s or fix vault access", keyName, err, keyName)
 	}
 	if v == "" {
-		return "", fmt.Errorf("%s is not set — %s", keyName, keyHint())
+		return "", fmt.Errorf("%s is not set — run `claude-code vault set secrets %s` (%s)", keyName, keyName, mintHint)
 	}
 	return v, nil
 }
@@ -95,7 +91,9 @@ func rawID(id json.RawMessage) any {
 
 // toolError is an isError tool result, not a JSON-RPC error, so the model sees the failure and reacts.
 func toolError(text string) map[string]any {
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": text}}, "isError": true}
+	res := toolText(text)
+	res["isError"] = true
+	return res
 }
 
 func toolText(text string) map[string]any {
@@ -162,10 +160,6 @@ func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 	if len(req.ID) == 0 {
 		return nil
 	}
-	return s.dispatch(ctx, req)
-}
-
-func (s *Server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	switch req.Method {
 	case "initialize":
 		return result(req.ID, map[string]any{
@@ -367,7 +361,7 @@ func fetchResults(ctx context.Context, query string, maxResults int, allowed, bl
 		req["exclude_domains"] = blocked
 	}
 	body, _ := json.Marshal(req)
-	raw, err := postTavilySearch(ctx, body)
+	raw, err := postTavily(ctx, requestTimeout, tavilyURL, "search", "", body, tavilyMaxBody)
 	if err != nil {
 		return "", nil, err
 	}
@@ -379,11 +373,6 @@ func fetchResults(ctx context.Context, query string, maxResults int, allowed, bl
 		return "", nil, fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
 	return payload.Answer, payload.Results, nil
-}
-
-// postTavilySearch POSTs body to the search endpoint under requestTimeout and returns the size-capped reply.
-func postTavilySearch(ctx context.Context, body []byte) ([]byte, error) {
-	return postTavily(ctx, requestTimeout, tavilyURL, "search", "", body, searchMaxBody)
 }
 
 // postTavily POSTs JSON body (a Bearer apiKey when set) under timeout and returns the reply capped at limit bytes.
@@ -427,7 +416,7 @@ var tavilyExtract = postTavilyExtract
 func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
 	var payload extractResponse
 	body, _ := json.Marshal(map[string]any{"urls": urls, "format": "markdown", "extract_depth": depth})
-	raw, err := postTavily(ctx, 2*requestTimeout, tavilyExtractURL, "extract", apiKey, body, 16<<20)
+	raw, err := postTavily(ctx, 2*requestTimeout, tavilyExtractURL, "extract", apiKey, body, tavilyMaxBody)
 	if err != nil {
 		return payload, err
 	}
@@ -557,11 +546,12 @@ func Extract(ctx context.Context, urls []string) (string, int, error) {
 	var sb strings.Builder
 	ok := 0
 	for _, raw := range urls {
+		k := normURL(raw)
 		msg, bad := failed[raw]
 		if !bad {
-			msg, bad = failed[normURL(raw)]
+			msg, bad = failed[k]
 		}
-		if !bad && content[normURL(raw)] == "" {
+		if !bad && content[k] == "" {
 			msg, bad = "no content returned", true
 		}
 		if bad {
@@ -569,7 +559,7 @@ func Extract(ctx context.Context, urls []string) (string, int, error) {
 			continue
 		}
 		ok++
-		fmt.Fprintf(&sb, "# %s\n%s\n\n", raw, capExtractPage(content[normURL(raw)]))
+		fmt.Fprintf(&sb, "# %s\n%s\n\n", raw, capExtractPage(content[k]))
 	}
 	return sb.String(), ok, nil
 }
@@ -585,8 +575,8 @@ func capExtractPage(page string) string {
 	return textutil.CapRunes(page, extractPageCapRunes, note)
 }
 
-// searchMaxBody caps the Tavily search reply, sized like the extract reply.
-const searchMaxBody = 16 << 20
+// tavilyMaxBody caps a Tavily search or extract reply.
+const tavilyMaxBody = 16 << 20
 
 // robotsTimeout bounds each robots.txt fetch; a var so tests can shorten it.
 var robotsTimeout = 5 * time.Second

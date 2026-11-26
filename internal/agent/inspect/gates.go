@@ -111,10 +111,6 @@ func dirHasGo(dir string) bool {
 	return slices.ContainsFunc(ents, func(e os.DirEntry) bool { return strings.HasSuffix(e.Name(), ".go") })
 }
 
-func runGates(ctx context.Context, root, base string, files []DiffFile) []GateResult {
-	return runDefaultGates(ctx, newGateInput(root, base, files))
-}
-
 // runDefaultGates is the gate set without --gates: the Go gates on the touched packages, docs when Markdown changed.
 func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 	defs := gateDefs()
@@ -125,17 +121,12 @@ func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 		}
 		return appendDocs(ctx, out, in)
 	}
-	res := make([]GateResult, len(defs))
-	runGateSet(ctx, defs, in, res)
-	return appendDocs(ctx, res, in)
-}
-
-// runGateSet runs every gate at once; a failed build leaves the other gates' own results standing.
-func runGateSet(ctx context.Context, defs []gateDef, in gateInput, res []GateResult) {
+	res := make([]GateResult, len(defs)) // every gate at once; a failed build leaves the others' results standing
 	parallel.Rethrow(parallel.All(len(defs), func(i int) error {
 		res[i] = runGate(ctx, defs[i], in)
 		return nil
 	})...)
+	return appendDocs(ctx, res, in)
 }
 
 // appendDocs adds the docs gate after the others, only when the change set holds Markdown or its lint config.
@@ -201,9 +192,10 @@ func parseGates(vals []string) (map[string]bool, error) {
 	want := map[string]bool{}
 	for _, v := range vals {
 		for n := range strings.SplitSeq(v, ",") {
-			names := gateGroups[strings.TrimSpace(n)]
+			n = strings.TrimSpace(n)
+			names := gateGroups[n]
 			if names == nil {
-				names = []string{strings.TrimSpace(n)}
+				names = []string{n}
 			}
 			for _, g := range names {
 				if !known[g] {
@@ -525,7 +517,7 @@ func complexityMode() string {
 	return "strict"
 }
 
-// splitAdvisory moves the two cyclomatic rules out of fs, each function once (cyclomatic-complexity wins over high_complexity).
+// splitAdvisory moves the two cyclomatic rules out of fs, one per function (cyclomatic-complexity wins).
 func splitAdvisory(fs []fileFinding) (hard, advisory []fileFinding) {
 	seen := map[string]bool{}
 	for _, f := range fs {

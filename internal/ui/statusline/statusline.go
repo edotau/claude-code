@@ -441,24 +441,17 @@ func lastUsage(path string) (int, string) {
 	if path == "" {
 		return 0, ""
 	}
-	fi, statErr := os.Stat(path)
-	stamp := stampFile("context", path)
-	size, mtime := "", ""
-	if statErr == nil {
-		size, mtime = strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)
-		if f := readStamp(stamp); len(f) == 4 && f[0] == size && f[1] == mtime {
-			if n, err := strconv.Atoi(f[2]); err == nil {
-				return n, f[3]
-			}
+	cached, save := fileMemo(stampFile("context", path), path, 2)
+	if cached != nil {
+		if n, err := strconv.Atoi(cached[0]); err == nil {
+			return n, cached[1]
 		}
 	}
 	u, ok := transcript.LastUsage(path)
 	if !ok {
 		return 0, ""
 	}
-	if statErr == nil {
-		writeStamp(stamp, size, mtime, strconv.Itoa(u.Tokens), u.Model)
-	}
+	save(strconv.Itoa(u.Tokens), u.Model)
 	return u.Tokens, u.Model
 }
 

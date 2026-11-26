@@ -713,7 +713,7 @@ func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) core.Result {
 	case lr.scan.handedBack: // the delivered hand-back already carried the fix
 		return core.Result{}
 	}
-	return receiptFix(in, agentID, lr)
+	return receiptFix(in, lr)
 }
 
 // Handback runs the receipt and verify steps on SubagentHandback (it ends a background leaf before SubagentStop).
@@ -725,10 +725,9 @@ func Handback(in *core.Input) core.Result {
 	leaf := *in
 	leaf.AgentTranscriptPath = leafTranscript(in, id)
 	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf), leaf.CWD)
-	start := time.Now()
-	lr.until = start.Add(handbackWait)
+	lr.until = time.Now().Add(handbackWait)
 	res := leafGate(&leaf, id, lr)
-	return withVerify(in, res, handbackVerify(&leaf, lr, start.Add(handbackWait)))
+	return withVerify(in, res, handbackVerify(&leaf, lr, lr.until))
 }
 
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
@@ -752,7 +751,7 @@ func (s *leafScan) recordAsk(it leafToolUse, calls [][]string, at time.Time) {
 		s.askCalls = map[string]bool{}
 	}
 	s.askCalls[it.ID] = true
-	if job, follow, ok := pollJob(it.Input.Command); ok {
+	if job, follow, ok := verbJob(it.Input.Command, "result"); ok {
 		s.addPoll(it.ID, job, follow)
 	}
 	if slices.ContainsFunc(calls, func(words []string) bool { return askVerb(words) != "result" }) {

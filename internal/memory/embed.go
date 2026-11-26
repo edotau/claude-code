@@ -82,25 +82,6 @@ func freshEmbedCache(c *EmbedClient) vectorRecord {
 	return vectorRecord{Model: c.Model, Rows: map[string]vectorRow{}}
 }
 
-// currentEntryHashes is the content hash of each embeddable entry in the corpus right now.
-func currentEntryHashes() (map[string]string, error) {
-	hits, err := corpusBlocks()
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	for _, h := range hits {
-		e := entryFromHit(h)
-		if e.Archived || e.Superseded {
-			continue
-		}
-		if _, dup := out[e.ID]; !dup {
-			out[e.ID] = textutil.SHA256Hex([]byte(entryEmbedText(e)))
-		}
-	}
-	return out, nil
-}
-
 // embedChanged embeds changed live entries; a valid lease returns errEmbedValid without minting.
 func embedChanged(ctx context.Context, root string, c *EmbedClient) (embedded, total int, err error) {
 	return embedEntries(ctx, root, c, false)
@@ -149,10 +130,11 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if err != nil {
 		return 0, 0, err
 	}
-	ids, texts, hashes, blocks, total, err := pendingEmbeds(rec)
+	ids, texts, hashes, blocks, live, err := pendingEmbeds(rec)
 	if err != nil {
 		return 0, 0, err
 	}
+	total = len(live)
 	started := now.UnixNano()
 	owner, err := claimEmbed(ctx, c, now, force)
 	if err != nil {
@@ -160,7 +142,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
-	current, cerr := currentEntryHashes()
+	_, _, _, _, current, cerr := pendingEmbeds(vectorRecord{}) // re-read: the corpus may have moved during the mint
 	if cerr != nil {
 		rerr := vectorStore().Release(owner) // nothing was stored, so the claim is still ours to drop
 		return embedded, total, errors.Join(embedErr, cerr, rerr)
@@ -217,29 +199,31 @@ func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 	return ok && (cacheDim == 0 || dim == cacheDim)
 }
 
-// pendingEmbeds lists the live entries whose vector in cache is missing, stale or undecodable, and the live count.
-func pendingEmbeds(cache vectorRecord) (ids, texts, hashes, blocks []string, total int, err error) {
-	live := map[string]bool{}
+// pendingEmbeds lists live entries whose cached vector is missing, stale or undecodable, and each live entry's hash.
+func pendingEmbeds(cache vectorRecord) (ids, texts, hashes, blocks []string, live map[string]string, err error) {
+	live = map[string]string{}
 	cacheDim := cacheDimOf(cache)
 	hits, err := corpusBlocks()
 	if err != nil {
-		return nil, nil, nil, nil, 0, err
+		return nil, nil, nil, nil, nil, err
 	}
 	for _, h := range hits {
 		e := entryFromHit(h)
-		if e.Archived || e.Superseded || live[e.ID] { // the first of a duplicated id wins
+		if _, dup := live[e.ID]; e.Archived || e.Superseded || dup { // the first of a duplicated id wins
 			continue
 		}
 		text := entryEmbedText(e)
 		hash := textutil.SHA256Hex([]byte(text))
-		live[e.ID] = true
-		if cacheRowCurrent(cache.Rows[e.ID], hash, hitHash(h), cacheDim) {
-			continue
+		live[e.ID] = hash
+		if cache.Rows == nil {
+			continue // no cache: only the live hashes are wanted
 		}
-		ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
-		blocks = append(blocks, hitHash(h))
+		if block := hitHash(h); !cacheRowCurrent(cache.Rows[e.ID], hash, block, cacheDim) {
+			ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
+			blocks = append(blocks, block)
+		}
 	}
-	return ids, texts, hashes, blocks, len(live), nil
+	return ids, texts, hashes, blocks, live, nil
 }
 
 // embedRun is one mint's paid-for rows, merged into the record that is current at commit time.

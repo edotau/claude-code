@@ -35,7 +35,7 @@ var planRouteRows = []planRouteRow{
 	{name: "gemini route token", o: RunOptions{Agent: "gemini", Prompt: "Reply ok", Provider: "dev"}, check: checkGeminiDev},
 	{name: "codex fast step-up", setup: func(t *testing.T) { saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"}) },
 		o: RunOptions{Agent: "codex", Prompt: "Tier: fast\nRename foo to bar in /tmp/x.go"}, check: checkFastStepUp},
-	{name: "runner own", o: RunOptions{Agent: "codex", Prompt: "Reply ok", Runner: "own"}, check: checkRunnerOwn},
+	{name: "runner own", o: RunOptions{Agent: "codex", Prompt: "Reply ok", Runner: "cli"}, check: checkRunnerCLI},
 	{name: "typed none keeps pi", o: RunOptions{Agent: "codex", Prompt: "Reply ok", Fallback: "none"}, check: checkTypedNone},
 	{name: "overlay none is a request", overlay: `{"fallback":"none"}`, o: RunOptions{Agent: "codex", Prompt: "Reply ok"},
 		check: checkOverlayNone},
@@ -70,7 +70,7 @@ func TestPlanRoute(t *testing.T) {
 }
 
 func checkAutoPick(t *testing.T, p RoutePlan) {
-	wantRunners(t, p, RunnerPi, RunnerOwn)
+	wantRunners(t, p, RunnerPi, RunnerCLI)
 	if len(p.Pool) == 0 || p.Pool[0].Profile != "dev" || !p.Pool[0].Picked {
 		t.Errorf("pool = %+v, want dev picked first", p.Pool)
 	}
@@ -87,7 +87,7 @@ func checkRotationLead(t *testing.T, p RoutePlan) {
 
 func checkCopilotPin(t *testing.T, p RoutePlan) {
 	wantPool(t, p, "personal")
-	wantRunners(t, p, RunnerOwn)
+	wantRunners(t, p, RunnerCLI)
 }
 
 func checkChildFence(t *testing.T, p RoutePlan) {
@@ -118,15 +118,15 @@ func checkFastStepUp(t *testing.T, p RoutePlan) {
 	}
 }
 
-func checkRunnerOwn(t *testing.T, p RoutePlan) {
-	wantRunners(t, p, RunnerOwn)
-	if !strings.Contains(p.Barred, "--runner own") {
-		t.Errorf("barred = %q, want it to name --runner own", p.Barred)
+func checkRunnerCLI(t *testing.T, p RoutePlan) {
+	wantRunners(t, p, RunnerCLI)
+	if !strings.Contains(p.Barred, "--runner cli") {
+		t.Errorf("barred = %q, want it to name --runner cli", p.Barred)
 	}
 }
 
 func checkTypedNone(t *testing.T, p RoutePlan) {
-	wantRunners(t, p, RunnerPi, RunnerOwn)
+	wantRunners(t, p, RunnerPi, RunnerCLI)
 	if p.Fallback.Source != router.PolicyTyped || len(p.Pool) != 1 {
 		t.Errorf("fallback %+v pool %+v, want typed none on one workspace", p.Fallback, p.Pool)
 	}
@@ -139,7 +139,7 @@ func checkOverlayNone(t *testing.T, p RoutePlan) {
 }
 
 func checkResumed(t *testing.T, p RoutePlan) {
-	wantRunners(t, p, RunnerOwn)
+	wantRunners(t, p, RunnerCLI)
 	if p.Fallback.Kind != router.PolicyNone {
 		t.Errorf("fallback = %+v, want none", p.Fallback)
 	}
@@ -216,7 +216,7 @@ func TestFinishPrepareRecordsAdmittedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := &RoutePlan{Agent: "codex", Runners: []Runner{{RunnerPi, "codex"}, {RunnerOwn, "codex"}}, Fallback: pol}
+	plan := &RoutePlan{Agent: "codex", Runners: []Runner{{RunnerPi, "codex"}, {RunnerCLI, "codex"}}, Fallback: pol}
 	c := &Client{}
 	p := &Prepared{Chain: Chain{Plan: plan}}
 	if err := c.finishPrepare(context.Background(), p, RunOptions{Agent: "codex", Prompt: "Reply ok"}, nil); err != nil {
@@ -238,7 +238,7 @@ func TestFinishPrepareRecordsAdmittedPlan(t *testing.T) {
 
 func TestHopsLocalLast(t *testing.T) {
 	local := &LocalHop{Workspace: Workspace{Profile: "local", Account: "magnitude·local"}}
-	p := RoutePlan{Agent: "claude", Runners: []Runner{{RunnerOwn, "claude"}}, Pool: []Workspace{{Profile: "dev"}}, Local: local}
+	p := RoutePlan{Agent: "claude", Runners: []Runner{{RunnerCLI, "claude"}}, Pool: []Workspace{{Profile: "dev"}}, Local: local}
 	for stage, want := range map[string]int{"shadow": 1, "last": 2} {
 		setLocalStage(t, stage)
 		if hops := p.Hops(); len(hops) != want || want == 2 && hops[1].Workspace.Profile != "local" {

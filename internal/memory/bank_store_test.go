@@ -357,7 +357,6 @@ func (s *docDBStore) Apply(b Batch, base Versions, now time.Time) ([]OpResult, e
 // dbBank is a bank in db truth whose decisionLog and conventions are batchStore's fixtures, imported into the db.
 func dbBank(t *testing.T) (*fakeExportDB, *docDBStore) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	db := dbTruthBank(t)
 	write(t, Path("decisionLog.md"), datedIn)
 	write(t, Path("conventions.md"), bulletsIn)

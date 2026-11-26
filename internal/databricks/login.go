@@ -48,18 +48,18 @@ func (h headless) set() bool { return h.port != 0 || h.noBrowser || h.paste }
 
 // options is the oauth.LoginOptions for h: no flag set gives the interactive default.
 func (h headless) options() oauth.LoginOptions {
-	if h.via != "" {
-		return h.remoteOptions()
-	}
-	o := oauth.LoginOptions{Open: openLocal, Out: os.Stderr, NoBrowser: h.noBrowser}
-	if h.noBrowser {
-		o.Open = nil
-	}
+	o := oauth.LoginOptions{Out: os.Stderr}
 	if h.port > 0 {
 		o.Port, o.ExactPort = h.port, true
 	}
 	if h.paste {
 		o.Paste = loginIn
+	}
+	if h.via != "" {
+		return h.remoteOptions(o)
+	}
+	if o.NoBrowser = h.noBrowser; !h.noBrowser {
+		o.Open = openLocal
 	}
 	return o
 }
@@ -123,8 +123,7 @@ func parseLogin(args []string) (f loginFlags, code int, done bool) {
 		return f, usageProfile("login", names[0]), true
 	}
 	if err := checkProfileFlag(fs, f.profile); err != nil {
-		fail("login: %v", err)
-		return f, 2, true
+		return f, failCode(2, "login: %v", err), true
 	}
 	return f, 0, false
 }
@@ -289,18 +288,15 @@ func checkLoginFlags(as, authType string) (code int, bad bool) {
 	switch as {
 	case "", providers.IdentityUser, providers.IdentitySP:
 	default:
-		fail("login: --as must be user or sp")
-		return 2, true
+		return failCode(2, "login: --as must be user or sp"), true
 	}
 	switch authType {
 	case "", providers.AuthOAuth:
 	case providers.AuthM2M, providers.AuthPAT:
-		fail("login: --auth-type %q does not sign in through the browser; "+
-			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", authType)
-		return 2, true
+		return failCode(2, "login: --auth-type %q does not sign in through the browser; "+
+			"m2m and pat secrets come from `vault set` or `databricks import --seal-secrets`", authType), true
 	default:
-		fail("login: --auth-type must be oauth, m2m or pat (got %q)", authType)
-		return 2, true
+		return failCode(2, "login: --auth-type must be oauth, m2m or pat (got %q)", authType), true
 	}
 	return 0, false
 }
@@ -308,16 +304,14 @@ func checkLoginFlags(as, authType string) (code int, bad bool) {
 // checkHeadless rejects --port, --no-browser and --paste with identity sp; a non-oauth auth type is refused earlier.
 func checkHeadless(h headless, as string) (code int, bad bool) {
 	if h.port < 0 || h.port > 65535 {
-		fail("login: --port must be between 1 and 65535 (got %d)", h.port)
-		return 2, true
+		return failCode(2, "login: --port must be between 1 and 65535 (got %d)", h.port), true
 	}
 	if !h.set() {
 		return 0, false
 	}
 	if as == providers.IdentitySP {
-		fail("login: --port, --no-browser and --paste apply to the browser login only; " +
-			"a service principal mints with no callback (pass --as user for the browser login)")
-		return 2, true
+		return failCode(2, "login: --port, --no-browser and --paste apply to the browser login only; "+
+			"a service principal mints with no callback (pass --as user for the browser login)"), true
 	}
 	return 0, false
 }
@@ -329,7 +323,7 @@ func loginDryRun(p *providers.Provider, reuse bool, how string) int {
 		return 0
 	}
 	if p.Auth.Method() != providers.AuthOAuth {
-		if err := switchAuthType(p, providers.AuthOAuth, true); err != nil {
+		if err := switchAuthType(os.Stdout, p, providers.AuthOAuth, true); err != nil {
 			return fail("login: %v", err)
 		}
 		fmt.Printf("would log in to %s\n", loginHost(p))
@@ -364,7 +358,7 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 	}
 	switched, was := false, p.Auth.Method()
 	if was != providers.AuthOAuth {
-		if err := switchAuthType(p, providers.AuthOAuth, false); err != nil {
+		if err := switchAuthType(os.Stdout, p, providers.AuthOAuth, false); err != nil {
 			return err
 		}
 		p.Auth.Type = providers.AuthOAuth
@@ -413,13 +407,8 @@ func rollbackHint(id, was string, switched bool) {
 		id, was, id)
 }
 
-// switchAuthType sets providers.<id>.auth.type (oauth, pat or m2m) through the force path and prints the diff.
-func switchAuthType(p *providers.Provider, authType string, dryRun bool) error {
-	return switchAuthTypeTo(os.Stdout, p, authType, dryRun)
-}
-
-// switchAuthTypeTo is switchAuthType with the diff and kept-key lines written to w.
-func switchAuthTypeTo(w io.Writer, p *providers.Provider, authType string, dryRun bool) error {
+// switchAuthType sets providers.<id>.auth.type (oauth, pat or m2m) through the force path; the diff goes to w.
+func switchAuthType(w io.Writer, p *providers.Provider, authType string, dryRun bool) error {
 	if err := checkAuthType(p, authType); err != nil {
 		return err
 	}
@@ -603,15 +592,8 @@ func (h headless) remoteRange(local int) (first, last int) {
 	return local, oauth.DefaultPort + oauth.PortSpan
 }
 
-// remoteOptions is the oauth.LoginOptions of a --remote login: the browser opens on h.via, its callback forwarded here.
-func (h headless) remoteOptions() oauth.LoginOptions {
-	o := oauth.LoginOptions{Out: os.Stderr}
-	if h.port > 0 {
-		o.Port, o.ExactPort = h.port, true
-	}
-	if h.paste {
-		o.Paste = loginIn
-	}
+// remoteOptions extends o for a --remote login: the browser opens on h.via, its callback forwarded here.
+func (h headless) remoteOptions(o oauth.LoginOptions) oauth.LoginOptions {
 	up := false
 	o.Open = func(authURL string) error {
 		if !up {
@@ -670,9 +652,8 @@ func (h headless) describeRemote(profile string) string {
 // checkRemote refuses --no-browser under --remote: the browser always opens on the host and this machine opens none.
 func checkRemote(h headless) (code int, bad bool) {
 	if h.via != "" && h.noBrowser {
-		fail("login: --no-browser contradicts --remote: the host's browser is the one that opens; drop it, " +
-			"or pass --paste to also accept the redirected URL")
-		return 2, true
+		return failCode(2, "login: --no-browser contradicts --remote: the host's browser is the one that opens; drop it, "+
+			"or pass --paste to also accept the redirected URL"), true
 	}
 	return 0, false
 }

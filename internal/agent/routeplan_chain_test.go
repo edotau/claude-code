@@ -14,7 +14,7 @@ func TestAdmittedPlanMatchesSingleResolvedChain(t *testing.T) {
 		{"pi@databricks·qa", "codex@openai·chatgpt"},
 	} {
 		ch := planChainOf(seq...)
-		p := admittedPlan(RoutePlan{Agent: "pi", Runners: []Runner{{Kind: RunnerPi, Agent: "pi"}, {Kind: RunnerOwn, Agent: "codex"}, {Kind: RunnerOwn, Agent: "claude"}}}, ch)
+		p := admittedPlan(RoutePlan{Agent: "pi", Runners: []Runner{{Kind: RunnerPi, Agent: "pi"}, {Kind: RunnerCLI, Agent: "codex"}, {Kind: RunnerCLI, Agent: "claude"}}}, ch)
 		if len(p.Admitted) != len(ch.Dispatches) {
 			t.Fatalf("%v: admitted %d hops, want %d", seq, len(p.Admitted), len(ch.Dispatches))
 		}
@@ -35,7 +35,7 @@ func TestPiRunnerWithoutPlan(t *testing.T) {
 }
 
 func TestAdmittedPlanRetainsCandidatesAndPiRefusal(t *testing.T) {
-	p := RoutePlan{Agent: "codex", Runners: []Runner{{Kind: RunnerPi, Agent: "codex"}, {Kind: RunnerOwn, Agent: "codex"}},
+	p := RoutePlan{Agent: "codex", Runners: []Runner{{Kind: RunnerPi, Agent: "codex"}, {Kind: RunnerCLI, Agent: "codex"}},
 		Pool: []Workspace{{Profile: "dev", Account: "databricks·dev"}, {Profile: "qa", Account: "databricks·qa"}}}
 	ch := planChainOf("codex@databricks·dev", "codex@github·a-login", "claude@databricks·dev")
 	ch = ch.noted("codex: pi runner skipped: pi is not installed")
@@ -43,7 +43,7 @@ func TestAdmittedPlanRetainsCandidatesAndPiRefusal(t *testing.T) {
 	if len(got.Pool) != 2 || got.Pool[1].Profile != "qa" || got.Barred != "pi is not installed" {
 		t.Fatalf("candidate pool or validation refusal lost: %+v", got)
 	}
-	if len(got.Runners) != 1 || got.Runners[0].Kind != RunnerOwn || got.Admitted[1].Workspace.Profile != "" {
+	if len(got.Runners) != 1 || got.Runners[0].Kind != RunnerCLI || got.Admitted[1].Workspace.Profile != "" {
 		t.Fatalf("Pi retained or billing login became a profile: %+v", got)
 	}
 	if len(got.Agents) != 2 {

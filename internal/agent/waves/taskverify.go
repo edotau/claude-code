@@ -150,15 +150,13 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 // pruneTrees removes in-repo trees, trees whose verifier pid is gone, and outputs past their keep.
 func pruneTrees(ctx context.Context, top, root, treeRoot string) {
 	// in-repo trees and slots are from before snapshots moved out of the module; go build and gopls walk into them
-	old, _ := filepath.Glob(filepath.Join(root, "slot-*-[0-9]"))
-	for _, t := range old {
-		worktree.RemoveTree(ctx, top, t)
+	for _, pattern := range []string{"slot-*-[0-9]", "tree-*"} {
+		old, _ := filepath.Glob(filepath.Join(root, pattern))
+		for _, t := range old {
+			worktree.RemoveTree(ctx, top, t)
+		}
 	}
-	trees, _ := filepath.Glob(filepath.Join(root, "tree-*"))
-	for _, t := range trees {
-		worktree.RemoveTree(ctx, top, t)
-	}
-	trees, _ = filepath.Glob(filepath.Join(treeRoot, "tree-*"))
+	trees, _ := filepath.Glob(filepath.Join(treeRoot, "tree-*"))
 	for _, t := range trees {
 		pid, err := strconv.Atoi(t[strings.LastIndexByte(t, '-')+1:])
 		if _, serr := proc.StartTime(pid); err != nil || errors.Is(serr, proc.ErrNoProcess) {

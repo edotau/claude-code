@@ -1,8 +1,8 @@
 package translate
 
 import (
+	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -22,42 +22,16 @@ type chatResponse struct {
 
 // FromChatResponse converts a non-streaming chat-completions response into an Anthropic Messages response.
 func FromChatResponse(body []byte, clientModel string) ([]byte, error) {
-	var in chatResponse
-	if err := json.Unmarshal(body, &in); err != nil {
-		return nil, fmt.Errorf("translate: response: %w", err)
-	}
-	if len(in.Error) > 0 && string(in.Error) != "null" {
-		return nil, fmt.Errorf("translate: upstream error: %s", in.Error)
-	}
-	if len(in.Choices) == 0 {
-		return nil, errors.New("translate: response has no choices")
-	}
-	c := in.Choices[0]
-	content := []map[string]any{}
-	text, err := contentText(c.Message.Content)
+	r, err := ParseReply(body)
 	if err != nil {
 		return nil, err
 	}
-	if text == "" {
-		text = c.Message.Refusal
-	}
-	if text != "" {
+	content := []map[string]any{}
+	if text := cmp.Or(r.Text, r.Refusal); text != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
-	for _, tc := range c.Message.ToolCalls {
-		id := tc.ID
-		if id == "" {
-			id = newID("toolu_")
-		}
-		content = append(
-			content,
-			map[string]any{
-				"type":  "tool_use",
-				"id":    id,
-				"name":  tc.Function.Name,
-				"input": toolInput(argsText(tc.Function.Arguments)),
-			},
-		)
+	for _, c := range r.Calls {
+		content = append(content, map[string]any{"type": "tool_use", "id": c.ID, "name": c.Name, "input": toolInput(c.Args)})
 	}
 	return json.Marshal(map[string]any{
 		"id":            newID("msg_"),
@@ -65,9 +39,9 @@ func FromChatResponse(body []byte, clientModel string) ([]byte, error) {
 		"role":          "assistant",
 		"model":         clientModel,
 		"content":       content,
-		"stop_reason":   stopReason(c.FinishReason, len(c.Message.ToolCalls) > 0),
+		"stop_reason":   stopReason(r.Finish, len(r.Calls) > 0),
 		"stop_sequence": nil,
-		"usage":         anthropicUsage(in.Usage),
+		"usage":         anthropicUsage(r.Usage),
 	})
 }
 

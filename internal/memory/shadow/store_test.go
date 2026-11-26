@@ -164,7 +164,7 @@ func bankStoreFixture(t *testing.T) (memory.BankStore, func(q string) string) {
 		}
 		return s
 	}
-	return NewSQLBankStore(db), one
+	return sqlBankStore{db: db}, one
 }
 
 func TestBankStoreLoad(t *testing.T) {
@@ -492,7 +492,7 @@ func (e *parityEnv) export() {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	rep, err := memory.ExportGuard(edb, paths.MemoryStoreDir())
+	rep, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir())
 	if cerr := closeDB(); err == nil {
 		err = cerr
 	}
@@ -509,7 +509,7 @@ func (e *parityEnv) settle() string {
 	e.t.Helper()
 	e.export()
 	e.probes++
-	id, err := memory.Remember("project", fmt.Sprintf("Checkpoint %d recorded by the parity script", e.probes), e.now())
+	id, err := memory.RememberSupersedes("project", fmt.Sprintf("Checkpoint %d recorded by the parity script", e.probes), "", e.now())
 	if err != nil {
 		e.t.Fatalf("settle: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestBankStoreLoadAmbiguousRefHasNoVersion(t *testing.T) {
 	if _, err := shadowRebuild(context.Background(), db, root); err != nil {
 		t.Fatal(err)
 	}
-	s := NewSQLBankStore(db)
+	s := sqlBankStore{db: db}
 	docs, v, err := s.Load()
 	if err != nil {
 		t.Fatal(err)

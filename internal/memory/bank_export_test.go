@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // fakeExportDB keeps rendered docs in maps; Import reads the file under root like the shadow adapter.
@@ -66,7 +66,7 @@ func (f *fakeExportDB) RecordConflict(rel, kind string) error {
 
 func (f *fakeExportDB) Import(rel, _ string) error {
 	b, err := os.ReadFile(filepath.Join(f.root, filepath.FromSlash(rel)))
-	f.docs[rel], f.last[rel] = string(b), sha256Hex(b)
+	f.docs[rel], f.last[rel] = string(b), textutil.SHA256Hex(b)
 	if err == nil && f.hook != nil {
 		err = f.hook("import", rel)
 	}
@@ -111,7 +111,7 @@ func heldGlob(t *testing.T, rel, pattern string) []string {
 
 func exportGuard(t *testing.T, db *fakeExportDB) ExportReport {
 	t.Helper()
-	rep, err := ExportGuard(db, db.root)
+	rep, err := ExportGuardLocked(db, db.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestExportGuardConflictAndDelete(t *testing.T) {
 		exportRead(t, root, "notes/c.md") != "# C\n\n- disk edit\n" || db.docs["notes/c.md"] != "# C\n\n- db edit\n" {
 		t.Fatalf("both moved = %+v, want a conflict with both sides untouched", rep)
 	}
-	if got := heldRead(t, "notes/c.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "notes/c.md", ".db-conflict-"+textutil.SHA256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db side kept as %q, want the db render", got)
 	}
 	if err := os.Remove(filepath.Join(root, "notes/c.md")); err != nil {
@@ -183,23 +183,8 @@ func TestExportGuardOutsideEditDuringSwap(t *testing.T) {
 	if got := exportRead(t, root, "conventions.md"); got != "# C\n\n- typed meanwhile\n" {
 		t.Fatalf("outside edit lost: %q", got)
 	}
-	if got := heldRead(t, "conventions.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "conventions.md", ".db-conflict-"+textutil.SHA256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db side snapshot = %q", got)
-	}
-}
-
-func TestExportGuardHoldsBankLock(t *testing.T) {
-	isolatedConfig(t)
-	old := BankLockWait
-	BankLockWait = 50 * time.Millisecond
-	t.Cleanup(func() { BankLockWait = old })
-	db := &fakeExportDB{root: paths.MemoryStoreDir(), docs: map[string]string{}, last: map[string]string{}}
-	err := WithBankLock(time.Second, func() error {
-		_, gerr := ExportGuard(db, db.root)
-		return gerr
-	})
-	if !errors.Is(err, ErrBankBusy) {
-		t.Fatalf("guard under a held bank lock = %v, want ErrBankBusy", err)
 	}
 }
 
@@ -303,7 +288,7 @@ func TestExportGuardStrandedKeepsDBSide(t *testing.T) {
 	if !slices.ContainsFunc(rep.Conflicts, func(c string) bool { return strings.HasPrefix(c, "conventions.md"+holdMark) }) {
 		t.Fatalf("stranded = %+v, want a conflict naming the held copy", rep)
 	}
-	if got := heldRead(t, "conventions.md", ".db-conflict-"+sha256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
+	if got := heldRead(t, "conventions.md", ".db-conflict-"+textutil.SHA256Hex([]byte("# C\n\n- db edit\n"))[:12]); got != "# C\n\n- db edit\n" {
 		t.Fatalf("db sidecar = %q", got)
 	}
 }
@@ -347,7 +332,7 @@ func TestExportKeptCopyBaseIsExact(t *testing.T) {
 func TestExportHoldAsideNeverReplaces(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "a.md")
-	seen := sha256Hex([]byte("x"))
+	seen := textutil.SHA256Hex([]byte("x"))
 	var holds []string
 	for _, body := range []string{"first", "second"} {
 		if err := os.WriteFile(dest, []byte(body), 0o600); err != nil {
@@ -383,7 +368,7 @@ func TestExportHoldAsideKeepsFileReplacedMidSwap(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { exportAfterHoldLink = nil })
-	hold, moved, err := holdAside(dest, dest+holdMark+sha256Hex([]byte("old"))[:12])
+	hold, moved, err := holdAside(dest, dest+holdMark+textutil.SHA256Hex([]byte("old"))[:12])
 	if err != nil || moved {
 		t.Fatalf("holdAside = %v %v, want not moved", moved, err)
 	}
@@ -399,7 +384,7 @@ func TestExportSidecarEditedIsNotOverwritten(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "a.md")
 	data := []byte("db side")
-	name := dest + ".db-conflict-" + sha256Hex(data)[:12]
+	name := dest + ".db-conflict-" + textutil.SHA256Hex(data)[:12]
 	if err := keepSidecar(name, data); err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +410,7 @@ func TestExportSidecarSymlinkIsNotReused(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "a.md")
 	data := []byte("db side")
-	name := dest + ".db-conflict-" + sha256Hex(data)[:12]
+	name := dest + ".db-conflict-" + textutil.SHA256Hex(data)[:12]
 	target := filepath.Join(dir, "elsewhere")
 	if err := os.WriteFile(target, data, 0o600); err != nil {
 		t.Fatal(err)
@@ -460,7 +445,7 @@ func TestExportGuardSyncsTouchedDirs(t *testing.T) {
 	}
 	exportSyncDir = func(string) error { return errors.New("disk gone") }
 	db.docs["feedback/y.md"] = "# Y\n"
-	if _, err := ExportGuard(db, root); err == nil {
+	if _, err := ExportGuardLocked(db, root); err == nil {
 		t.Fatal("a failed directory sync reported success")
 	} else if !errors.Is(err, errExportSync) {
 		t.Fatalf("sync failure = %v, want errExportSync", err)
@@ -524,7 +509,7 @@ func TestExportGuardKeepsNoCopyOfAGitVersion(t *testing.T) {
 	if _, _, err := StoreRepo().Commit([]string{"notes/x.md"}, "seed", ""); err != nil {
 		t.Fatal(err)
 	}
-	db := &fakeExportDB{root: root, docs: map[string]string{"notes/x.md": "# X\n\nv2\n"}, last: map[string]string{"notes/x.md": sha256Hex([]byte(v1))}}
+	db := &fakeExportDB{root: root, docs: map[string]string{"notes/x.md": "# X\n\nv2\n"}, last: map[string]string{"notes/x.md": textutil.SHA256Hex([]byte(v1))}}
 	exportGuard(t, db)
 	db.docs["notes/x.md"] = v1 // the db side is a committed version, so holding it saves nothing
 	exportWrite(t, root, "notes/x.md", "# X\n\nv3\n")

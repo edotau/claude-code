@@ -10,7 +10,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -251,10 +250,10 @@ func printPlan(w io.Writer, plan nukePlan) {
 
 // classify reports whether name (a top-level entry of a git-tracked dir) is tracked, ignored, or neither.
 func classify(repo, name string) string {
-	if out, err := exec.Command("git", "-C", repo, "ls-files", "--", name).Output(); err == nil && len(strings.TrimSpace(string(out))) > 0 { //nolint:noctx // one-shot local git call; no caller ctx
+	if out, err := gitOutput("-C", repo, "ls-files", "--", name); err == nil && len(strings.TrimSpace(string(out))) > 0 {
 		return "tracked"
 	}
-	if err := exec.Command("git", "-C", repo, "check-ignore", "-q", "--", name).Run(); err == nil { //nolint:noctx // one-shot local git call; no caller ctx
+	if _, err := gitOutput("-C", repo, "check-ignore", "-q", "--", name); err == nil {
 		return "ignored"
 	}
 	return "untracked"
@@ -272,11 +271,11 @@ func userContentPaths(dir string, hasGit bool) (out, kept []string, err error) {
 	if !hasGit {
 		return out, nil, nil
 	}
-	rels, err := untrackedUnder(dir, ".") // every untracked, non-ignored file: the plan labels them untracked too
+	raw, err := gitOutput("-C", dir, "ls-files", "-z", "--others", "--exclude-standard", "--", ".") // every untracked, non-ignored file: the plan labels them untracked too
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("list untracked .: %w", err)
 	}
-	for _, r := range rels {
+	for _, r := range splitNUL(raw) {
 		switch {
 		case strings.HasPrefix(r, "state/") || strings.HasPrefix(r, "memory/") || strings.HasPrefix(r, "plans/"):
 			// the vault, memory and plans have their own paths
@@ -328,25 +327,6 @@ func credentialShaped(path string) bool {
 	}
 	data, err := os.ReadFile(path)
 	return err == nil && textutil.CredentialRE().Match(data)
-}
-
-// untrackedUnder lists the untracked files under repo/sub.
-func untrackedUnder(repo, sub string) ([]string, error) {
-	fi, err := os.Stat(filepath.Join(repo, sub))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if !fi.IsDir() {
-		return nil, nil
-	}
-	out, err := exec.Command("git", "-C", repo, "ls-files", "-z", "--others", "--exclude-standard", "--", sub).Output() //nolint:noctx // one-shot local git call; no caller ctx
-	if err != nil {
-		return nil, fmt.Errorf("list untracked %s: %w", sub, err)
-	}
-	return splitNUL(out), nil
 }
 
 // archiveUserContent writes the user-content tarball (secrets named by key only); a failure removes the partial file.
@@ -440,7 +420,7 @@ func planGitWork(dir string, plan *nukePlan) error {
 		return err
 	}
 	plan.UserContent = append(plan.UserContent, edited...)
-	out, err := exec.Command("git", "-C", dir, "rev-list", "-n1", "--branches", "--not", "--remotes").Output() //nolint:noctx // one-shot local git call; no caller ctx
+	out, err := gitOutput("-C", dir, "rev-list", "-n1", "--branches", "--not", "--remotes")
 	if err != nil {
 		return fmt.Errorf("list unpushed commits: %w", err)
 	}

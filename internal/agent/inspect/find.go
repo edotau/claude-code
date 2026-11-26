@@ -249,7 +249,7 @@ func findPathspecs(root string, o FindOptions) []string {
 	return nil
 }
 
-// findLiteral reports a content search whose pattern git -F can match as Go would; -i skips K, S and non-ASCII (Go folds them).
+// findLiteral reports a pattern git -F matches as Go would; -i skips K, S and non-ASCII (Go folds them).
 func findLiteral(o FindOptions) bool {
 	if o.Name || o.Pattern == "" ||
 		regexp.QuoteMeta(o.Pattern) != o.Pattern || strings.ContainsAny(o.Pattern, "\r\n\x00") {

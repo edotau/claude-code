@@ -342,19 +342,31 @@ func liveDocs(texts map[string]string) ([]*bankDoc, error) {
 	return docs, nil
 }
 
-// holderDocs are the files among paths whose text carries any marker; an absent file is skipped.
-func holderDocs(paths, markers []string) ([]*bankDoc, error) {
+// holderDocs splits and removes the files of rest whose text carries any marker; each file is read once, into rest.
+func holderDocs(paths []string, rest map[string][]byte, markers []string) ([]*bankDoc, error) {
 	var docs []*bankDoc
 	for _, p := range paths {
-		data, err := readFile(p)
-		if errors.Is(err, fs.ErrNotExist) {
+		data, ok := rest[p]
+		if !ok {
 			continue
 		}
-		if err != nil {
-			return nil, err
+		if data == nil {
+			b, err := readFile(p)
+			if errors.Is(err, fs.ErrNotExist) {
+				delete(rest, p)
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if b == nil {
+				b = []byte{} // read and empty, unlike nil: not read yet
+			}
+			data, rest[p] = b, b
 		}
-		if slices.ContainsFunc(markers, func(m string) bool { return strings.Contains(string(data), m) }) {
+		if slices.ContainsFunc(markers, func(m string) bool { return bytes.Contains(data, []byte(m)) }) {
 			docs = append(docs, newBankDoc(p, string(data)))
+			delete(rest, p)
 		}
 	}
 	return docs, nil
@@ -371,16 +383,17 @@ func reviseDocSet(texts map[string]string) ([]*bankDoc, error) {
 		return docs, nil
 	}
 	own := reviseFilesOf(false)
-	rest := slices.DeleteFunc(reviseFilesOf(true), func(p string) bool { return slices.Contains(own, p) })
+	order := slices.DeleteFunc(reviseFilesOf(true), func(p string) bool { return slices.Contains(own, p) })
+	rest := make(map[string][]byte, len(order)) // nil: not read yet
+	for _, p := range order {
+		rest[p] = nil
+	}
 	for len(missing) > 0 {
-		extra, err := holderDocs(rest, missing)
+		extra, err := holderDocs(order, rest, missing)
 		if err != nil || len(extra) == 0 {
 			return docs, err
 		}
 		docs = append(docs, extra...)
-		rest = slices.DeleteFunc(rest, func(p string) bool {
-			return slices.ContainsFunc(extra, func(d *bankDoc) bool { return d.path == p })
-		})
 		missing = missingRefs(docs)
 	}
 	return docs, nil

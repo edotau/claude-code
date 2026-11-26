@@ -27,6 +27,8 @@ func init() {
 	}
 }
 
+var errNoSamePIDExec = errors.New("gateway sessions require same-PID exec (unsupported on native Windows)")
+
 // execAgyImage is the exec seam for checking the final vendor environment without replacing the test process.
 var execAgyImage = proc.Exec
 
@@ -35,7 +37,7 @@ var agyEnvKey = vault.EnvKey
 
 func execAgy(bin string, argv []string) error {
 	if runtime.GOOS == "windows" {
-		return errors.New("gateway sessions require same-PID exec (unsupported on native Windows)")
+		return errNoSamePIDExec
 	}
 	secret, err := proxy.ClientSecret()
 	if err != nil {
@@ -83,7 +85,7 @@ func bindAgyChild(cmd *exec.Cmd) error {
 		return nil // no route, or a plain key: nothing to rebind
 	}
 	if runtime.GOOS == "windows" {
-		return errors.New("gateway sessions require same-PID exec (unsupported on native Windows)")
+		return errNoSamePIDExec
 	}
 	self, err := os.Executable()
 	if err != nil {

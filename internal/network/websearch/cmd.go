@@ -50,7 +50,7 @@ func Cmd(args []string) int {
 		return helptext.FailUsage("network websearch: %v", err)
 	}
 	if *query != "" {
-		return oneShot(context.Background(), *query, *maxResults, nil, os.Stdout)
+		return oneShot(context.Background(), *query, *maxResults, lib.SearchText, os.Stdout)
 	}
 	return run(context.Background())
 }
@@ -86,9 +86,6 @@ func oneShot(ctx context.Context, query string, maxResults int, search lib.Searc
 	}
 	if maxResults <= 0 {
 		maxResults = lib.DefaultMaxResults
-	}
-	if search == nil {
-		search = lib.SearchText
 	}
 	text, err := search(ctx, query, maxResults)
 	if err != nil {

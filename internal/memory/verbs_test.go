@@ -79,7 +79,7 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return nil, errors.New("stub") }
 	decisionLog := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	decisionLogOver(t, decisionLog, 80)
-	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := cacheDoctorNotice(doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	write(t, decisionLog, "# D\n")

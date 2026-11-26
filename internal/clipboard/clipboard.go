@@ -46,7 +46,7 @@ const powershellTimeout = 30 * time.Second
 func runPowerShell(script string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), powershellTimeout)
 	defer cancel()
-	ps := powerShellPath(func(n string) bool { _, err := exec.LookPath(n); return err == nil })
+	ps := powerShellPath(onPath)
 	out, err := exec.CommandContext(ctx, ps, psCmd(script)...).Output()
 	if err != nil {
 		return "", err
@@ -162,30 +162,30 @@ func grabMac() (path, dim string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	path = f.Name()
+	tmp := f.Name()
 	_ = f.Close()
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "osascript", "-e", macClipScript, path).Output()
+	out, err := exec.CommandContext(ctx, "osascript", "-e", macClipScript, tmp).Output()
 	if err != nil {
-		_ = os.Remove(path)
 		return "", "", fmt.Errorf("osascript clipboard read failed: %w", err)
 	}
 	if strings.TrimSpace(string(out)) != "OK" {
-		_ = os.Remove(path)
 		return "", "", errNoMacImage
 	}
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(tmp)
 	if err != nil {
-		_ = os.Remove(path)
 		return "", "", err
 	}
-	dim, err = pngDim(b)
-	if err != nil {
-		_ = os.Remove(path)
+	if dim, err = pngDim(b); err != nil {
 		return "", "", fmt.Errorf("clipboard PNG unreadable: %w", err)
 	}
-	return path, dim, nil
+	return tmp, dim, nil
 }
 
 func translateWin(win string) string {
@@ -202,13 +202,12 @@ func grab(onWSL func() bool, run func(string) (string, error), translate func(st
 		return "", "", fmt.Errorf("powershell clipboard read failed: %w", err)
 	}
 	line := strings.TrimSpace(out)
-	if line == "BUSY" {
+	switch line {
+	case "BUSY":
 		return "", "", errors.New("the Windows clipboard is locked by another app — try again")
-	}
-	if line == "NOIMAGE" {
+	case "NOIMAGE":
 		return "", "", errNoImage
-	}
-	if line == "SAVEFAIL" {
+	case "SAVEFAIL":
 		return "", "", errors.New("powershell could not save the clipboard image (is the Windows TEMP dir writable and not full?)")
 	}
 	m := clipOKRE().FindStringSubmatch(line)
@@ -252,7 +251,7 @@ func transcode(r io.Reader, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return writeBMP24(w, img.width, img.height, img.stride, img.rows, img.topDown)
+	return writeBMP24(w, img)
 }
 
 // transcodePNG writes a PNG from a BMP so the `wl-paste --type image/png` leg works on a BMP-only WSLg clipboard.
@@ -434,8 +433,9 @@ func scaleChannel(px, mask uint32, shift, width int) byte {
 	return byte(uint64(val) * 255 / maxVal)
 }
 
-// writeBMP24 emits a 24bpp BI_RGB bottom-up BMP; rows is reversed when topDown is true.
-func writeBMP24(w io.Writer, width, height, stride int, rows []byte, topDown bool) error {
+// writeBMP24 emits img as a 24bpp BI_RGB bottom-up BMP; rows are reversed when img is top-down.
+func writeBMP24(w io.Writer, img raster) error {
+	width, height, stride, rows := img.width, img.height, img.stride, img.rows
 	dataSize := stride * height
 	fileSize := fileHeaderSize + 40 + dataSize
 
@@ -459,7 +459,7 @@ func writeBMP24(w io.Writer, width, height, stride int, rows []byte, topDown boo
 		return fmt.Errorf("clipboard: write DIB header: %w", err)
 	}
 
-	if !topDown {
+	if !img.topDown {
 		if _, err := w.Write(rows); err != nil {
 			return fmt.Errorf("clipboard: write pixel data: %w", err)
 		}

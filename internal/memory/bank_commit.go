@@ -69,7 +69,7 @@ func commitChangesLocked(subject string, changes []storeChange) (commitReceipt, 
 	if err := repo.Ensure(); err != nil {
 		return commitReceipt{}, err
 	}
-	present, err := dirtyFiles(repo)
+	present, pre, err := dirtyFiles(repo, changes)
 	if err != nil {
 		return commitReceipt{}, err
 	}
@@ -79,7 +79,7 @@ func commitChangesLocked(subject string, changes []storeChange) (commitReceipt, 
 		return commitReceipt{}, err
 	}
 	var rec commitReceipt
-	states, initial, err := captureNative(repo, subject, changes, present, &rec)
+	states, initial, err := captureNative(repo, subject, changes, present, pre, &rec)
 	if err != nil {
 		return rec, err
 	}
@@ -112,8 +112,23 @@ func touchesTop(changes []storeChange, rel string) bool {
 	})
 }
 
+// captureNeedless reports a capture that would stage nothing: index at HEAD, rel clean and stat-stable, no credential.
+func captureNeedless(atHead bool, present []string, rel string, pre fs.FileInfo, snap fileSnapshot) bool {
+	if !atHead || slices.Contains(present, rel) {
+		return false
+	}
+	now, err := os.Lstat(snap.path)
+	if pre == nil || err != nil {
+		return pre == nil && !snap.existed && errors.Is(err, fs.ErrNotExist) // absent and untracked throughout
+	}
+	return !credentialShaped(snap.prev) && os.SameFile(pre, now) && pre.Size() == now.Size() && pre.ModTime().Equal(now.ModTime())
+}
+
 // captureNative commits, ahead of the batch, the dirty revisions it replaces; other dirty files are Preexisting.
-func captureNative(repo storeRepo, subject string, changes []storeChange, present []string, rec *commitReceipt) ([]changeState, []fileSnapshot, error) {
+func captureNative(repo storeRepo, subject string, changes []storeChange, present []string, pre []fs.FileInfo,
+	rec *commitReceipt) ([]changeState, []fileSnapshot, error) {
+	known, ok := knownStaged(repo)
+	atHead := ok && len(known) == 0 // index is HEAD, so a clean file's capture stages nothing
 	inBatch := map[string]bool{}
 	states := make([]changeState, len(changes))
 	initial := make([]fileSnapshot, len(changes))
@@ -130,7 +145,7 @@ func captureNative(repo storeRepo, subject string, changes []storeChange, presen
 		}
 		states[i] = st
 		inBatch[c.Rel] = true
-		if st == stApply {
+		if st == stApply && !captureNeedless(atHead, present, c.Rel, pre[i], initial[i]) {
 			capture = append(capture, c.Rel)
 		}
 	}
@@ -279,11 +294,15 @@ func commitStage(rec commitReceipt, present []string) []string {
 	return stage
 }
 
-// dirtyFiles lists dirty regular files outside .git, or now-missing ones (a tracked deletion); oddities are skipped.
-func dirtyFiles(repo storeRepo) (present []string, err error) {
+// dirtyFiles lists dirty regular files outside .git or tracked deletions, and pre: each change's Lstat before status.
+func dirtyFiles(repo storeRepo, changes []storeChange) (present []string, pre []fs.FileInfo, err error) {
+	pre = make([]fs.FileInfo, len(changes))
+	for i, c := range changes {
+		pre[i], _ = os.Lstat(filepath.Join(repo.Dir, c.Rel))
+	}
 	entries, err := repo.Status()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, e := range entries {
 		if e.Path == ".git" || strings.HasPrefix(e.Path, ".git/") {
@@ -294,12 +313,12 @@ func dirtyFiles(repo storeRepo) (present []string, err error) {
 		case os.IsNotExist(err):
 			present = append(present, e.Path)
 		case err != nil:
-			return nil, err
+			return nil, nil, err
 		case fi.Mode().IsRegular():
 			present = append(present, e.Path)
 		}
 	}
-	return present, nil
+	return present, pre, nil
 }
 
 // Bounded git for the nested memory repo: explicit --git-dir/--work-tree keep a stray GIT_DIR off ~/.claude.

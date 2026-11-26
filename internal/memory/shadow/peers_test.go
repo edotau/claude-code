@@ -5,9 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -15,8 +12,6 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/sqlite"
 )
 
 // docsOf is a peer's live entries as sorted uid|doc|lines rows: what convergence compares.
@@ -35,7 +30,7 @@ func docsOf(t *testing.T, p envPeer) []string {
 	return out
 }
 
-// meshSync runs SyncPair between every ordered pair until a round moves nothing, and fails if it never settles.
+// meshSync pulls between every ordered pair until a round moves nothing, and fails if it never settles.
 func meshSync(t *testing.T, peers ...envPeer) {
 	t.Helper()
 	for range 6 {
@@ -46,7 +41,7 @@ func meshSync(t *testing.T, peers ...envPeer) {
 	t.Fatal("mesh did not settle in 6 rounds")
 }
 
-// meshRound is one SyncPair per ordered pair; it returns how many envelopes moved.
+// meshRound is one pull per ordered pair; it returns how many envelopes moved.
 func meshRound(t *testing.T, peers []envPeer) int {
 	t.Helper()
 	moved := 0
@@ -55,18 +50,29 @@ func meshRound(t *testing.T, peers []envPeer) int {
 			if to.id == from.id {
 				continue
 			}
-			var origins []string
-			for _, o := range peers {
-				if o.id != to.id {
-					origins = append(origins, o.id)
-				}
-			}
-			rep, err := SyncPair(context.Background(), from.st, to.st, origins)
-			envOK(t, err == nil && len(rep.Held) == 0 && len(rep.Errors) == 0, "SyncPair: %+v (%v)", rep, err)
+			rep, err := pull(from, to)
+			envOK(t, err == nil && len(rep.Held) == 0 && len(rep.Errors) == 0, "pull: %+v (%v)", rep, err)
 			moved += rep.Applied + rep.Dup + rep.Conflicts
 		}
 	}
 	return moved
+}
+
+// pull sends from's changes past to's watermarks over the live serve-export and import-stream path.
+func pull(from, to envPeer) (memory.ImportReport, error) {
+	since, err := memory.Watermarks(to.st)
+	if err != nil {
+		return memory.ImportReport{}, err
+	}
+	var buf bytes.Buffer
+	if err := memory.ServeExport(from.st, since, &buf); err != nil {
+		return memory.ImportReport{}, err
+	}
+	body, _, err := memory.ReadStream(&buf)
+	if err != nil {
+		return memory.ImportReport{}, err
+	}
+	return memory.ImportStream(to.st, bytes.NewReader(body))
 }
 
 func sameDocs(t *testing.T, peers ...envPeer) {
@@ -102,7 +108,7 @@ func TestThreePeerGapHeldUntilFilled(t *testing.T) {
 	send(t, a, b, a.id, 0)
 	rep := send(t, b, c, a.id, 2) // b relays seq 3 only: c has nothing yet
 	envOK(t, len(rep.Held) == 1 && rep.Applied == 0 && len(docsOf(t, c)) == 0, "gap relay = %+v", rep)
-	rep, err := SyncPair(context.Background(), b.st, c.st, []string{a.id})
+	rep, err := pull(b, c)
 	envOK(t, err == nil && rep.Applied == 3 && len(rep.Held) == 0, "fill gap = %+v (%v)", rep, err)
 	envOK(t, c.lines(t, u) == "three", "after fill c has %q", c.lines(t, u))
 	w, _, _ := c.st.Watermark(a.id)
@@ -143,106 +149,6 @@ func TestThreePeerLateJoiner(t *testing.T) {
 	c.localAdd(t, "notes/c.md", 0, "late")
 	meshSync(t, a, b, c)
 	sameDocs(t, a, b, c)
-}
-
-func TestBootstrapCopyMintsMachineID(t *testing.T) {
-	ctx := context.Background()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := t.TempDir()
-	srcPath := filepath.Join(dir, "src.db")
-	src, err := sqlite.Open(srcPath, sqlite.Options{})
-	envOK(t, err == nil, "open: %v", err)
-	_, err = migrateMemoryDB(ctx, src, sqlite.MigrateOptions{SnapshotDir: t.TempDir()})
-	envOK(t, err == nil, "migrate: %v", err)
-	a := envPeer{db: src, st: sqlEnvelopeStore{db: src, lock: func(f func() error) error { return f() },
-		truthDB: func() (bool, error) { return true, nil }}}
-	envOK(t, a.db.QueryRow(`SELECT value FROM meta WHERE key = 'machine_id'`).Scan(&a.id) == nil, "src id")
-	u := a.localAdd(t, "notes/a.md", 0, "one")
-	a.localEdit(t, u, "two")
-	_, err = src.Exec(`CREATE TABLE IF NOT EXISTS embed_claim(id INTEGER PRIMARY KEY CHECK(id = 1), expiry INTEGER, owner INTEGER)`)
-	envOK(t, err == nil, "claim table: %v", err)
-	t.Cleanup(func() { _ = src.Close() })
-	_, err = src.Exec(`INSERT OR REPLACE INTO embed_claim(id, expiry, owner) VALUES(1, ?, 7)`, int64(math.MaxInt64))
-	envOK(t, err == nil, "claim: %v", err)
-	dst := freshDest(t)
-	id, err := BootstrapCopy(ctx, srcPath, dst)
-	envOK(t, err == nil && id != a.id && len(id) == 32, "bootstrap id %q (%v), source %q", id, err, a.id)
-	db, err := sqlite.Open(dst, sqlite.Options{})
-	envOK(t, err == nil, "open copy: %v", err)
-	t.Cleanup(func() { _ = db.Close() })
-	b := envPeer{db: db, id: id, st: sqlEnvelopeStore{db: db, lock: a.st.lock, truthDB: a.st.truthDB}}
-	var got string
-	envOK(t, db.QueryRow(`SELECT value FROM meta WHERE key = 'machine_id'`).Scan(&got) == nil && got == id, "copy id = %q", got)
-	envOK(t, slices.Equal(docsOf(t, a), docsOf(t, b)), "copy docs differ")
-	w, _, _ := b.st.Watermark(a.id)
-	envOK(t, w == 2, "copy watermark for the source = %d, want 2", w)
-	b.localAdd(t, "notes/b.md", 0, "new peer") // its first change is seq 1 under the new id
-	meshSync(t, a, b)
-	sameDocs(t, a, b)
-	envOK(t, b.count(t, `SELECT count(*) FROM conflicts`) == 0 && a.count(t, `SELECT count(*) FROM conflicts`) == 0,
-		"bootstrap replay filed conflicts")
-	var n int
-	envOK(t, db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'embed_claim'`).Scan(&n) == nil, "claim table")
-	envOK(t, n == 1, "claim table missing in copy")
-	envOK(t, db.QueryRow(`SELECT count(*) FROM embed_claim`).Scan(&n) == nil && n == 0, "copy kept embed_claim")
-	_, err = copyPeer(ctx, srcPath, dst)
-	envOK(t, err != nil && strings.Contains(err.Error(), "exists"), "second copy over dst = %v", err)
-	_, err = BootstrapCopy(ctx, filepath.Join(dir, "none.db"), freshDest(t))
-	envOK(t, err != nil, "missing source copied")
-}
-
-func TestSyncPairIsIncremental(t *testing.T) {
-	ctx := context.Background()
-	a, b := newEnvPeer(t), newEnvPeer(t)
-	u := a.localAdd(t, "notes/a.md", 0, "one")
-	a.localEdit(t, u, "two")
-	rep, err := SyncPair(ctx, a.st, b.st, []string{a.id, a.id})
-	envOK(t, err == nil && rep.Applied == 2 && rep.Dup == 0, "first = %+v (%v)", rep, err)
-	rep, err = SyncPair(ctx, a.st, b.st, []string{a.id})
-	envOK(t, err == nil && rep.Applied+rep.Dup+rep.Conflicts == 0, "repeat moved %+v (%v)", rep, err)
-	a.localEdit(t, u, "three")
-	rep, err = SyncPair(ctx, a.st, b.st, []string{a.id})
-	envOK(t, err == nil && rep.Applied == 1 && rep.Dup == 0, "delta = %+v (%v)", rep, err)
-	sameDocs(t, a, b)
-}
-
-func TestBootstrapCopyLeavesRacingDestination(t *testing.T) {
-	ctx := context.Background()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := t.TempDir()
-	srcPath := filepath.Join(dir, "src.db")
-	src, err := sqlite.Open(srcPath, sqlite.Options{})
-	envOK(t, err == nil, "open: %v", err)
-	_, err = migrateMemoryDB(ctx, src, sqlite.MigrateOptions{SnapshotDir: t.TempDir()})
-	envOK(t, err == nil, "migrate: %v", err)
-	envOK(t, src.Close() == nil, "close")
-	dst := freshDest(t)
-	orig := linkNoReplace
-	t.Cleanup(func() { linkNoReplace = orig })
-	linkNoReplace = func(o, n string) error {
-		ran, err := paths.TryFileLock(memory.BankLockPath(), 0, func() error { return nil })
-		envOK(t, err == nil && !ran, "bootstrap did not hold bank lock: %v", err)
-		envOK(t, os.WriteFile(n, []byte("theirs"), 0o600) == nil, "racer")
-		return orig(o, n)
-	}
-	_, err = BootstrapCopy(ctx, srcPath, dst)
-	envOK(t, err != nil, "copy over a racing dst succeeded")
-	got, rerr := os.ReadFile(dst)
-	envOK(t, rerr == nil && string(got) == "theirs", "racing dst changed: %q (%v)", got, rerr)
-	left, _ := filepath.Glob(dst + ".tmp-*")
-	envOK(t, len(left) == 0, "temp files left: %v", left)
-}
-
-func TestSyncPairCanceled(t *testing.T) {
-	a, b := newEnvPeer(t), newEnvPeer(t)
-	a.localAdd(t, "notes/a.md", 0, "one")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	for _, origins := range [][]string{nil, {a.id}} {
-		_, err := SyncPair(ctx, a.st, b.st, origins)
-		envOK(t, errors.Is(err, context.Canceled), "canceled sync: %v", err)
-	}
-	envOK(t, len(docsOf(t, b)) == 0, "canceled sync wrote rows")
 }
 
 var serveRE = regexp.MustCompile(`memory sync --serve (export|import)(?: --since '([^']*)')?$`)
@@ -359,7 +265,7 @@ func TestSyncPeersPushesAfterHeldPull(t *testing.T) {
 func TestSyncPeersRefusesNonprogressingPull(t *testing.T) {
 	a, b := newEnvPeer(t), newEnvPeer(t)
 	a.localAdd(t, "notes/a.md", 0, "one")
-	_, err := SyncPair(context.Background(), a.st, b.st, []string{a.id})
+	_, err := pull(a, b)
 	envOK(t, err == nil, "seed: %v", err)
 	defer memory.StubSyncSSH(func(_ context.Context, _, _ string, _ io.Reader, out io.Writer) (string, int, error) {
 		return "", 0, memory.ServeExport(a.st, nil, out)

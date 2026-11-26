@@ -8,7 +8,6 @@ import (
 	"iter"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -90,17 +89,9 @@ func appendNamingAdvice(out []namingAdvisory, line int, surface, name string) []
 	return out
 }
 
-func literalString(expr ast.Expr) string {
-	lit, ok := ast.Unparen(expr).(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return ""
-	}
-	s, _ := strconv.Unquote(lit.Value)
-	return s
-}
-
 func jsonTagName(tag *ast.BasicLit) string {
-	key, _, _ := strings.Cut(reflect.StructTag(literalString(tag)).Get("json"), ",")
+	s, _ := stringLit(tag)
+	key, _, _ := strings.Cut(reflect.StructTag(s).Get("json"), ",")
 	if key == "-" {
 		return ""
 	}

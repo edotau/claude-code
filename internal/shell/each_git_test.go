@@ -66,18 +66,6 @@ func TestEachGitStopsAndBoundsNesting(t *testing.T) {
 	if got, want := collectGit(deep, "/w"), []gitCall{{"/w", Uninspectable}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("nesting beyond maxNest must report Uninspectable, got %v", got)
 	}
-	EachGit(deep, "/w", func(_, _ string, args []string) bool {
-		if !TooDeep(args) {
-			t.Errorf("a call past maxNest must carry the too-deep marker, got %v", args)
-		}
-		return false
-	})
-	EachGit("v=x; git $v .", "/w", func(_, _ string, args []string) bool {
-		if TooDeep(args) {
-			t.Errorf("a shell-expanded verb is not nesting too deep")
-		}
-		return false
-	})
 	if got := collectGit("eval eval eval git stash", "/w"); !reflect.DeepEqual(got, []gitCall{{"/w", "stash"}}) {
 		t.Errorf("3-deep nesting stays inspectable, got %v", got)
 	}

@@ -113,23 +113,23 @@ func pickRecordModel(d *dialog, agent string) bool {
 		case err != nil || idx < 0:
 			return false
 		case idx == 0:
-			return setModel(d, agent, "")
+			return setAgentField(d, agent, "MODEL", "")
 		case idx <= len(ids):
-			return setModel(d, agent, ids[idx-1])
+			return setAgentField(d, agent, "MODEL", ids[idx-1])
 		case live && idx == len(ids)+1:
 			var rerr error
 			if ids, rerr = modelIDs(d, agent, profile, configure.RefreshModels); rerr != nil {
 				d.printf("%s: %v\n", agent, rerr)
 			}
 		default:
-			return setModel(d, agent, strings.TrimSpace(d.shell().Line("Model for "+agent+" (empty clears): ")))
+			return setAgentField(d, agent, "MODEL", strings.TrimSpace(d.shell().Line("Model for "+agent+" (empty clears): ")))
 		}
 	}
 }
 
-// setModel writes agent's MODEL and prints a failure.
-func setModel(d *dialog, agent, val string) bool {
-	changed, err := writeAgentField(d, agent, "MODEL", val)
+// setAgentField writes one of agent's record fields and prints a failure; true when it changed.
+func setAgentField(d *dialog, agent, field, val string) bool {
+	changed, err := writeAgentField(d, agent, field, val)
 	if err != nil {
 		d.printf("%s: %v\n", agent, err)
 	}
@@ -156,11 +156,7 @@ func fallbackRow(d *dialog, agent string) billingRow {
 			if err != nil || idx < 0 || idx >= len(names) {
 				return false
 			}
-			changed, err := writeAgentField(d, agent, "FALLBACK", names[idx])
-			if err != nil {
-				d.printf("%s: %v\n", agent, err)
-			}
-			return changed
+			return setAgentField(d, agent, "FALLBACK", names[idx])
 		}}
 }
 
@@ -291,7 +287,7 @@ func seedLabel(agent, profile string) string {
 // seedDefaults is each agent's choice; only a first run (no profile set) pre-selects each agent's own login.
 func seedDefaults(d *dialog) map[string]string {
 	recs := vault.AgentRecords(agentpkg.RosterNames())
-	firstRun := !slices.ContainsFunc(slices.Collect(maps.Values(recs)), func(r vault.AgentRecord) bool { return configure.AgentField(r, "PROFILE") != "" })
+	firstRun := profilesSet(recs) == 0
 	out := map[string]string{}
 	for _, a := range seedAgents() {
 		out[a] = configure.AgentField(recs[a], "PROFILE")
@@ -351,10 +347,8 @@ func seedOnFirstRun(d *dialog, section string) {
 	if section != "" || d.o.Check || d.o.DryRun || d.o.JSON || d.o.Agent != "" {
 		return
 	}
-	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
-		if configure.AgentField(r, "PROFILE") != "" {
-			return
-		}
+	if profilesSet(vault.AgentRecords(agentpkg.RosterNames())) > 0 {
+		return
 	}
 	if d.o.Interactive && isStdinTTY() {
 		runSeed(d)
@@ -363,13 +357,19 @@ func seedOnFirstRun(d *dialog, section string) {
 	d.println("no agent profiles set: run `claude-code configure` → seed agents")
 }
 
-func seedRow() homeRow {
+// profilesSet counts the records in recs that pin a profile.
+func profilesSet(recs map[string]vault.AgentRecord) int {
 	n := 0
-	for _, r := range vault.AgentRecords(agentpkg.RosterNames()) {
+	for _, r := range recs {
 		if configure.AgentField(r, "PROFILE") != "" {
 			n++
 		}
 	}
+	return n
+}
+
+func seedRow() homeRow {
+	n := profilesSet(vault.AgentRecords(agentpkg.RosterNames()))
 	return homeRow{Name: "seed agents", State: fmt.Sprintf("%d set", n), Check: "profile each agent runs on", Run: func(d *dialog) { runSeed(d) }}
 }
 

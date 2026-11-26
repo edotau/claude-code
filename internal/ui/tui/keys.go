@@ -89,16 +89,10 @@ func decodeEscape(buf []byte) (Key, int) {
 	if len(buf) < 3 {
 		return Key{}, 0
 	}
-	if buf[1] == 'O' { // SS3 arrows (application cursor mode); other SS3 keys drop through their final byte
-		if kind, ok := csiArrows[buf[2]]; ok {
-			return Key{Kind: kind}, 3
-		}
-		return dropped, 3
-	}
-	if kind, ok := csiArrows[buf[2]]; ok {
+	if kind, ok := csiArrows[buf[2]]; ok { // CSI or SS3 (application cursor mode) arrows
 		return Key{Kind: kind}, 3
 	}
-	if buf[2] >= '0' && buf[2] <= '9' { // parameterized CSI (Delete is ESC [ 3 ~): drop through its final byte
+	if buf[1] == '[' && buf[2] >= '0' && buf[2] <= '9' { // parameterized CSI (Delete is ESC [ 3 ~): drop through its final byte
 		return skipCSIParams(buf)
 	}
 	return dropped, 3
@@ -115,7 +109,7 @@ func decodeAlt(buf []byte) (Key, int) {
 	return Key{}, 0
 }
 
-// csiArrows maps the final byte of ESC [ <byte> to the arrow key it names.
+// csiArrows maps the final byte of ESC [ <byte> or ESC O <byte> to the arrow key it names; other SS3 keys drop.
 var csiArrows = map[byte]KeyKind{'A': KeyUp, 'B': KeyDown, 'C': KeyRight, 'D': KeyLeft}
 
 // skipCSIParams drops a parameterized CSI sequence through its final byte; 0 when that byte hasn't arrived.

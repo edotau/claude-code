@@ -174,7 +174,7 @@ func scrub(environ []string, keep map[string]bool, globs []glob) (kept, dropped 
 // EnvBlocked reports whether a launch never passes name through (ScrubDeny, scrubAgentOnlyDeny, HARNESS_*).
 func EnvBlocked(name string) bool {
 	name = EnvFold(name)
-	return EnvHasPrefix(name, "HARNESS_") || slices.ContainsFunc(scrubAgentGlobs(), func(g glob) bool { return g.match(name) })
+	return strings.HasPrefix(name, "HARNESS_") || slices.ContainsFunc(scrubAgentGlobs(), func(g glob) bool { return g.match(name) })
 }
 
 // EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.

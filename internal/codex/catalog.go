@@ -422,10 +422,7 @@ func codexResponsesModel(p *providers.Provider, model string) string {
 
 // codexRefuse is the usage error for a typed model codex cannot run over Responses, or nil when it can.
 func codexRefuse(p *providers.Provider, model string) error {
-	if p.Preset != providers.PresetDatabricks {
-		return nil
-	}
-	if codexResponsesServable(p, model) {
+	if p.Preset != providers.PresetDatabricks || codexResponsesServable(p, model) {
 		return nil
 	}
 	hint := cmp.Or(providers.FirstResponsesModel(p), "a Responses model")

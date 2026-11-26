@@ -386,11 +386,7 @@ func assertFailedHeartbeatPreservesLastBeat(t *testing.T) {
 	lastBeat := time.Now().Add(-2 * tailBeat)
 	want := errors.New("heartbeat output closed")
 	rec := Record{ID: "heartbeat", Time: lastBeat}
-	got, err := eventHeartbeat(partialErrorWriter{want}, rec, 0, lastBeat, lastBeat)
-	if !errors.Is(err, want) {
+	if err := eventHeartbeat(partialErrorWriter{want}, rec, time.Now()); !errors.Is(err, want) {
 		t.Fatalf("heartbeat error = %v, want %v", err, want)
-	}
-	if !got.Equal(lastBeat) {
-		t.Fatalf("failed heartbeat advanced lastBeat from %s to %s", lastBeat, got)
 	}
 }

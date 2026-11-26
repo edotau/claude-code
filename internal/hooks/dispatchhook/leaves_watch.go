@@ -308,10 +308,7 @@ func watchLine(s agent.StaleJob, mode string, g *tickGate) string {
 			return head + "; " + n
 		}
 	}
-	if s.Resumable() {
-		if mode != "dry" && !g.live() { // a cut tick starts nothing it cannot report
-			return head + "; next: " + strings.Join(s.Next, " ")
-		}
+	if s.Resumable() && (mode == "dry" || g.live()) { // a cut tick starts nothing it cannot report
 		return head + "; " + resumeOnce(s, mode)
 	}
 	return head + "; next: " + strings.Join(s.Next, " ")

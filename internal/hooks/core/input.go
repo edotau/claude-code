@@ -173,10 +173,11 @@ func knownAgent(agent string) string {
 
 // unparsed is the zero Input for stdin that is not a JSON object; empty stdin has no Invalid, as Stop may carry none.
 func unparsed(raw []byte, agent string, err error) *Input {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return &Input{Raw: raw, agent: knownAgent(agent)} // the agent stays so a gate's block renders for it
+	in := &Input{Raw: raw, agent: knownAgent(agent)} // the agent stays so a gate's block renders for it
+	if len(bytes.TrimSpace(raw)) != 0 {
+		in.Invalid = err.Error()
 	}
-	return &Input{Raw: raw, Invalid: err.Error(), agent: knownAgent(agent)}
+	return in
 }
 
 // normalizeAgy reads agy's {toolCall:{name,args}, workspacePaths} payload as tool_name/tool_input/cwd.

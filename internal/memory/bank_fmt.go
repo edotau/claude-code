@@ -34,11 +34,8 @@ var (
 // bankFmtTargetDirs are the flat subs whose *.md files get formatted; top-level files come from bankFiles.
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
-// bankFmtTargets lists every markdown file formatBank formats.
-func bankFmtTargets() ([]string, error) { return dirFmtTargets() }
-
-// dirFmtTargets lists the typed files plus the archive--, handoffs-- and reports-- markdown.
-func dirFmtTargets() ([]string, error) {
+// bankFmtTargets lists every markdown file formatBank formats: the typed files plus archive, handoffs and reports.
+func bankFmtTargets() ([]string, error) {
 	var files []string
 	for _, name := range bankFiles {
 		p := Path(name)

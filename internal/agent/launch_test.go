@@ -5,9 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,59 +68,6 @@ func TestEnsureRouterErrorSurfaces(t *testing.T) {
 	_, _, err := SchemaFor("codex").Configure(context.Background(), target(t, "openai", "gpt-5"))
 	if err == nil || !strings.Contains(err.Error(), "router") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-// A routed child holds one minted token per scope, never the router secret: armed {dev}, unarmed {dev, fallback qa}.
-func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
-	armRegistry(t)
-	row := `{"preset":"databricks","host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"DEV_TOKEN"}}`
-	vaulttest.Put(t, vault.Overlay, "providers",
-		`{"fallback":["qa"],"providers":{"databricks":{"dev":`+row+`,"qa":`+row+`}}}`)
-	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
-	om := MintSession
-	t.Cleanup(func() { MintSession = om; ResetSessionTokens() })
-	var mints []string
-	MintSession = func(_ context.Context, profiles []string, pid int) (string, error) {
-		mints = append(mints, fmt.Sprintf("%s/%d", strings.Join(profiles, ","), pid))
-		return "cct_" + strings.Join(profiles, "+"), nil
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_dev" {
-			t.Fatalf("armed routerRoute key = %q, %v; want the minted session token", key, err)
-		}
-	}
-	t.Setenv(route.OverlayVar, "")
-	if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_dev+qa" {
-		t.Errorf("unarmed routerRoute key = %q, %v; want the token for dev and its fallback qa", key, err)
-	}
-	pid := os.Getpid()
-	if want := []string{fmt.Sprintf("dev/%d", pid), fmt.Sprintf("dev,qa/%d", pid)}; !slices.Equal(mints, want) {
-		t.Errorf("mints = %v, want %v", mints, want)
-	}
-}
-
-// A failed mint fails the route: the child is never handed the router secret instead.
-func TestRouterRouteMintFailureAborts(t *testing.T) {
-	armRegistry(t)
-	t.Setenv(route.OverlayVar, "")
-	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
-	om := MintSession
-	t.Cleanup(func() { MintSession = om; ResetSessionTokens() })
-	MintSession = func(context.Context, []string, int) (string, error) {
-		return "", errors.New("too many live session tokens")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], "")
-	if err == nil || key != "" || !strings.Contains(err.Error(), "too many live session tokens") {
-		t.Fatalf("routerRoute = %q, %v; want the mint error and no key", key, err)
 	}
 }
 
@@ -456,7 +401,7 @@ func TestConfigureWireDirectNeverRefusesOnTokenLife(t *testing.T) {
 func TestConfinementCarriesDispatchLimits(t *testing.T) {
 	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"maxChildren":0,"maxTreeTokens":123,"budgetUSD":1}`})
 	for range 2 {
-		doc := confinementDocContext(ctx)
+		doc := childDoc(confinementOverlay(ctx))
 		o, err := agentconfig.LoadOverlayContext(t.Context(), doc, nil)
 		if err != nil || o.MaxChildren == nil || *o.MaxChildren != 0 || o.MaxTreeTokens == nil || *o.MaxTreeTokens != 123 || o.BudgetUSD != nil {
 			t.Fatalf("nested limits: %s, %v", doc, err)

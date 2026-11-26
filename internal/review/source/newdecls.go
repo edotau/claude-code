@@ -99,7 +99,7 @@ func parseGo(fset *token.FileSet, name string, src []byte) *ast.File {
 	return f
 }
 
-// catBatch reads every object in one `git cat-file --batch`; a missing or unreadable object is a nil entry.
+// catBatch reads every blob in one `git cat-file --batch` (nil env inherits); a missing or non-blob object is nil.
 func catBatch(root string, env []string, queries []string) [][]byte {
 	out := make([][]byte, len(queries))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -129,7 +129,9 @@ func catBatch(root string, env []string, queries []string) [][]byte {
 		if _, err := io.ReadFull(r, buf); err != nil {
 			break
 		}
-		out[i] = buf[:n]
+		if f[1] == "blob" {
+			out[i] = buf[:n]
+		}
 	}
 	_, _ = io.Copy(io.Discard, stdout)
 	_ = cmd.Wait()

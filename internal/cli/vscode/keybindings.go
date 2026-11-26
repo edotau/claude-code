@@ -53,13 +53,9 @@ func syncKeybindings(template, dest string, check bool) (mergeResult, error) {
 	if err := json.Unmarshal(textutil.StripJSONC(rawTemplate), &overlay); err != nil {
 		return mergeResult{}, fmt.Errorf("keybindings template: %w", err)
 	}
-
-	if check {
-		return mergeKeybindings(dest, overlay, true)
-	}
 	var result mergeResult
-	err := withLock("vscode-keybindings.lock", dest, func() (mergeErr error) {
-		result, mergeErr = mergeKeybindings(dest, overlay, false)
+	err := withLock("vscode-keybindings.lock", dest, check, func() (mergeErr error) {
+		result, mergeErr = mergeKeybindings(dest, overlay, check)
 		return mergeErr
 	})
 	return result, err
@@ -132,11 +128,8 @@ func marshalJSONC(entries any, leading string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var body []byte
 	if leading != "" {
-		body = append([]byte(leading+"\n"), arr...)
-	} else {
-		body = arr
+		arr = append([]byte(leading+"\n"), arr...)
 	}
-	return append(body, '\n'), nil
+	return append(arr, '\n'), nil
 }

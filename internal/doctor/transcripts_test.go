@@ -285,7 +285,10 @@ func benchmarkTranscriptStore(b *testing.B, count int, streaming bool) {
 			if streaming {
 				_, err = counter.File(path)
 			} else {
-				_, err = transcriptFile(filepath.Dir(path), path, m, false)
+				var body []byte
+				if body, err = os.ReadFile(path); err == nil {
+					m.Mask(body)
+				}
 			}
 			if err != nil {
 				b.Fatal(err)

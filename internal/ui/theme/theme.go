@@ -3,6 +3,7 @@ package theme
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -36,7 +37,7 @@ func targets(home string) []target {
 	}
 	return []target{
 		{"vscode", vs, ""},
-		{"statusline", filepath.Join(paths.ConfigDir(), "state", "statusline", "config.json"), ""},
+		{"statusline", filepath.Join(StatuslineDir(), "config.json"), ""},
 		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json"), ""},
 		{"opencode-themes/gemini-plum", filepath.Join(cfg, "opencode", "themes", "gemini-plum.json"), ""},
 		{"copilot", filepath.Join(home, ".copilot", "settings.json"), ""},
@@ -62,11 +63,7 @@ func Apply(dir, home string, only []string, dryRun bool) ([]Outcome, error) {
 	var out []Outcome
 	for _, t := range targets {
 		o := Outcome{Name: t.Name, Dest: t.Dest}
-		src := t.Src
-		if src == "" {
-			src = t.Name + ".json"
-		}
-		srcPath := filepath.Join(dir, src)
+		srcPath := filepath.Join(dir, cmp.Or(t.Src, t.Name+".json"))
 		merge, err := loadOverlay(srcPath)
 		switch {
 		case os.IsNotExist(err):
@@ -157,22 +154,17 @@ func writeMerged(
 		return false, "", err
 	}
 	err = paths.WithFileLock(dest, func() error {
+		if beforeWrite != nil {
+			beforeWrite(dest)
+		}
 		var werr error
-		backup, werr = replaceIfUnchanged(dest, oldContent, newContent, mode)
+		backup, werr = paths.WriteIfUnchanged(dest, oldContent, newContent, mode, "theme file")
 		return werr
 	})
 	if err != nil {
 		return false, "", err
 	}
 	return true, backup, nil
-}
-
-// replaceIfUnchanged backs up oldContent and swaps in newContent; the caller holds dest's lock.
-func replaceIfUnchanged(dest string, oldContent, newContent []byte, mode os.FileMode) (string, error) {
-	if beforeWrite != nil {
-		beforeWrite(dest)
-	}
-	return paths.WriteIfUnchanged(dest, oldContent, newContent, mode, "theme file")
 }
 
 // mergeFile overlays onto dest's JSON (JSONC tolerated on read); unchanged means no write, no backup.

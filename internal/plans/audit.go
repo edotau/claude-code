@@ -236,12 +236,7 @@ func siblingCheckout(base, name string) string {
 	return ""
 }
 
-// recentPlans lists the dated plans within recentDays, oldest first, and the day before the oldest one.
-func recentPlans(root string) (dated []datedPlan, since string) {
-	dated, since, _ = auditPlans(Home(root), false)
-	return dated, since
-}
-
+// auditPlans lists home's dated plans (within recentDays unless all), oldest first, and the day before the oldest.
 func auditPlans(home string, all bool) (dated []datedPlan, since string, err error) {
 	entries, err := os.ReadDir(home)
 	if os.IsNotExist(err) {
@@ -251,7 +246,7 @@ func auditPlans(home string, all bool) (dated []datedPlan, since string, err err
 		return nil, "", err
 	}
 	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
-	for _, d := range loadDatedPlans(entries, home, MirrorDests()) {
+	for _, d := range loadPlans(entries, home, MirrorDests(), nil) {
 		if all || filepath.Base(d.path)[:10] >= cutoff {
 			dated = append(dated, d)
 		}
@@ -763,7 +758,7 @@ type OpenTask struct {
 
 // OpenTasks lists the open tasks of root's recent plans that a judged job may close; Go owns the rest.
 func OpenTasks(root string) []OpenTask {
-	dated, _ := recentPlans(root)
+	dated, _, _ := auditPlans(Home(root), false)
 	var out []OpenTask
 	for _, d := range dated {
 		day, _ := time.ParseInLocation(time.DateOnly, filepath.Base(d.path)[:10], time.Local)

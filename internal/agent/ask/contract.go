@@ -100,7 +100,8 @@ func openContract(o contractOpen) (contract.Contract, []contract.Problem, error)
 func openRecords(c contract.Contract, o contractOpen, now time.Time) []contract.TermRecord {
 	var out []contract.TermRecord
 	if slices.Contains(c.Terms, contract.TermLane) {
-		out = append(out, observed(contract.TermLane, isLane(o.Dir, c.Scope.Lane), o.Dir, missAbsent, now))
+		in := o.Dir != "" && c.Scope.Lane != "" && laneOf(o.Dir) == c.Scope.Lane // a lane is one plain path element
+		out = append(out, observed(contract.TermLane, in, o.Dir, missAbsent, now))
 	}
 	if slices.Contains(c.Terms, contract.TermProxy) {
 		out = append(out, observed(contract.TermProxy, isProxyScope(o.ProxyScope), o.ProxyScope, missAbsent, now))
@@ -354,24 +355,6 @@ func failed(t contract.Term, miss string, now time.Time) contract.TermRecord {
 }
 
 func exitEvidence(code int) string { return "exit " + strconv.Itoa(code) }
-
-// isLane reports whether dir sits inside the repo's worktree lane named name.
-func isLane(dir, name string) bool {
-	if dir == "" || name == "" {
-		return false
-	}
-	repo, err := worktree.ResolveRepo(dir)
-	if err != nil {
-		return false
-	}
-	d := paths.Canon(dir)
-	for _, root := range []string{repo.Root, repo.Legacy} {
-		if _, ok := paths.RelWithin(filepath.Join(root, name), d); root != "" && ok {
-			return true
-		}
-	}
-	return false
-}
 
 // isProxyScope reports whether p is a scope file in the contained proxy's scopes dir; the caller binds it.
 func isProxyScope(p string) bool {

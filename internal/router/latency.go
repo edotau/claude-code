@@ -115,10 +115,3 @@ func latencyFor(now time.Time) latencyTable {
 	m.tab, m.at = loadLatency(now), now
 	return m.tab
 }
-
-// resetLatencyMemo drops the memo so the next pick reloads.
-func resetLatencyMemo() {
-	latencyMemo.Lock()
-	latencyMemo.at = time.Time{}
-	latencyMemo.Unlock()
-}

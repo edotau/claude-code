@@ -265,24 +265,25 @@ func assertOwnerRetry(t *testing.T, id string, now time.Time, class string) {
 	t.Helper()
 	c := sweepCand{id: id, path: "transcript", mtime: now.Add(-time.Nanosecond)}
 	count := func(string, string) int { return updateMinEdits }
-	if why := sweepWhy(&c, now, count); why != "" {
+	res, ok := readUpdateResult(id)
+	if why := sweepWhy(&c, now, count, res, ok); why != "" {
 		t.Errorf("owner failure without stamp retried: %q", why)
 	}
 	if err := writeStampAttempts(stampPath(id), now, "catchup", updateMinEdits, 1); err != nil {
 		t.Fatal(err)
 	}
-	if why := sweepWhy(&c, now, count); why != "" {
+	if why := sweepWhy(&c, now, count, res, ok); why != "" {
 		t.Errorf("owner failure retried: %q", why)
 	}
 	if !ownerFixRequired(UpdateResult{Status: updateFailed, Class: class}) {
 		t.Error("owner failure not classified")
 	}
-	if why := sweepWhy(&c, now.Add(2*catchupRetry), count); why != "" {
+	if why := sweepWhy(&c, now.Add(2*catchupRetry), count, res, ok); why != "" {
 		t.Errorf("second retry of owner failure: %q", why)
 	}
 	count = func(string, string) int { return updateMinEdits + 1 }
 	c.mtime = now.Add(time.Second)
-	if why := sweepWhy(&c, now, count); !strings.Contains(why, "edits") {
+	if why := sweepWhy(&c, now, count, res, ok); !strings.Contains(why, "edits") {
 		t.Errorf("fresh edits should save: %q", why)
 	}
 }
@@ -1062,7 +1063,6 @@ func TestUpdateExhaustedValidationUsesTheFallbackOnce(t *testing.T) {
 func TestUpdateDecisionEventsNotFiledOnFailure(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
-	t.Setenv("HARNESS_KEYRING", "off")
 	root := repoRoot(t, "proj")
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
@@ -1085,7 +1085,6 @@ func TestUpdateDecisionEventsNotFiledOnFailure(t *testing.T) {
 func TestUpdateFallbackErrorNamesBothModels(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
-	t.Setenv("HARNESS_KEYRING", "off")
 	root := repoRoot(t, "proj")
 	if _, err := Init(); err != nil {
 		t.Fatal(err)

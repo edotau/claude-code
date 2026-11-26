@@ -72,21 +72,12 @@ func emptySection(out string) bool {
 	return body == "  (none)\n"
 }
 
-// vaultMapRows sorts an env map into rows by key.
-func vaultMapRows(m map[string]string) [][2]string {
-	keys := slices.Sorted(maps.Keys(m))
-	rows := make([][2]string, len(keys))
-	for i, k := range keys {
-		rows[i] = [2]string{k, m[k]}
-	}
-	return rows
-}
-
 // EnvRows is the env bucket as sorted, clipped name/value rows, shared by `vault ls env` and the configure page.
 func EnvRows(env map[string]string) [][2]string {
-	rows := vaultMapRows(env)
-	for i, r := range rows {
-		rows[i] = [2]string{table.TruncateMiddle(r[0], kvKeyMax), table.Truncate(r[1], kvValueMax)}
+	keys := slices.Sorted(maps.Keys(env))
+	rows := make([][2]string, len(keys))
+	for i, k := range keys {
+		rows[i] = [2]string{table.TruncateMiddle(k, kvKeyMax), table.Truncate(env[k], kvValueMax)}
 	}
 	return rows
 }
@@ -157,9 +148,7 @@ const (
 func vaultSection(heading string, rows [][2]string, width int) string {
 	rows = slices.Clone(rows)
 	for i, r := range rows {
-		r[0] = table.TruncateMiddle(r[0], kvKeyMax) // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
-		r[1] = table.Truncate(r[1], kvValueMax)
-		rows[i] = r
+		rows[i] = [2]string{table.TruncateMiddle(r[0], kvKeyMax), table.Truncate(r[1], kvValueMax)} // keys differ at the end ("…Markers[0]" vs "…Markers[1]")
 	}
 	rows = clipValues(rows, width)
 	var b strings.Builder

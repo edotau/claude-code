@@ -24,7 +24,7 @@ import (
 
 // searchBanks ranks root's local, home and archive banks plus native topics; top k (0 = all).
 func searchBanks(query string, k int) []SearchHit {
-	ranked, _, _ := searchBankTerms(contentTerms(query), k)
+	ranked, _, _ := searchRecallTerms(contentTerms(query), k, true)
 	return ranked
 }
 
@@ -52,7 +52,7 @@ func TestRecallRowsSupplyCorpus(t *testing.T) {
 	RowRecall = func([]string) (map[string][]byte, bool) {
 		return map[string][]byte{"conventions.md": []byte("# Conventions\n\n- Row zebrafish storage policy\n\n- Unmatched successor body\n")}, true
 	}
-	hits, files, segs := searchBankTerms(contentTerms("zebrafish"), 0)
+	hits, files, segs := searchRecallTerms(contentTerms("zebrafish"), 0, true)
 	if len(hits) != 1 || !strings.Contains(hits[0].Block, "Row zebrafish") {
 		t.Fatalf("recall did not rank row text: %+v", hits)
 	}

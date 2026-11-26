@@ -81,26 +81,9 @@ func ExportEnvelopes(st EnvelopeStore, origin string, afterSeq int64, w io.Write
 	if strings.TrimSpace(origin) == "" || afterSeq < 0 {
 		return 0, errors.New("memory envelopes: origin is required and afterSeq must be nonnegative")
 	}
-	enc, count := json.NewEncoder(w), 0
-	enc.SetEscapeHTML(false)
-	for {
-		rows, err := st.ChangesAfter(origin, afterSeq, envelopePageSize)
-		if err != nil {
-			return count, fmt.Errorf("memory envelopes: export %q: %w", origin, err)
-		}
-		for _, e := range rows {
-			if e.Origin != origin || e.Seq != afterSeq+1 {
-				return count, fmt.Errorf("memory envelopes: export %q: seq %d after %d is out of order", origin, e.Seq, afterSeq)
-			}
-			if err := enc.Encode(e); err != nil {
-				return count, fmt.Errorf("memory envelopes: write %q/%d: %w", origin, e.Seq, err)
-			}
-			count, afterSeq = count+1, e.Seq
-		}
-		if len(rows) < envelopePageSize {
-			return count, nil
-		}
-	}
+	x := &exporter{st: st, w: w, tag: "memory envelopes"}
+	_, err := x.origin(origin, afterSeq)
+	return x.n, err
 }
 
 // ImportEnvelopes applies each origin in seq order; a gap or schema hold leaves its watermark for the sender's retry.

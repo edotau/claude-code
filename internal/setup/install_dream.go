@@ -2,7 +2,6 @@ package setup
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -97,11 +96,4 @@ func prepDreamLog(logPath string) error {
 		return os.Truncate(logPath, 0)
 	}
 	return nil
-}
-
-// installDreamBridge installs the scheduled dream launchd agent; best-effort, a no-op off macOS.
-func installDreamBridge(w io.Writer, bin string, dryRun bool) {
-	if err := installDreamAgent(w, bin, dryRun); err != nil {
-		fmt.Fprintf(w, "  %-17s %v\n", "skip", "dream agent: "+err.Error())
-	}
 }

@@ -60,8 +60,7 @@ func installVerbose(w io.Writer, dryRun bool) error {
 	}
 	installCompletion(w, dryRun)
 	installClipboardProxy(w, dryRun)
-	installClipBridge(w, target, dryRun)
-	installDreamBridge(w, target, dryRun)
+	installBridges(w, target, dryRun)
 	seedTmuxConf(w, dryRun)
 	if err := installRTKConfig(w, dryRun); err != nil {
 		return err
@@ -441,17 +440,13 @@ func clipboardExtras(w io.Writer) []string {
 			tokens = append(tokens, "clipboard ok")
 		}
 	}
-	var lbuf bytes.Buffer
-	if err := installClipAgent(&lbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
-		fmt.Fprintf(w, "clip agent skip  %v\n", err)
-	} else if lbuf.Len() > 0 {
-		tokens = append(tokens, "clip agent ok")
-	}
-	var dbuf bytes.Buffer
-	if err := installDreamAgent(&dbuf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
-		fmt.Fprintf(w, "dream agent skip  %v\n", err)
-	} else if dbuf.Len() > 0 {
-		tokens = append(tokens, "dream agent ok")
+	for _, a := range launchAgents() {
+		var buf bytes.Buffer
+		if err := a.install(&buf, filepath.Join(paths.BinDir(), "claude-code"), false); err != nil {
+			fmt.Fprintf(w, "%s skip  %v\n", a.name, err)
+		} else if buf.Len() > 0 {
+			tokens = append(tokens, a.name+" ok")
+		}
 	}
 	return tokens
 }
@@ -469,15 +464,12 @@ func splitNonEmpty(s string) []string {
 
 // installCompletion is best-effort: an unwritable completions dir must never fail the install.
 func installCompletion(w io.Writer, dryRun bool) {
-	switch {
-	case dryRun:
+	if dryRun {
 		fmt.Fprintln(w, "completion would install bash tab-completion (skipped: --dry-run)")
-	default:
-		if path, err := helptext.Install("claude-code"); err != nil {
-			fmt.Fprintf(w, "completion skip  %v\n", err)
-		} else {
-			fmt.Fprintf(w, "completion %s\n", path)
-		}
+	} else if path, err := helptext.Install("claude-code"); err != nil {
+		fmt.Fprintf(w, "completion skip  %v\n", err)
+	} else {
+		fmt.Fprintf(w, "completion %s\n", path)
 	}
 }
 
@@ -491,10 +483,22 @@ func installClipboardProxy(w io.Writer, dryRun bool) {
 // installClipAgent is a var so tests never bootstrap (or boot out) the developer's real launchd agent.
 var installClipAgent = clipboard.InstallLaunchAgent
 
-// installClipBridge installs the macOS clipboard-bridge launchd agent; best-effort, a no-op off macOS.
-func installClipBridge(w io.Writer, bin string, dryRun bool) {
-	if err := installClipAgent(w, bin, dryRun); err != nil {
-		fmt.Fprintf(w, "  %-17s %v\n", "skip", "clip agent: "+err.Error())
+type launchAgent struct {
+	name    string
+	install func(io.Writer, string, bool) error
+}
+
+// launchAgents are the macOS launchd agents install runs, clipboard bridge then scheduled dream; read at call time.
+func launchAgents() []launchAgent {
+	return []launchAgent{{"clip agent", installClipAgent}, {"dream agent", installDreamAgent}}
+}
+
+// installBridges installs each launch agent; best-effort, a no-op off macOS.
+func installBridges(w io.Writer, bin string, dryRun bool) {
+	for _, a := range launchAgents() {
+		if err := a.install(w, bin, dryRun); err != nil {
+			fmt.Fprintf(w, "  %-17s %v\n", "skip", a.name+": "+err.Error())
+		}
 	}
 }
 

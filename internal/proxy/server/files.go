@@ -260,7 +260,7 @@ func (r *Router) uploadFile(in *http.Request, p *providers.Provider, route strin
 	quiet := in.WithContext(
 		context.WithValue(in.Context(), attemptsKey{}, new(int)),
 	) // uploads are not routing attempts
-	resp, err := r.send(quiet, p, route+"/v1/files", form, func(h http.Header) {
+	resp, err := r.sendMethod(quiet, http.MethodPost, p, route+"/v1/files", form, func(h http.Header) {
 		h.Set("Content-Type", contentType)
 		h.Set("Anthropic-Version", filesVersion)
 		maps.Copy(h, login)

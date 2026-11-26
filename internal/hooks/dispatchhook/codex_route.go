@@ -36,7 +36,7 @@ func CodexAgentRoute(in *core.Input) core.Result {
 	if recall != "" {
 		updated["message"] = in.Nested("tool_input", "message") + recall
 	}
-	cell, signal, ok := codexSpawnRoute(in, task)
+	cell, signal, ok := codexSpawnCell(in, task)
 	if !ok {
 		if recall == "" {
 			return core.Result{}
@@ -51,14 +51,6 @@ func CodexAgentRoute(in *core.Input) core.Result {
 		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal})
 	res.UpdatedInput = updated
 	return res
-}
-
-// codexSpawnRoute is the router's cell for an unpinned spawn; ok=false leaves model and effort alone.
-func codexSpawnRoute(in *core.Input, task string) (router.Cell, string, bool) {
-	if codexSpawnPinned(in) {
-		return router.Cell{}, "", false
-	}
-	return codexSpawnCell(in, task)
 }
 
 func codexSpawnTool(name string) bool { return strings.HasSuffix(name, "spawn_agent") }
@@ -87,7 +79,11 @@ func codexSpawnPinned(in *core.Input) bool {
 	return rec.Model != "" || rec.Effort != ""
 }
 
+// codexSpawnCell is the router's cell for an unpinned spawn; ok=false leaves model and effort alone.
 func codexSpawnCell(in *core.Input, task string) (router.Cell, string, bool) {
+	if codexSpawnPinned(in) {
+		return router.Cell{}, "", false
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		return router.Cell{}, "", false

@@ -60,20 +60,17 @@ func (p Pin) Line() string {
 // Check resolves cached pins from ctx's run snapshot with no network or writes; an unreadable vault is one StatusError.
 func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	pins, err := agent.AgentPinsContext(ctx)
-	if err != nil {
-		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
+	var recs map[string]vault.AgentRecord
+	if err == nil {
+		recs, err = vault.ReadAgentRecords(router.TableAgents)
 	}
-	recs, err := vault.ReadAgentRecords(router.TableAgents)
 	if err != nil {
 		return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
 	}
 	session := pins["claude"].Profile
 	var out []Pin
 	if session != "" { // claude's session profile is always warmed
-		row, err := checkClaude(reg, session, now)
-		if err != nil {
-			return []Pin{{Agent: "vault", Status: StatusError, Served: "no", Detail: err.Error()}}
-		}
+		row := checkClaude(reg, recs["claude"], session, now)
 		row.ProfileSource = claudeSource(providers.SessionProfileContext(ctx), recs["claude"].EffectiveRoute().Profile)
 		out = append(out, row)
 	}
@@ -115,14 +112,12 @@ func loginRow(a string, target route.Target, now time.Time) Pin {
 }
 
 // checkClaude reports the session row, carrying the first failing alias pin's status; every alias profile is warmed.
-func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, error) {
+func checkClaude(reg *providers.Registry, rec vault.AgentRecord, session string, now time.Time) Pin {
 	row := checkAgent(reg, "claude", router.PinSpec{Profile: session}, session, now)
-	recs, err := vault.ReadAgentRecords([]string{"claude"})
 	def := reg.Providers[session]
-	if err != nil || def == nil || row.Status != StatusOK {
-		return row, err
+	if def == nil || row.Status != StatusOK {
+		return row
 	}
-	rec := recs["claude"]
 	failed := false
 	var ignored []string
 	for _, alias := range models.AliasNames {
@@ -144,7 +139,7 @@ func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, e
 		row.Detail = "ignored legacy cross-profile pin(s): " + strings.Join(ignored, ", ")
 		row.Fix = clearPinsFix(ignored)
 	}
-	return row, nil
+	return row
 }
 
 // clearPinsFix clears only the ignored `<slot>=<pin>` entries, keeping every other pin (--unpin clears them all).
@@ -177,7 +172,7 @@ func checkAliasPin(reg *providers.Registry, alias string, t providers.Target, se
 	return pin
 }
 
-// aliasPin is alias's pin as Select reads it (the alias pin, then the all-slot pin) and the skipped legacy `<slot>=<pin>`s.
+// aliasPin is alias's pin as Select reads it (alias pin, then all-slot pin) and the skipped legacy `<slot>=<pin>`s.
 func aliasPin(reg *providers.Registry, rec vault.AgentRecord, alias string) (spec string, legacy []string) {
 	for i, pin := range []string{rec.Aliases[alias], rec.Model} {
 		plain, isLegacy := sessionPin(reg, pin)

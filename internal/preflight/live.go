@@ -60,7 +60,7 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		_, err := parallel.Map(context.WithoutCancel(ctx), stale, refreshConcurrency, func(_ context.Context, prov *providers.Provider) (struct{}, error) {
 			lctx, cancel := context.WithTimeout(ctx, profileTimeout)
 			defer cancel()
-			if err := fetch(lctx, prov); err != nil {
+			if err := refresh(lctx, prov); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", prov.Name, err))
 				mu.Unlock()
@@ -153,11 +153,7 @@ func defaultRunAsk(ctx context.Context, bin, agentName, profile string) (wire.En
 	argv := []string{"agents", "ask"}
 	if profile != "" {
 		reg, _ := providers.LoadShared()
-		var prov *providers.Provider
-		if reg != nil {
-			prov = reg.Providers[profile]
-		}
-		if prov != nil && prov.Provider != "" {
+		if prov := reg.Row(profile); prov != nil && prov.Provider != "" {
 			ov.Provider, ov.Profile = prov.Provider, profile
 		} else {
 			argv = append(argv, "--profile", profile)
@@ -219,10 +215,7 @@ func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string, deadl
 func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	r := Pong{Agent: p.Agent, Profile: p.Profile, Model: p.Model}
 	reg, _ := providers.LoadShared()
-	var prov *providers.Provider
-	if reg != nil {
-		prov = reg.Providers[cmp.Or(askProfile, p.Profile)]
-	}
+	prov := reg.Row(cmp.Or(askProfile, p.Profile))
 	fp := ""
 	if prov != nil {
 		fp = agent.CredentialFingerprint(prov)
@@ -449,8 +442,3 @@ func DiscoverAfterAuth(reg *providers.Registry) {
 
 // refresh is the serving rows' live listing into the vault snapshot and the router's copy; a seam for tests.
 var refresh = catalog.Refresh
-
-// fetch lists p's endpoints live and caches them: serving rows in the vault snapshot and the router's copy.
-func fetch(ctx context.Context, p *providers.Provider) error {
-	return refresh(ctx, p)
-}

@@ -140,7 +140,7 @@ func TestClientPrepareProfileIsOneDispatchUnderFallbackAll(t *testing.T) {
 func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	route := RegisterRouteFlags(fs)
-	values := map[string]string{"overlay": `{"runner":"own"}`, "fallback": "none"}
+	values := map[string]string{"overlay": `{"runner":"cli"}`, "fallback": "none"}
 	var args []string
 	fs.VisitAll(func(f *flag.Flag) {
 		value, ok := values[f.Name]
@@ -157,7 +157,7 @@ func TestRouteFlagsArgsCoverEveryRouteFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ov struct{ Runner, Fallback string }
-	if len(got) != 2 || got[0] != "--overlay" || json.Unmarshal([]byte(got[1]), &ov) != nil || ov.Runner != "own" || ov.Fallback != "none" {
+	if len(got) != 2 || got[0] != "--overlay" || json.Unmarshal([]byte(got[1]), &ov) != nil || ov.Runner != "cli" || ov.Fallback != "none" {
 		t.Fatalf("route.Args() = %q, want one --overlay carrying runner and fallback", got)
 	}
 	if _, err := (&RouteFlags{f: askFlags{overlay: "-"}}).Args(); err == nil {

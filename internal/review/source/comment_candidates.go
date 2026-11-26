@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // commentCandidate is one comment worth cleaning up: kind is stacked, long, restates or trailing.
@@ -229,8 +231,7 @@ func declaredLines(file *ast.File, fset *token.FileSet) func(line int) bool {
 }
 
 func textHasDirective(c string) bool {
-	return strings.HasPrefix(c, "//go:") || strings.HasPrefix(c, "//nolint") || strings.HasPrefix(c, "//lint:") ||
-		strings.HasPrefix(c, "// +build") || strings.HasPrefix(c, "//line ")
+	return textutil.HasAnyPrefix(c, "//go:", "//nolint", "//lint:", "// +build", "//line ")
 }
 
 func enclosingFunc(file *ast.File, fset *token.FileSet, line int) string {

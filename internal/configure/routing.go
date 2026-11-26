@@ -58,14 +58,38 @@ func (routingModule) Fields() []RoutingField {
 }
 
 func weightsPriceField() RoutingField {
+	return splitWeightField("price", "headroom", func(input string) (float64, error) {
+		v, err := strconv.ParseFloat(input, 64)
+		if err != nil {
+			return 0, fmt.Errorf("weights.price: %w", err)
+		}
+		if math.IsNaN(v) || v < 0 || v > 1 {
+			return 0, fmt.Errorf("weights.price: %v out of [0,1]", v)
+		}
+		return v, nil
+	})
+}
+
+func weightsHeadroomField() RoutingField {
+	return splitWeightField("headroom", "price", func(input string) (float64, error) {
+		h, err := strconv.ParseFloat(input, 64)
+		if err != nil || math.IsNaN(h) || h < 0 || h > 1 {
+			return 0, fmt.Errorf("weights.headroom: %q must be in [0,1]", input)
+		}
+		return h, nil
+	})
+}
+
+// splitWeightField is the price or headroom weight: other takes what latency and the parsed value leave of 1.
+func splitWeightField(name, other string, parse func(string) (float64, error)) RoutingField {
+	key := "weights." + name
 	return RoutingField{
-		Key:  "weights.price",
-		Kind: RoutingNumber,
+		Key: key, Kind: RoutingNumber,
 		Get: func(r providers.Routing) string {
 			if r.Weights == nil {
 				r.Weights = providers.DefaultRouting().Weights
 			}
-			return strconv.FormatFloat(r.Weights["price"], 'g', -1, 64)
+			return strconv.FormatFloat(r.Weights[name], 'g', -1, 64)
 		},
 		IsSet: func(r providers.Routing) bool { return r.Weights != nil },
 		Set: func(r *providers.Routing, input string) error {
@@ -73,19 +97,16 @@ func weightsPriceField() RoutingField {
 				r.Weights = nil
 				return nil
 			}
-			v, err := strconv.ParseFloat(input, 64)
+			v, err := parse(input)
 			if err != nil {
-				return fmt.Errorf("weights.price: %w", err)
-			}
-			if math.IsNaN(v) || v < 0 || v > 1 {
-				return fmt.Errorf("weights.price: %v out of [0,1]", v)
+				return err
 			}
 			l := latencyWeight(*r)
 			rest, ok := weightRoom(l, v)
 			if !ok {
-				return fmt.Errorf("weights.price: %v leaves no room for latency %v", v, l)
+				return fmt.Errorf("%s: %v leaves no room for latency %v", key, v, l)
 			}
-			r.Weights = map[string]float64{"price": v, "headroom": rest, "latency": l}
+			r.Weights = map[string]float64{name: v, other: rest, "latency": l}
 			return nil
 		},
 	}
@@ -102,36 +123,6 @@ func latencyWeight(r providers.Routing) float64 {
 		return providers.DefaultRouting().Weights["latency"]
 	}
 	return r.Weights["latency"]
-}
-
-func weightsHeadroomField() RoutingField {
-	return RoutingField{
-		Key: "weights.headroom", Kind: RoutingNumber,
-		Get: func(r providers.Routing) string {
-			if r.Weights == nil {
-				r.Weights = providers.DefaultRouting().Weights
-			}
-			return strconv.FormatFloat(r.Weights["headroom"], 'g', -1, 64)
-		},
-		IsSet: func(r providers.Routing) bool { return r.Weights != nil },
-		Set: func(r *providers.Routing, input string) error {
-			if input == "" {
-				r.Weights = nil
-				return nil
-			}
-			h, err := strconv.ParseFloat(input, 64)
-			if err != nil || math.IsNaN(h) || h < 0 || h > 1 {
-				return fmt.Errorf("weights.headroom: %q must be in [0,1]", input)
-			}
-			l := latencyWeight(*r)
-			rest, ok := weightRoom(l, h)
-			if !ok {
-				return fmt.Errorf("weights.headroom: %v leaves no room for latency %v", h, l)
-			}
-			r.Weights = map[string]float64{"price": rest, "headroom": h, "latency": l}
-			return nil
-		},
-	}
 }
 
 func weightsLatencyField() RoutingField {

@@ -244,12 +244,6 @@ func openBlock(text string, span [2]int) bool {
 	return strings.HasPrefix(s, "-----BEGIN ") && !strings.Contains(s, "-----END ")
 }
 
-// MaskValues masks only exact vault values and their encodings, for text whose structure a shape span could cut.
-func (m *Matcher) MaskValues(b []byte) int {
-	hits, _ := m.scan(b, true, nil, nil)
-	return hits
-}
-
 // scan masks the leading bytes of b whose masking no later byte can change (all of b when final) and counts them.
 func (m *Matcher) scan(b []byte, final bool, lx *jsonLexer, log *[]hit) (hits, done int) {
 	for done < len(b) {

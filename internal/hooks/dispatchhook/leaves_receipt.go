@@ -29,10 +29,10 @@ import (
 const resultCap = 16 << 10
 
 // receiptFix: a job the leaf started is attached or noted; relay work without a job passes with a note.
-func receiptFix(in *core.Input, _ string, lr *leafRead) core.Result {
+func receiptFix(in *core.Input, lr *leafRead) core.Result {
 	st := relayAgent(in)
-	if recs, how, ok := leafDispatch(*lr, st); ok {
-		return dispatchReceipts(in, lr, recs, how)
+	if len(lr.recs) > 0 { // only records named by this leaf's tool results
+		return dispatchReceipts(in, lr, lr.recs, "printed in its tool results")
 	}
 	if len(lr.scan.askTimes) > 0 || len(lr.ids) > 0 {
 		return missingIDReceipt(in, lr, st)
@@ -107,11 +107,6 @@ func askRecords(times []time.Time, agentName string) []agent.Record {
 	return slices.DeleteFunc(agent.RecordsSince(first), func(r agent.Record) bool {
 		return r.Owner == 0 || r.Owner != watchOwner() || r.Agent != agentName || r.Time.Before(first)
 	})
-}
-
-// leafDispatch uses only records named by this leaf's tool results.
-func leafDispatch(lr leafRead, _ string) ([]agent.Record, string, bool) {
-	return lr.recs, "printed in its tool results", len(lr.recs) > 0
 }
 
 // receipt is one dispatch's note line and the result attached under it.

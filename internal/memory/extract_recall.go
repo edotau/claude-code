@@ -160,12 +160,15 @@ func ExtractRefusals(ledger string) (map[string]string, error) {
 	return out, nil
 }
 
-// extractGroupHash fingerprints a group's sorted source set with each source's content.
-func extractGroupHash(sources map[string][]byte) string {
-	names := slices.Sorted(maps.Keys(sources))
+// extractGroupHash fingerprints a sorted file set by each file's content (its SHA-256) or given digest string.
+func extractGroupHash[V []byte | string](files map[string]V) string {
 	hash := sha256.New()
-	for _, rel := range names {
-		fmt.Fprintf(hash, "%d:%s:%s\n", len(rel), rel, textutil.SHA256Hex(sources[rel]))
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		digest, ok := any(files[rel]).(string)
+		if !ok {
+			digest = textutil.SHA256Hex(any(files[rel]).([]byte))
+		}
+		fmt.Fprintf(hash, "%d:%s:%s\n", len(rel), rel, digest)
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }

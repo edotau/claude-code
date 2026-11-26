@@ -508,7 +508,7 @@ func TestDoctorFlagsDetectedPlaceholder(t *testing.T) {
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
 	decisionLogOver(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), 80)
-	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := cacheDoctorNotice(doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, doctorNoticePath())
@@ -517,7 +517,7 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
 	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), "# D\n")
-	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := cacheDoctorNotice(doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	if notice := mustRead(t, doctorNoticePath()); notice != "" {
@@ -587,7 +587,7 @@ func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	if !strings.Contains(problems, "conventions.md:") || !strings.Contains(problems, "unreadable") {
 		t.Fatalf("doctor silently skipped an unreadable bank file: %q", problems)
 	}
-	if err := writeDoctorNotice(root, DefaultStaleDays, now); err != nil {
+	if err := cacheDoctorNotice(doctor(root, DefaultStaleDays, now)); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, doctorNoticePath())
@@ -686,7 +686,7 @@ func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
 		if doctorNotice() != " memory review: "+indexNotice+"." {
 			t.Errorf("session-start line = %q; the failed settle alone must set the fixed index notice", doctorNotice())
 		}
-		problems := doctorBank("", DefaultStaleDays, time.Now())
+		problems := doctor("", DefaultStaleDays, time.Now())
 		if len(problems) < 2 || !strings.HasPrefix(problems[0], errIndexProblem.Error()) || !strings.Contains(problems[0], "`claude-code memory index`") {
 			t.Fatalf("problems = %q, want the refresh failure with its path-free advice first", problems)
 		}

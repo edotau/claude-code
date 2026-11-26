@@ -22,16 +22,10 @@ func protectedEdit(in *core.Input) core.Result {
 		return protectedTool(in)
 	}
 	p := livePolicy()
-	globs := foldedGlobs(p.editDeny, in.CWD, p.twin)
-	for _, form := range editPaths(in) { // pathForms already hold the symlink-resolved spelling
-		f := paths.ExpandHome(form)
-		if !filepath.IsAbs(f) {
-			continue
-		}
-		if (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
-			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
-				assets.SafetyProtectedWhat(), f, assets.SafetyProtectedHint())}
-		}
+	allowed := func(f string) bool { return tempWriteAllowed("", f) }
+	if f, _ := pathHit(editPaths(in), foldedGlobs(p.editDeny, in.CWD, p.twin), allowed); f != "" {
+		return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
+			assets.SafetyProtectedWhat(), f, assets.SafetyProtectedHint())}
 	}
 	return core.Result{}
 }
@@ -98,7 +92,7 @@ func protectedRead(in *core.Input, tool string, p policy) core.Result {
 	if problem != "" {
 		return toolBlock(in, problem, tool)
 	}
-	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD, p.twin))
+	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD, p.twin), func(string) bool { return false })
 	if hit != "" {
 		return toolBlock(in, assets.SafetyDenyWhat(), tool+" "+hit)
 	}
@@ -108,15 +102,15 @@ func protectedRead(in *core.Input, tool string, p policy) core.Result {
 	return core.Result{}
 }
 
-// pathHit is the first absolute spelling in forms a glob covers; resolved is false when none is absolute.
-func pathHit(forms, globs []string) (hit string, resolved bool) {
-	for _, form := range forms {
+// pathHit is the first absolute spelling in forms a glob covers and allowed refuses; resolved: one was absolute.
+func pathHit(forms, globs []string, allowed func(string) bool) (hit string, resolved bool) {
+	for _, form := range forms { // pathForms already hold the symlink-resolved spelling
 		f := paths.ExpandHome(form)
 		if !filepath.IsAbs(f) {
 			continue
 		}
 		resolved = true
-		if matchesProtected(f, globs) || f != form && protectedPath(f, globs) {
+		if (f == form && matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !allowed(f) {
 			return f, true
 		}
 	}

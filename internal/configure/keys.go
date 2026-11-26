@@ -224,23 +224,20 @@ const probeTTL = 6 * time.Hour
 
 // ProbeCached reuses fresh vault probe results; env overrides and uncached values always probe live.
 func ProbeCached(kt KeyTarget) (status, detail string, age time.Duration) {
-	if kt.Provider == nil || kt.Provider.Auth.Env == "" {
-		status, detail = Probe(kt)
-		return status, detail, 0
+	var env, src string
+	var meta map[string]vault.SecretMeta
+	if kt.Provider != nil && kt.Provider.Auth.Env != "" {
+		env = kt.Provider.Auth.Env
+		meta, src = probeSource(env)
 	}
-	env := kt.Provider.Auth.Env
-	meta, src := probeSource(env)
-	if src != "vault" {
-		status, detail = Probe(kt)
-		return status, detail, 0
+	if src == "vault" {
+		if cached, cachedAge, ok := vault.CachedProbe(meta[env], probeTTL, time.Now()); ok {
+			return cached, "", cachedAge
+		}
 	}
-	if cached, cachedAge, ok := vault.CachedProbe(meta[env], probeTTL, time.Now()); ok {
-		return cached, "", cachedAge
-	}
-	setAt := meta[env].SetAt
 	status, detail = Probe(kt)
-	if status == providers.ProbeVerified || status == providers.ProbeRejected {
-		_ = vault.RecordProbe(env, status, time.Now(), setAt) // a failed cache write leaves the live result intact
+	if src == "vault" && (status == providers.ProbeVerified || status == providers.ProbeRejected) {
+		_ = vault.RecordProbe(env, status, time.Now(), meta[env].SetAt) // a failed cache write leaves the live result intact
 	}
 	return status, detail, 0
 }

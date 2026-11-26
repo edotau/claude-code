@@ -26,33 +26,29 @@ const (
 // ParseHex reads #RGB, #RGBA, #RRGGBB or #RRGGBBAA (# optional); alpha is 255 when absent, ok=false otherwise.
 func ParseHex(h string) (rgb RGB, alpha int, ok bool) {
 	h = strings.TrimPrefix(h, "#")
+	w := 1 // hex digits per channel
 	switch len(h) {
 	case 3, 4:
-		var c [4]int
-		c[3] = 255
-		for i := 0; i < len(h); i++ {
-			v, valid := hexNibble(h[i])
-			if !valid {
-				return RGB{}, 0, false
-			}
-			c[i] = v*16 + v
-		}
-		return RGB{c[0], c[1], c[2]}, c[3], true
 	case 6, 8:
-		var c [4]int
-		c[3] = 255
-		for i := 0; i < len(h)/2; i++ {
-			hi, ok1 := hexNibble(h[2*i])
-			lo, ok2 := hexNibble(h[2*i+1])
-			if !ok1 || !ok2 {
-				return RGB{}, 0, false
-			}
-			c[i] = hi*16 + lo
-		}
-		return RGB{c[0], c[1], c[2]}, c[3], true
+		w = 2
 	default:
 		return RGB{}, 0, false
 	}
+	c := [4]int{3: 255}
+	for i := range len(h) / w {
+		c[i] = 0
+		for j := i * w; j < i*w+w; j++ {
+			v, valid := hexNibble(h[j])
+			if !valid {
+				return RGB{}, 0, false
+			}
+			c[i] = c[i]*16 + v
+		}
+		if w == 1 {
+			c[i] *= 17
+		}
+	}
+	return RGB{c[0], c[1], c[2]}, c[3], true
 }
 
 func hexNibble(c byte) (int, bool) {
@@ -142,35 +138,37 @@ func appendByteDec(dst []byte, n int) []byte {
 
 // AppendFgSeq appends the foreground SGR escape for rgb in mode to dst.
 func AppendFgSeq(dst []byte, mode string, rgb RGB, bold bool) []byte {
+	return appendSeq(dst, '3', mode, rgb, bold)
+}
+
+// appendSeq appends the SGR escape for rgb on layer '3' (foreground) or '4' (background); 16-color bright fg adds bold.
+func appendSeq(dst []byte, layer byte, mode string, rgb RGB, bold bool) []byte {
 	dst = append(dst, "\x1b["...)
 	if bold {
 		dst = append(dst, "1;"...)
 	}
 	switch mode {
 	case TrueColor:
-		dst = append(dst, "38;2;"...)
+		dst = append(dst, layer, '8', ';', '2', ';')
 		dst = appendByteDec(dst, rgb[0])
 		dst = append(dst, ';')
 		dst = appendByteDec(dst, rgb[1])
 		dst = append(dst, ';')
 		dst = appendByteDec(dst, rgb[2])
-		return append(dst, 'm')
 	case ANSI256:
-		dst = append(dst, "38;5;"...)
+		dst = append(dst, layer, '8', ';', '5', ';')
 		dst = appendByteDec(dst, toANSI256(rgb))
-		return append(dst, 'm')
 	default:
 		c := toANSI16(rgb)
-		base := 30 + c
 		if c >= 8 {
-			base = 30 + c - 8
-			if !bold {
+			c -= 8
+			if layer == '3' && !bold {
 				dst = append(dst, "1;"...)
 			}
 		}
-		dst = appendByteDec(dst, base)
-		return append(dst, 'm')
+		dst = append(dst, layer, byte('0'+c))
 	}
+	return append(dst, 'm')
 }
 
 // FgSeq returns the foreground SGR escape for rgb in the given color mode.
@@ -179,37 +177,10 @@ func FgSeq(mode string, rgb RGB, bold bool) string {
 	return string(AppendFgSeq(buf[:0], mode, rgb, bold))
 }
 
-// AppendBgSeq appends the background SGR escape for rgb in mode to dst.
-func AppendBgSeq(dst []byte, mode string, rgb RGB) []byte {
-	dst = append(dst, "\x1b["...)
-	switch mode {
-	case TrueColor:
-		dst = append(dst, "48;2;"...)
-		dst = appendByteDec(dst, rgb[0])
-		dst = append(dst, ';')
-		dst = appendByteDec(dst, rgb[1])
-		dst = append(dst, ';')
-		dst = appendByteDec(dst, rgb[2])
-		return append(dst, 'm')
-	case ANSI256:
-		dst = append(dst, "48;5;"...)
-		dst = appendByteDec(dst, toANSI256(rgb))
-		return append(dst, 'm')
-	default:
-		c := toANSI16(rgb)
-		base := 40 + c
-		if c >= 8 {
-			base = 40 + c - 8
-		}
-		dst = appendByteDec(dst, base)
-		return append(dst, 'm')
-	}
-}
-
 // BgSeq returns the background SGR escape for rgb in the given color mode.
 func BgSeq(mode string, rgb RGB) string {
 	var buf [32]byte
-	return string(AppendBgSeq(buf[:0], mode, rgb))
+	return string(appendSeq(buf[:0], '4', mode, rgb, false))
 }
 
 // Paint wraps s in the foreground color for rgb (optionally bold) and a reset.

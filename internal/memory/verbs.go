@@ -238,9 +238,6 @@ func WaitStewardHandoff(ctx context.Context, sessionID string) string {
 	}
 }
 
-// ResolveBank returns the session root.
-func ResolveBank() string { return root("") }
-
 // Report appends a report to the bank's reports/ under the bank lock.
 func Report(label string, in ReportInput) ([]string, error) {
 	if err := EnsureBank(""); err != nil {
@@ -280,7 +277,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		fmt.Fprintln(out, "dry run:", rep)
 		return nil
 	}
-	root := ResolveBank()
+	root := root("")
 	ctx := context.Background()
 	profile, _ := embedEndpoint(ctx) // none usable: the session's profile, else the default
 	profile = cmp.Or(profile, providers.SessionProfileContext(ctx))
@@ -312,7 +309,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 	} else {
 		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", paths.MemorySubDir(""))
 	}
-	refreshBankNotice(errw, "memory index", root)
+	refreshNotice(errw, "memory index", root)
 	learnRecallForIndex(errw)
 	embedIndex(ctx, out, errw, root, profile, o.Reembed)
 	return nil
@@ -493,22 +490,8 @@ func FormatOwn(w io.Writer) error {
 	return nil
 }
 
-// FormatCheck writes nothing and fails when any bank file would wrap.
-func FormatCheck(w io.Writer) (dirty bool, err error) {
-	changed, err := formatBank(true)
-	if err != nil {
-		return false, err
-	}
-	for _, f := range changed {
-		fmt.Fprintln(w, f)
-	}
-	if len(changed) > 0 {
-		fmt.Fprintf(w, "%d file(s) would change (run `claude-code memory fmt`)\n", len(changed))
-		return true, nil
-	}
-	fmt.Fprintln(w, "memory fmt --check: clean")
-	return false, nil
-}
+// FormatCheck is FormatReport under check; cli calls it until it calls FormatReport(w, true) directly.
+func FormatCheck(w io.Writer) (dirty bool, err error) { return FormatReport(w, true) }
 
 // ReviewOptions is one `memory review`.
 type ReviewOptions struct {
@@ -524,11 +507,11 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	if o.candidateVerb() {
 		return candidateAction(w, o)
 	}
-	root := ResolveBank()
+	root := root("")
 	if o.Notice {
-		return cacheDoctorNotice(doctorBank(root, o.StaleDays, time.Now()))
+		return cacheDoctorNotice(doctor(root, o.StaleDays, time.Now()))
 	}
-	problems := doctorBank(root, o.StaleDays, time.Now())
+	problems := doctor(root, o.StaleDays, time.Now())
 	if err := cacheDoctorNotice(problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}

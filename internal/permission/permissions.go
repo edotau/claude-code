@@ -126,7 +126,7 @@ const PermAllow = "allow"
 // DecideAt applies Deny > Ask > Allow then the mode fallback; a static relative cd is judged as its absolute target.
 func (p Permissions) DecideAt(cwd, tool, arg string) Decision {
 	if tool != "Bash" {
-		return p.decideOne(tool, arg)
+		return p.decideForm(tool, arg, false)
 	}
 	code := shellCode(arg) // judge what bash runs: a comment can hide a quote that ends one
 	return p.decideBash(code, 0, cwd)
@@ -423,16 +423,17 @@ func (p Permissions) decideBash(cmd string, depth int, cwd string) Decision {
 	}
 	segs, seps := shell.SegmentsSep(outer)
 	for i, seg := range segs {
-		next, cdTo := cdDir(seg, cwd)
+		rawToks := shell.Tokens(seg)
+		next, cdTo := cdDir(rawToks, cwd)
 		if cwd = next; seps[i] != "&&" { // only an `&&` after a static cd carries a known cwd to the next segment
 			cwd = ""
 		}
-		if d, ok := p.decideSeg(seg, cdTo, depth); ok {
+		if d, ok := p.decideSeg(seg, rawToks, cdTo, depth); ok {
 			seen, worst = true, min(worst, d)
 		}
 	}
 	if !seen { // a bare `$(x)` or backtick command: its substitutions' verdict still counts
-		return min(worst, p.decideOne("Bash", strings.TrimSpace(cmd)))
+		return min(worst, p.decideForm("Bash", strings.TrimSpace(cmd), false))
 	}
 	return worst
 }
@@ -466,18 +467,18 @@ func tildeWord(t, home string) string {
 }
 
 // decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
-func (p Permissions) decideSeg(seg, cdTo string, depth int) (Decision, bool) {
-	rawToks := shell.Tokens(seg)
+func (p Permissions) decideSeg(seg string, rawToks []string, cdTo string, depth int) (Decision, bool) {
 	if len(rawToks) == 0 { // a blank line, a trailing `;` or a masked substitution; `env` or `x=1` alone is judged
 		if hasWrite(seg) { // `> f function a` tokenizes to nothing but still writes f
-			return min(p.decideOne("Bash", strings.TrimSpace(seg)), Ask), true
+			return min(p.decideForm("Bash", strings.TrimSpace(seg), false), Ask), true
 		}
 		return Allow, false
 	}
-	toks := commandWords(UnwrapXargs(rawToks))
-	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
+	raw, toks := strings.TrimSpace(seg), commandWords(UnwrapXargs(rawToks))
+	norm := strings.Join(toks, " ")
+	d := p.decideSegment(raw, norm, rawToks, toks)
 	if cdTo != "" {
-		d = p.cdVerdict(d, strings.TrimSpace(seg), strings.Join(toks, " "), "cd "+textutil.ShellQuote(cdTo))
+		d = p.cdVerdict(d, raw, norm, "cd "+textutil.ShellQuote(cdTo))
 	}
 	if nested, ok := shell.NestedCommand(toks); ok {
 		d = min(d, p.decideBash(nested, depth+1, ""), Ask)
@@ -541,21 +542,22 @@ func xargsTakesNext(opt string, values []string) bool {
 
 // cdVerdict joins a relative cd's verdict d with its absolute spelling's: a deny of either wins, then an allow.
 func (p Permissions) cdVerdict(d Decision, raw, norm, abs string) Decision {
-	hit := func(rules []Rule) bool {
-		return anyRule(rules, "Bash", raw, false) || anyRule(rules, "Bash", norm, true)
-	}
 	switch {
 	case anyRule(p.Deny, "Bash", abs, false):
 		return Deny
-	case d == Allow || hit(p.Deny) || hit(p.Ask):
+	case d == Allow || bashHit(p.Deny, raw, norm) || bashHit(p.Ask, raw, norm):
 		return d
 	}
-	return max(d, p.decideOne("Bash", abs))
+	return max(d, p.decideForm("Bash", abs, false))
+}
+
+// bashHit reports a rule matching a Bash segment's raw or normalized spelling.
+func bashHit(rules []Rule, raw, norm string) bool {
+	return anyRule(rules, "Bash", raw, false) || anyRule(rules, "Bash", norm, true)
 }
 
 // cdDir is the cleaned absolute dir a bare `cd <static path>` enters from cwd; cdTo is it for a relative operand.
-func cdDir(seg, cwd string) (dir, cdTo string) {
-	toks := shell.Tokens(seg)
+func cdDir(toks []string, cwd string) (dir, cdTo string) {
 	if len(toks) != 2 || toks[0] != "cd" || strings.HasPrefix(toks[1], "-") || strings.ContainsAny(toks[1], "$`*?[{~\\") {
 		return "", ""
 	}
@@ -573,20 +575,16 @@ func cdDir(seg, cwd string) (dir, cdTo string) {
 const RedirectFileArg = "output redirect to a file"
 
 // decideSegment judges one segment: min of its raw and normalized spellings, unless a bare env/time prefix is stripped.
-func (p Permissions) decideSegment(raw string, rawToks, toks []string) Decision {
-	norm := strings.Join(toks, " ")
+func (p Permissions) decideSegment(raw, norm string, rawToks, toks []string) Decision {
 	if !grantsNormalized(rawToks, toks) {
 		return min(p.decideForm("Bash", raw, false), p.decideForm("Bash", norm, true))
 	}
-	hit := func(rules []Rule) bool {
-		return anyRule(rules, "Bash", raw, false) || anyRule(rules, "Bash", norm, true)
-	}
 	switch {
-	case hit(p.Deny):
+	case bashHit(p.Deny, raw, norm):
 		return Deny
-	case hit(p.Ask):
+	case bashHit(p.Ask, raw, norm):
 		return Ask
-	case hit(p.Allow):
+	case bashHit(p.Allow, raw, norm):
 		return Allow
 	}
 	return p.fallback()
@@ -668,9 +666,7 @@ func unsafeEnvName(name string) bool {
 	return strings.HasPrefix(up, "LD_") || strings.HasPrefix(up, "DYLD_") || agentconfig.SensitiveEnvName(name)
 }
 
-func (p Permissions) decideOne(tool, arg string) Decision { return p.decideForm(tool, arg, false) }
-
-// decideForm is decideOne for a Bash command spelled raw or normalized (quotes stripped, wrappers dropped).
+// decideForm is one call's verdict, a Bash command spelled raw or normalized (quotes stripped, wrappers dropped).
 func (p Permissions) decideForm(tool, arg string, norm bool) Decision {
 	switch {
 	case anyRule(p.Deny, tool, arg, norm):
@@ -686,16 +682,11 @@ func (p Permissions) decideForm(tool, arg string, norm bool) Decision {
 // anyRule reports a matching rule; the file-redirect rule reads quotes, so it skips a normalized spelling.
 func anyRule(rules []Rule, tool, arg string, norm bool) bool {
 	for _, r := range rules {
-		if r.matches(tool, arg) && !skipsNormalized(r, norm) {
+		if r.matches(tool, arg) && (!norm || r.Arg != RedirectFileArg) {
 			return true
 		}
 	}
 	return false
-}
-
-// skipsNormalized reports a file-redirect rule meeting a normalized spelling, which has no quotes to read it from.
-func skipsNormalized(r Rule, norm bool) bool {
-	return norm && r.Arg == RedirectFileArg
 }
 
 func (r Rule) matches(tool, arg string) bool {

@@ -673,7 +673,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	if ws := translate.WebSearchOf(body); ws != nil {
 		return r.tryWebSearch(w, in, out, ws, t, clientModel, stream, last)
 	}
-	resp, err := r.send(in, p, serving.EndpointURL(route, providers.ProtocolOpenAI, t.Model, false), out, func(h http.Header) {
+	resp, err := r.sendMethod(in, http.MethodPost, p, serving.EndpointURL(route, providers.ProtocolOpenAI, t.Model, false), out, func(h http.Header) {
 		h.Set("Content-Type", "application/json")
 		if stream {
 			h.Set("Accept", "text/event-stream")
@@ -694,13 +694,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	return r.relayChat(w, in, resp, t, clientModel, stream)
 }
 
-// send POSTs body with the provider's auth; a 401/403 refreshes the credential and replays once.
-func (r *Router) send(in *http.Request, p *providers.Provider, url string, body []byte,
-	hdr func(http.Header)) (*http.Response, error) {
-	return r.sendMethod(in, http.MethodPost, p, url, body, hdr)
-}
-
-// sendMethod is send with an explicit HTTP method (GET passthrough carries no body).
+// sendMethod sends body with the provider's auth; a 401/403 refreshes the credential and replays once.
 func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header)) (*http.Response, error) {
 	return r.sendWithAuth(in, p, func(credential string) (*http.Response, error) {

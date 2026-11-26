@@ -187,7 +187,7 @@ func parseEnvLine(line string) (k, v string, ok bool) {
 // AuditRecords audits claude's record changes after their transaction succeeds: a profile switch, a model pin or unpin.
 func AuditRecords(before, after map[string]vault.AgentRecord) {
 	b, n := recordFields(before["claude"]), recordFields(after["claude"])
-	for _, f := range slices.Sorted(maps.Keys(mergeKeys(b, n))) {
+	for _, f := range structdiff.SortedKeys(b, n) {
 		switch {
 		case b[f] == n[f]:
 		case f == "profile":
@@ -245,17 +245,6 @@ func CompleteRoute(reg *Registry, rt route.Route) route.Route {
 func secretPath(path string) bool {
 	_, rest, _ := strings.Cut(path, ".")
 	return rest == "launch.env"
-}
-
-func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
-	keys := map[string]struct{}{}
-	for k := range a {
-		keys[k] = struct{}{}
-	}
-	for k := range b {
-		keys[k] = struct{}{}
-	}
-	return keys
 }
 
 // recordFields flattens r to field -> value, aliases as aliases.<alias>.

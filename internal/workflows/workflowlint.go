@@ -117,11 +117,11 @@ func workflowByName(in *core.Input, name string) core.Result {
 	if filepath.Base(name) != name {
 		return core.Result{} // path-shaped, not a plain registry name — refuse to touch the dispatch
 	}
-	dir := paths.ConfigDir()
+	dir := workflowsDir()
 	if dir == "" {
 		return core.Result{}
 	}
-	path := filepath.Join(dir, "workflows", name+".js")
+	path := filepath.Join(dir, name+".js")
 	data, err := os.ReadFile(path) // read once: the lint, step check and rewrite all see these bytes
 	if err != nil {
 		return core.Result{} // no readable on-disk script for this name — built-in or bogus, pass through

@@ -413,6 +413,13 @@ var killWait = 2 * time.Second
 // pollStep paces waitGone and jobArgvSettled; a var so tests can shorten it.
 var pollStep = 100 * time.Millisecond
 
+// StubPollStepForTest sets pollStep to d for another package's tests; the returned func restores it.
+func StubPollStepForTest(d time.Duration) (restore func()) {
+	old := pollStep
+	pollStep = d
+	return func() { pollStep = old }
+}
+
 // procTable is the process table escalate reads to see group members outlive their leader; tests swap it.
 var procTable = proc.List
 

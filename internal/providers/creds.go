@@ -57,7 +57,7 @@ func Credential(ctx context.Context, p *Provider) (string, error) {
 	if sealedAuth(p.Auth.Type) {
 		return authCredential(ctx, p, false)
 	}
-	if v, ok := cachedCommand(p.Name); ok && p.Auth.Command != "" {
+	if v, ok := cacheGet(&cmdCache, p.Name); ok && p.Auth.Command != "" {
 		return v, nil
 	}
 	v, vaultErr := vaultCredential(ctx, p)
@@ -194,8 +194,6 @@ type flightGroup struct {
 var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, cacheState) {
 	return cacheLookup(&cmdCache, name)
 }}
-
-func cachedCommand(name string) (string, bool) { return cacheGet(&cmdCache, name) }
 
 // cacheGet returns the fresh value cached under name.
 func cacheGet(m *sync.Map, name string) (string, bool) {

@@ -1,7 +1,6 @@
 package statusline
 
 import (
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -34,19 +33,9 @@ func readStamp(path string) []string {
 }
 
 func writeStamp(path string, fields ...string) {
-	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
-		return
+	if os.MkdirAll(filepath.Dir(path), 0o700) == nil { // Disposable stamps need atomic visibility, not fsync durability.
+		_ = paths.AtomicWriteNoSync(path, []byte(strings.Join(fields, "|")), 0o600)
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	_, werr := f.WriteString(strings.Join(fields, "|"))
-	if errors.Join(werr, f.Chmod(0o600), f.Close()) != nil {
-		return
-	}
-	_ = os.Rename(f.Name(), path) // Disposable stamps need atomic visibility, not fsync durability.
 }
 
 // freshStamp returns the fields after a leading unix-ms timestamp younger than ttl, else nil.
@@ -66,27 +55,35 @@ func writeTimedStamp(path string, fields ...string) {
 	writeStamp(path, append([]string{strconv.FormatInt(time.Now().UnixMilli(), 10)}, fields...)...)
 }
 
+// fileMemo returns the n fields stamped for path's current (size, mtime) and a save that stamps fresh ones.
+func fileMemo(stamp, path string, n int) (cached []string, save func(fields ...string)) {
+	fi, err := os.Stat(path)
+	if err != nil { // no key to validate against: never read or write the memo
+		return nil, func(...string) {}
+	}
+	size, mtime := strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)
+	if f := readStamp(stamp); len(f) == n+2 && f[0] == size && f[1] == mtime {
+		cached = f[2:]
+	}
+	return cached, func(fields ...string) { writeStamp(stamp, append([]string{size, mtime}, fields...)...) }
+}
+
 // ledgerTotals memos (ledger size, mtime) → this session's dispatch tokens: the ledger only changes by appending.
 func ledgerTotals(session string) (in, out int) {
 	if session == "" {
 		return 0, 0
 	}
-	fi, statErr := os.Stat(tokenledger.Path())
-	stamp := stampFile("ledger", paths.StateDir()+"\x00"+session)
-	size, mtime := "", ""
-	if statErr == nil {
-		size, mtime = strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)
-		if f := readStamp(stamp); len(f) == 4 && f[0] == size && f[1] == mtime {
-			i, ierr := strconv.Atoi(f[2])
-			o, oerr := strconv.Atoi(f[3])
-			if ierr == nil && oerr == nil {
-				return i, o
-			}
+	cached, save := fileMemo(stampFile("ledger", paths.StateDir()+"\x00"+session), tokenledger.Path(), 2)
+	if cached != nil {
+		i, ierr := strconv.Atoi(cached[0])
+		o, oerr := strconv.Atoi(cached[1])
+		if ierr == nil && oerr == nil {
+			return i, o
 		}
 	}
 	in, out, _, err := tokenledger.SessionTotals(session)
-	if statErr == nil && err == nil { // a failed read is partial: show it, never cache it
-		writeStamp(stamp, size, mtime, strconv.Itoa(in), strconv.Itoa(out))
+	if err == nil { // a failed read is partial: show it, never cache it
+		save(strconv.Itoa(in), strconv.Itoa(out))
 	}
 	return in, out
 }

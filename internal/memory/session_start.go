@@ -48,7 +48,7 @@ func SessionText(sessionID, cwd string, now time.Time) string {
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
 func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time, notice func(time.Time) string) string {
 	if surface := sessionSurface(cwd); surface != "" {
-		text := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + notice(now)
+		text := assets.MemoryBankLoadNote(prefix) + chainNote(chain, sessionID, now) + notice(now)
 		return strings.TrimSpace(text) + "\n\n" + surface
 	}
 	// a fresh scaffold has no surface yet; still say where the bank went
@@ -84,11 +84,6 @@ func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 
 // catchupStamp names catalog.ClaimEvery's stamp file under StateDir()/preflight.
 const catchupStamp = "memory-catchup"
-
-// bankLoadNote is the fixed "session memory bank loaded" line, with an optional scaffold/pause prefix.
-func bankLoadNote(prefix string) string {
-	return assets.MemoryBankLoadNote(prefix)
-}
 
 // chainNote appends the previous-session pointer and any catch-up/attention note, or "" with no chain entry.
 func chainNote(chain, sessionID string, now time.Time) string {
@@ -304,7 +299,8 @@ func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 	if !ok {
 		return false
 	}
-	for _, sibling := range []string{"count-" + id, "stamp-" + id, "watch-" + id, "tags-" + id + ".jsonl", "tags-" + id + ".jsonl.off"} {
+	// name first: a fresh file needs one stat, not five
+	for _, sibling := range []string{name, "count-" + id, "stamp-" + id, "watch-" + id, "tags-" + id + ".jsonl", "tags-" + id + ".jsonl.off"} {
 		if fi, err := os.Stat(filepath.Join(dir, sibling)); err == nil && !fi.ModTime().Before(cutoff) {
 			return false
 		}

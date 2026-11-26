@@ -286,7 +286,7 @@ func noticesDir() string { return filepath.Join(paths.StateDir(), "notices") }
 
 // inbox is session's inbox file.
 func inbox(session string) string {
-	return filepath.Join(noticesDir(), paths.Slug(session, "", 80, "session")+".jsonl")
+	return filepath.Join(noticesDir(), SessionSlug(session)+".jsonl")
 }
 
 // cliSession is the session a lane made from a shell records; it is no reader, so such a lane keys its own inbox.

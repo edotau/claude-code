@@ -42,7 +42,7 @@ var (
 		}
 		return ""
 	}
-	autoPeers   = onlinePeers
+	autoPeers   = func() ([]string, error) { return peerNames(autoProbeTimeout, true) }
 	autoAnswers = answersVersion
 )
 
@@ -119,9 +119,9 @@ func answering(peers []string) []string {
 	return up
 }
 
-// onlinePeers lists the other tailnet machines that are online, by DNS name; this node is never among its peers.
-func onlinePeers() ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), autoProbeTimeout)
+// peerNames lists the other tailnet machines by DNS name, only online ones when online; this node is never a peer.
+func peerNames(timeout time.Duration, online bool) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	st, err := tailscale.Status(ctx)
 	if err != nil {
@@ -129,7 +129,7 @@ func onlinePeers() ([]string, error) {
 	}
 	var names []string
 	for _, p := range st.Peers {
-		if name := strings.TrimSuffix(p.DNSName, "."); p.Online && name != "" {
+		if name := strings.TrimSuffix(p.DNSName, "."); (p.Online || !online) && name != "" {
 			names = append(names, name)
 		}
 	}

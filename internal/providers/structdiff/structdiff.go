@@ -21,7 +21,7 @@ func Diff(old, new any) []Change {
 	flatten(reflect.ValueOf(old), "", false, o)
 	flatten(reflect.ValueOf(new), "", false, n)
 	var out []Change
-	for _, p := range slices.Sorted(maps.Keys(mergeKeys(o, n))) {
+	for _, p := range SortedKeys(o, n) {
 		if ov, nv := o[p], n[p]; !reflect.DeepEqual(ov, nv) {
 			out = append(out, Change{Path: p, Old: ov, New: nv})
 		}
@@ -44,14 +44,15 @@ func render(v any) string {
 	return fmt.Sprint(v)
 }
 
-func mergeKeys(a, b map[string]any) map[string]struct{} {
+// SortedKeys is the sorted union of a's and b's keys.
+func SortedKeys[V any](a, b map[string]V) []string {
 	keys := map[string]struct{}{}
-	for _, m := range []map[string]any{a, b} {
+	for _, m := range []map[string]V{a, b} {
 		for k := range m {
 			keys[k] = struct{}{}
 		}
 	}
-	return keys
+	return slices.Sorted(maps.Keys(keys))
 }
 
 // flatten records every leaf of v under its dotted path; omit drops a zero leaf (omitempty/omitzero).
@@ -91,7 +92,7 @@ func flatten(v reflect.Value, path string, omit bool, out map[string]any) {
 }
 
 func leaf(v reflect.Value, path string, omit bool, out map[string]any) {
-	if omit && v.IsZero() || v.Kind() == reflect.Slice && omit && v.Len() == 0 {
+	if omit && (v.IsZero() || v.Kind() == reflect.Slice && v.Len() == 0) {
 		return
 	}
 	out[path] = v.Interface()

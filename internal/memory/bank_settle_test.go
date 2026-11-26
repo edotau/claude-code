@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // runBank runs fn on a fresh bank in an isolated flat config.
@@ -398,7 +399,7 @@ func TestWriteIfStillKeepsOutsideEdit(t *testing.T) {
 		if got := mustRead(t, path); got != "# Conventions\n\n- outside\n" {
 			t.Fatalf("outside edit lost: %q", got)
 		}
-		kept := filepath.Join(HeldDir(), "conventions.md.db-conflict-"+sha256Hex([]byte("settled\n"))[:12])
+		kept := filepath.Join(HeldDir(), "conventions.md.db-conflict-"+textutil.SHA256Hex([]byte("settled\n"))[:12])
 		if got := mustRead(t, kept); got != "settled\n" {
 			t.Fatalf("kept copy = %q, want the settle result", got)
 		}

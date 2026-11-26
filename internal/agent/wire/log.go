@@ -106,8 +106,7 @@ func LogEvent(ctx context.Context, kind, text string) {
 }
 
 func (s *LogSink) writeEvent(kind, text string) {
-	// Redact before collapsing (multi-line secrets) and before capping (a cut secret would no longer match);
-	// writeLocked's later mask is a no-op then, kept for the Stream path it also serves.
+	// Redact before collapsing (multi-line secrets) and capping (a cut secret would no longer match).
 	text = strings.Join(strings.Fields(redact.TextSecrets(text)), " ")
 	if text == "" {
 		return

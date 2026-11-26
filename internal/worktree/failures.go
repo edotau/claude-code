@@ -277,24 +277,13 @@ func ListFailures(root string) ([]Failure, error) {
 	return out, nil
 }
 
-// FailuresSince returns up to limit records slug has not seen and how many more it skipped, then advances its cursor.
-func FailuresSince(root, slug string, limit int) (lines []Failure, more int, err error) {
-	return failuresSince(root, slug, limit, paths.WithFileLock)
-}
-
-// FailuresSinceWithin is FailuresSince with a bounded lock wait; on paths.ErrLockTimeout the cursor has not moved.
-func FailuresSinceWithin(root, slug string, limit int, wait time.Duration) ([]Failure, int, error) {
-	return failuresSince(root, slug, limit, func(p string, fn func() error) error {
-		return paths.WithFileLockWithin(p, wait, fn)
-	})
-}
-
-func failuresSince(root, slug string, limit int, lock func(string, func() error) error) (lines []Failure, more int, err error) {
-	cursor := filepath.Join(root, "cursors", "s-"+paths.Slug(slug, "", 80, "session"))
+// FailuresSinceWithin returns up to limit unseen records and the skipped count; a lock timeout leaves the cursor.
+func FailuresSinceWithin(root, slug string, limit int, wait time.Duration) (lines []Failure, more int, err error) {
+	cursor := filepath.Join(root, "cursors", "s-"+SessionSlug(slug))
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, 0, err
 	}
-	err = lock(failuresLog(root), func() error {
+	err = paths.WithFileLockWithin(failuresLog(root), wait, func() error {
 		seen, fresh := readInt(cursor), time.Now().Add(-failureFresh).Unix()
 		_, known := os.Stat(cursor)
 		last := seen
@@ -311,6 +300,9 @@ func failuresSince(root, slug string, limit int, lock func(string, func() error)
 			default:
 				more++
 			}
+		}
+		if known == nil && last == seen { // nothing new: the cursor already holds last
+			return nil
 		}
 		return paths.AtomicWriteNoSync(cursor, strconv.AppendInt(nil, last, 10), 0o600)
 	})
@@ -334,7 +326,7 @@ func claimFailure(root, id, slug string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slug = paths.Slug(slug, "", 80, "session")
+	slug = SessionSlug(slug)
 	if raw, rerr := os.ReadFile(claim); rerr == nil {
 		return strings.TrimSpace(string(raw)), nil
 	}
@@ -472,7 +464,7 @@ func OfferFailure(ctx context.Context, root string, f Failure, slug string, fall
 	if err != nil {
 		return OfferNone, err
 	}
-	slug = paths.Slug(slug, "", 80, "session")
+	slug = SessionSlug(slug)
 	if _, res := nextOffer(readOffer(file), slug, time.Now().Unix(), fallback); res == OfferNone {
 		return OfferNone, nil // nothing due: no lock
 	}
@@ -552,7 +544,7 @@ func FailureOpen(ctx context.Context, root string, f Failure) bool {
 const promptKeep = 7 * 24 * time.Hour // a session stamp older than this is pruned when a new session stamps
 
 func promptStamp(root, slug string) string {
-	return filepath.Join(root, "prompts", "s-"+paths.Slug(slug, "", 80, "session"))
+	return filepath.Join(root, "prompts", "s-"+SessionSlug(slug))
 }
 
 // NotePrompt records now as slug's last user prompt; a session's first stamp also prunes week-old ones.

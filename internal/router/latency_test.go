@@ -15,6 +15,13 @@ func setLatency(t *testing.T, tab latencyTable) {
 	t.Cleanup(func() { loadLatency = old; resetLatencyMemo() })
 }
 
+// resetLatencyMemo drops the memo so the next pick reloads.
+func resetLatencyMemo() {
+	latencyMemo.Lock()
+	latencyMemo.at = time.Time{}
+	latencyMemo.Unlock()
+}
+
 func latCands() []Candidate {
 	var a, b Candidate
 	a.Agent, a.Account, a.Model = "a", "acc·a", "m"

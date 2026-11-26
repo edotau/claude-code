@@ -8,19 +8,25 @@ import (
 	"unicode/utf8"
 )
 
-var globPatterns sync.Map
+var globPatterns sync.Map // globKey -> *regexp.Regexp (nil when the pattern does not compile)
+
+type globKey struct {
+	pattern string
+	fold    bool
+}
 
 // foldGlobCase matches globs case-insensitively per FoldsCase; a var so a test can pin either rule.
 var foldGlobCase = FoldsCase
 
 // GlobMatch globs a cleaned path: "*" and "?" stay inside a segment, "**" crosses directories.
 func GlobMatch(pattern, p string) bool {
-	key, flags := pattern, ""
-	if foldGlobCase {
-		key, flags = "\x00"+pattern, "(?i)" // NUL never occurs in a cleaned pattern, so keys cannot collide
-	}
+	key := globKey{pattern, foldGlobCase}
 	cached, ok := globPatterns.Load(key)
 	if !ok {
+		flags := ""
+		if key.fold {
+			flags = "(?i)"
+		}
 		re, _ := regexp.Compile(flags + "^" + globRegexp(pattern) + "$")
 		cached, _ = globPatterns.LoadOrStore(key, re)
 	}

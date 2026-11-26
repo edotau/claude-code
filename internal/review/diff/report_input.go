@@ -2,6 +2,7 @@ package diff
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -290,12 +291,12 @@ func extractQualityIssues(q *qualityInput) []qualityIssue {
 	for _, fr := range q.Files {
 		for _, s := range fr.Smells {
 			issues = append(issues, qualityIssue{
-				orDefault(s.Severity, "medium"), orDefault(s.Type, "smell"), s.Message, fr.File, s.Location,
+				cmp.Or(s.Severity, "medium"), cmp.Or(s.Type, "smell"), s.Message, fr.File, s.Location,
 			})
 		}
 		for _, v := range fr.Violations {
 			issues = append(issues, qualityIssue{
-				orDefault(v.Severity, "medium"), orDefault(v.Principle, "solid"), v.Message, fr.File, "",
+				cmp.Or(v.Severity, "medium"), cmp.Or(v.Principle, "solid"), v.Message, fr.File, "",
 			})
 		}
 	}

@@ -62,7 +62,7 @@ For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the 
 task, then follow it with one wait call; `--carry` refuses pi and claude and takes no `--dry-run` or `--env` (preview
 by dropping it). Pi runs the same way without `--carry`, on any Databricks model for review, audits and self-tested
 edits. As an Agent leaf instead, pick the type (`agents/<type>.md`); its own CLI on its own login stays reachable here
-(`claude-code <agent> …`, overlay `{"runner":"own"}`). Codex handles cross-family review, plan vetting and delegated
+(`claude-code <agent> …`, overlay `{"runner":"cli"}`). Codex handles cross-family review, plan vetting and delegated
 edits (`claude-code codex review` for a diff), gemini research and codebase sweeps, opencode code and docs work,
 copilot test repair and mechanical edits:
 

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -179,17 +178,7 @@ func writeMarker(dir, name, body string) bool {
 
 // readMarker splits a marker file into its account and session transcript; ok=false when it cannot be read.
 func readMarker(dir, name string) (account, transcript string, mod time.Time, ok bool) {
-	path := filepath.Join(dir, name)
-	f, err := os.Open(path)
-	if err != nil {
-		return "", "", time.Time{}, false
-	}
-	defer func() { _ = f.Close() }()
-	fi, err := f.Stat()
-	if err != nil {
-		return "", "", time.Time{}, false
-	}
-	b, err := io.ReadAll(f)
+	b, fi, err := readSized(filepath.Join(dir, name))
 	if err != nil {
 		return "", "", time.Time{}, false
 	}
@@ -390,11 +379,6 @@ func (s *scanner) answered(transcript, id string) bool {
 	return ids[id]
 }
 
-type answerStamp struct {
-	size  int64
-	mtime int64
-}
-
 // answerMemo keeps the last few transcripts' ids so the hook's scans re-read a file only when it grew.
 var answerMemo struct {
 	sync.Mutex
@@ -402,7 +386,7 @@ var answerMemo struct {
 }
 
 type memoEntry struct {
-	stamp answerStamp
+	stamp stamp
 	ids   map[string]bool
 }
 
@@ -412,7 +396,7 @@ func memoAnswered(path string) map[string]bool {
 	if err != nil {
 		return answeredIDs(path)
 	}
-	st := answerStamp{fi.Size(), fi.ModTime().UnixNano()}
+	st := stamp{fi.Size(), fi.ModTime().UnixNano()}
 	answerMemo.Lock()
 	e, ok := answerMemo.m[path]
 	answerMemo.Unlock()

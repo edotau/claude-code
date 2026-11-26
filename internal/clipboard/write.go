@@ -127,17 +127,19 @@ const psRead = psPre + "$c=Get-Clipboard -Raw;if($c -ne $null){[Console]::Out.Wr
 
 const psClear = psPre + "[System.Windows.Forms.Clipboard]::Clear()"
 
+// onPath reports whether n resolves on PATH.
+func onPath(n string) bool { _, err := exec.LookPath(n); return err == nil }
+
 func pick() (tool, error) {
-	has := func(n string) bool { _, err := exec.LookPath(n); return err == nil }
-	ps := powerShellPath(has)
+	ps := powerShellPath(onPath)
 	switch {
-	case onWSL() && (has(ps) || ps == wslPowerShell()):
+	case onWSL() && (onPath(ps) || ps == wslPowerShell()):
 		return tool{ps, psCmd(psWrite), psCmd(psRead), psCmd(psClear)}, nil
-	case has("pbcopy"):
+	case onPath("pbcopy"):
 		return tool{"pbcopy", nil, nil, nil}, nil
-	case os.Getenv("WAYLAND_DISPLAY") != "" && has("wl-copy"):
+	case os.Getenv("WAYLAND_DISPLAY") != "" && onPath("wl-copy"):
 		return tool{"wl-copy", nil, []string{"-n"}, []string{"--clear"}}, nil
-	case os.Getenv("DISPLAY") != "" && has("xclip"):
+	case os.Getenv("DISPLAY") != "" && onPath("xclip"):
 		return tool{"xclip", []string{"-selection", "clipboard", "-i"}, []string{"-selection", "clipboard", "-o"}, nil}, nil
 	}
 	return tool{}, ErrNoClipboard

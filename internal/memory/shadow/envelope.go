@@ -155,13 +155,7 @@ func (s sqlEnvelopeStore) ChangesAfter(origin string, afterSeq int64, limit int)
 }
 
 func (s sqlEnvelopeStore) Watermark(origin string) (int64, int, error) {
-	var seq int64
-	var schema int
-	err := s.db.QueryRowContext(context.Background(), `SELECT acked_seq, schema FROM peers WHERE origin = ?`, origin).Scan(&seq, &schema)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, 0, nil
-	}
-	return seq, schema, err
+	return ackedSeq(context.Background(), s.db, origin)
 }
 
 var entryUIDRE = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -201,7 +195,7 @@ func applyEnvelopeTx(ctx context.Context, tx *sql.Tx, e memory.Envelope) (bool, 
 	if e.Origin == machine(ctx, tx) { // our own change echoed back: already in changes, never re-applied
 		return ackOwn(ctx, tx, e)
 	}
-	acked, err := ackedSeq(ctx, tx, e.Origin)
+	acked, _, err := ackedSeq(ctx, tx, e.Origin)
 	if err != nil {
 		return false, err
 	}
@@ -376,13 +370,15 @@ func recordAck(ctx context.Context, tx *sql.Tx, e memory.Envelope) error {
 	return err
 }
 
-func ackedSeq(ctx context.Context, tx *sql.Tx, origin string) (int64, error) {
+// ackedSeq is origin's watermark and schema through q, the db or a transaction; an unknown origin is zero.
+func ackedSeq(ctx context.Context, q queryer, origin string) (int64, int, error) {
 	var acked int64
-	err := tx.QueryRowContext(ctx, `SELECT acked_seq FROM peers WHERE origin = ?`, origin).Scan(&acked)
+	var schema int
+	err := q.QueryRowContext(ctx, `SELECT acked_seq, schema FROM peers WHERE origin = ?`, origin).Scan(&acked, &schema)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, nil
+		return 0, 0, nil
 	}
-	return acked, err
+	return acked, schema, err
 }
 
 // duplicateEnvelope compares a repeat with its stored change; a different change under the same seq is a conflict.

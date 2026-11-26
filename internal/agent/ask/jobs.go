@@ -440,12 +440,15 @@ func Send(id, task, format string, timeout time.Duration) int {
 	return 0
 }
 
+// sendPoll paces awaitSend's checks on the running job; a var so tests can shorten it.
+var sendPoll = time.Second
+
 func awaitSend(ctx context.Context, rec agent.Record, timeout time.Duration) (agent.Record, error) {
 	if !rec.Alive() {
 		return rec, nil
 	}
 	fmt.Fprintf(os.Stderr, "job %s running; note queued, resumes when it ends\n", rec.ID)
-	rows, err := agent.Wait(ctx, []string{rec.ID}, timeout, time.Second)
+	rows, err := agent.Wait(ctx, []string{rec.ID}, timeout, sendPoll)
 	if err != nil {
 		return rec, fmt.Errorf("wait for %s: %w", rec.ID, err)
 	}

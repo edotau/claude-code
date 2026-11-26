@@ -66,9 +66,9 @@ func CodeModeStatus(session string) (string, error) {
 		return "", err
 	}
 	state, src := "on", ""
-	if _, set := sessionState(session); set {
+	if on, set := sessionState(session); set {
 		src = SessionFlagSource
-		if CodeModeSourceFor(session) == "" {
+		if !on {
 			state = "off"
 		}
 	} else if v := CodeModeSource(); v == "" {

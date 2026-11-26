@@ -61,10 +61,10 @@ func expireEmbed(t *testing.T) {
 	}
 }
 
-// mustEntryHashes is currentEntryHashes for tests: it fails the test on a corpus read error.
+// mustEntryHashes is each live entry's content hash; it fails the test on a corpus read error.
 func mustEntryHashes(t *testing.T) map[string]string {
 	t.Helper()
-	h, err := currentEntryHashes()
+	_, _, _, _, h, err := pendingEmbeds(vectorRecord{})
 	if err != nil {
 		t.Fatal(err)
 	}

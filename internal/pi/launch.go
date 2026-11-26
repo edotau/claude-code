@@ -41,9 +41,6 @@ func ResolveCodemode(typed string, tools bool) (string, error) {
 	return mode, nil
 }
 
-// codemodeOn reports whether a request's Codemode turns code mode on: "" and a typed "off" do not.
-func codemodeOn(mode string) bool { return rtkwrap.CodemodeOn(mode) }
-
 // Experiment is the trial a run of req carries: code mode, else rtk wrapping wherever its bash tool runs shimmed.
 func (piEngine) Experiment(req agent.RunOptions) string {
 	return experiment(req.Codemode, req.Tools)
@@ -52,7 +49,7 @@ func (piEngine) Experiment(req agent.RunOptions) string {
 // experiment is the one trial a run carries; the shims never wrap under code mode, nor on Windows (no shims).
 func experiment(codemode string, bash bool) string {
 	switch {
-	case codemodeOn(codemode):
+	case rtkwrap.CodemodeOn(codemode):
 		return "codemode"
 	case bash && runtime.GOOS != "windows":
 		return "rtk-wrap"
@@ -73,7 +70,7 @@ func checkCodemode(req agent.RunOptions, _ []string) error {
 	if !slices.Contains(route.Codemodes, req.Codemode) {
 		return fmt.Errorf("pi: --codemode %q is not one of %s", req.Codemode, strings.Join(route.Codemodes, "|"))
 	}
-	if !codemodeOn(req.Codemode) {
+	if !rtkwrap.CodemodeOn(req.Codemode) {
 		return nil
 	}
 	if !req.Tools {
@@ -84,7 +81,7 @@ func checkCodemode(req agent.RunOptions, _ []string) error {
 
 // codemodeArgv loads the builtin codemode extension explicitly (--no-extensions drops it) and turns its tool on.
 func codemodeArgv(mode string) []string {
-	if !codemodeOn(mode) {
+	if !rtkwrap.CodemodeOn(mode) {
 		return nil
 	}
 	return []string{"-e", codemodeSource, "--tools", "+" + codemodeTool}
@@ -92,7 +89,7 @@ func codemodeArgv(mode string) []string {
 
 // writeCodemodeSettings sets codemode.mode in the run's private settings.json, the file WriteConfig wrote.
 func writeCodemodeSettings(env []string, mode string) error {
-	if !codemodeOn(mode) {
+	if !rtkwrap.CodemodeOn(mode) {
 		return nil
 	}
 	file := filepath.Join(proc.LastEnv(env, agentDirEnv), "settings.json")

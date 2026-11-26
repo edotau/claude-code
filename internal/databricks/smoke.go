@@ -9,13 +9,12 @@ import (
 
 // check runs the smoke reply; exit 0 only if the child exits 0 and its last line is OK.
 func check(self string, p launchPlan) int {
-	rc := 0
 	fmt.Printf("== smoke: %s %s\n", p.Provider, p.Model)
-	if out, code := capture(self, p, assets.DatabricksSmokePrompt(), p.Rest...); code == 0 && textutil.LastLine(out) == "OK" {
-		fmt.Println("PASS smoke")
-	} else {
+	out, code := capture(self, p, assets.DatabricksSmokePrompt(), p.Rest...)
+	if code != 0 || textutil.LastLine(out) != "OK" {
 		fmt.Printf("FAIL smoke: %s\n", tail(out, 5))
-		rc = 1
+		return 1
 	}
-	return rc
+	fmt.Println("PASS smoke")
+	return 0
 }

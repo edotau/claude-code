@@ -286,8 +286,7 @@ func (s *HistoryStore) hasCommits() (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 { // rev-parse --quiet: HEAD does not resolve
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 { // rev-parse --quiet: HEAD does not resolve
 		return false, nil
 	}
 	return false, err

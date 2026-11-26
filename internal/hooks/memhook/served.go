@@ -10,19 +10,11 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// refreshServed re-lists a stale served-endpoint cache detached; needs no memory bank, never from an update child.
+// refreshServed re-lists a stale in-use served listing detached when served routing is on; never from an update child.
 func refreshServed(reg *providers.Registry, pins []preflight.Pin, cwd string, now time.Time) {
-	if !memory.IsUpdateChild() && servedRefreshDue(reg, pins, now) {
+	if !memory.IsUpdateChild() && providers.ServedRoutingOn() && reg != nil && preflight.Stale(reg, pins, now) && preflight.Claim(now) {
 		spawnServed(cwd)
 	}
-}
-
-// servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
-func servedRefreshDue(reg *providers.Registry, pins []preflight.Pin, now time.Time) bool {
-	if !providers.ServedRoutingOn() {
-		return false
-	}
-	return reg != nil && preflight.Stale(reg, pins, now) && preflight.Claim(now)
 }
 
 // spawnServed is the detached `models preflight --refresh` seam; tests replace it.

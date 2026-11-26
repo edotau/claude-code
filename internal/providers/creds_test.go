@@ -544,7 +544,7 @@ func TestLoginU2MDoesNotRefreshAfterExchange(t *testing.T) {
 	if idp.codes.Load() != 1 || idp.refreshes.Load() != 0 {
 		t.Errorf("code exchanges=%d refreshes=%d, want 1 and 0", idp.codes.Load(), idp.refreshes.Load())
 	}
-	if v, ok := cachedCommand(p.Name); !ok || v != "login-access" || sealedAccessValue(p) != "login-access" {
+	if v, ok := cacheGet(&cmdCache, p.Name); !ok || v != "login-access" || sealedAccessValue(p) != "login-access" {
 		t.Errorf("cached = %q, %v, sealed %q; want login-access in both", v, ok, sealedAccessValue(p))
 	}
 	if ov, _ := readOAuth(p); ov.Refresh != idp.valid {

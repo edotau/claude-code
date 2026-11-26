@@ -266,12 +266,6 @@ func NoteSession(id string) {
 	}
 }
 
-// readFacts returns id's saved launch overlay when its profile is still in the registry.
-func readFacts(id string) (agentconfig.Overlay, bool) {
-	rec, err := readSessionRecord(id)
-	return rec.ov, err == nil
-}
-
 func readSessionRecord(id string) (sessionRecord, error) {
 	data, err := os.ReadFile(factsPath(id))
 	if err != nil {

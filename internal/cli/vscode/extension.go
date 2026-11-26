@@ -64,24 +64,20 @@ func linkExtension(claudeHome, extensionsDir string, check bool) (extensionResul
 		return extensionResult{}, err
 	}
 	target := filepath.Join(extensionsDir, name)
-	if current, err := os.Readlink(target); err == nil && current == source {
-		if !check {
-			if err := bumpManifestScan(source); err != nil {
-				return extensionResult{}, err
-			}
-		}
-		return extensionResult{Changed: false, Target: target}, nil
-	}
+	current, err := os.Readlink(target)
+	changed := err != nil || current != source
 	if check {
-		return extensionResult{Changed: true, Target: target}, nil
+		return extensionResult{Changed: changed, Target: target}, nil
 	}
-	if err := replaceLink(extensionsDir, source, target); err != nil {
-		return extensionResult{}, err
+	if changed {
+		if err := replaceLink(extensionsDir, source, target); err != nil {
+			return extensionResult{}, err
+		}
 	}
 	if err := bumpManifestScan(source); err != nil {
 		return extensionResult{}, err
 	}
-	return extensionResult{Changed: true, Target: target}, nil
+	return extensionResult{Changed: changed, Target: target}, nil
 }
 
 // replaceLink points target at source, creating extensionsDir and dropping a stale symlink first.
@@ -113,7 +109,7 @@ func removeStaleLink(target string) error {
 // symlinkOrSame creates dst -> src; a concurrent run that already linked it to src is not an error.
 func symlinkOrSame(src, dst string) error {
 	err := os.Symlink(src, dst)
-	if err != nil && errors.Is(err, fs.ErrExist) {
+	if errors.Is(err, fs.ErrExist) {
 		if cur, rerr := os.Readlink(dst); rerr == nil && cur == src {
 			return nil
 		}

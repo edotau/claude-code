@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -193,10 +194,20 @@ func agentUpdatePrompt(transcript, session, cwd string, historical bool) (string
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return assets.MemoryUpdatePrompt(assets.MemoryUpdateInput{
-		Worker: assets.MemoryUpdateWorker(bankPaths()), Procedure: ref, Historical: historicalBlock(historical),
-		Digest: digestBlock(transcript), Git: gitSinceBlock(transcript, cwd), Tags: tagBlock(transcript, session, historical),
-	}), nil
+	in := assets.MemoryUpdateInput{Worker: assets.MemoryUpdateWorker(bankPaths()), Procedure: ref, Historical: historicalBlock(historical)}
+	// the three blocks read the transcript, git and the tag log independently, so they run concurrently
+	parallel.Rethrow(parallel.All(3, func(i int) error {
+		switch i {
+		case 0:
+			in.Digest = digestBlock(transcript)
+		case 1:
+			in.Git = gitSinceBlock(transcript, cwd)
+		default:
+			in.Tags = tagBlock(transcript, session, historical)
+		}
+		return nil
+	})...)
+	return assets.MemoryUpdatePrompt(in), nil
 }
 
 // bankPaths lists b's five typed file paths, comma-separated on one line.
@@ -273,9 +284,16 @@ func gitSinceBlock(transcript, cwd string) string {
 	if since.IsZero() || cwd == "" {
 		return ""
 	}
-	log, _ := gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format="+commitMark+"%h %s")
+	var log, status string
+	parallel.Rethrow(parallel.All(2, func(i int) error { // independent reads: one spawn's wait instead of two
+		if i == 0 {
+			log, _ = gitOut(cwd, "log", "--since="+since.Format(time.RFC3339), "--name-only", "--format="+commitMark+"%h %s")
+		} else {
+			status, _ = gitOut(cwd, "status", "--porcelain")
+		}
+		return nil
+	})...)
 	commits, touched := splitCommitLog(log)
-	status, _ := gitOut(cwd, "status", "--porcelain")
 	if commits == "" && touched == "" && status == "" {
 		return ""
 	}
@@ -781,7 +799,7 @@ func applyTyped(o updateOptions, b Batch, base Versions) error {
 		fmt.Fprintln(o.Out, "memory update:", err)
 		return err
 	}
-	results, err := newBankStore(false).Apply(b, base, time.Now())
+	results, err := NewBankStore(false).Apply(b, base, time.Now())
 	for i, res := range results {
 		if res.Outcome == DreamFailed {
 			fmt.Fprintf(o.Out, "memory update: op %d (%s) failed: %s\n", i, res.Op.Op, res.Reason)
@@ -852,7 +870,7 @@ func tagOps(session string, historical bool) []Op {
 
 // bankListing shows each bank entry as "ref · first line" and returns the store's versions as the apply base.
 func bankListing(historical bool) (string, Versions, error) {
-	docs, base, err := newBankStore(false).Load()
+	docs, base, err := NewBankStore(false).Load()
 	if err != nil {
 		return "", nil, err
 	}

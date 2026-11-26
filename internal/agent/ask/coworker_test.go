@@ -261,6 +261,67 @@ var armSharedBin struct {
 	err  error
 }
 
+// armDumpBody is armVendorBody reading its dump dir from the config dir, so one script serves every test.
+func armDumpBody(bin string) string {
+	return "IFS= read -r dump < \"$CLAUDE_CONFIG_DIR/arm-dump-path\" || exit 1\n" + armVendorBody(`"$dump"`, bin)
+}
+
+// linkedFakes caches one read-only script per distinct fake body for the test binary; linkFake hard-links it.
+var linkedFakes struct {
+	mu    sync.Mutex
+	dir   string
+	files map[string]string
+}
+
+// linkFake hard-links a cached read-only fake script: a fresh script's first macOS exec costs 40-400 ms, a link none.
+func linkFake(t *testing.T, name, body string) string {
+	t.Helper()
+	file, ok := paths.AgentName(name)
+	if !ok {
+		t.Fatalf("unknown vendor %q", name)
+	}
+	if err := os.Remove(filepath.Join(paths.BinDir(), file)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	p := pathstest.FakeVendor(t, name, body) // its guards against the real ~/.claude, then the link replaces it
+	src, err := linkedFake("#!/bin/sh\n" + body + "\n")
+	if err == nil {
+		err = os.Remove(p)
+	}
+	if err == nil {
+		err = os.Link(src, p)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func linkedFake(content string) (string, error) {
+	linkedFakes.mu.Lock()
+	defer linkedFakes.mu.Unlock()
+	if p, ok := linkedFakes.files[content]; ok {
+		return p, nil
+	}
+	if linkedFakes.dir == "" {
+		dir, err := os.MkdirTemp("", "linked-fakes")
+		if err != nil {
+			return "", err
+		}
+		linkedFakes.dir, linkedFakes.files = dir, map[string]string{}
+	}
+	f, err := os.CreateTemp(linkedFakes.dir, "fake-")
+	if err != nil {
+		return "", err
+	}
+	p := f.Name()
+	if err := errors.Join(f.Close(), os.WriteFile(p, []byte(content), 0o555), os.Chmod(p, 0o555)); err != nil {
+		return "", err
+	}
+	linkedFakes.files[content] = p
+	return p, nil
+}
+
 // armSharedFakes writes each fake once per test binary, since a fresh script's first exec costs 60-400 ms on macOS.
 func armSharedFakes(t *testing.T) string {
 	t.Helper()
@@ -270,7 +331,7 @@ func armSharedFakes(t *testing.T) string {
 			return
 		}
 		for _, h := range armDevHop {
-			body := "#!/bin/sh\nIFS= read -r dump < \"$CLAUDE_CONFIG_DIR/arm-dump-path\" || exit 1\n" + armVendorBody(`"$dump"`, h.bin) + "\n"
+			body := "#!/bin/sh\n" + armDumpBody(h.bin) + "\n"
 			file, _ := paths.AgentName(h.bin)
 			if armSharedBin.err = os.WriteFile(filepath.Join(armSharedBin.dir, file), []byte(body), 0o755); armSharedBin.err != nil {
 				return
@@ -288,20 +349,20 @@ func armSharedFakes(t *testing.T) string {
 	return armSharedBin.dir
 }
 
-// armFixture shares immutable fakes only when callers do not replace them with a test-specific vendor.
+// armFixture shares one fakes dir only when callers do not replace a vendor; else it links them into the bin dir.
 func armFixture(t *testing.T, shared bool) string {
 	t.Helper()
 	skipWithoutSh(t)
 	cliEnv(t)
 	dump := t.TempDir()
+	if err := os.WriteFile(filepath.Join(paths.ConfigDir(), "arm-dump-path"), []byte(dump+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if shared {
-		if err := os.WriteFile(filepath.Join(paths.ConfigDir(), "arm-dump-path"), []byte(dump+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
 		t.Setenv(paths.AgentBinDirEnv, armSharedFakes(t))
 	} else {
 		for _, h := range armDevHop {
-			pathstest.FakeVendor(t, h.bin, armVendorBody(`"`+dump+`"`, h.bin))
+			linkFake(t, h.bin, armDumpBody(h.bin))
 		}
 	}
 	row := func(name string) string {

@@ -33,11 +33,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 	case !gh.Found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
 	case gh.LoggedIn:
-		acct := github.GHActiveAccount()
-		if acct == "" {
-			acct = gh.Account
-		}
-		d.printf("%-16s present (active account %s)\n", "gh CLI", acct)
+		d.printf("%-16s present (active account %s)\n", "gh CLI", cmp.Or(github.GHActiveAccount(), gh.Account))
 		ghOK = true
 	default:
 		d.printf("%-16s ABSENT: not logged in\n", "gh CLI")

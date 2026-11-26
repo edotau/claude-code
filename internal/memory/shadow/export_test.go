@@ -24,7 +24,6 @@ func setupShadowExport(t *testing.T) (string, map[string]string, memory.ExportDB
 	t.Helper()
 	tmp := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", tmp)
-	t.Setenv("HARNESS_KEYRING", "off")
 	pinFilesTruth(t)
 	root := filepath.Join(tmp, "memory")
 	fixture := map[string]string{
@@ -56,7 +55,7 @@ func setupShadowExport(t *testing.T) (string, map[string]string, memory.ExportDB
 
 func TestExportGuardShadow(t *testing.T) {
 	root, fixture, db := setupShadowExport(t)
-	rep, err := memory.ExportGuard(db, root)
+	rep, err := memory.ExportGuardLocked(db, root)
 	if err != nil || len(rep.Written) != 0 || len(rep.Imported) != 0 || len(rep.Conflicts) != 0 {
 		t.Fatalf("initial ExportGuard: %+v err=%v", rep, err)
 	}
@@ -82,7 +81,7 @@ func testShadowExportImport(t *testing.T, db memory.ExportDB, root, fbBody strin
 	if err := os.WriteFile(filepath.Join(root, "conventions.md"), []byte(editedConv), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := memory.ExportGuard(db, root)
+	rep, err := memory.ExportGuardLocked(db, root)
 	if err != nil || !slices.Equal(rep.Imported, []string{"conventions.md", "notes/new.md"}) {
 		t.Fatalf("import ExportGuard: %+v err=%v", rep, err)
 	}
@@ -91,7 +90,7 @@ func testShadowExportImport(t *testing.T, db memory.ExportDB, root, fbBody strin
 			t.Fatalf("db.Render(%s) = %q (err=%v), want %q", rel, got, err, want)
 		}
 	}
-	rep, err = memory.ExportGuard(db, root)
+	rep, err = memory.ExportGuardLocked(db, root)
 	if err != nil || len(rep.Written) != 0 || len(rep.Imported) != 0 || len(rep.Conflicts) != 0 {
 		t.Fatalf("idempotent ExportGuard: %+v err=%v", rep, err)
 	}
@@ -104,7 +103,7 @@ func testShadowExportConflict(t *testing.T, db memory.ExportDB, root string) {
 		t.Fatal(err)
 	}
 	defer sdb.Close()
-	store := NewSQLBankStore(sdb)
+	store := sqlBankStore{db: sdb}
 	_, vers, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +115,7 @@ func testShadowExportConflict(t *testing.T, db memory.ExportDB, root string) {
 	if err := os.WriteFile(filepath.Join(root, "decisionLog.md"), []byte(diskEdit), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := memory.ExportGuard(db, root)
+	rep, err := memory.ExportGuardLocked(db, root)
 	if err != nil || !slices.Equal(rep.Conflicts, []string{"decisionLog.md"}) {
 		t.Fatalf("conflict ExportGuard: %+v err=%v", rep, err)
 	}
@@ -126,7 +125,7 @@ func testShadowExportConflict(t *testing.T, db memory.ExportDB, root string) {
 	if err := os.Remove(filepath.Join(root, "notes", "new.md")); err != nil {
 		t.Fatal(err)
 	}
-	rep, err = memory.ExportGuard(db, root)
+	rep, err = memory.ExportGuardLocked(db, root)
 	if err != nil || !slices.Contains(rep.Conflicts, "notes/new.md") {
 		t.Fatalf("delete ExportGuard: %+v err=%v", rep, err)
 	}
@@ -138,7 +137,6 @@ func testShadowExportConflict(t *testing.T, db memory.ExportDB, root string) {
 func TestExportGuardRepeatedIDKeepsLinkage(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", tmp)
-	t.Setenv("HARNESS_KEYRING", "off")
 	p := filepath.Join(tmp, "memory", "decisionLog.md")
 	a := "## 2026-01-15 — Same <!-- id:0123abcd -->\n\nfirst\n"
 	b := "## 2026-01-14 — Same <!-- id:0123abcd -->\n\nsecond\n"
@@ -164,14 +162,14 @@ func TestExportGuardRepeatedIDKeepsLinkage(t *testing.T) {
 	if _, err := sdb.Exec(`INSERT INTO vectors(entry_rowid, model, dim, vec, minted_at) VALUES(?, 'm', 1, x'00', '')`, second); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := memory.ExportGuard(db, filepath.Join(tmp, "memory")); err != nil {
+	if _, err := memory.ExportGuardLocked(db, filepath.Join(tmp, "memory")); err != nil {
 		t.Fatal(err)
 	}
 	newer := "## 2026-01-16 — Same <!-- id:0123abcd -->\n\nthird\n"
 	if err := os.WriteFile(p, []byte("# Decision Log\n\n"+newer+"\n"+a+"\n"+b), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if rep, err := memory.ExportGuard(db, filepath.Join(tmp, "memory")); err != nil || len(rep.Imported) != 1 {
+	if rep, err := memory.ExportGuardLocked(db, filepath.Join(tmp, "memory")); err != nil || len(rep.Imported) != 1 {
 		t.Fatalf("ExportGuard = %+v err=%v, want decisionLog.md imported", rep, err)
 	}
 	var lines string
@@ -182,14 +180,14 @@ func TestExportGuardRepeatedIDKeepsLinkage(t *testing.T) {
 
 func TestExportGuardRecordsDeletedOutside(t *testing.T) {
 	root, _, db := setupShadowExport(t)
-	if _, err := memory.ExportGuard(db, root); err != nil {
+	if _, err := memory.ExportGuardLocked(db, root); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(root, "notes", "y.md")); err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, err := memory.ExportGuard(db, root); err != nil {
+		if _, err := memory.ExportGuardLocked(db, root); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -232,7 +230,7 @@ func TestExportGuardDeletedBeforeFirstExport(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "notes", "y.md")); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := memory.ExportGuard(db, root)
+	rep, err := memory.ExportGuardLocked(db, root)
 	if err != nil || !slices.Contains(rep.Conflicts, "notes/y.md") {
 		t.Fatalf("guard after delete = %+v (%v), want deleted-outside for notes/y.md", rep, err)
 	}
@@ -443,7 +441,7 @@ func TestOutsideEditAfterExportIsStillSeen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := memory.ExportGuard(edb, paths.MemoryStoreDir()); err != nil {
+	if _, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir()); err != nil {
 		t.Fatal(err)
 	}
 	if err := closeDB(); err != nil {
@@ -531,7 +529,7 @@ func guardOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, err := memory.ExportGuard(edb, paths.MemoryStoreDir())
+	rep, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir())
 	if cerr := closeDB(); err == nil {
 		err = cerr
 	}

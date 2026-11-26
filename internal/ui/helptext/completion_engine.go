@@ -67,13 +67,10 @@ func (e Engine) knownPath(words []string) (path []string, node *Node, rest []str
 
 // flagLookup resolves node-local flags, excluding flags owned by a bare launcher.
 func flagLookup(path []string, node *Node, flagWord string) (Flag, bool) {
-	if len(path) == 1 && noComplete[path[0]] {
+	if node == nil || len(path) == 1 && noComplete[path[0]] {
 		return Flag{}, false
 	}
 	name := strings.TrimLeft(flagWord, "-")
-	if node == nil {
-		return Flag{}, false
-	}
 	for _, f := range node.Flags {
 		if f.Name == name {
 			return f, true
@@ -98,10 +95,7 @@ func flagValues(path []string, node *Node, flagWord string) []string {
 
 // remainingFlags sorts node-local flags and removes already-typed flags.
 func remainingFlags(path []string, node *Node, rest []string) []string {
-	if len(path) == 1 && noComplete[path[0]] {
-		return nil
-	}
-	if node == nil {
+	if node == nil || len(path) == 1 && noComplete[path[0]] {
 		return nil
 	}
 	var out []string
@@ -150,10 +144,7 @@ func positionalDomain(node *Node, i int) func() []string {
 func (e Engine) topLevelCandidates(cur string) []string {
 	var cands []string
 	for _, c := range e.Verbs() {
-		if c.Hidden {
-			if cur != "" {
-				cands = append(cands, c.Name)
-			}
+		if c.Hidden && cur == "" {
 			continue
 		}
 		cands = append(cands, c.Name)

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -234,47 +235,26 @@ func countPath(sessionID string) string {
 	return filepath.Join(paths.MemoryStateDir(), "count-"+filepath.Base(sessionID))
 }
 
+// readCountState decodes the four-field count line: edits|offset|subEdits:subBytes|turns.
 func readCountState(path string) (countState, bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return countState{}, false
 	}
 	parts := strings.Split(strings.TrimSpace(string(b)), "|")
-	if len(parts) == 4 {
-		return parseCountFields(parts)
+	if len(parts) != 4 {
+		return countState{}, false
 	}
-	return countState{}, false
-}
-
-// parseCountFields decodes the current four-field count line: edits|offset|subEdits:subBytes|turns.
-func parseCountFields(parts []string) (countState, bool) {
 	edits, err1 := strconv.Atoi(parts[0])
 	offset, err2 := strconv.ParseInt(parts[1], 10, 64)
-	if err1 != nil || err2 != nil || edits < 0 || offset < 0 {
+	subEditsStr, subBytesStr, ok := strings.Cut(parts[2], ":")
+	subEdits, err3 := strconv.Atoi(subEditsStr)
+	subBytes, err4 := strconv.ParseInt(subBytesStr, 10, 64)
+	turns, err5 := strconv.Atoi(parts[3])
+	if !ok || errors.Join(err1, err2, err3, err4, err5) != nil || edits < 0 || offset < 0 || subEdits < 0 || subBytes < 0 || turns < 0 {
 		return countState{}, false
 	}
-	cs := countState{edits: edits, offset: offset}
-	var ok bool
-	if cs.subEdits, cs.subBytes, ok = parseSubCache(parts[2]); !ok {
-		return countState{}, false
-	}
-	turns, err := strconv.Atoi(parts[3])
-	if err != nil || turns < 0 {
-		return countState{}, false
-	}
-	cs.turns = turns
-	return cs, true
-}
-
-// parseSubCache decodes the "subEdits:subBytes" field.
-func parseSubCache(field string) (subEdits int, subBytes int64, ok bool) {
-	subEditsStr, subBytesStr, ok := strings.Cut(field, ":")
-	subEdits, err1 := strconv.Atoi(subEditsStr)
-	subBytes, err2 := strconv.ParseInt(subBytesStr, 10, 64)
-	if !ok || err1 != nil || err2 != nil || subEdits < 0 || subBytes < 0 {
-		return 0, 0, false
-	}
-	return subEdits, subBytes, true
+	return countState{edits: edits, offset: offset, subEdits: subEdits, subBytes: subBytes, turns: turns}, true
 }
 
 func writeCountState(path string, cs countState) {

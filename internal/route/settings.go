@@ -20,7 +20,7 @@ const (
 	FallbackAll    = "all"
 
 	RunnerPi  = "pi"
-	RunnerOwn = "own"
+	RunnerCLI = "cli"
 
 	CodemodeOff  = "off"
 	CodemodeOn   = "on"
@@ -37,7 +37,7 @@ const (
 // FallbackModes, Runners, Codemodes and Verbosities list the allowed values of their fields.
 var (
 	FallbackModes = []string{FallbackNone, FallbackPin, FallbackAgents, FallbackAll}
-	Runners       = []string{RunnerPi, RunnerOwn}
+	Runners       = []string{RunnerPi, RunnerCLI}
 	Codemodes     = []string{CodemodeOff, CodemodeOn, CodemodeOnly}
 	Verbosities   = []string{VerbosityLow, VerbosityMedium, VerbosityHigh}
 )
@@ -103,10 +103,10 @@ func memberType(shape reflect.Type, k string) (reflect.Type, error) {
 		return shape.Elem(), nil
 	}
 	fields := jsonFields(shape)
-	names := slices.Sorted(maps.Keys(fields))
 	if t, ok := fields[k]; ok {
 		return t, nil
 	}
+	names := slices.Sorted(maps.Keys(fields))
 	if j := slices.IndexFunc(names, func(n string) bool { return strings.EqualFold(n, k) }); j >= 0 {
 		return fields[names[j]], nil
 	}

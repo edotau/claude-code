@@ -2,6 +2,8 @@ package source
 
 import (
 	"strings"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // analyzePython ports `analyze_python` as an ESTIMATE (no Python AST in Go): it scans indentation and keywords.
@@ -38,9 +40,7 @@ func pythonLines(masked string) []pyLine {
 			case '(', '[', '{':
 				depth++
 			case ')', ']', '}':
-				if depth > 0 {
-					depth--
-				}
+				depth = max(depth-1, 0)
 			}
 		}
 	}
@@ -86,13 +86,8 @@ func findPyFunctions(lines []pyLine) []pyFuncSpan {
 
 // pyDefName extracts the function name from a `def foo(...)`/`async def foo(...)` line.
 func pyDefName(trimmed string) (string, bool) {
-	s := trimmed
-	switch {
-	case strings.HasPrefix(s, "async def "):
-		s = s[len("async def "):]
-	case strings.HasPrefix(s, "def "):
-		s = s[len("def "):]
-	default:
+	s, ok := strings.CutPrefix(strings.TrimPrefix(trimmed, "async "), "def ")
+	if !ok {
 		return "", false
 	}
 	end := strings.IndexAny(s, "( \t")
@@ -111,32 +106,13 @@ func pyFuncCyclomatic(body []pyLine) int {
 		if skipLine(l) {
 			continue
 		}
-		words := pyWords(l.text)
-		score += pyBranchKeywordCount(words)
-		score += pyBoolOpCount(words)
+		for _, w := range pyWords(l.text) { // every and/or counts, matching the original's sum of len(BoolOp.values)-1
+			if pyCycloKeywords[w] || w == "and" || w == "or" {
+				score++
+			}
+		}
 	}
 	return score
-}
-
-func pyBranchKeywordCount(words []string) int {
-	n := 0
-	for _, w := range words {
-		if pyCycloKeywords[w] {
-			n++
-		}
-	}
-	return n
-}
-
-// pyBoolOpCount counts every and/or operator on a line, matching the original's sum of len(BoolOp.values)-1.
-func pyBoolOpCount(words []string) int {
-	n := 0
-	for _, w := range words {
-		if w == "and" || w == "or" {
-			n++
-		}
-	}
-	return n
 }
 
 func pyWords(s string) []string {
@@ -170,12 +146,7 @@ func pyOpensNesting(trimmed string) bool {
 	if (strings.HasPrefix(trimmed, "case ") || strings.HasPrefix(trimmed, "match ")) && strings.HasSuffix(strings.TrimRight(trimmed, " \t"), ":") {
 		return true // soft keywords: `match = f()` is an assignment, so the trailing colon decides
 	}
-	for _, p := range pyNestingPrefixes {
-		if strings.HasPrefix(trimmed, p) {
-			return true
-		}
-	}
-	return false
+	return textutil.HasAnyPrefix(trimmed, pyNestingPrefixes...)
 }
 
 // pyFunctionFindings is check_function's estimate: length, cyclomatic complexity, nesting depth.
@@ -208,12 +179,7 @@ func pyModuleFindings(lines []pyLine, maskedText string, th thresholds, lineCoun
 }
 
 func pyHasABCMarker(text string) bool {
-	for _, m := range []string{"abstractmethod", "ABCMeta", "(ABC", ", ABC", "Protocol"} {
-		if strings.Contains(text, m) {
-			return true
-		}
-	}
-	return false
+	return textutil.ContainsAny(text, "abstractmethod", "ABCMeta", "(ABC", ", ABC", "Protocol")
 }
 
 // maskPythonSource blanks string/comment interiors, keeping indent, newlines and brackets so line tracking holds.

@@ -3,6 +3,7 @@ package proc
 import (
 	"encoding/binary"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -38,12 +39,7 @@ func envUnreadable(pid int) bool {
 // procArgsEnvHas parses procargs2 (argc, exec path padded to 8 bytes, argc args, env to the end) for an env entry
 // starting want; an empty arg counts as one, and an empty env entry is skipped, not the end.
 func procArgsEnvHas(raw []byte, want string) bool {
-	for _, kv := range procArgsEnv(raw) {
-		if strings.HasPrefix(kv, want) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(procArgsEnv(raw), func(kv string) bool { return strings.HasPrefix(kv, want) })
 }
 
 // procArgsEnv is the non-empty env entries of a procargs2 blob; none when it is malformed or the env is hidden.

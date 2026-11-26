@@ -362,8 +362,7 @@ func splitBlocks(text string) []block {
 		if l == "" {
 			continue
 		}
-		t := strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))
-		if name, ok := headerName(t); ok {
+		if name, ok := headerName(strings.TrimPrefix(l, "\ufeff")); ok {
 			prefix := detachHeaderPrefix(&blocks[len(blocks)-1])
 			blocks = append(blocks, block{name: name, lines: prefix})
 		}
@@ -494,7 +493,7 @@ func mergeSection(bl block, old *section, r exportRow) block {
 		l := bl.lines[i]
 		if !inBody {
 			lines = append(lines, l)
-			if name, ok := headerName(strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))); ok && name == bl.name {
+			if name, ok := headerName(strings.TrimPrefix(l, "\ufeff")); ok && name == bl.name {
 				inBody, last = true, len(lines)-1
 			}
 			continue
@@ -589,7 +588,7 @@ func foldBlock(bl, dup block) block {
 	for _, l := range dup.lines {
 		if body {
 			lines = append(lines, l)
-		} else if name, ok := headerName(strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))); ok && name == dup.name {
+		} else if name, ok := headerName(strings.TrimPrefix(l, "\ufeff")); ok && name == dup.name {
 			body = true
 		}
 	}

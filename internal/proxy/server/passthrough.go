@@ -276,11 +276,11 @@ func (r *Router) nextHop(in *http.Request, origin *providers.Provider, cur passt
 	if next == nil {
 		return cur, false
 	}
-	nP, nRoute, nPath, nBody, nModel, nChat, err := r.preparePassthroughHop(in, next, nextRoute, path, cur.model, dialect, original)
+	hop, err := r.preparePassthroughHop(in, next, nextRoute, path, cur.model, dialect, original)
 	if err != nil {
 		return cur, false
 	}
-	return passthroughHop{nP, nRoute, nPath, nBody, nModel, nChat}, true
+	return hop, true
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
@@ -369,34 +369,30 @@ func (r *Router) tpmPassthroughHop(tc *passthroughTPM, cur passthroughHop, why s
 	if !ok {
 		return cur, false
 	}
-	nP, nRoute, nPath, nBody, nModel, nChat, err := r.preparePassthroughHop(tc.in, t.Provider, route, tc.path,
-		cur.model, tc.dialect, tc.original)
+	hop, err := r.preparePassthroughHop(tc.in, t.Provider, route, tc.path, cur.model, tc.dialect, tc.original)
 	if err != nil {
 		return cur, false
 	}
 	tc.tried[t.Provider.Name], tc.hopped = true, true
 	r.logTPMHop(cur.p, t.Provider, cur.model, why)
-	return passthroughHop{nP, nRoute, nPath, nBody, nModel, nChat}, true
+	return hop, true
 }
 
+// preparePassthroughHop is the hop to p on route: the gateway path for Databricks Gemini, and the fixed body.
 func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, route string, path *url.URL,
-	model, dialect string, original []byte) (*providers.Provider, string, *url.URL, []byte, string, bool, error) {
+	model, dialect string, original []byte) (passthroughHop, error) {
 	dbxGemini := dialect == providers.ProtocolGemini && p.Preset == providers.PresetDatabricks
 	nextPath := *path
 	if dbxGemini {
 		var err error
 		_, _, rest, _ := parsePassthrough(in.URL.Path)
-		nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, rest, in.URL.Query())
-		if err != nil {
-			return p, route, &nextPath, nil, model, false, err
+		if nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, rest, in.URL.Query()); err != nil {
+			return passthroughHop{}, err
 		}
 	}
 	body, _, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect,
 		googleToolsHeader(in), dbxGemini)
-	if err != nil {
-		return p, route, &nextPath, nil, model, false, err
-	}
-	return p, route, &nextPath, body, model, geminiChat, nil
+	return passthroughHop{p, route, &nextPath, body, model, geminiChat}, err
 }
 
 func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *providers.Provider,

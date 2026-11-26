@@ -46,12 +46,12 @@ func Setup(env Env, name string) (Actions, error) {
 	actions := Actions{Browser: b.Name}
 	switch b.Paths.Extension {
 	case stateNoHost:
-		actions.Items = append(actions.Items, missingHostAction(b))
+		actions.Items = append(actions.Items, action{Kind: "missing-host", Description: hostFix(b)})
 	case stateReady:
 		ready := action{Kind: "noop", Description: b.DisplayName + " is already ready.", Executed: true}
 		actions.Items = append(actions.Items, ready)
 	case stateDisabled:
-		actions.Items = append(actions.Items, enableExtensionAction(b))
+		actions.Items = append(actions.Items, action{Kind: "enable-extension", Description: enableFix(b)})
 	default: // no-extension
 		actions.Items = append(actions.Items, installExtensionAction(env, b))
 	}
@@ -71,14 +71,6 @@ func resolveSetupName(env Env, name string) (string, error) {
 		return "", errors.New("browser: no resolvable system default")
 	}
 	return b.Name, nil
-}
-
-func missingHostAction(b browser) action {
-	return action{Kind: "missing-host", Description: hostFix(b)}
-}
-
-func enableExtensionAction(b browser) action {
-	return action{Kind: "enable-extension", Description: enableFix(b)}
 }
 
 // installExtensionAction opens the Web Store page in the named browser: `open -b` (macOS) or openCandidates (Linux).

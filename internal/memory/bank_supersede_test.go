@@ -309,7 +309,7 @@ func assertReviseChain(t *testing.T, mode string) {
 	if mode == "missing" {
 		files = nil
 	}
-	got := followReplaced([]SearchHit{{ID: "00000001", Block: blocks[0], Score: 5, Matched: 3}}, files, loadSegments(files, true))
+	got := followReplaced([]SearchHit{{ID: "00000001", Block: blocks[0], Score: 5, Matched: 3}}, files, loadSegments(files, true, nil))
 	want := fmt.Sprintf("%08x", hops+1)
 	if mode != "eight hops" {
 		want = "00000001"
@@ -376,7 +376,7 @@ func TestBlockFinderMatchesScan(t *testing.T) {
 		{Bank: "local", Path: Path("progress.md"), Mode: segEntries},
 		{Bank: "local", Path: Path("gone.md"), Mode: segEntries},
 	}
-	segs := loadSegments(files, true)
+	segs := loadSegments(files, true, nil)
 	find := blockFinder(files, segs)
 	for _, id := range []string{"a1000001", "b2000002", "c3000003", "deadbeef", ""} {
 		want, wok := oldFindBlockByID(id, files, segs)

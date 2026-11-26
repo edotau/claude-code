@@ -52,7 +52,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 	if p, ok := paths.RelWithin(in.CWD, path); ok {
 		rel = p
 	}
-	return core.Result{Context: simplicityText(rel, found)}
+	return core.Result{Context: renderFindings(assets.HookSimplicityHeader(len(found), rel), found)}
 }
 
 // editBefore reverses an Edit on its post-edit content; false for a deletion or an ambiguous occurrence.
@@ -188,11 +188,7 @@ func editedLines(text, oldStr, newStr string) map[int]bool {
 
 const markdownHeader = "markdown lint (fix these now; format-stop fixes spacing and markers at Stop): "
 
-// simplicityText renders the header plus up to simplicityMaxLines findings within simplicityMaxChars.
-func simplicityText(rel string, found []string) string {
-	return renderFindings(assets.HookSimplicityHeader(len(found), rel), found)
-}
-
+// renderFindings is header plus up to simplicityMaxLines findings within simplicityMaxChars.
 func renderFindings(header string, found []string) string {
 	n := len(found)
 	var b strings.Builder

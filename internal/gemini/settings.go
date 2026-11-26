@@ -100,24 +100,18 @@ func agyGuardRules(deny []string, out io.Writer) []string {
 
 // mergeAgyDeny returns the string entries of existing, then rules, without duplicates.
 func mergeAgyDeny(existing []any, rules []string) []string {
-	seen := map[string]bool{}
-	merged := make([]string, 0, len(existing)+len(rules))
+	all := make([]string, 0, len(existing)+len(rules))
 	for _, e := range existing {
-		s, ok := e.(string)
-		if !ok || seen[s] {
-			continue
+		if s, ok := e.(string); ok {
+			all = append(all, s)
 		}
+	}
+	seen := map[string]bool{}
+	return slices.DeleteFunc(append(all, rules...), func(s string) bool {
+		dup := seen[s]
 		seen[s] = true
-		merged = append(merged, s)
-	}
-	for _, r := range rules {
-		if seen[r] {
-			continue
-		}
-		seen[r] = true
-		merged = append(merged, r)
-	}
-	return merged
+		return dup
+	})
 }
 
 var loadAgentConfig = agentconfig.LoadConfig

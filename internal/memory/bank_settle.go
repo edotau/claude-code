@@ -385,15 +385,15 @@ func refreshIndexFiles(now time.Time, extra []string) (indexErr, err error) {
 	return err, nil
 }
 
-// Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
-func commitBanks(subject string) error {
+// commitBanks commits every dirty path under scope (the whole store without one); Git runs with literal pathspecs.
+func commitBanks(subject string, scope ...string) error {
 	repo := StoreRepo()
 	if !repo.Exists() {
 		if err := repo.Ensure(); err != nil {
 			return err
 		}
 	}
-	dirty, err := repo.Status() // every dirty path is in scope, so a second status scoped to them would say the same
+	dirty, err := repo.Status(scope...) // every dirty path is in scope, so a second status scoped to them would say the same
 	if err != nil {
 		return err
 	}
@@ -411,13 +411,6 @@ func commitBanks(subject string) error {
 // scaffolded reports whether the bank has any typed file.
 func scaffolded() bool {
 	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(Path(n)) })
-}
-
-func settleLockedBank(now time.Time) error {
-	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
-		return fmt.Errorf("settle: %w", err)
-	}
-	return nil
 }
 
 // fileSnapshot is a file's bytes before an append; existed is false when it was absent.
@@ -558,31 +551,15 @@ func storeRels(dirs []string) []string {
 
 // commitStore commits the dirty paths under scope as one commit (none without scope); Commit refuses credentials.
 func commitStore(subject string, scope ...string) error {
-	repo := StoreRepo()
 	if len(scope) == 0 {
 		return nil
 	}
-	if !repo.Exists() {
+	if repo := StoreRepo(); !repo.Exists() {
 		if _, err := os.Stat(repo.Dir); err != nil {
 			return nil
 		}
-		if err := repo.Ensure(); err != nil {
-			return err
-		}
 	}
-	st, err := repo.Status(scope...)
-	if err != nil {
-		return err
-	}
-	var rels []string
-	for _, e := range st {
-		rels = append(rels, e.Path)
-	}
-	if len(rels) == 0 {
-		return nil
-	}
-	_, _, err = repo.Commit(rels, subject, "")
-	return err
+	return commitBanks(subject, scope...)
 }
 
 // NoteFolder is the store folder a top-level native note belongs in ("" keeps it at the top: typed or reserved).

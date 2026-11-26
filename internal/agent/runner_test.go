@@ -84,7 +84,7 @@ func TestRowLabelLegacyFallbackNamesTheAnswerer(t *testing.T) {
 	}
 }
 
-func TestStampRunnerOwnAndCodeMode(t *testing.T) {
+func TestStampRunnerCLIAndCodeMode(t *testing.T) {
 	own := stampRunner(Record{Agent: "claude"}, wire.Result{Agent: "claude", Model: "claude-sonnet-5-5"})
 	if own.Runner != "" || own.Type != "claude" {
 		t.Fatalf("own run: runner %q type %q", own.Runner, own.Type)

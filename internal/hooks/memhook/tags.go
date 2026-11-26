@@ -15,9 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// tagEvent is one typed session event recorded from an assistant DECISION:/BUG:/NEXT:/NOTE: line.
-type tagEvent = memory.TagEvent
-
 // tagLockWait bounds how long a Stop waits for a peer Stop of the same session.
 const tagLockWait = 2 * time.Second
 
@@ -73,11 +70,17 @@ func readOffset(path string) int64 {
 	return n
 }
 
+// textType is the "type":"text" value every assistant text block carries.
+var textType = []byte(`"text"`)
+
 // tagEventsIn extracts the assistant text-block tag lines of complete transcript lines, in order, and the bytes read.
-func tagEventsIn(r io.Reader, now time.Time) ([]tagEvent, int64) {
-	var out []tagEvent
+func tagEventsIn(r io.Reader, now time.Time) ([]memory.TagEvent, int64) {
+	var out []memory.TagEvent
 	at := now.UTC().Format(time.RFC3339)
 	read, _ := textutil.ScanRawLines(r, true, func(line []byte) {
+		if !bytes.Contains(line, textType) { // fast reject: a line without a text block carries no tag
+			return
+		}
 		var rec struct {
 			Type    string `json:"type"`
 			Message struct {
@@ -97,7 +100,7 @@ func tagEventsIn(r io.Reader, now time.Time) ([]tagEvent, int64) {
 			}
 			for ln := range strings.SplitSeq(block.Text, "\n") {
 				if kind, text, ok := memory.ParseTagLine(ln); ok && text != "" {
-					out = append(out, tagEvent{Event: strings.ToLower(kind), Text: text, At: at})
+					out = append(out, memory.TagEvent{Event: strings.ToLower(kind), Text: text, At: at})
 				}
 			}
 		}
@@ -106,11 +109,11 @@ func tagEventsIn(r io.Reader, now time.Time) ([]tagEvent, int64) {
 }
 
 // appendEvents adds events not already in the log; false when the log cannot be written.
-func appendEvents(logPath string, events []tagEvent) bool {
+func appendEvents(logPath string, events []memory.TagEvent) bool {
 	seen := map[string]bool{}
 	if b, err := os.ReadFile(logPath); err == nil {
 		for ln := range bytes.SplitSeq(b, []byte("\n")) {
-			var e tagEvent
+			var e memory.TagEvent
 			if json.Unmarshal(ln, &e) == nil {
 				seen[e.Event+"\x00"+e.Text] = true
 			}
@@ -128,9 +131,6 @@ func appendEvents(logPath string, events []tagEvent) bool {
 	}
 	if buf.Len() == 0 {
 		return true
-	}
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
-		return false
 	}
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {

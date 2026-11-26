@@ -93,6 +93,13 @@ type dialog struct {
 	copilotCatalogLoaded bool
 }
 
+// openDialog is a dialog over o's reader and writer (stdin/stdout when unset).
+func openDialog(o Options, reg *providers.Registry) *dialog {
+	o.In = o.reader()
+	out := o.writer()
+	return &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
+}
+
 // printf writes one status line with its verdict tokens painted (byte-identical text when color is off).
 func (d *dialog) printf(format string, args ...any) {
 	fmt.Fprint(d.out, ansi.Status(d.color, fmt.Sprintf(format, args...)))
@@ -135,8 +142,7 @@ func Run(o Options, section string) int {
 		fmt.Fprintf(out, "configure: %v\n", err)
 		return 1
 	}
-	o.In = o.reader()
-	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: out, color: ansi.Enabled(out)}
+	d := openDialog(o, reg)
 	pins, err := agent.AgentPinsContext(context.Background())
 	if err != nil {
 		fmt.Fprintf(out, "configure: %v\n", err)
@@ -222,10 +228,7 @@ func Agent(name string, out io.Writer) (changed bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	d := &dialog{
-		o:   Options{Agent: name, Interactive: true, Out: out, In: os.Stdin},
-		reg: reg, br: bufio.NewReader(os.Stdin), out: out, color: ansi.Enabled(out),
-	}
+	d := openDialog(Options{Agent: name, Interactive: true, Out: out, In: os.Stdin}, reg)
 	d.header("keys")
 	_, changed = runKeysChanged(d)
 	d.header("agents")
@@ -323,7 +326,7 @@ func applyProvider(d *dialog, name string) bool {
 	}
 	d.printf("profile pinned: %s\n", name)
 	if d.o.Interactive && isStdinTTY() {
-		offerModels(d, name)
+		offerModels(d, name, false)
 	}
 	return true
 }
@@ -520,7 +523,7 @@ func isStdinTTY() bool { return tui.Interactive() }
 // runModels is the `configure models` / "Models" row entry.
 func runModels(d *dialog) bool {
 	if d.interactive() {
-		return modelsMenu(d)
+		return offerModels(d, "", true)
 	}
 	return modelsReport(d)
 }

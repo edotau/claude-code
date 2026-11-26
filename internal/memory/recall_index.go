@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -234,7 +235,8 @@ func encodeFile(f corpusFile) segView {
 	return encodeSegment(parseBlocks(f.Mode, filepath.Base(f.Path), data))
 }
 
-func loadSegments(files []corpusFile, persist bool) []segView {
+// loadSegments is files' segments from the index; with terms and RowRecall set, stale files come from the row store.
+func loadSegments(files []corpusFile, persist bool, terms []string) []segView {
 	key := encoderKey()
 	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	index := readFilesIndex(path, key, files)
@@ -248,6 +250,9 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 		info, err := os.Stat(f.Path)
 		stats[f.Path] = err == nil
 		if err != nil {
+			if !os.IsNotExist(err) {
+				terms = nil // an unstattable file declines the rows: Markdown is the fallback
+			}
 			continue
 		}
 		key := fileKey{f.Path, f.Mode}
@@ -258,7 +263,7 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 		missing = append(missing, i)
 		infos = append(infos, info)
 	}
-	encodeMissing(files, missing, segs)
+	encodeMissing(files, missing, segs, terms)
 	for j, i := range missing {
 		info := infos[j]
 		if segs[i] != nil && persist && time.Since(info.ModTime()) >= paths.RacyWindow {
@@ -271,12 +276,25 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 
 const corpusReadWorkers = 4
 
-func encodeMissing(files []corpusFile, missing []int, segs []segView) {
+// encodeMissing indexes the missing files; given terms, those RowRecall renders are parsed from its rows, not read.
+func encodeMissing(files []corpusFile, missing []int, segs []segView, terms []string) {
 	if len(missing) == 0 {
 		return
 	}
+	var docs map[string][]byte // nil when RowRecall is unset, unasked or declines: every file is read
+	if RowRecall != nil && len(terms) > 0 {
+		if rows, ok := RowRecall(terms); ok {
+			docs = rows
+		}
+	}
+	store := paths.MemoryStoreDir() + string(filepath.Separator)
 	_, err := parallel.Map(context.Background(), missing, corpusReadWorkers, func(_ context.Context, i int) (struct{}, error) {
-		segs[i] = encodeFile(files[i])
+		rel := strings.TrimPrefix(files[i].Path, store)
+		if data, fromRows := docs[filepath.ToSlash(rel)]; fromRows {
+			segs[i] = encodeSegment(parseBlocks(files[i].Mode, filepath.Base(files[i].Path), data))
+		} else {
+			segs[i] = encodeFile(files[i])
+		}
 		return struct{}{}, nil
 	})
 	parallel.Rethrow(err)

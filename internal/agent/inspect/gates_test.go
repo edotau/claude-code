@@ -94,7 +94,7 @@ func TestGatesKeepOwnResultAfterBuildFailure(t *testing.T) {
 	dir, files := gateRepo(t)
 	f := &fakeGates{lint: true, fail: map[string]string{"go build": dir + "/pkg/p.go:3:1: undefined: x\n"}}
 	f.install(t)
-	rs := runGates(context.Background(), dir, "HEAD", files)
+	rs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files))
 	want := "ok gofmt, FAIL build, ok vet, ok golangci-lint, ok complexity, ok test, ok quality"
 	if got := gateStatuses(rs); got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
@@ -115,7 +115,7 @@ func TestGatesCutLongFailureAndRunTheRest(t *testing.T) {
 	}
 	f := &fakeGates{fail: map[string]string{"go vet": strings.Join(long, "\n") + "\n"}}
 	f.install(t)
-	rs := runGates(context.Background(), dir, "HEAD", files)
+	rs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files))
 	if got, want := gateStatuses(rs), "ok gofmt, ok build, FAIL vet, skip golangci-lint, ok complexity, ok test, ok quality"; got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
@@ -131,7 +131,7 @@ func TestGatesCutLongFailureAndRunTheRest(t *testing.T) {
 func TestGatesDocsOnlySkipGoGates(t *testing.T) {
 	dir, _ := gateRepo(t)
 	(&fakeGates{lint: true}).install(t)
-	docs := runGates(context.Background(), dir, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}})
+	docs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}}))
 	if got := gateStatuses(docs); got != "skip go gates, ok docs, ok spell" || !strings.Contains(docs[0].Reason, "agents diff") {
 		t.Errorf("docs-only change: %+v", docs)
 	}
@@ -180,15 +180,15 @@ func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 	f := &fakeGates{lint: true, fail: map[string]string{dir + "/bin/mdsmith check": "a.md:3:1 MDS008 multiple consecutive blank lines\n"}}
 	f.install(t)
 	md := []DiffFile{{Path: "a.md", Status: "M"}, {Path: "gone.md", Status: "D"}}
-	rs := runGates(context.Background(), dir, "HEAD", append(files, md...))
+	rs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", append(files, md...)))
 	if last := rs[len(rs)-2]; last.Name != "docs" || last.Status != "FAIL" || len(last.Findings) != 1 || last.Findings[0].String() != "a.md:3: mdsmith/MDS008: multiple consecutive blank lines" {
 		t.Errorf("docs gate = %+v; want a FAIL with the mdsmith row", last)
 	}
-	if rs = runGates(context.Background(), dir, "HEAD", files); strings.Contains(gateStatuses(rs), "docs") {
+	if rs = runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files)); strings.Contains(gateStatuses(rs), "docs") {
 		t.Errorf("a Go-only change ran the docs gate: %s", gateStatuses(rs))
 	}
 	(&fakeGates{}).install(t)
-	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-2].Reason != "mdsmith not installed (make mdsmith)" {
+	if rs = runDefaultGates(context.Background(), newGateInput(dir, "HEAD", md)); rs[len(rs)-2].Reason != "mdsmith not installed (make mdsmith)" {
 		t.Errorf("missing mdsmith: %+v", rs)
 	}
 }
@@ -208,14 +208,14 @@ func TestDocsGateParity(t *testing.T) {
 	writeRepoFile(t, root, mdlint.MdsmithFile, "files:\n  - '**/*.md'\nignore:\n  - 'internal/**/testdata/**'\n")
 	writeRepoFile(t, root, "README.md", "# Parity\n")
 	(&fakeGates{lint: true}).install(t)
-	rs := runGates(context.Background(), root, "HEAD", []DiffFile{{Path: mdlint.RulesFile, Status: "M"}})
+	rs := runDefaultGates(context.Background(), newGateInput(root, "HEAD", []DiffFile{{Path: mdlint.RulesFile, Status: "M"}}))
 	r := rs[len(rs)-2]
 	if r.Name != "docs" || r.Status != "FAIL" || len(r.Findings) != 1 || r.Findings[0].Rule != "parity" ||
 		r.Findings[0].Path != mdlint.RulesFile || !strings.Contains(r.Findings[0].Message, "MD013.line_length: expected 120") {
 		t.Fatalf("docs gate = %+v; want one parity FAIL on MD013.line_length", r)
 	}
 	writeRepoFile(t, root, mdlint.RulesFile, `{"MD013":{"line_length":120,"stern":true},"MD010":{"code_blocks":false}}`)
-	rs = runGates(context.Background(), root, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}, {Path: mdlint.RulesFile, Status: "M"}})
+	rs = runDefaultGates(context.Background(), newGateInput(root, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}, {Path: mdlint.RulesFile, Status: "M"}}))
 	if r = rs[len(rs)-2]; r.Status != "ok" {
 		t.Errorf("clean parity: %+v, want ok", r)
 	}
@@ -229,7 +229,7 @@ func TestDocsGateParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", t.TempDir())
-	rs = runGates(context.Background(), root, "HEAD", []DiffFile{{Path: mdlint.MdsmithFile, Status: "M"}})
+	rs = runDefaultGates(context.Background(), newGateInput(root, "HEAD", []DiffFile{{Path: mdlint.MdsmithFile, Status: "M"}}))
 	if r = rs[len(rs)-2]; r.Status != "skip" || r.Reason != "mdsmith not installed (make mdsmith)" {
 		t.Errorf("no mdsmith: %+v, want the install skip", r)
 	}
@@ -248,7 +248,7 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 	for _, lint := range []bool{true, false} { // the memory check does not depend on mdsmith being installed
 		(&fakeGates{lint: lint}).install(t)
 		last := func(rel string) GateResult {
-			rs := runGates(context.Background(), cfg, "HEAD", changed(rel))
+			rs := runDefaultGates(context.Background(), newGateInput(cfg, "HEAD", changed(rel)))
 			return rs[len(rs)-2]
 		}
 		r := last(dirty)
@@ -270,7 +270,7 @@ func TestGatesComplexityFindings(t *testing.T) {
 		`"line":3,"message":"too branchy"}],"quality":{"smells":[{"type":"magic_number","severity":"low","message":"m",` +
 		`"location":"l"},{"type":"long_function","severity":"medium","message":"long","location":"f"}]}}]}`
 	(&fakeGates{simpOut: finding}).install(t)
-	rs := runGates(context.Background(), dir, "HEAD", files)
+	rs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files))
 	var rows []string
 	for _, f := range rs[4].Findings {
 		rows = append(rows, f.String())
@@ -332,12 +332,12 @@ func TestGatesComplexityRecommendedAdvisory(t *testing.T) {
 	(&fakeGates{simpOut: out}).install(t)
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Env, "COMPLEXITY_GATE", "recommended")
-	rs := runGates(context.Background(), dir, "HEAD", files)
+	rs := runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files))
 	if rs[4].Status != "ok" || rs[4].Reason != "advisory" || len(rs[4].Findings) != 1 {
 		t.Errorf("recommended = %s %q %v; want ok advisory with one finding", rs[4].Status, rs[4].Reason, rs[4].Findings)
 	}
 	vaulttest.Put(t, vault.Env, "COMPLEXITY_GATE", "strict")
-	if rs = runGates(context.Background(), dir, "HEAD", files); rs[4].Status != "FAIL" {
+	if rs = runDefaultGates(context.Background(), newGateInput(dir, "HEAD", files)); rs[4].Status != "FAIL" {
 		t.Errorf("strict = %s; want FAIL", rs[4].Status)
 	}
 }

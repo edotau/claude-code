@@ -4,6 +4,7 @@ package translate
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -78,17 +79,22 @@ func SplitCached(prompt, cached int) (input, cacheRead int) {
 	return prompt, 0
 }
 
+// split is u's prompt count as fresh input and cache reads.
+func (u *chatUsage) split() (input, cacheRead int) {
+	cached := 0
+	if d := u.PromptTokensDetails; d != nil {
+		cached = d.CachedTokens
+	}
+	return SplitCached(u.PromptTokens, cached)
+}
+
 // anthropicUsage maps chat usage; Anthropic's input_tokens excludes cache reads.
 func anthropicUsage(u *chatUsage) map[string]any {
 	out := map[string]any{"input_tokens": 0, "output_tokens": 0}
 	if u == nil {
 		return out
 	}
-	cached := 0
-	if d := u.PromptTokensDetails; d != nil {
-		cached = d.CachedTokens
-	}
-	in, cacheRead := SplitCached(u.PromptTokens, cached)
+	in, cacheRead := u.split()
 	if cacheRead > 0 {
 		out["cache_read_input_tokens"] = cacheRead
 	}
@@ -194,14 +200,8 @@ const maxErrorText = 4096
 
 // FromChatError maps an upstream error status/body into an Anthropic error body.
 func FromChatError(status int, body []byte) []byte {
-	msg := upstreamMessage(body)
-	if msg == "" {
-		msg = http.StatusText(status)
-	}
-	if msg == "" {
-		msg = fmt.Sprintf("upstream error (status %d)", status)
-	}
-	return ErrorBody(status, msg)
+	fallback := fmt.Sprintf("upstream error (status %d)", status)
+	return ErrorBody(status, cmp.Or(upstreamMessage(body), http.StatusText(status), fallback))
 }
 
 // ErrorBody is the Anthropic error envelope Claude Code parses.

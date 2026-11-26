@@ -178,10 +178,7 @@ func sharedChecked(path, profile string) (Served, bool) {
 	checkedMu.Lock()
 	checked[path] = checkedRead{gen: gen, at: at, r: r}
 	checkedMu.Unlock()
-	if !r.ok {
-		return Served{}, false
-	}
-	return r.s, true
+	return r.s, r.ok // readServed leaves s zero whenever ok is false
 }
 
 // Load returns profile's cached listing; false when absent, unreadable or another schema.

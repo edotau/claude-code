@@ -51,9 +51,9 @@ func withPiHops(ctx context.Context, q RouteReq, c Chain) Chain {
 	return c.ledBy(hops)
 }
 
-// barredNote says once why plan keeps q's own CLI; an asked --runner own needs no note.
+// barredNote says once why plan keeps q's own CLI; an asked --runner cli needs no note.
 func (c Chain) barredNote(q RouteReq, plan RoutePlan) Chain {
-	if plan.Barred == "" || strings.HasPrefix(plan.Barred, "--runner own") {
+	if plan.Barred == "" || strings.HasPrefix(plan.Barred, "--runner cli") {
 		return c
 	}
 	return c.noted(q.Agent + ": pi runner skipped: " + plan.Barred + "; runs on " + q.Agent + "'s own CLI")

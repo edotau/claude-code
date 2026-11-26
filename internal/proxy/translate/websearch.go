@@ -58,18 +58,19 @@ func webSearchFunction() chatTool {
 // Call is one tool call in a chat reply.
 type Call struct{ ID, Name, Args string }
 
-// Reply is one non-streaming chat reply, reduced to what the search loop reads.
+// Reply is one non-streaming chat reply; a missing call id gets a fresh toolu_ id.
 type Reply struct {
-	Text   string
-	Calls  []Call
-	Finish string
-	Usage  *chatUsage
+	Text    string
+	Refusal string
+	Calls   []Call
+	Finish  string
+	Usage   *chatUsage
 }
 
-// ParseReply reads a non-streaming chat-completions body.
+// ParseReply reads a non-streaming chat-completions body; contentText joins a content-part array.
 func ParseReply(body []byte) (*Reply, error) {
 	var in chatResponse
-	if err := json.Unmarshal(FlattenChatContent(body), &in); err != nil {
+	if err := json.Unmarshal(body, &in); err != nil {
 		return nil, fmt.Errorf("translate: response: %w", err)
 	}
 	if len(in.Error) > 0 && string(in.Error) != "null" {
@@ -83,11 +84,11 @@ func ParseReply(body []byte) (*Reply, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Reply{Text: text, Finish: c.FinishReason, Usage: in.Usage}
+	r := &Reply{Text: text, Refusal: c.Message.Refusal, Finish: c.FinishReason, Usage: in.Usage}
 	for _, tc := range c.Message.ToolCalls {
 		id := tc.ID
 		if id == "" {
-			id = newID("call_")
+			id = newID("toolu_")
 		}
 		r.Calls = append(r.Calls, Call{ID: id, Name: tc.Function.Name, Args: argsText(tc.Function.Arguments)})
 	}
@@ -173,11 +174,7 @@ func (a *Answer) AddUsage(u *chatUsage) {
 	if u == nil {
 		return
 	}
-	cached := 0
-	if u.PromptTokensDetails != nil {
-		cached = u.PromptTokensDetails.CachedTokens
-	}
-	in, cr := SplitCached(u.PromptTokens, cached)
+	in, cr := u.split()
 	a.in, a.cached, a.out = a.in+in, a.cached+cr, a.out+u.CompletionTokens
 }
 

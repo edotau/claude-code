@@ -80,6 +80,7 @@ func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
 
 func TestAbandonLiveReportsCancelFailureWithoutMarkingRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Cleanup(agent.StubPollStepForTest(time.Millisecond)) // the refused pid's argv is re-read 5 times before Cancel fails
 	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "hi"}, time.Now())
 	rec.PID = os.Getpid() // Cancel refuses this non-holder process before sending any signal.
 	rec.Log = filepath.Join(t.TempDir(), "holder.log")
@@ -485,6 +486,8 @@ func assertResumedPosture(t *testing.T, r agent.RunOptions, cwd string) {
 
 func TestSendQueuesNoteUntilJobEnds(t *testing.T) {
 	jobsEnv(t)
+	defer func(d time.Duration) { sendPoll = d }(sendPoll)
+	sendPoll = 5 * time.Millisecond
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now())

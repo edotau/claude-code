@@ -429,7 +429,7 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 	mintRow(t, 200)
 	before := overlayDoc(t)
 	p := &providers.Provider{Name: "mrow"}
-	if err := switchAuthType(p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "needs auth.clientId") {
+	if err := switchAuthType(io.Discard, p, providers.AuthM2M, false); err == nil || !strings.Contains(err.Error(), "needs auth.clientId") {
 		t.Fatalf("err %v", err)
 	}
 	if overlayDoc(t) != before {
@@ -442,10 +442,10 @@ func TestSwitchAuthTypeM2MNeedsClientID(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, _ = reg.Get("mrow")
-	if err := switchAuthType(p, providers.AuthM2M, true); err != nil {
+	if err := switchAuthType(io.Discard, p, providers.AuthM2M, true); err != nil {
 		t.Errorf("with clientId: %v", err)
 	}
-	if err := switchAuthType(p, "bogus", true); err == nil {
+	if err := switchAuthType(io.Discard, p, "bogus", true); err == nil {
 		t.Error("unsupported authType accepted")
 	}
 }
@@ -632,7 +632,7 @@ func TestRemoteLoginSSHFailureNamesHostAndPasteAndOpensNoLocalBrowser(t *testing
 func TestRemoteForwardFailureWithPasteContinuesWithoutOpening(t *testing.T) {
 	w := newRemoteWorld(t)
 	w.forwardErr = errors.New("ssh to " + remoteHost + ": Connection refused")
-	opts := headless{paste: true, via: remoteHost}.remoteOptions()
+	opts := headless{paste: true, via: remoteHost}.options()
 	port, stop, err := opts.Forward(context.Background(), 8031)
 	if err != nil || port != 8031 || stop == nil {
 		t.Fatalf("port %d err %v, want the local port and no error", port, err)

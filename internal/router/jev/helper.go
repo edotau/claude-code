@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"testing"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/proc"
@@ -21,21 +20,11 @@ const (
 
 // Helper asks the local Qwen (thinking off) for a tier on a brief Open-Jev was unsure of; only "fast" is acted on.
 func Helper(ctx context.Context, brief string) (string, error) {
-	url := strings.TrimSpace(proc.Value(ctx, qwenEnv))
-	if url == "off" || url == "" && testing.Testing() {
-		return "", ErrOff
-	}
-	if url == "" {
-		url = qwenURL
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	payload, _ := json.Marshal(map[string]any{
+	body, err := post(ctx, strings.TrimSpace(proc.Value(ctx, qwenEnv)), qwenURL, "", map[string]any{
 		"model": qwenModel, "reasoning_effort": "none", "max_tokens": 20,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        []map[string]string{{"role": "system", "content": helperPrompt()}, {"role": "user", "content": clip(brief)}},
 	})
-	body, err := post(ctx, url, payload)
 	if err != nil {
 		return "", err
 	}

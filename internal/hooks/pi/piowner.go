@@ -41,8 +41,7 @@ func piDispatchArgv(input map[string]any, cwd string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: %w", err)
 	}
-	unit, _ := input["unit"].(string)
-	prompt, _ := input["prompt"].(string)
+	unit, prompt := strOf(input["unit"]), strOf(input["prompt"])
 	kind, tier := contract.Kind(strOf(input["kind"])), strOf(input["tier"])
 	switch {
 	case strings.TrimSpace(unit) == "" || strings.TrimSpace(prompt) == "":

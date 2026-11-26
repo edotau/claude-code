@@ -59,10 +59,7 @@ func mayHaveDispatchID(line []byte) bool {
 
 // AppendDispatchIDs adds the dispatch ids one transcript line's tool result printed that seen lacks, marking them seen.
 func AppendDispatchIDs(ids []string, seen map[string]bool, line []byte) []string {
-	if !bytes.Contains(line, toolResultKey) {
-		return ids
-	}
-	if !mayHaveDispatchID(line) {
+	if !bytes.Contains(line, toolResultKey) || !mayHaveDispatchID(line) {
 		return ids
 	}
 	for _, m := range dispatchIDPattern().FindAllSubmatch(line, -1) {

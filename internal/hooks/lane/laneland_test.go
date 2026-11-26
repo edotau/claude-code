@@ -74,12 +74,12 @@ const firstQueued, laterQueued = 100, 200
 
 func mustQueue(t *testing.T, q worktree.QueuedLane) {
 	t.Helper()
-	if err := worktree.Enqueue(q); err != nil {
+	if err := worktree.EnqueueWithin(10*time.Second, q); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// Enqueue twice keeps one entry and its first time; Dequeue twice leaves no file.
+// EnqueueWithin twice keeps one entry and its first time; Dequeue twice leaves no file.
 func TestLaneLandQueueIdempotent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	main, lane := t.TempDir(), t.TempDir()

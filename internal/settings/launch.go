@@ -19,11 +19,7 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 		return nil, fmt.Errorf("embedded automode.json: %w", err)
 	}
 	doc := map[string]any{"autoMode": auto}
-	files := userSettings()
-	if env := missingTemplateEnv(Template(), files...); len(env) > 0 {
-		doc["env"] = env
-	}
-	maps.Copy(doc, missingTemplateKeys(Template(), files...))
+	maps.Copy(doc, missingTemplateKeys(Template(), userSettings()...))
 	if databricks {
 		doc["remoteControlAtStartup"] = false // Remote Control needs the claude.ai login; Databricks has none
 		doc["disableRemoteControl"] = true
@@ -64,42 +60,27 @@ func userSettings() [][]byte {
 	return out
 }
 
-// missingTemplateKeys returns the template's other top-level keys no settings file sets, so they need not live there.
+// missingTemplateKeys returns the template's keys no settings file sets; env fills key by key, never secret-named ones.
 func missingTemplateKeys(tmpl []byte, files ...[]byte) map[string]any {
 	var t map[string]any
 	_ = json.Unmarshal(tmpl, &t) // the embedded template always parses; a bad one fills nothing
+	env, _ := t["env"].(map[string]any)
 	for _, f := range files {
 		var u map[string]any
 		_ = json.Unmarshal(f, &u)
+		userEnv, _ := u["env"].(map[string]any)
+		for k := range userEnv {
+			delete(env, k)
+		}
 		for k := range u {
 			delete(t, k)
 		}
 	}
+	maps.DeleteFunc(env, func(k string, _ any) bool { return providers.IsSecretName(k) })
 	delete(t, "$schema")
-	delete(t, "env") // filled key by key by missingTemplateEnv
+	delete(t, "env")
+	if len(env) > 0 {
+		t["env"] = env
+	}
 	return t
-}
-
-// missingTemplateEnv returns the template env keys no settings file sets, never secret-named ones.
-func missingTemplateEnv(tmpl []byte, files ...[]byte) map[string]any {
-	type doc struct {
-		Env map[string]any `json:"env"`
-	}
-	var t doc
-	_ = json.Unmarshal(tmpl, &t)
-	set := map[string]bool{}
-	for _, f := range files {
-		var u doc
-		_ = json.Unmarshal(f, &u)
-		for k := range u.Env {
-			set[k] = true
-		}
-	}
-	out := map[string]any{}
-	for k, v := range t.Env {
-		if !set[k] && !providers.IsSecretName(k) {
-			out[k] = v
-		}
-	}
-	return out
 }

@@ -216,7 +216,7 @@ func TestBatchLineOverlayModelIsTyped(t *testing.T) {
 
 func TestBatchLineOverlayKeepsRunner(t *testing.T) {
 	base := agent.RunOptions{Values: proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","budgetUSD":2}`, "X": "1"}}
-	lines, err := readTaskLines(strings.NewReader(`{"prompt":"x","overlay":{"runner":"own"}}` + "\n"))
+	lines, err := readTaskLines(strings.NewReader(`{"prompt":"x","overlay":{"runner":"cli"}}` + "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestBatchLineOverlayKeepsRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	ov, err := agentconfig.LoadOverlayContext(proc.WithValues(context.Background(), req.Values), "", nil)
-	if err != nil || ov.Runner != route.RunnerOwn || ov.Provider != "databricks" || ov.BudgetUSD == nil || req.Values["X"] != "1" {
+	if err != nil || ov.Runner != route.RunnerCLI || ov.Provider != "databricks" || ov.BudgetUSD == nil || req.Values["X"] != "1" {
 		t.Errorf("overlay %+v, values %v, error %v", ov, req.Values, err)
 	}
 	if strings.Contains(base.Values[route.OverlayVar], "runner") {

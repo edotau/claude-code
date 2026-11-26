@@ -122,7 +122,7 @@ func codemodeTarget(st, task string) string {
 	case st == agentid.Claude && !off:
 		to = briefPiType(task)
 	}
-	if slices.Contains(dispatchTypes(), to) {
+	if to != "" && slices.Contains(dispatchTypes(), to) { // no candidate: skip the agents/ read
 		return to
 	}
 	return ""

@@ -1,7 +1,6 @@
 package menu
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -295,9 +293,7 @@ func Secrets(o Options) int {
 		fmt.Fprintf(o.writer(), "secrets: %v\n", err)
 		return 1
 	}
-	o.In = o.reader()
-	d := &dialog{o: o, reg: reg, br: bufio.NewReader(o.In), out: o.writer(), color: ansi.Enabled(o.writer())}
-	return secretsLoop(d)
+	return secretsLoop(openDialog(o, reg))
 }
 
 // secretsLoop is the secrets page on d.

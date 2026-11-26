@@ -49,7 +49,10 @@ func cmdAgentsServe(args []string) int {
 	case o.fg:
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		return serveResult(serve.Serve(ctx, o.ceiling))
+		if err := serve.Serve(ctx, o.ceiling); err != nil {
+			return helptext.Fail("%v", err)
+		}
+		return 0
 	case o.start:
 		st, err := serve.Start(o.ceiling)
 		return serveStarted("started", st, err)
@@ -97,13 +100,6 @@ func serveRestart(fs *flag.FlagSet, ceiling int) int {
 		fmt.Printf("agents serve: drained pid %d\n", old.PID)
 	}
 	return serveStarted("restarted", cur, err)
-}
-
-func serveResult(err error) int {
-	if err != nil {
-		return helptext.Fail("%v", err)
-	}
-	return 0
 }
 
 func serveStarted(verb string, st serve.State, err error) int {

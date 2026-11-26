@@ -1,6 +1,7 @@
 package project
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -86,12 +87,7 @@ func concreteModel(agent Source) string {
 // readOnlyTools reports an explicit tools: list that grants none of Edit, Write or Bash.
 func readOnlyTools(agent Source) bool {
 	tools := toolList(agent.frontmatter["tools"])
-	for _, t := range tools {
-		if t == "Edit" || t == "Write" || t == "Bash" {
-			return false
-		}
-	}
-	return len(tools) > 0
+	return len(tools) > 0 && !slices.ContainsFunc(tools, func(t string) bool { return t == "Edit" || t == "Write" || t == "Bash" })
 }
 
 // renderCopilotAgent: ~/.copilot/agents/<name>.md — Copilot tool names (dropped ones in a comment), model if concrete.

@@ -89,26 +89,21 @@ func judgePi(c piCall) piVerdict {
 	if !v.Allow {
 		return v
 	}
-	leaves, tokens := piBudget()
+	own, err := piOwner()
+	if err != nil {
+		return v
+	}
+	s := wire.SpentBy(own)
+	leaves, tokens := own.LeavesSpent(s), own.TokensSpent(s)
 	switch {
 	case c.Tool == "dispatch" && (leaves || tokens):
 		return piVerdict{Allow: true, Notice: contract.BudgetNotice} // a tool result, not an error
 	case tokens:
 		v.Notice = contract.BudgetNotice
 	case c.Tool == "check" || c.Tool == "dispatch":
-		v.Notice = piResent()
+		v.Notice = piResent(own)
 	}
 	return v
-}
-
-// piBudget reports whether this run's owner contract dispatched every leaf, and whether it is past its tokens.
-func piBudget() (leaves, tokens bool) {
-	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
-	if !ok || c.Owner.Role != contract.RoleOwner {
-		return false, false
-	}
-	s := wire.SpentBy(c)
-	return c.LeavesSpent(s), c.TokensSpent(s)
 }
 
 // heldContract is the open contract id holds: its own, else one it took over by a re-assign.
@@ -131,12 +126,8 @@ func heldContract(id string) (contract.Contract, bool) {
 	return contract.Contract{}, false
 }
 
-// piResent is the notice for an owner's re-sent leaf: its id and the dispatch now holding it, "" for none.
-func piResent() string {
-	c, ok := heldContract(os.Getenv(proc.DispatchIDEnv))
-	if !ok || c.Owner.Role != contract.RoleOwner {
-		return ""
-	}
+// piResent is the notice for owner c's re-sent leaf: its id and the dispatch now holding it, "" for none.
+func piResent(c contract.Contract) string {
 	var out []string
 	for _, id := range c.Children {
 		if k, err := contract.Load(id); err == nil && k.State() == contract.StateWorking && len(k.Holders) > 1 {
@@ -170,12 +161,7 @@ func judgePiCall(c piCall) piVerdict {
 		if sp != "" {
 			ti["file_path"] = sp
 		}
-		payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": tool, "tool_input": ti,
-			"cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
-		if err != nil {
-			return piBlock("payload: " + err.Error())
-		}
-		if reason := c.modules(tool, payload); reason != "" {
+		if reason := piModulesBlock(c, tool, ti); reason != "" {
 			return piVerdict{Block: reason}
 		}
 	}
@@ -318,7 +304,7 @@ func resolvePiPath(raw, cwd string) (path, why string) {
 	return p, ""
 }
 
-// piHandbackKeys and piGateKeys are the typed arguments of the two runner actions.
+// piHandbackKeys, piGateKeys and piReportKeys are the typed arguments of the runner actions.
 var (
 	piHandbackKeys = []string{"status", "summary", "unfixed", "tests", "method"}
 	piGateKeys     = []string{"scope"}
@@ -405,7 +391,7 @@ func judgePiAction(c piCall) piVerdict {
 	if argv == nil {
 		return piVerdict{Allow: true}
 	}
-	if reason := piBashBlock(c, "claude-code "+textutil.ShellJoin(argv)); reason != "" {
+	if reason := piModulesBlock(c, "Bash", map[string]any{"command": "claude-code " + textutil.ShellJoin(argv)}); reason != "" {
 		return piVerdict{Block: reason}
 	}
 	v := piVerdict{Allow: true, Run: argv}
@@ -415,12 +401,12 @@ func judgePiAction(c piCall) piVerdict {
 	return v
 }
 
-// piBashBlock runs Pi's Bash PreToolUse modules on command; "" allows.
-func piBashBlock(c piCall, command string) string {
-	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": "Bash",
-		"tool_input": map[string]any{"command": command}, "cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
+// piModulesBlock runs Pi's PreToolUse modules for tool on tool_input ti; "" allows.
+func piModulesBlock(c piCall, tool string, ti map[string]any) string {
+	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": tool, "tool_input": ti,
+		"cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
 	if err != nil {
-		return "pi guard: payload: " + err.Error() + "; blocked"
+		return piBlock("payload: " + err.Error()).Block
 	}
-	return c.modules("Bash", payload)
+	return c.modules(tool, payload)
 }

@@ -176,7 +176,7 @@ func (r *askRun) config() (int, bool) {
 	if r.stdinTaken() {
 		busy = "stdin is the overlay, so give the task as an argument"
 	}
-	ov, typed, inherited, err := loadOverlays(r.ctx, r.f.overlay, busy)
+	ov, typed, inherited, err := LoadOverlays(r.ctx, r.f.overlay, busy)
 	if err == nil {
 		r.inherited = inherited
 		err = takeConfig(r, ov, typed)
@@ -239,12 +239,12 @@ func typeInherited(fs *flag.FlagSet, ov agentconfig.Overlay, retype []string) []
 
 // LoadOverlay is the stored overlay ($COWORKER_OVERLAY, else the vault's) with --overlay value laid over it.
 func LoadOverlay(ctx context.Context, value, busy string) (agentconfig.Overlay, error) {
-	ov, _, _, err := loadOverlays(ctx, value, busy)
+	ov, _, _, err := LoadOverlays(ctx, value, busy)
 	return ov, err
 }
 
-// loadOverlays returns the merged, typed, and inherited overlays; "-" fails with busy when set.
-func loadOverlays(ctx context.Context, value, busy string) (merged, typed, inherited agentconfig.Overlay, err error) {
+// LoadOverlays returns the merged, typed, and inherited overlays; "-" fails with busy when set.
+func LoadOverlays(ctx context.Context, value, busy string) (merged, typed, inherited agentconfig.Overlay, err error) {
 	stored := agentconfig.DispatchOverlayContext(ctx, "")
 	switch {
 	case busy != "" && cmp.Or(value, stored) == "-":

@@ -130,10 +130,7 @@ func cmdConfigure(args []string) int {
 	}
 	fs, o := configureFlags()
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
-	section := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		section, args = args[0], args[1:]
-	}
+	section, args := leadingID(args)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)

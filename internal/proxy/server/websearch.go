@@ -393,7 +393,7 @@ func (r *Router) chatRound(w *statusWriter, in *http.Request, t providers.Target
 	reply *translate.Reply, done bool, err error) {
 	p := t.Provider
 	route, _ := p.Route(providers.ProtocolOpenAI)
-	resp, err := r.send(in, p, route+"/chat/completions", chat, func(h http.Header) {
+	resp, err := r.sendMethod(in, http.MethodPost, p, route+"/chat/completions", chat, func(h http.Header) {
 		h.Set("Content-Type", "application/json")
 	})
 	if err != nil {

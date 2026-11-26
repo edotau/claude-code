@@ -23,10 +23,8 @@ func orphanAccessLog(p string) bool {
 	if name != "global.log" && name != "memories.log" {
 		return false
 	}
-	if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
-		return false
-	}
-	return true
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // openMemoryFiles is a var so tests can stub the process-table scan (production: scanOpenMemoryFiles).

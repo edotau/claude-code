@@ -178,12 +178,15 @@ func TestDreamRetryBackoff(t *testing.T) {
 		if err := stampDream(time.Now(), n); err != nil {
 			t.Fatal(err)
 		}
-		if got := dreamFailures(); got != n {
-			t.Fatalf("dreamFailures = %d, want %d", got, n)
+		if _, got, _ := dreamStamp(); got != n {
+			t.Fatalf("dreamStamp fails = %d, want %d", got, n)
 		}
 	}
-	if err := stampDream(time.Now(), 0); err != nil || dreamFailures() != 0 {
-		t.Fatalf("success must reset the count: %v", err)
+	if err := stampDream(time.Now(), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, fails, _ := dreamStamp(); fails != 0 {
+		t.Fatalf("success must reset the count, got %d", fails)
 	}
 }
 
@@ -776,7 +779,6 @@ func TestDreamApplyFailureFallsBackOnce(t *testing.T) {
 
 func sideRollbackFixture(t *testing.T) (dreamRan, Batch, []string) {
 	isolatedConfig(t)
-	t.Setenv("HARNESS_KEYRING", "off")
 	initTypedStore(t)
 	work := hosttest.RepoAt(t, filepath.Join(t.TempDir(), "proj"))
 	plan := filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-side.md")
@@ -975,7 +977,6 @@ func TestDreamExtractOverBudgetConsolidatesOnce(t *testing.T) {
 }
 
 func dreamExtractOverBudget(t *testing.T, withLog bool) {
-	t.Setenv("HARNESS_KEYRING", "off")
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.MemoryStoreDir()
@@ -1045,7 +1046,6 @@ func dreamExtractFake(t *testing.T, calls *int) {
 }
 
 func TestDreamApplyCheckedCountsAccessesDuringTheModelCall(t *testing.T) {
-	t.Setenv("HARNESS_KEYRING", "off")
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.MemoryStoreDir()

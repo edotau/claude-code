@@ -71,7 +71,7 @@ func wantCacheRun(t *testing.T, label, cachePath string, files []string, want *U
 	if want != nil && !reflect.DeepEqual(got, want) {
 		t.Errorf("%s aggregate = %+v (peak %d), want %+v (peak %d)", label, got, got.PeakInputTokensPerMin, want, want.PeakInputTokensPerMin)
 	}
-	if h, m := c.Stats(); h != hits || m != misses {
+	if h, m := c.hits, c.misses; h != hits || m != misses {
 		t.Errorf("%s stats = %d hits, %d misses; want %d, %d", label, h, m, hits, misses)
 	}
 	return got
@@ -122,7 +122,7 @@ func TestSummaryCacheCorruptFileRefills(t *testing.T) {
 	}
 	c := OpenSummaryCache(cachePath)
 	got := aggregate(t, c, files)
-	if h, m := c.Stats(); h != 0 || m != len(files) {
+	if h, m := c.hits, c.misses; h != 0 || m != len(files) {
 		t.Errorf("corrupt-cache stats = %d hits, %d misses; want 0, %d", h, m, len(files))
 	}
 	if want := aggregate(t, nil, files); !reflect.DeepEqual(got, want) {
@@ -130,7 +130,7 @@ func TestSummaryCacheCorruptFileRefills(t *testing.T) {
 	}
 	warm := OpenSummaryCache(cachePath)
 	aggregate(t, warm, files)
-	if h, _ := warm.Stats(); h != len(files) {
+	if h, _ := warm.hits, warm.misses; h != len(files) {
 		t.Errorf("refilled cache served %d hits, want %d", h, len(files))
 	}
 }
@@ -145,7 +145,7 @@ func TestSummaryCacheNeverStoresRecentFile(t *testing.T) {
 	aggregate(t, OpenSummaryCache(cachePath), files)
 	warm := OpenSummaryCache(cachePath)
 	aggregate(t, warm, files)
-	if h, m := warm.Stats(); h != len(files)-1 || m != 1 {
+	if h, m := warm.hits, warm.misses; h != len(files)-1 || m != 1 {
 		t.Errorf("stats = %d hits, %d misses; want %d, 1 (recent file must re-read every run)", h, m, len(files)-1)
 	}
 }
@@ -157,7 +157,7 @@ func TestSummaryCacheKeepsUnvisitedRowsAndPrunesGoneFiles(t *testing.T) {
 	aggregate(t, OpenSummaryCache(cachePath), files[:1]) // a narrow run, like usage --session
 	warm := OpenSummaryCache(cachePath)
 	aggregate(t, warm, files)
-	if h, m := warm.Stats(); h != len(files) || m != 0 {
+	if h, m := warm.hits, warm.misses; h != len(files) || m != 0 {
 		t.Errorf("stats = %d hits, %d misses; want %d, 0 (narrow run must keep unvisited rows)", h, m, len(files))
 	}
 	if err := os.Remove(files[2]); err != nil {

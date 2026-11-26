@@ -14,11 +14,6 @@ const Uninspectable = "<uninspectable>"
 // WorktreeCommit is EachGit's verb for a `claude-code worktree commit` call; its args are the verb's own words.
 const WorktreeCommit = "worktree commit"
 
-const tooDeepArg = "<too-deep>"
-
-// TooDeep reports an Uninspectable call's args as nesting past maxNest, not a verb the shell expands.
-func TooDeep(args []string) bool { return len(args) == 1 && args[0] == tooDeepArg }
-
 // gitFn receives one git invocation: its target tree, verb and the verb's words; true stops the walk.
 type gitFn func(target, verb string, args []string) bool
 
@@ -97,7 +92,7 @@ func HarnessArgs(words []string) []string {
 // eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
 func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if depth > maxNest {
-		return fn(cwd, Uninspectable, []string{tooDeepArg})
+		return fn(cwd, Uninspectable, nil)
 	}
 	masked, subs := extractSubstitutions(cmd, subMask)
 	if len(subs) > 0 {

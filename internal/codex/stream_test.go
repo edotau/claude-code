@@ -23,7 +23,7 @@ func TestParseCodexStreamDecodeErrorKeepsAnswer(t *testing.T) {
 not json
 {"type":"item.completed","item":{"type":"agent_message","text":"done"}}
 {"type":123}`
-	res, err := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	res, err := parseSample(stream)
 	if err == nil || res.Answer != "done" || res.SessionID != "th-1" {
 		t.Fatalf("res = %+v, err = %v; want the decode error with answer and session kept", res, err)
 	}
@@ -33,7 +33,7 @@ not json
 func TestParseCodexStreamCachedInputNeverNegative(t *testing.T) {
 	stream := `{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":5}}
 {"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":30,"output_tokens":2}}`
-	res, err := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	res, err := parseSample(stream)
 	want := wire.Usage{InputTokens: 60, CacheReadTokens: 70, OutputTokens: 7}
 	if err != nil || res.Usage != want {
 		t.Fatalf("usage = %+v, err = %v; want %+v", res.Usage, err, want)
@@ -53,7 +53,7 @@ func TestParseCodexStreamTopLevelErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := `{"type":"thread.started","thread_id":"probe"}` + "\n" + tc.events
-			res, err := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+			res, err := parseSample(stream)
 			failure := ""
 			if err != nil {
 				failure = err.Error()
@@ -133,14 +133,14 @@ func TestCodexIdleWatch(t *testing.T) {
 func TestParseCodexStreamCollectsFileChanges(t *testing.T) {
 	stream := `{"type":"item.completed","item":{"type":"file_change","status":"completed","changes":[{"path":"/m/r.md","kind":"add"}]}}
 {"type":"item.completed","item":{"type":"file_change","status":"failed","changes":[{"path":"/m/x.md","kind":"add"}]}}`
-	res, _ := parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	res, _ := parseSample(stream)
 	if len(res.Written) != 1 || res.Written[0] != "/m/r.md" {
 		t.Fatalf("Written = %v, want [/m/r.md]", res.Written)
 	}
 }
 
 func parseSample(stream string) (wire.Result, error) {
-	return parseCodexStream(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
+	return parseCodexIdle(nil)(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil)
 }
 
 // A failed turn is a typed error: a rate limit is retryable with its hint, a context overflow is not.

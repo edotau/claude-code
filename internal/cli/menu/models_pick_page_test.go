@@ -537,7 +537,7 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	offer := func(profile, answers string) {
 		in := strings.NewReader(answers)
 		d := &dialog{reg: reg, o: Options{In: in}, br: bufio.NewReader(in), out: discardWriter{}}
-		offerModels(d, profile)
+		offerModels(d, profile, false)
 	}
 	offer("ultra", "1\n2\n\n")
 	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {

@@ -48,12 +48,9 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 
 func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record, error) {
 	cp := func() (int, error) { n, err := io.Copy(w, f); return int(n), err }
-	return followTail(ctx, rec, true, cp, func(rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
-		if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
-			_, err := fmt.Fprintf(w, "· %s\n", quietLine(rec, now.Sub(lastOut), now))
-			return now, err
-		}
-		return lastBeat, nil
+	return followTail(ctx, rec, true, cp, func(rec Record, now, lastOut time.Time) error {
+		_, err := fmt.Fprintf(w, "· %s\n", quietLine(rec, now.Sub(lastOut), now))
+		return err
 	})
 }
 
@@ -77,9 +74,7 @@ func TailEvents(ctx context.Context, rec Record, follow bool, after int64, w io.
 	defer f.Close()
 	br, pend := bufio.NewReader(f), []byte(nil)
 	return followTail(ctx, rec, follow, func() (int, error) { return copyEventLines(br, &pend, after, w) },
-		func(rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
-			return eventHeartbeat(w, rec, n, lastOut, lastBeat)
-		})
+		func(rec Record, now, _ time.Time) error { return eventHeartbeat(w, rec, now) })
 }
 
 func openTail(ctx context.Context, rec Record, follow bool, path func(Record) string) (Record, *os.File, error) {
@@ -109,9 +104,9 @@ func nextTailPoll(poll time.Duration, n int) time.Duration {
 	return poll
 }
 
-// followTail polls cp until rec leaves running; beat runs after each pass and returns the new lastBeat.
+// followTail polls cp until rec leaves running; beat writes a heartbeat after tailBeat of silence.
 func followTail(ctx context.Context, rec Record, follow bool, cp func() (int, error),
-	beat func(Record, int, time.Time, time.Time) (time.Time, error)) (Record, error) {
+	beat func(rec Record, now, lastOut time.Time) error) (Record, error) {
 	lastOut, lastBeat := time.Now(), time.Time{}
 	poll := tailPoll
 	for {
@@ -120,36 +115,30 @@ func followTail(ctx context.Context, rec Record, follow bool, cp func() (int, er
 			return reloaded(rec), err
 		}
 		if n > 0 {
-			lastOut = time.Now()
+			lastOut, poll = time.Now(), tailPoll
 		}
 		if !rec.Alive() { // the writer is gone, and rec was reloaded before this copy
 			return rec, nil
-		}
-		if n > 0 {
-			poll = tailPoll
 		}
 		if err := sleepCtx(ctx, poll); err != nil {
 			return rec, err
 		}
 		poll = nextTailPoll(poll, n)
 		rec = reloaded(rec)
-		if lastBeat, err = beat(rec, n, lastOut, lastBeat); err != nil {
-			return rec, err
+		if now := time.Now(); n == 0 && min(now.Sub(lastBeat), now.Sub(lastOut)) >= tailBeat {
+			if err := beat(rec, now, lastOut); err != nil {
+				return rec, err
+			}
+			lastBeat = now // advances only once the write lands
 		}
 	}
 }
 
-// eventHeartbeat writes a heartbeat event when due; lastBeat advances only once the write lands.
-func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
-	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
-		_, err := fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d,\"live\":%q}\n",
-			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds(), ProgressOf(rec, now).Line(progressWidth))
-		if err != nil {
-			return lastBeat, err
-		}
-		return now, nil
-	}
-	return lastBeat, nil
+// eventHeartbeat writes one heartbeat event for rec at now.
+func eventHeartbeat(w io.Writer, rec Record, now time.Time) error {
+	_, err := fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d,\"live\":%q}\n",
+		wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds(), ProgressOf(rec, now).Line(progressWidth))
+	return err
 }
 
 // eventLineMax caps one event line held while following; matches lastResultEvent's 16 MiB so a large result is kept.

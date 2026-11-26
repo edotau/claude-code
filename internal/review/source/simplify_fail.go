@@ -1,9 +1,6 @@
 package source
 
 import (
-	"bufio"
-	"bytes"
-	"context"
 	"fmt"
 	"go/ast"
 	"go/build/constraint"
@@ -11,14 +8,12 @@ import (
 	"go/token"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -107,42 +102,6 @@ func batchSpans(base string) map[string]lineSpans {
 	return out
 }
 
-// catBlobs reads each `<rev>:<path>` spec through one `git cat-file --batch`; missing blobs are absent.
-func catBlobs(specs []string) map[string]string {
-	out := map[string]string{}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
-	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
-	raw, err := cmd.Output()
-	if err != nil {
-		return out
-	}
-	r := bufio.NewReader(bytes.NewReader(raw))
-	for _, spec := range specs {
-		hdr, err := r.ReadString('\n')
-		if err != nil {
-			break
-		}
-		f := strings.Fields(hdr)
-		if len(f) != 3 {
-			continue
-		}
-		size, convErr := strconv.Atoi(f[2])
-		if convErr != nil {
-			continue
-		}
-		body := make([]byte, size+1)
-		if _, err := io.ReadFull(r, body); err != nil {
-			break
-		}
-		if f[1] == "blob" {
-			out[spec] = strings.TrimRight(string(body), "\n")
-		}
-	}
-	return out
-}
-
 func baseSpec(base, old string) string { return base + ":./" + old }
 
 // loadGitBatch asks git once for the renames, untracked files, changed spans and base texts of files.
@@ -155,13 +114,14 @@ func loadGitBatch(files []string, base string) *gitBatch {
 	}
 	specs := make([]string, len(files))
 	for i, f := range files {
-		old := g.renames[f]
-		if old == "" {
-			old = f
-		}
-		specs[i] = baseSpec(base, old)
+		specs[i] = baseSpec(base, cmpPath(g.renames[f], f))
 	}
-	g.bases = catBlobs(specs)
+	g.bases = map[string]string{}
+	for i, b := range catBatch(".", nil, specs) {
+		if b != nil {
+			g.bases[specs[i]] = strings.TrimRight(string(b), "\n")
+		}
+	}
 	return g
 }
 
@@ -374,10 +334,7 @@ func newGoFindings(path, base string, g *gitBatch) ([]string, []namingAdvisory, 
 	if err != nil {
 		return nil, nil, err
 	}
-	old := g.renames[path]
-	if old == "" {
-		old = path
-	}
+	old := cmpPath(g.renames[path], path)
 	spans, err := g.changed(path, old, base)
 	if err != nil {
 		return nil, nil, err
@@ -402,8 +359,7 @@ func newGoFindings(path, base string, g *gitBatch) ([]string, []namingAdvisory, 
 }
 
 func failOnNewViolations(files []string, base string, stdout, stderr io.Writer) int {
-	var found, goFiles []string
-	var advice []string
+	var found, goFiles, advice []string
 	for _, f := range files {
 		if strings.HasSuffix(f, ".go") {
 			goFiles = append(goFiles, f)

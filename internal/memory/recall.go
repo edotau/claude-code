@@ -39,9 +39,17 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 		return nil, trace
 	}
 	ready := startSemantic(ctx, q, semantic)
+	type boosts struct {
+		counts  map[string]int
+		weights map[string]float64
+		err     error
+	}
+	boosted := make(chan boosts, 1) // the access log and learned weights load while the bank search runs
+	parallel.Go(func() { boosted <- boosts{counts: returnCounts(time.Now()), weights: recallWeights()} },
+		func(err error) { boosted <- boosts{err: err} })
 	seen := seenBlocks(session)
 	trace.seen = seen
-	ranked, files, segs := searchBankTerms(terms, 0)
+	ranked, files, segs := searchRecallTerms(terms, 0, true)
 	ranked = followReplaced(ranked, files, segs)
 	var sem *semanticQuery
 	semSeen := false
@@ -53,8 +61,9 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts(time.Now())
-	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr, recallWeights())
+	b := <-boosted
+	parallel.Rethrow(b.err)
+	picks := selectRecall(seen, terms, ranked, sem, semSeen, b.counts, tr, b.weights)
 	trace.Silent = len(picks) == 0
 	return picks, trace
 }
@@ -239,105 +248,22 @@ func rankTimed(terms []string, k int, files []corpusFile, segs []segView) []Sear
 // RowRecall returns store-relative row-rendered bytes of the FTS candidate docs; false declines.
 var RowRecall func(terms []string) (docs map[string][]byte, ok bool)
 
-func searchBankTerms(terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
-	return searchRecallTerms(terms, k, true)
-}
-
+// searchRecallTerms ranks the store for terms, k best; persist lets it write the recall index.
 func searchRecallTerms(terms []string, k int, persist bool) ([]SearchHit, []corpusFile, []segView) {
 	files := corpusOf()
-	if RowRecall == nil || len(terms) == 0 {
-		segs := loadSegments(files, persist)
-		return rankTimed(terms, k, files, segs), files, segs
-	}
-	if segs, ok := cachedRecallSegments(files); ok {
-		return rankTimed(terms, k, files, segs), files, segs
-	}
-	segs, ok := recallRowSegments(files, terms, persist)
-	if !ok {
-		segs = loadSegments(files, persist)
-		return rankTimed(terms, k, files, segs), files, segs
-	}
+	segs := loadSegments(files, persist, terms)
 	return rankTimed(terms, k, files, segs), files, segs
 }
 
-func recallRowSegments(files []corpusFile, terms []string, persist bool) ([]segView, bool) {
-	infos := make([]os.FileInfo, len(files)) // statted before the rows are read, so a racing edit only costs a re-read
-	stats := make(map[string]bool, len(files))
-	for i, f := range files {
-		info, err := os.Stat(f.Path)
-		stats[f.Path] = err == nil
-		if err != nil && !os.IsNotExist(err) {
-			return nil, false
-		}
-		infos[i] = info
-	}
-	docs, ok := RowRecall(terms)
-	if !ok {
-		return nil, false
-	}
-	segs := make([]segView, len(files))
-	index := readFilesIndex(filepath.Join(paths.MemoryStateDir(), recallIndexFile), encoderKey(), files)
-	var missing, stale []int
-	for i, f := range files {
-		if infos[i] == nil {
-			continue
-		}
-		if seg, hit := index[fileKey{f.Path, f.Mode}].fresh(infos[i]); hit {
-			segs[i] = seg
-			continue
-		}
-		stale = append(stale, i)
-		rel := strings.TrimPrefix(f.Path, paths.MemoryStoreDir()+string(filepath.Separator))
-		if data, fromRows := docs[filepath.ToSlash(rel)]; fromRows {
-			segs[i] = encodeSegment(parseBlocks(f.Mode, filepath.Base(f.Path), data))
-		} else {
-			missing = append(missing, i)
-		}
-	}
-	encodeMissing(files, missing, segs)
-	added := map[fileKey]indexed{}
-	for _, i := range stale {
-		if segs[i] != nil && persist && time.Since(infos[i].ModTime()) >= paths.RacyWindow {
-			added[fileKey{files[i].Path, files[i].Mode}] = indexed{infos[i].Size(), infos[i].ModTime().UnixNano(), segs[i]}
-		}
-	}
-	persistIndex(filepath.Join(paths.MemoryStateDir(), recallIndexFile), encoderKey(), added, stats)
-	return segs, true
-}
-
-// cachedRecallSegments avoids reopening the row store when the stat-keyed derived corpus is already complete.
-func cachedRecallSegments(files []corpusFile) ([]segView, bool) {
-	index := readFilesIndex(filepath.Join(paths.MemoryStateDir(), recallIndexFile), encoderKey(), files)
-	segs := make([]segView, len(files))
-	for i, f := range files {
-		info, err := os.Stat(f.Path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, false
-		}
-		seg, ok := index[fileKey{f.Path, f.Mode}].fresh(info)
-		if !ok || time.Since(info.ModTime()) < paths.RacyWindow {
-			return nil, false
-		}
-		segs[i] = seg
-	}
-	return segs, true
-}
-
-// searchAll ranks the one store as one corpus.
-func searchAll(query string, k int) []SearchHit {
-	terms := contentTerms(query)
+// SearchBank ranks blocks for q across the store as one corpus, k best; it never writes the recall index.
+func SearchBank(q string, k int) []SearchHit {
+	terms := contentTerms(q)
 	if len(terms) == 0 {
 		return nil
 	}
 	hits, _, _ := searchRecallTerms(terms, k, false)
 	return hits
 }
-
-// SearchBank ranks blocks for q across the store, k best.
-func SearchBank(q string, k int) []SearchHit { return searchAll(q, k) }
 
 // Agent recall previews stay short and the whole block stays under the spec's 1KB cap.
 const (
@@ -644,7 +570,7 @@ func resetSeen(sessionID, surface string) {
 	flat := appendFields(nil, surface)
 	var norm []byte
 	var b strings.Builder
-	for _, seg := range loadSegments(corpusOf(), true) {
+	for _, seg := range loadSegments(corpusOf(), true, nil) {
 		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
 			continue
 		}

@@ -111,10 +111,7 @@ func (o *catalogOpts) bind() *flag.FlagSet {
 
 // agentCatalog is `<agent> catalog [list|check|sync] [flags]`; opencode also takes add|remove|import|reset.
 func agentCatalog(name string, args []string) int {
-	verb := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		verb, args = args[0], args[1:]
-	}
+	verb, args := leadingID(args)
 	if code, done := catalogVerbGate(name, verb, args); done {
 		return code
 	}
@@ -338,10 +335,11 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, rows)
 	}
-	profiles, err := databricksProfiles()
+	reg, err := providers.Load()
 	if err != nil {
 		return err
 	}
+	profiles := reg.ProfilesOf(providers.GroupDatabricks)
 	listings := servedListings(profiles)
 	now := time.Now()
 	cells := [][]string{{"ID", "LABEL", "RESPONSES", "SOURCE", "SERVED"}}
@@ -372,14 +370,6 @@ func servedListings(profiles []string) []endpoints.Served {
 		listings[i], _ = endpoints.Load(profile)
 	}
 	return listings
-}
-
-func databricksProfiles() ([]string, error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil, err
-	}
-	return reg.ProfilesOf(providers.GroupDatabricks), nil
 }
 
 func servedMark(id string, listings []endpoints.Served, now time.Time) string {

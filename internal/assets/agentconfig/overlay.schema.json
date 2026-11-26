@@ -215,7 +215,7 @@
     "runner": {
       "enum": [
         "pi",
-        "own"
+        "cli"
       ]
     },
     "schema": {

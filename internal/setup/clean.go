@@ -405,16 +405,11 @@ func printSummary(errw io.Writer, tot sweepTotals, olderThan string, nTargets in
 
 // confirmSessions gates the opt-in "sessions" target behind an explicit yes
 func confirmSessions(selected []target, cutoff time.Time, olderThan string, autoYes bool, errw io.Writer) bool {
-	var sess target
-	found := false
-	for _, t := range selected {
-		if t.name == "sessions" {
-			sess, found = t, true
-		}
-	}
-	if !found {
+	i := slices.IndexFunc(selected, func(t target) bool { return t.name == "sessions" })
+	if i < 0 {
 		return true
 	}
+	sess := selected[i]
 	hits, size, _ := pruneAgedTo(io.Discard, sess.globs(), cutoff, false, sess.keep)
 	if len(hits) == 0 {
 		return true
@@ -603,16 +598,17 @@ func journalDir() string { return filepath.Join(paths.MemoryStateDir(), "journal
 // parseAge accepts Go durations plus a `d` (days) suffix, which time.ParseDuration lacks.
 func parseAge(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
+	bad := fmt.Errorf("bad --older-than %q (want e.g. 30d or 12h)", s)
 	if days, ok := strings.CutSuffix(s, "d"); ok {
 		n, err := strconv.Atoi(days)
 		if err != nil || n < 0 || time.Duration(n) > math.MaxInt64/(24*time.Hour) {
-			return 0, fmt.Errorf("bad --older-than %q (want e.g. 30d or 12h)", s)
+			return 0, bad
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil || d < 0 {
-		return 0, fmt.Errorf("bad --older-than %q (want e.g. 30d or 12h)", s)
+		return 0, bad
 	}
 	return d, nil
 }
@@ -792,8 +788,7 @@ func readJSON(path string) map[string]any {
 // keepCodexHome protects a codex home holding anything but codex's .tmp plugin clone, or under a day old.
 func keepCodexHome(p string) bool {
 	entries, err := os.ReadDir(p)
-	fi, serr := os.Stat(p)
-	if err != nil || serr != nil || time.Since(fi.ModTime()) < 24*time.Hour {
+	if err != nil || youngDir(p) {
 		return true
 	}
 	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() != ".tmp" })

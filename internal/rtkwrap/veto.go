@@ -193,11 +193,13 @@ func rtkGitInLinkedWorktree(cmd, cwd string) bool {
 	if !slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool { return rtkGitArgs(seg) != nil }) {
 		return false
 	}
+	var seen []string
 	for _, d := range rtkChainDirs(cmd, cwd) {
 		d, ok := rtkAbsDir(d, cwd)
-		if !ok {
+		if !ok || slices.Contains(seen, d) { // CheckoutOf stats up the tree: each dir once
 			continue
 		}
+		seen = append(seen, d)
 		if top, main := paths.CheckoutOf(d); top != "" && main != top {
 			return true
 		}

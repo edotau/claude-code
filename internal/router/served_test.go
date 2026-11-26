@@ -178,7 +178,7 @@ func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
 	}
 	skips := func(pin string) bool {
 		res := &PickResult{}
-		tb.gateProfile(context.Background(), reg, "sonnet", "codex", "dev", pin, "", State{}, PickOpts{}, time.Now(), allConfigured, res)
+		tb.gateProfile(context.Background(), &pickGate{reg: reg}, "sonnet", "codex", "dev", pin, "", State{}, PickOpts{}, time.Now(), allConfigured, res)
 		return slices.ContainsFunc(res.Skipped, func(s Skip) bool { return strings.Contains(s.Reason, "is not served on dev") })
 	}
 	if !skips("m-pin") {

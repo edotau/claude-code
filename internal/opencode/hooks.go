@@ -29,11 +29,12 @@ import (
 )
 
 // hostedHooks are the registry's hook modules run around a headless `opencode run`.
-var hostedHooks = hostedSet()
+var hostedHooks = specNames("hosted")
 
-func hostedSet() map[string]bool {
+// specNames is the set of opencode hook spec names on one surface (hosted or plugin).
+func specNames(surface string) map[string]bool {
 	set := map[string]bool{}
-	for _, s := range settings.SpecsFor("opencode", "hosted") {
+	for _, s := range settings.SpecsFor("opencode", surface) {
 		set[s.Name] = true
 	}
 	return set
@@ -99,10 +100,7 @@ func (h *hookHost) dropPlugin() {
 	if h == nil {
 		return
 	}
-	plugin := map[string]bool{}
-	for _, s := range settings.SpecsFor("opencode", "plugin") {
-		plugin[s.Name] = true
-	}
+	plugin := specNames("plugin")
 	h.bound = slices.DeleteFunc(h.bound, func(b hooks.Bound) bool { return plugin[b.Spec.Name] })
 }
 
@@ -188,7 +186,7 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 		if b.Spec.Event != event {
 			continue
 		}
-		res, err := hooks.Dispatch([]hooks.Bound{b}, event, core.ParseInput(strings.NewReader(string(raw))), h.log)
+		res, err := hooks.Dispatch([]hooks.Bound{b}, event, core.ParseInput(bytes.NewReader(raw)), h.log)
 		if err != nil {
 			h.note(phase, "event=%s hook=%s error=%v", event, b.Spec.Name, err)
 			continue

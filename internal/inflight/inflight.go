@@ -295,7 +295,7 @@ func liveRecords(fn func(owner int, r route.Route)) {
 
 // readLiveRecord also says whether the bytes held no RunningToken (a verdict that holds until a rewrite).
 func readLiveRecord(path string) (liveRecord, bool) {
-	b, err := readSized(path)
+	b, _, err := readSized(path)
 	if err != nil {
 		return liveRecord{}, false
 	}
@@ -329,22 +329,22 @@ func routeKey(raw json.RawMessage) route.Route {
 	return route.Route{Provider: r.Provider, Profile: r.Profile}
 }
 
-// readSized is os.ReadFile with one read syscall for a file that keeps its stat size (records land by rename).
-func readSized(path string) ([]byte, error) {
+// readSized is os.ReadFile in one read for a file that keeps its stat size (records and markers land by rename).
+func readSized(path string) ([]byte, os.FileInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = f.Close() }()
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	b := make([]byte, fi.Size())
 	if _, err := io.ReadFull(f, b); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return b, nil
+	return b, fi, nil
 }
 
 // Leaf is one live Agent-tool spawn marker: its session's owner pid and transcript, and its agent once named.

@@ -533,12 +533,12 @@ func TestTypedOverlayKeepsInheritedFence(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	inherited := `{"provider":"anthropic","profile":"anthropic","maxChildren":2,"fence":{"profiles":["anthropic"]}}`
 	ctx := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: inherited})
-	merged, typed, _, err := loadOverlays(ctx, `{"model":"sonnet"}`, "")
+	merged, typed, _, err := LoadOverlays(ctx, `{"model":"sonnet"}`, "")
 	if err != nil || merged.Model != "sonnet" || merged.Fence == nil || merged.MaxChildren == nil || *merged.MaxChildren != 2 ||
 		typed.Fence != nil || typed.Provider != "" {
 		t.Fatalf("merged %+v typed %+v err %v, want the inherited fence and cap kept, the typed doc alone apart", merged, typed, err)
 	}
-	if _, _, _, err := loadOverlays(ctx, `{"provider":"anthropic","profile":"ultra"}`, ""); err == nil || !strings.Contains(err.Error(), "fence") {
+	if _, _, _, err := LoadOverlays(ctx, `{"provider":"anthropic","profile":"ultra"}`, ""); err == nil || !strings.Contains(err.Error(), "fence") {
 		t.Fatalf("a typed profile outside the inherited fence: err %v, want a fence refusal", err)
 	}
 }
@@ -829,7 +829,7 @@ func TestStoredOverlayNotLoadedAsTyped(t *testing.T) {
 	}
 	req := agent.RunOptions{Values: proc.Values{route.OverlayVar: doc}}
 	fs, f := askFlagSet()
-	if err := applyLineOverlay(&req, fs, f, route.Route{}, agentconfig.Overlay{Runner: "own"}); err != nil {
+	if err := applyLineOverlay(&req, fs, f, route.Route{}, agentconfig.Overlay{Runner: "cli"}); err != nil {
 		t.Errorf("applyLineOverlay over a stored base document: %v", err)
 	}
 }

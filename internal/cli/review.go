@@ -124,15 +124,7 @@ func workflowWantsHelp(args []string) bool {
 	if !slices.Contains([]string{"skeleton", "lint", "sync"}, args[0]) || len(args) < 2 || (args[0] != "skeleton" && len(args) > 2) {
 		return false
 	}
-	return helptext.WantsHelp(helpArgs(args))
-}
-
-// helpArgs is where a workflow sub-verb's -h may sit: skeleton takes it after its pattern, lint only first.
-func helpArgs(args []string) []string {
-	if args[0] == "skeleton" {
-		return args[1:]
-	}
-	return args[1:2]
+	return helptext.WantsHelp(args[1:])
 }
 
 func runWorkflowVerb(verb string, args []string, run func([]string, io.Writer, io.Writer) int) int {

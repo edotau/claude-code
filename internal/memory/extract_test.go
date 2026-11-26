@@ -234,14 +234,14 @@ func seedExtractRecallLogs(t *testing.T, logs string, now time.Time) string {
 	t.Helper()
 	old := now.AddDate(0, 0, -60)
 	log := "home.log"
-	active := accessLines(now.Add(-time.Hour), []string{contentRef("- common")}, accessRecall) +
-		accessLines(now.Add(-time.Hour), []string{"aabbccdd"}, accessRecall) +
-		accessLines(now.Add(-time.Hour), []string{"55667788"}, AccessSearch) +
-		accessLines(now.Add(time.Hour), []string{"99aabbcc"}, accessRecall) +
-		sessionLines(now.Add(-time.Hour), []string{"11223344"}, accessRecall, "fixture-session") + "malformed line\n"
-	rotated := accessLines(now.AddDate(0, 0, -1), []string{"aabbccdd"}, accessRecall) +
-		accessLines(now.Add(-time.Hour), []string{"aabbccdd"}, accessRecall) +
-		accessLines(now.AddDate(0, 0, -40), []string{"ddeeff00"}, accessRecall)
+	active := accessLines(now.Add(-time.Hour), []string{contentRef("- common")}, accessRecall, "") +
+		accessLines(now.Add(-time.Hour), []string{"aabbccdd"}, accessRecall, "") +
+		accessLines(now.Add(-time.Hour), []string{"55667788"}, AccessSearch, "") +
+		accessLines(now.Add(time.Hour), []string{"99aabbcc"}, accessRecall, "") +
+		accessLines(now.Add(-time.Hour), []string{"11223344"}, accessRecall, "fixture-session") + "malformed line\n"
+	rotated := accessLines(now.AddDate(0, 0, -1), []string{"aabbccdd"}, accessRecall, "") +
+		accessLines(now.Add(-time.Hour), []string{"aabbccdd"}, accessRecall, "") +
+		accessLines(now.AddDate(0, 0, -40), []string{"ddeeff00"}, accessRecall, "")
 	extractFixtureFile(t, logs, log, active, now)
 	extractFixtureFile(t, logs, log+".1", rotated, old)
 	return log
@@ -614,7 +614,6 @@ func extractQuietRepo(t *testing.T, repo storeRepo) {
 
 func extractApplyFixture(t *testing.T) (storeRepo, ExtractGroup, string, map[string][]byte) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	repo := storeRepo{Dir: gitRepo(t, t.TempDir(), "memory")}
 	extractQuietRepo(t, repo)
 	group := ExtractGroup{Action: ExtractRewrite}
@@ -1136,7 +1135,6 @@ func dreamExtractLossy(t *testing.T, calls *int) {
 
 func dreamExtractLossyStore(t *testing.T) (root string, calls *int) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	isolatedConfig(t)
 	initStore(t)
 	root = paths.MemoryStoreDir()

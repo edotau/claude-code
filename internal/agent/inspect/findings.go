@@ -98,12 +98,12 @@ func match(files, globs []string) []string {
 	return out
 }
 
-// lineRule maps one line shape to a row; the regexp's groups feed build.
 // lazyRE compiles its pattern on first use, so a process that never parses tool output pays nothing.
 func lazyRE(expr string) func() *regexp.Regexp {
 	return sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(expr) })
 }
 
+// lineRule maps one line shape to a row; the regexp's groups feed build.
 type lineRule struct {
 	re    func() *regexp.Regexp
 	build func(m []string) Finding

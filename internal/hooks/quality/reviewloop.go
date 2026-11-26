@@ -36,7 +36,7 @@ type Finding struct {
 // ParseFindings is the finding lines of a report outside quoted blocks, severity upper-cased.
 func ParseFindings(report string) []Finding {
 	var out []Finding
-	for _, m := range findingLine.FindAllStringSubmatch(quotedBlock.ReplaceAllString(report, ""), -1) {
+	for _, m := range findingLine.FindAllStringSubmatch(unquoted(report), -1) {
 		n, _ := strconv.Atoi(m[3])
 		out = append(out, Finding{strings.ToUpper(m[1]), m[2], strings.TrimSpace(m[4]), n})
 	}
@@ -45,10 +45,18 @@ func ParseFindings(report string) []Finding {
 
 // StatedVerdict is the SHIP, FIX REQUIRED or BLOCK a report states outside quoted blocks, else "".
 func StatedVerdict(report string) string {
-	if v := verdictLine.FindStringSubmatch(quotedBlock.ReplaceAllString(report, "")); v != nil {
+	if v := verdictLine.FindStringSubmatch(unquoted(report)); v != nil {
 		return strings.ToUpper(v[1])
 	}
 	return ""
+}
+
+// unquoted is report without its quoted blocks; a report with no fence or '>' skips the regex scan.
+func unquoted(report string) string {
+	if !strings.Contains(report, "```") && !strings.Contains(report, "~~~") && !strings.Contains(report, ">") {
+		return report
+	}
+	return quotedBlock.ReplaceAllString(report, "")
 }
 
 // ComputeVerdict is the one reducer: CRITICAL BLOCK, HIGH FIX REQUIRED, unjudged, MEDIUM/LOW mergeable, else SHIP.
@@ -73,7 +81,7 @@ func ComputeVerdict(fs []Finding, unjudged bool) (verdict string, mergeable bool
 // verdictMismatch names the verdict a report's findings compute when its stated verdict is milder, else "".
 func verdictMismatch(report string) string {
 	stated := StatedVerdict(report)
-	if stated == "" {
+	if stated == "" || stated == "BLOCK" { // BLOCK is the strictest: no findings can compute past it
 		return ""
 	}
 	var serious []Finding // the hook flags CRITICAL/HIGH only
@@ -92,8 +100,9 @@ func verdictMismatch(report string) string {
 
 // ReviewHandback tells the main session to fix what a leaf report's last UNFIXED line lists; it never blocks.
 func ReviewHandback(in *core.Input) core.Result {
-	r := reviewHandback(in)
-	if mm := verdictMismatch(handbackReport(in)); mm != "" {
+	report := handbackReport(in)
+	r := reviewHandback(report)
+	if mm := verdictMismatch(report); mm != "" {
 		r.Context = strings.TrimSpace(r.Context + "\n" + mm + "Treat the computed verdict as the verdict.")
 	}
 	return r
@@ -107,8 +116,7 @@ func handbackReport(in *core.Input) string {
 	return report
 }
 
-func reviewHandback(in *core.Input) core.Result {
-	report := handbackReport(in)
+func reviewHandback(report string) core.Result {
 	if strings.TrimSpace(report) == "" {
 		return core.Result{} // a prompt that is not a notification, or an empty response
 	}

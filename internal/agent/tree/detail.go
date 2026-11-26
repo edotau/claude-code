@@ -46,15 +46,7 @@ var paneLog streamFunc = func(ctx context.Context, rec agent.Record, w io.Writer
 // tailKeep caps the pane's kept lines and its feed's ring of unread ones.
 const tailKeep = 500
 
-// eventLine is one event line rendered for the pane; false for a line the pane does not show.
-func eventLine(raw []byte, width int) (string, bool) {
-	var ev wire.Event
-	if json.Unmarshal(raw, &ev) != nil {
-		return "", false
-	}
-	return paneEventLine(ev, width)
-}
-
+// paneEventLine is one event rendered for the pane; false for an event the pane does not show.
 func paneEventLine(ev wire.Event, width int) (string, bool) {
 	if ev.Type == "" || ev.Type == "heartbeat" || ev.Type == wire.EventProgress || ev.Type == wire.EventUsage {
 		return "", false

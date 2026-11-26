@@ -211,7 +211,7 @@ func validateCodemode(mode, ag, runner string, tools, direct bool) (resolved, re
 
 // piRunnerLeads reports a typed agent with no code-mode row of its own running on the pi runner, which owns code mode.
 func piRunnerLeads(ag, runner string, direct bool) bool {
-	if runner == route.RunnerOwn || direct || !agentid.Known(ag) || agentid.Routing(ag).CodeMode.Has() {
+	if runner == route.RunnerCLI || direct || !agentid.Known(ag) || agentid.Routing(ag).CodeMode.Has() {
 		return false
 	}
 	pi, err := agent.Lookup(agentid.Pi)
@@ -568,6 +568,11 @@ func replayedProfile(recorded string, u route.Route) string {
 	return u.Profile
 }
 
+// piRunnerTyped: this line typed runner pi, which cannot carry a recorded --as identity.
+func (r *askRun) piRunnerTyped() bool {
+	return r.f.runner == route.RunnerPi && (helptext.Explicit(r.fs, "runner") || r.typedOv.Runner != "")
+}
+
 // mergeRecordOverlay replays rec's stored overlay limits and unit under any keys typed on this command line.
 func (r *askRun) mergeRecordOverlay(rec agent.Record) error {
 	typed := agentconfig.Overlay{}
@@ -589,7 +594,7 @@ func (r *askRun) mergeRecordOverlay(rec agent.Record) error {
 	}
 	if !helptext.Explicit(r.fs, "as") { // --as is what reaches the credentials: a typed overlay's beats the record's
 		r.f.as = cmp.Or(typed.Identity, rec.Request.Identity)
-		if !r.flagRoute { // a typed route is a new unit: the recorded unit's identity stays with it
+		if !r.flagRoute && !r.piRunnerTyped() { // a typed route is a new unit; a typed pi runner takes no recorded identity
 			r.f.as = cmp.Or(r.f.as, ov.Identity)
 		}
 	}
@@ -637,7 +642,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 	if job == "" {
 		return nil, 0, false
 	}
-	r, err := loadJobRecord(job)
+	r, err := agent.ClaimJob(job) // claims the record for this process
 	if errors.Is(err, agent.ErrJobNotFresh) {
 		return nil, failAskCode(format, *s.Name, err, 2), true
 	}
@@ -697,7 +702,7 @@ func replayPlan(fs *flag.FlagSet, rec agent.Record, moved bool) *agent.RoutePlan
 	}
 	if moved {
 		p.Agent, p.Barred = agentid.Claude, "a cut-off retry runs claude's own CLI"
-		p.Runners = []agent.Runner{{Kind: agent.RunnerOwn, Agent: agentid.Claude}}
+		p.Runners = []agent.Runner{{Kind: agent.RunnerCLI, Agent: agentid.Claude}}
 	}
 	if helptext.Explicit(fs, "runner") {
 		p.Runners = nil
@@ -835,9 +840,6 @@ func clearTyped(fs *flag.FlagSet, s *askState) {
 		}
 	})
 }
-
-// loadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func loadJobRecord(id string) (agent.Record, error) { return agent.ClaimJob(id) }
 
 // resolveOverlay resolves the overlay's vault refs, failing closed; --background leaves that to its --job child.
 func resolveOverlay(ov agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {

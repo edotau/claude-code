@@ -2,10 +2,8 @@
 package audit
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -134,6 +132,9 @@ func prepareLogDir(dir string) bool {
 
 // rotate moves a full log to .1 under a lock, only after the archive shift succeeded, so a failed shift keeps history.
 func rotate(file string) error {
+	if fi, err := os.Stat(file); err != nil || fi.Size() <= maxBytes {
+		return nil // lock-free fast path; the size is re-checked under the lock
+	}
 	return paths.WithFileLock(file, func() error {
 		if fi, err := os.Stat(file); err == nil && fi.Size() > maxBytes {
 			if err := archiveOld(file + ".1"); err != nil {
@@ -189,20 +190,13 @@ func readFile(path string, since time.Time) ([]Event, error) {
 	}
 	defer func() { _ = fh.Close() }()
 	var out []Event
-	reader := bufio.NewReader(fh)
-	for {
-		line, readErr := reader.ReadBytes('\n')
+	err = textutil.EachLineErr(fh, func(line []byte) {
 		var e Event
 		if schemas.DecodeOK(format, line, &e) && e.Action.Valid() && !e.Time.Before(since) {
 			out = append(out, e)
 		}
-		if readErr == io.EOF {
-			return out, nil
-		}
-		if readErr != nil {
-			return out, readErr
-		}
-	}
+	})
+	return out, err
 }
 
 // realSession is a UUID (Claude Code) or a ses_ id (opencode); anything else is a test or probe stand-in.

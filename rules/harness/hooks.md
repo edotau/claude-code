@@ -180,7 +180,8 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   WORKTREE_MODE=lanes also notes tracked live-checkout edits; infra failures allow with warning.
 - **lane-land — leaf stop / background job end (carried too) / prompt:** a detached worker judges the lane once the
   leaf or job finishes and queues it: ready (finished, `UNFIXED: none`, no safety/hookspec/settings path) or held
-  with its reason. It never touches the live checkout; every prompt lists queued lanes with their
+  with its reason (a cut-off job names `agents ask --retry <id> --recover --runner pi|cli`). It never touches the live
+  checkout; every prompt lists queued lanes with their
   `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `worktree-git.md` → Worktrees.
 
 **dispatch-effort and spawn mod:** `harness_spawn:ready` plus session id marks readiness; query computes changed

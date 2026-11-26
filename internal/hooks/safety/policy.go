@@ -138,14 +138,14 @@ func parsePolicy(deny []string) policy {
 
 // canonTwins resolves each absolute path glob's symlinks once, at parse time.
 func canonTwins(p policy) map[string]string {
-	twin := map[string]string{}
+	twin, dirs := map[string]string{}, map[string]string{}
 	raw := slices.Clone(p.editDeny)
 	for _, r := range p.pathDeny {
 		raw = append(raw, r.glob)
 	}
 	for _, g := range raw {
 		if a := anchorGlob(g, ""); filepath.IsAbs(a) {
-			if c := canonGlob(a); c != a {
+			if c := canonGlob(a, dirs); c != a {
 				twin[g] = c
 			}
 		}
@@ -154,7 +154,7 @@ func canonTwins(p policy) map[string]string {
 }
 
 // canonGlob is anchored glob a with its literal directory prefix resolved and escaped; wildcards stay wildcards.
-func canonGlob(a string) string {
+func canonGlob(a string, dirs map[string]string) string {
 	prefix, rest := a, ""
 	if i := strings.IndexAny(a, "*?"); i >= 0 {
 		j := strings.LastIndexByte(a[:i], '/')
@@ -163,7 +163,18 @@ func canonGlob(a string) string {
 	if prefix == "" {
 		return a
 	}
-	return paths.FoldCase(paths.CleanGlob(paths.EscapeGlob(paths.CanonDeep(prefix)) + rest))
+	// CanonDeep(prefix); a non-link resolves via its parent, memoized in dirs, as deny globs share ancestors ($HOME)
+	prefix = filepath.Clean(prefix)
+	canon, dir := "", filepath.Dir(prefix)
+	if fi, err := os.Lstat(prefix); dir == prefix || err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		canon = paths.CanonDeep(prefix)
+	} else {
+		if _, ok := dirs[dir]; !ok {
+			dirs[dir] = paths.CanonDeep(dir)
+		}
+		canon = filepath.Join(dirs[dir], filepath.Base(prefix))
+	}
+	return paths.FoldCase(paths.CleanGlob(paths.EscapeGlob(canon) + rest))
 }
 
 // editGlob is the raw path glob of an Edit/Write row, else "" (raw arg: ParseRule's ~ expansion loses the anchor).
@@ -228,15 +239,19 @@ func anchorGlob(g, cwd string) string {
 // foldedGlobs are raw globs anchored at cwd, case-folded, each beside its symlink-resolved form; unanchorable drop.
 func foldedGlobs(raw []string, cwd string, twin map[string]string) []string {
 	var out []string
+	dirs := map[string]string{}
 	for _, g := range raw {
-		a := anchorGlob(g, cwd)
+		a, rel := anchorGlob(g, ""), false
+		if a == "" {
+			a, rel = anchorGlob(g, cwd), true
+		}
 		if a == "" {
 			continue
 		}
 		out = append(out, a)
 		c, ok := twin[g]
-		if !ok && filepath.IsAbs(a) && a != anchorGlob(g, "") { // cwd-relative: resolved per call
-			c, ok = canonGlob(a), true
+		if !ok && rel && filepath.IsAbs(a) { // cwd-relative: resolved per call
+			c, ok = canonGlob(a, dirs), true
 		}
 		if ok && c != a {
 			out = append(out, c)

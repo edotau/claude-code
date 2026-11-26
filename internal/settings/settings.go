@@ -163,7 +163,7 @@ func formatObject(raw, node, additional json.RawMessage, path string, first *str
 		slices.Sort(o.keys)
 	}
 	for i, k := range keys {
-		sub := strings.TrimPrefix(path+"."+k, ".")
+		sub := join(path, k)
 		if *first == "" && k != o.keys[i] {
 			*first = sub
 		}
@@ -288,6 +288,7 @@ func (o *object) orderBy(ref []string) {
 type object struct {
 	keys []string
 	vals map[string]json.RawMessage
+	dups []string // keys parseObject saw more than once; the last value wins
 }
 
 func parseObject(b []byte) (*object, error) {
@@ -305,7 +306,11 @@ func parseObject(b []byte) (*object, error) {
 		if err := dec.Decode(&raw); err != nil {
 			return nil, err
 		}
-		o.set(tok.(string), raw)
+		k := tok.(string)
+		if _, dup := o.vals[k]; dup {
+			o.dups = append(o.dups, k)
+		}
+		o.set(k, raw)
 	}
 	if _, err := dec.Token(); err != nil {
 		return nil, err
@@ -966,25 +971,12 @@ func collapseValue(raw json.RawMessage, path string, changed *[]string) (json.Ra
 }
 
 func collapseObject(raw json.RawMessage, path string, changed *[]string) (json.RawMessage, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if _, err := dec.Token(); err != nil {
+	o, err := parseObject(raw)
+	if err != nil {
 		return nil, err
 	}
-	o := &object{vals: map[string]json.RawMessage{}}
-	for dec.More() {
-		tok, err := dec.Token()
-		if err != nil {
-			return nil, err
-		}
-		k, _ := tok.(string)
-		var val json.RawMessage
-		if err := dec.Decode(&val); err != nil {
-			return nil, err
-		}
-		if _, dup := o.vals[k]; dup {
-			*changed = append(*changed, "duplicate key "+join(path, k))
-		}
-		o.set(k, val)
+	for _, k := range o.dups {
+		*changed = append(*changed, "duplicate key "+join(path, k))
 	}
 	for _, k := range o.keys {
 		v, err := collapseValue(o.vals[k], join(path, k), changed)

@@ -239,13 +239,16 @@ func WorkflowAgentFiles(runDir string) []string {
 // tailBytes bounds the common-case read: the latest usage record sits near EOF of an append-only file.
 const tailBytes = 256 << 10
 
+// tailFirst is the first tail read; LastUsage doubles it up to tailBytes before a full scan.
+const tailFirst = 16 << 10
+
 // Usage is the newest assistant usage record: total context tokens and the model that produced it.
 type Usage struct {
 	Tokens int
 	Model  string
 }
 
-// LastUsage scans the tail back-to-front, falling back to a full scan when the tail holds no usage line.
+// LastUsage scans a doubling tail back-to-front, falling back to a full scan when tailBytes hold no usage line.
 func LastUsage(path string) (Usage, bool) {
 	f, err := os.Open(path)
 	if err != nil || path == "" {
@@ -256,30 +259,32 @@ func LastUsage(path string) (Usage, bool) {
 	if err != nil {
 		return Usage{}, false
 	}
-	off := max(fi.Size()-tailBytes, 0)
-	buf := make([]byte, fi.Size()-off)
-	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
-		return Usage{}, false
-	}
-	if u, ok := usageInTail(buf); ok {
-		return u, true
-	}
-	if off == 0 {
-		return Usage{}, false
+	for span := int64(tailFirst); span < tailBytes*2; span *= 2 {
+		if u, ok, done := usageInTail(f, fi.Size(), min(span, tailBytes)); ok || done {
+			return u, ok
+		}
 	}
 	return usageFullScan(f)
 }
 
-// usageInTail returns the newest usage record in buf, scanning lines back-to-front.
-func usageInTail(buf []byte) (Usage, bool) {
+// usageInTail returns the newest usage record in f's last span bytes, back-to-front; done when no longer read can help.
+func usageInTail(f *os.File, size, span int64) (u Usage, ok, done bool) {
+	off := max(size-span, 0)
+	buf := make([]byte, size-off)
+	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
+		return Usage{}, false, true
+	}
+	if off > 0 { // off cuts the first line: a longer read or the full scan gets it whole
+		_, buf, _ = bytes.Cut(buf, []byte{'\n'})
+	}
 	for end := len(buf); end > 0; {
 		start := bytes.LastIndexByte(buf[:end], '\n') + 1
 		if u, ok := usageFromLine(buf[start:end]); ok {
-			return u, true
+			return u, true, true
 		}
 		end = start - 1
 	}
-	return Usage{}, false
+	return Usage{}, false, off == 0
 }
 
 // usageFullScan returns the last usage record in f, reading every line.

@@ -215,7 +215,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if harnessDocs := filepath.Join(config, "docs"); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, in, stderr, config, harnessDocs, abs, base)
 	}
-	if paths.SameFile(dir, paths.MemoryStoreDir()) { // the store is its own git repo; notes at its root are the point
+	if paths.FoldCase(dir) == paths.FoldCase(paths.Real(paths.MemoryStoreDir())) { // dir is Real already; the store is its own repo, so root notes pass
 		return core.ExitProceed
 	}
 	return repoDocsPlacement(ctx, in, stderr, dir, base, abs)

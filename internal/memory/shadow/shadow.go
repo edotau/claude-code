@@ -12,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -171,6 +173,11 @@ func openMigratedShadow(ctx context.Context) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("memory: shadow migrate: %w", err)
 	}
+	// statement journals stay in memory: each trigger-firing insert would otherwise pwrite them to a temp file
+	if _, err := db.ExecContext(ctx, `PRAGMA temp_store = MEMORY`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("memory: shadow open: %w", err)
+	}
 	return db, nil
 }
 
@@ -250,19 +257,21 @@ func shadowSync(ctx context.Context, db *sql.DB, root string, full bool) (Shadow
 func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (ShadowReport, []shadowDoc, error) {
 	var n ShadowReport
 	var changed []shadowDoc
+	var drop []string // full clears every row instead
+	if !full {
+		var err error
+		drop, err = staleDocs(ctx, tx, docs)
+		if err != nil || len(drop) == 0 { // drop holds every changed doc too
+			return n, nil, err // nothing moved: no identity to read, no row to touch
+		}
+	}
 	ids, err := shadowUIDs(ctx, tx) // read before the clear, so re-inserted entries keep their uid and base
 	if err != nil {
 		return n, nil, err
 	}
 	ids.adopt = full
 	ids.claimMoved(docs)
-	if full {
-		for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
-			if _, err := tx.ExecContext(ctx, q); err != nil {
-				return n, nil, err
-			}
-		}
-	} else if err := dropStale(ctx, tx, docs); err != nil {
+	if err := dropStale(ctx, tx, full, drop); err != nil {
 		return n, nil, err
 	}
 	for _, d := range docs {
@@ -307,8 +316,8 @@ func readFingerprints(ctx context.Context, db *sql.DB, full bool) (map[string]st
 	return known, rows.Err()
 }
 
-// dropStale deletes the rows of every changed doc and of every doc row whose file is gone.
-func dropStale(ctx context.Context, tx *sql.Tx, docs []shadowDoc) error {
+// staleDocs lists every changed doc and every doc row whose file is gone: the docs whose rows the sync drops.
+func staleDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc) ([]string, error) {
 	live := map[string]bool{}
 	var drop []string
 	for _, d := range docs {
@@ -319,20 +328,33 @@ func dropStale(ctx context.Context, tx *sql.Tx, docs []shadowDoc) error {
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT path FROM docs`)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var p string
 		if err := rows.Scan(&p); err != nil {
-			_ = rows.Close()
-			return err
+			return nil, err
 		}
 		if !live[p] {
 			drop = append(drop, p)
 		}
 	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
+	return drop, rows.Err()
+}
+
+// dropStale empties every rowid-keyed row when full, else deletes the rows of each doc in drop.
+func dropStale(ctx context.Context, tx *sql.Tx, full bool, drop []string) error {
+	if full {
+		// a full import dirties the whole db: a 128 MiB cache keeps it from spilling pages into the WAL mid-transaction
+		if _, err := tx.ExecContext(ctx, `PRAGMA cache_size = -131072`); err != nil {
+			return err
+		}
+		for _, q := range append(slices.Clone(shadowClear), "DELETE FROM meta WHERE key LIKE 'stat:%' OR key LIKE 'render:%'") {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
 	}
 	for _, p := range drop {
 		for _, q := range dropDocStmts {
@@ -429,7 +451,18 @@ var idMarkRE = regexp.MustCompile(`\s*<!-- id:[0-9a-f]{8} -->`)
 
 // canonText is an entry's content without id markers, whitespace or line wrapping: what a real edit changes.
 func canonText(s string) string {
-	return strings.Join(strings.Fields(idMarkRE.ReplaceAllString(s, "")), " ")
+	if strings.Contains(s, "<!-- id:") { // the regex cannot match without its literal prefix
+		s = idMarkRE.ReplaceAllString(s, "")
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for f := range strings.FieldsSeq(s) {
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(f)
+	}
+	return b.String()
 }
 
 // shadowIdentity matches re-imported entries to prior ones: by (doc, id) when that id is unique, else by (doc, seq).
@@ -584,53 +617,64 @@ func (s shadowIdentity) claimMoved(docs []shadowDoc) {
 
 // shadowDocs reads and parses every in-scope file under root, sorted by path.
 func shadowDocs(root string, known map[string]string) ([]shadowDoc, error) {
-	var docs []shadowDoc
+	type want struct {
+		rel, kind string
+		perEntry  bool
+	}
+	var wants []want
 	for _, name := range memory.BankFiles() {
-		d, ok, err := readShadowDoc(root, name, "bank", true, known)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			docs = append(docs, d)
-		}
+		wants = append(wants, want{name, "bank", true})
 	}
-	more, err := scopedDocs(root, known)
-	if err != nil {
-		return nil, err
-	}
-	docs = append(docs, more...)
-	slices.SortFunc(docs, func(a, b shadowDoc) int { return strings.Compare(a.path, b.path) })
-	return docs, nil
-}
-
-// scopedDocs is the archive, note and record files; a missing folder contributes nothing.
-func scopedDocs(root string, known map[string]string) ([]shadowDoc, error) {
-	var docs []shadowDoc
-	add := func(rel, kind string, perEntry bool) error {
-		d, ok, err := readShadowDoc(root, rel, kind, perEntry, known)
-		if ok {
-			docs = append(docs, d)
-		}
-		return err
-	}
+	bank := len(wants)
+	// scoped: the archive, note and record files; a missing folder contributes nothing
 	archives, err := walkMD(root, "archive", false)
 	for _, rel := range archives {
 		_, mapped := memory.ArchiveSource(filepath.Base(rel))
-		err = errors.Join(err, add(rel, "archive", mapped))
+		wants = append(wants, want{rel, "archive", mapped})
 	}
 	for kind, dirs := range map[string][]string{"note": shadowNoteDirs, "record": shadowRecordDirs} {
 		for _, dir := range dirs {
 			rels, werr := walkMD(root, dir, true)
 			err = errors.Join(err, werr)
 			for _, rel := range rels {
-				err = errors.Join(err, add(rel, kind, false))
+				wants = append(wants, want{rel, kind, false})
 			}
 		}
 	}
-	if err != nil {
+	got := make([]shadowDoc, len(wants))
+	oks := make([]bool, len(wants))
+	errs := make([]error, len(wants))
+	eachParallel(len(wants), func(i int) {
+		got[i], oks[i], errs[i] = readShadowDoc(root, wants[i].rel, wants[i].kind, wants[i].perEntry, known)
+	})
+	if i := slices.IndexFunc(errs[:bank], func(e error) bool { return e != nil }); i >= 0 {
+		return nil, errs[i] // the first bank error alone fails, as when read in turn
+	}
+	if err = errors.Join(append([]error{err}, errs[bank:]...)...); err != nil {
 		return nil, err
 	}
+	var docs []shadowDoc
+	for i, d := range got {
+		if oks[i] {
+			docs = append(docs, d)
+		}
+	}
+	slices.SortFunc(docs, func(a, b shadowDoc) int { return strings.Compare(a.path, b.path) })
 	return docs, nil
+}
+
+// eachParallel runs f(0..n-1) on up to 8 goroutines; each call must touch only its own index.
+func eachParallel(n int, f func(i int)) {
+	workers := min(runtime.GOMAXPROCS(0), 8, n)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Go(func() {
+			for i := w; i < n; i += workers {
+				f(i)
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // walkMD lists dir's regular *.md files (recursive when deep) as root-relative slash paths, dot names skipped.
@@ -744,8 +788,8 @@ func renderShadowDoc(ctx context.Context, db interface {
 		if !found {
 			parts, found = docHead(front, header, hidden), true
 		}
-		if lines.Valid {
-			parts = append(parts, strings.Split(lines.String, "\n")...)
+		if lines.Valid { // the join below restores the newlines a split would cut
+			parts = append(parts, lines.String)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -757,17 +801,17 @@ func renderShadowDoc(ctx context.Context, db interface {
 	return []byte(strings.Join(parts, "\n")), nil
 }
 
-// docHead is the front, header and hidden lines in Doc.Render order; NULL means absent.
+// docHead is the front, header and hidden blocks in Doc.Render order, for a "\n" join; NULL means absent.
 func docHead(front sql.NullString, header string, hidden sql.NullString) []string {
-	var parts []string
+	parts := make([]string, 0, 4)
 	if front.Valid {
-		parts = append(parts, strings.Split(front.String, "\n")...)
+		parts = append(parts, front.String)
 	}
 	if header != "" {
 		parts = append(parts, header)
 	}
 	if hidden.Valid {
-		parts = append(parts, strings.Split(hidden.String, "\n")...)
+		parts = append(parts, hidden.String)
 	}
 	return parts
 }

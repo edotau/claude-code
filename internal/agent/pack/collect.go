@@ -196,17 +196,12 @@ func (c *collector) skip(rel, reason string) {
 	c.out.Skipped = append(c.out.Skipped, SkippedFile{rel, reason})
 }
 
-// resolvesToSecret reports whether abs, with symlinks resolved, is secret-like relative to the real cwd.
-func (c *collector) resolvesToSecret(abs string) bool {
-	return SecretLike(relSlash(c.cwd, realPath(abs)))
-}
-
 // preSkipReason is why rel (at abs) is skipped before reading it, or "".
 func (c *collector) preSkipReason(rel, abs string) string {
 	switch {
 	case isIgnored(rel):
 		return "ignored-path"
-	case SecretLike(rel) || c.resolvesToSecret(abs):
+	case SecretLike(rel) || SecretLike(relSlash(c.cwd, realPath(abs))): // also with symlinks resolved
 		return "secret-like"
 	case c.maxFiles == 0:
 		return "index-only"
@@ -469,7 +464,6 @@ func gitEntryAbove(dir string) bool {
 	}
 }
 
-// readInclude bounded-reads abs; returns the IncludedFile or a skip reason (stat/open/read failures → read-error).
 // readCapped reads up to maxBytes+1 bytes (one past the cap proves truncation); size is only a capacity hint.
 func readCapped(f io.Reader, size int64, maxBytes int) ([]byte, error) {
 	var buf bytes.Buffer
@@ -480,6 +474,7 @@ func readCapped(f io.Reader, size int64, maxBytes int) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// readInclude bounded-reads abs; returns the IncludedFile or a skip reason (stat/open/read failures → read-error).
 func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error) {
 	info, err := os.Stat(abs)
 	if err != nil {

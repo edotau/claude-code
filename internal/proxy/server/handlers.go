@@ -362,13 +362,7 @@ func (r *Router) authorized(req *http.Request) bool {
 		return true
 	}
 	tok, profile := presentedSecret(req), profileOfPath(req.URL.Path)
-	return (r.sessions.accept(tok, profile) && r.fenceAllows(tok, profile)) || r.clientAccepted(req, tok, profile)
-}
-
-// fenceAllows reports tok's signed confinement fence admits profile; an unsigned token has none.
-func (r *Router) fenceAllows(tok, profile string) bool {
-	c, ok := r.sessions.claims(tok)
-	return !ok || c.FenceAllows(profile)
+	return r.sessions.accept(tok, profile) || r.clientAccepted(req, tok, profile)
 }
 
 // admit scopes a token to its profile set, drops the proxy auth headers, and honours the identity for launches only.
@@ -385,8 +379,8 @@ func (r *Router) admit(req *http.Request) *http.Request {
 		r.touch(req.Context(), scope...)
 		ctx := context.WithValue(req.Context(), scopeKey{}, scope)
 		// a fenced token never fails over: the sibling profiles of its provider lie outside the fence
-		if fp := r.sessions.failoverProvider(tok); fp != "" && !c.Fenced() {
-			ctx = context.WithValue(ctx, failoverProviderKey{}, fp)
+		if c.Failover != "" && !c.Fenced() {
+			ctx = context.WithValue(ctx, failoverProviderKey{}, c.Failover)
 		}
 		req = req.WithContext(ctx)
 	}
@@ -403,7 +397,7 @@ func (r *Router) refuseUnauthorized(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set(proxy.RefusalHeader, proxy.RefusalSession) // the proxy's own refusal: no upstream ever saw it
 		why := r.sessions.refusal(tok, profileOfPath(req.URL.Path))
 		if c, ok := r.sessions.claims(tok); ok && !c.FenceAllows(profileOfPath(req.URL.Path)) {
-			why = "session token is outside its confinement fence"
+			why = whyFenced
 		}
 		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret: "+why+
 			" ("+proxy.RefusalSession+"; apiKeyHelper: claude-code resolve --secret --proxy)")

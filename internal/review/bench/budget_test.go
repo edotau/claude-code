@@ -25,11 +25,11 @@ func TestAllowCountLimit(t *testing.T) {
 					t.Fatalf("refused before limit: %s", why)
 				}
 				for range 2 {
-					if err := Record(kind, strconv.Itoa(i), 0, now); err != nil {
+					if err := appendBudgetRow(budgetRow{At: now, Kind: kind, ID: strconv.Itoa(i), Tokens: 0}); err != nil {
 						t.Fatal(err)
 					}
 				}
-				if err := Record(kind, "", 1, now); err != nil {
+				if err := appendBudgetRow(budgetRow{At: now, Kind: kind, ID: "", Tokens: 1}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -44,7 +44,7 @@ func TestAllowTokenLimit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	for _, kind := range []string{KindBenchLoop, KindGateFix} {
-		if err := Record(kind, "", dailyTokens/2, now); err != nil {
+		if err := appendBudgetRow(budgetRow{At: now, Kind: kind, ID: "", Tokens: dailyTokens / 2}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -59,7 +59,7 @@ func TestAllowCorruptLedger(t *testing.T) {
 	for _, raw := range []string{"not json\n", "{}\n", "null\n", "\n"} {
 		t.Run(fmt.Sprintf("%q", raw), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			if err := Record(KindBenchLoop, "one", 0, time.Now()); err != nil {
+			if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindBenchLoop, ID: "one", Tokens: 0}); err != nil {
 				t.Fatal(err)
 			}
 			if err := paths.AppendLine(filepath.Join(benchRoot(), "budget.jsonl"), []byte(raw)); err != nil {
@@ -86,7 +86,7 @@ func TestAllowLocalDayBoundary(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	loc := time.FixedZone("local", -5*60*60)
 	before := time.Date(2026, 11, 23, 23, 59, 59, 0, loc)
-	if err := Record(KindBenchLoop, "yesterday", dailyTokens, before.UTC()); err != nil {
+	if err := appendBudgetRow(budgetRow{At: before.UTC(), Kind: KindBenchLoop, ID: "yesterday", Tokens: dailyTokens}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := allow(KindBenchLoop, before); ok {
@@ -101,7 +101,7 @@ func TestReserveAtomicAtLimit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	for i := range dailyBenchLoops - 1 {
-		if err := Record(KindBenchLoop, "seed"+strconv.Itoa(i), 0, now); err != nil {
+		if err := appendBudgetRow(budgetRow{At: now, Kind: KindBenchLoop, ID: "seed" + strconv.Itoa(i), Tokens: 0}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -109,8 +109,7 @@ func linePick(agentName, model string, o batchOpts) (string, error) {
 	return reportPick(pickWith(o.Reg, q, time.Now()))
 }
 
-// runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; code 0 if all
-// ok, 2 when every line was refused for its model string, else 1.
+// runBatch runs a task per line on the pool (a bad line fails alone); 0 all ok, 2 every line model-refused, else 1.
 func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions,
 	newClient func() *agent.Client, out io.Writer) (id string, code int) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))

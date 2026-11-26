@@ -446,10 +446,7 @@ func parseHeaders(raw string, log io.Writer) map[string]string {
 
 // protectedKeys is the canonical set of header names HARNESS_HEADERS may not set.
 func protectedKeys() map[string]bool {
-	protected := map[string]bool{}
-	for k := range protectedHeaders {
-		protected[k] = true
-	}
+	protected := maps.Clone(protectedHeaders)
 	for _, k := range launcherHeaders {
 		protected[textproto.CanonicalMIMEHeaderKey(k)] = true
 	}

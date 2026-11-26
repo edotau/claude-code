@@ -31,7 +31,7 @@ func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
 	if o.Fallback != route.FallbackNone || o.Agent != "claude" || !o.Tools || o.WorkDir != "/w" {
 		t.Fatalf("memoryRunOptions = %+v, want claude with tools and FallbackNone", o)
 	}
-	if o.Runner != route.RunnerOwn {
+	if o.Runner != route.RunnerCLI {
 		t.Fatalf("Runner = %q, want own so Pi never leads a memory job", o.Runner)
 	}
 }
@@ -40,7 +40,7 @@ func TestMemoryHopOptionsAgreeOnTarget(t *testing.T) {
 	base := memoryRunOptions(context.Background(), "p", "/w")
 	base.Lead, base.Account = "dev", "acct"
 	o := hopOptions(base, route.Route{Provider: "databricks", Profile: "qa"})
-	if o.Provider != "qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != route.RunnerOwn {
+	if o.Provider != "qa" || o.Route.Profile != "qa" || o.Lead != "qa" || o.Account != "" || o.Runner != route.RunnerCLI {
 		t.Fatalf("hopOptions = %+v, want one qa target with the own runner", o)
 	}
 }

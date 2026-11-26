@@ -130,10 +130,8 @@ func profileGroup(p *providers.Provider, infos []providers.ModelInfo, session st
 func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, session string) endpointModel {
 	api := wireAPI[wire]
 	window, output := providers.Window(p, info.ID), maxOutputCap
-	if l, ok := models.Limits(info.ID); ok {
-		if l.Output > 0 {
-			output = min(output, l.Output)
-		}
+	if l, ok := models.Limits(info.ID); ok && l.Output > 0 {
+		output = min(output, l.Output)
 	}
 	claude := models.FamilyKind(info.ID) == models.FamilyClaude
 	m := endpointModel{ID: info.ID, Name: info.ID, URL: session + api.path, APIType: api.apiType, ToolCalling: true,
@@ -148,13 +146,10 @@ func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, sessio
 
 // syncModels removes the groups an older merge wrote, returning their names; check never writes.
 func syncModels(dest string, check bool) (mergeResult, []string, error) {
-	if check {
-		return mergeModels(dest, true)
-	}
 	var result mergeResult
 	var removed []string
-	err := withLock("vscode-models.lock", dest, func() (mergeErr error) {
-		result, removed, mergeErr = mergeModels(dest, false)
+	err := withLock("vscode-models.lock", dest, check, func() (mergeErr error) {
+		result, removed, mergeErr = mergeModels(dest, check)
 		return mergeErr
 	})
 	return result, removed, err
@@ -339,19 +334,19 @@ func closeEntries(elems [][]byte, last []byte) (_ [][]byte, tail string) {
 	return elems, string(bytes.TrimSpace(last))
 }
 
-// resolveModelsDest mirrors resolveKeybindingsDest: explicit wins, an explicit settings dest keeps its directory.
-func resolveModelsDest(modelsDest, dest string) (path string, skip bool, note string, err error) {
+// resolveDest places file: explicit wins, then the explicit settings dest's directory, else the keybindings' User dir.
+func resolveDest(explicit, dest, file, label string) (path string, skip bool, note string, err error) {
 	switch {
-	case modelsDest != "":
-		return modelsDest, false, "", nil
+	case explicit != "":
+		return explicit, false, "", nil
 	case dest != "":
-		return filepath.Join(filepath.Dir(dest), modelsFileName), false, "", nil
+		return filepath.Join(filepath.Dir(dest), file), false, "", nil
 	}
 	kb, skip, note, err := defaultKeybindingsDest()
 	if err != nil || skip {
-		return "", skip, strings.ReplaceAll(note, "keybindings", "chat models"), err
+		return "", skip, strings.ReplaceAll(note, "keybindings", label), err
 	}
-	return filepath.Join(filepath.Dir(kb), modelsFileName), false, "", nil
+	return filepath.Join(filepath.Dir(kb), file), false, "", nil
 }
 
 // printModels writes the Databricks chat models as JSON for the editor's chat provider; it never writes a file.

@@ -52,14 +52,10 @@ func runTailscalePage(d *dialog) {
 	}
 	s.Run("tailscale", func() []shellRow {
 		st, err := tailscaleStatus(context.Background())
-		state := ansi.SpanOff + "not connected" + ansi.SpanEnd
+		state, login := ansi.SpanOff+"not connected"+ansi.SpanEnd, "browser sign-in"
 		if err == nil {
 			host, _, _ := strings.Cut(st.DNSName, ".")
-			state = host + " · " + tsGreen("running")
-		}
-		login := "browser sign-in"
-		if err == nil {
-			login = "add or switch account"
+			state, login = host+" · "+tsGreen("running"), "add or switch account"
 		}
 		rows := []shellRow{act("login", login, func() { tsSignIn(d) }), act("status", state, func() { runRemote(d) })}
 		auth := "mint, show once"

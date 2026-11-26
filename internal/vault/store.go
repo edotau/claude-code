@@ -130,13 +130,10 @@ const (
 func Lookup(name string) (value, source string, err error) {
 	v, found, err := ReadSecret(name)
 	ev, envOK := envSet(name)
-	if err != nil {
-		if envOK {
-			return ev, "env", nil
-		}
+	if err != nil && !envOK {
 		return "", "", err
 	}
-	if found {
+	if err == nil && found {
 		return v, "vault", nil
 	}
 	if envOK {

@@ -4,7 +4,6 @@ package route
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -155,8 +154,8 @@ func ReadDoc(raw string) (Route, Fence, error) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &doc); err != nil {
 		return Route{}, Fence{}, errors.New("not valid JSON")
 	}
-	if doc.Provider != "" && !slices.Contains(Providers, doc.Provider) {
-		return Route{}, Fence{}, fmt.Errorf("unknown provider (%s)", strings.Join(Providers, "|"))
+	if err := (Route{Provider: doc.Provider}).CheckProvider(); err != nil {
+		return Route{}, Fence{}, err
 	}
 	if err := doc.Validate(); err != nil {
 		return Route{}, Fence{}, err

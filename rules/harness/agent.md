@@ -75,7 +75,7 @@ paths:
 ### pi runner
 
 - A roster agent's first hop on its own Databricks route uses Pi with that agent's resolved model, then its own CLI.
-  `runner: own`, model auto, resumed sessions and `native: true` keep the own CLI; workspace auto and fallback none
+  `runner: cli`, model auto, resumed sessions and `native: true` keep the own CLI; workspace auto and fallback none
   keep Pi first. Profile pins keep the workspace. Anthropic, Copilot and Google own-login routes are unchanged.
 - Plain `agent: pi` without overlay/env/vault fallback uses `agents`: Pi on the workspace, then sibling workspaces
   with the same model (unless a rotation drop or confinement bars them), then Claude on that workspace.

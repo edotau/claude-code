@@ -92,10 +92,6 @@ func (g graph) addEmbeds(dir string, files []string, test bool) {
 }
 
 // closure returns each root plus every module package it reaches (a root's own test imports count, a dependency's not).
-func closure(list []goPkg, abs string, roots []string) map[string]bool {
-	return newGraph(list, abs).closure(roots)
-}
-
 func (g graph) closure(roots []string) map[string]bool {
 	out, queue := map[string]bool{}, []string{}
 	for _, r := range roots {

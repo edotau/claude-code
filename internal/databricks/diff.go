@@ -91,11 +91,7 @@ func maskMaps(o, n any, om, nm map[string]any, ook, nok, secret bool, key string
 	maps.Copy(nn, nm)
 	masked := func(k string) bool { return secret || credLeaf(k) || strings.EqualFold(k, "headers") }
 	for k := range oo {
-		ov, nv := oo[k], any(nil)
-		if v, ok := nn[k]; ok {
-			nv = v
-		}
-		ov, nv = maskPair(ov, nv, masked(k), k)
+		ov, nv := maskPair(oo[k], nn[k], masked(k), k)
 		oo[k] = ov
 		if _, ok := nn[k]; ok {
 			nn[k] = nv

@@ -72,16 +72,13 @@ var solidNotImpl = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)raise\s+notimplementederror|not\s+implemented`)
 })
 var solidImports = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^(?:import|from)\s+`)
+	return regexp.MustCompile(`^(?:import|from)\s+`)
 })
 var commentedCodePattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)^\s*[#/]+\s*(if|for|while|def|function|class|const|let|var)\s.*[{:;(]\s*$`)
 })
 var constDefinition = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\s*(?:const\s+\w+(?:\s+\w+)?|[A-Z][A-Z0-9_]*(?:\s*:[^=]+)?)\s*=[^=]`)
-})
-var magicNumberDigits = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\d{3,}`)
 })
 
 // DetectLanguage mirrors quality_core.detect_language.
@@ -366,16 +363,35 @@ var pythonNestedClass = sync.OnceValue(func() *regexp.Regexp {
 })
 
 var goReceiverPattern = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^func\s+\(\s*(?:\w+\s+)?\*?(\w+)(?:\[[^\]]*\])?\s*\)`)
+	return regexp.MustCompile(`^func\s+\(\s*(?:\w+\s+)?\*?(\w+)(?:\[[^\]]*\])?\s*\)`)
 })
 
 // goMethodCounts tallies `func (r *?Name[...]) ` receivers by type name across content (methods live outside the type).
 func goMethodCounts(content string) map[string]int {
 	counts := map[string]int{}
-	for _, m := range goReceiverPattern().FindAllStringSubmatch(content, -1) {
+	for _, m := range lineStartMatches(content, goReceiverPattern(), "func") {
 		counts[m[1]]++
 	}
 	return counts
+}
+
+// lineStartMatches is FindAllStringSubmatch of a (?m)^ pattern: anchored tries only at line starts with a prefix.
+func lineStartMatches(content string, anchored *regexp.Regexp, prefixes ...string) [][]string {
+	var out [][]string
+	end := 0 // like FindAll, a match never starts inside the previous one
+	for p := 0; p < len(content); {
+		if p >= end && textutil.HasAnyPrefix(content[p:], prefixes...) {
+			if m := anchored.FindStringSubmatch(content[p:]); m != nil {
+				out, end = append(out, m), p+len(m[0])
+			}
+		}
+		nl := strings.IndexByte(content[p:], '\n')
+		if nl < 0 {
+			break
+		}
+		p += nl + 1
+	}
+	return out
 }
 
 // findClasses ports quality_core.find_classes.
@@ -414,13 +430,17 @@ func findClasses(content, language string) []ClassInfo {
 	return out
 }
 
-// magicNumberOnLine ports the `\b(?<![.\"\'])\d{3,}\b(?!\.\d)` lookaround via manual boundary checks (RE2 has none).
+// magicNumberOnLine ports `\b(?<![.\"\'])\d{3,}\b(?!\.\d)` by hand (RE2 lacks lookaround); none on a const line.
 func magicNumberOnLine(line string) (string, bool) {
-	for _, loc := range magicNumberDigits().FindAllStringIndex(line, -1) {
-		start, end := loc[0], loc[1]
-		if magicNumberBounded(line, start, end) {
-			return line[start:end], true
+	for start := 0; start < len(line); start++ { // each maximal run of 3+ ASCII digits, as `\d{3,}` finds them
+		end := start
+		for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+			end++
 		}
+		if end-start >= 3 && magicNumberBounded(line, start, end) {
+			return line[start:end], !constDefinition().MatchString(line)
+		}
+		start = end
 	}
 	return "", false
 }
@@ -476,14 +496,14 @@ func lineSmells(content string) []Smell {
 		var prose bool
 		prose, closer = proseLine(trimmed, closer)
 		skip := prose || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
-			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from") || constDefinition().MatchString(line)
+			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from")
 		if !skip {
 			if m, ok := magicNumberOnLine(line); ok {
 				smells = append(smells, Smell{Type: "magic_number", Severity: "low",
 					Message: fmt.Sprintf("Magic number %s should be a named constant", m), Location: fmt.Sprintf("line %d", lineNo)})
 			}
 		}
-		if commentedCodePattern().MatchString(line) {
+		if strings.ContainsAny(line, "#/") && commentedCodePattern().MatchString(line) {
 			smells = append(smells, Smell{Type: "commented_code", Severity: "low",
 				Message: "Commented-out code should be removed", Location: fmt.Sprintf("line %d", lineNo)})
 		}
@@ -550,19 +570,37 @@ func functionSmells(f FunctionInfo) []Smell {
 // checkSolidViolations ports quality_core.check_solid_violations.
 func checkSolidViolations(content string) []SolidViolation {
 	var out []SolidViolation
-	if n := len(solidTypeCheck().FindAllString(content, -1)); n > 2 {
+	if n := matchCountFrom(content, solidTypeCheck(), "isinstance(", "type(", "typeof"); n > 2 {
 		out = append(out, SolidViolation{Principle: "OCP", Name: "Open/Closed Principle", Severity: "medium",
 			Message: fmt.Sprintf("Found %d type checks - consider using polymorphism", n)})
 	}
-	if n := len(solidNotImpl().FindAllString(content, -1)); n > 0 {
+	notImpl := 0
+	if strings.Contains(strings.ToLower(content), "implemented") { // in every match; its letters fold only by ASCII case
+		notImpl = len(solidNotImpl().FindAllString(content, -1))
+	}
+	if n := notImpl; n > 0 {
 		out = append(out, SolidViolation{Principle: "LSP/ISP", Name: "Liskov/Interface Segregation", Severity: "low",
 			Message: fmt.Sprintf("Found %d unimplemented methods - may indicate oversized interface", n)})
 	}
-	if n := len(solidImports().FindAllString(content, -1)); n > qualityThresholds["max_imports"] {
+	if n := len(lineStartMatches(content, solidImports(), "import", "from")); n > qualityThresholds["max_imports"] {
 		out = append(out, SolidViolation{Principle: "DIP", Name: "Dependency Inversion Principle", Severity: "low",
 			Message: fmt.Sprintf("File has %d imports - consider dependency injection", n)})
 	}
 	return out
+}
+
+// matchCountFrom is len(re.FindAllString(content, -1)) for a context-free re whose every match starts with a lit.
+func matchCountFrom(content string, re *regexp.Regexp, lits ...string) int {
+	first := -1
+	for _, lit := range lits {
+		if i := strings.Index(content, lit); i >= 0 && (first < 0 || i < first) {
+			first = i
+		}
+	}
+	if first < 0 {
+		return 0
+	}
+	return len(re.FindAllString(content[first:], -1))
 }
 
 // calculateQualityScore ports quality_core.calculate_quality_score.
@@ -699,13 +737,7 @@ func capSlice[T any](s []T, n int) []T {
 type PyFloat float64
 
 // MarshalJSON implements json.Marshaler.
-func (v PyFloat) MarshalJSON() ([]byte, error) {
-	s := strconv.FormatFloat(float64(v), 'f', -1, 64)
-	if !strings.Contains(s, ".") {
-		s += ".0"
-	}
-	return []byte(s), nil
-}
+func (v PyFloat) MarshalJSON() ([]byte, error) { return []byte(FormatPyFloat(float64(v))), nil }
 
 // Extensions mirrors quality_core.LANGUAGE_EXTENSIONS; map order is random, so iterate languageOrder.
 var Extensions = map[string][]string{

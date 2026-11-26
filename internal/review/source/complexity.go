@@ -111,17 +111,7 @@ func deepestIndentUnits(text string) int {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		leading := 0
-		for _, r := range line {
-			if r == ' ' || r == '\t' || r == '\v' || r == '\f' || r == '\r' {
-				leading++
-				continue
-			}
-			break
-		}
-		if depth := leading / 2; depth > deepest {
-			deepest = depth
-		}
+		deepest = max(deepest, (len(line)-len(strings.TrimLeft(line, " \t\v\f\r")))/2)
 	}
 	return deepest
 }
@@ -196,10 +186,7 @@ func complexityContent(path, text, lang string, th thresholds) (*fileResult, err
 			score -= 5
 		}
 	}
-	if score < 0 {
-		score = 0
-	}
-	return &fileResult{File: path, Language: lang, Lines: lineCount, Score: score, Findings: NonNil(findings)}, nil
+	return &fileResult{File: path, Language: lang, Lines: lineCount, Score: max(score, 0), Findings: NonNil(findings)}, nil
 }
 
 // importCountFinding is the shared import-coupling check.
@@ -271,16 +258,12 @@ func walkComplexityFiles(target string, extensions []string, warn io.Writer) (fi
 
 // buildComplexitySummary ports complexity_checker.build_summary.
 func buildComplexitySummary(results []fileResult, threshold string) complexitySummary {
-	total := 0
+	total, sum := 0, 0
 	for _, r := range results {
-		total += len(r.Findings)
+		total, sum = total+len(r.Findings), sum+r.Score
 	}
 	avg := 100.0
 	if len(results) > 0 {
-		sum := 0
-		for _, r := range results {
-			sum += r.Score
-		}
 		avg = Round1(float64(sum) / float64(len(results)))
 	}
 	verdict := "PASS"

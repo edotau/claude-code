@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -17,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -41,10 +43,16 @@ func armRateFixture(t *testing.T, limited, broke []string, denied ...string) str
 	for _, w := range denied {
 		fmt.Fprintf(&cond, `*"/p/%s/"*) echo '401 Unauthorized: invalid token' >&2; exit 1;; `, w)
 	}
-	pathstest.FakeVendor(t, "codex", `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; `+
-		`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac`+"\n"+`n=$(ls `+dump+` | wc -l | tr -d ' ')`+"\n"+
-		`all="$* $(env)"; echo "$all" > `+dump+`/$n-codex`+"\n"+
-		`cat > /dev/null; case "$all" in `+cond.String()+`*) echo hello;; esac`)
+	// the per-test answers live in a sourced file, so every test links the one codex script (see linkFake)
+	if err := os.WriteFile(filepath.Join(paths.ConfigDir(), "arm-codex-answer"),
+		[]byte(`case "$all" in `+cond.String()+`*) echo hello;; esac`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkFake(t, "codex", `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; `+
+		`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac`+"\n"+
+		`IFS= read -r dump < "$CLAUDE_CONFIG_DIR/arm-dump-path" || exit 1`+"\n"+`n=$(ls "$dump" | wc -l | tr -d ' ')`+"\n"+
+		`all="$* $(env)"; echo "$all" > "$dump/$n-codex"`+"\n"+
+		`cat > /dev/null; . "$CLAUDE_CONFIG_DIR/arm-codex-answer"`)
 	origRetry := [3]time.Duration{retry.DefaultBaseDelay, retry.DefaultMaxDelay, retry.RateLimitFloor}
 	retry.DefaultBaseDelay, retry.DefaultMaxDelay, retry.RateLimitFloor = time.Millisecond, 2*time.Millisecond, time.Millisecond
 	retry.ResetCooldowns()
@@ -562,7 +570,7 @@ func TestCheckArmClampsFallbackForTypedModel(t *testing.T) {
 // An auto pick keeps the runner on the picked workspace, not a sibling or another provider.
 func TestAutoPickedDatabricksPiFirst(t *testing.T) {
 	armChildEnvFixture(t)
-	pathstest.FakeVendor(t, "pi", "exit 0")
+	linkFake(t, "pi", "exit 0")
 	oldFind := armFindings
 	armFindings = noCredential(nil)
 	t.Cleanup(func() { armFindings = oldFind })
@@ -603,7 +611,7 @@ func TestAutoPickedDatabricksPiFirst(t *testing.T) {
 // A retry retains Pi-first provenance when it replays the picked workspace rather than choosing a new route.
 func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
 	armChildEnvFixture(t)
-	pathstest.FakeVendor(t, "pi", "exit 0")
+	linkFake(t, "pi", "exit 0")
 	t.Setenv(router.EnvFallback, "")
 	rec := agent.NewRecord("claude", agent.RunOptions{Model: "claude-sonnet-5-5", Fallback: route.FallbackNone,
 		FallbackDefaulted: true, AutoArm: true, Prompt: "reply ok"}, time.Now())
@@ -661,7 +669,7 @@ func TestRetryFollowsAnsweringRoute(t *testing.T) {
 
 func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
 	cliEnv(t)
-	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","fallback":"all","runner":"own"}`})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","fallback":"all","runner":"cli"}`})
 	depth := 2
 	claim := &agent.Record{Overlay: &agent.StoredOverlay{Model: "claude-sonnet-5-5", MaxDepth: &depth}}
 	values, err := armRetryValues(ctx, nil, "qa", claim)
@@ -672,7 +680,7 @@ func TestArmRetryValuesKeepsOverlayPolicy(t *testing.T) {
 	if err := json.Unmarshal([]byte(values[route.OverlayVar]), &ov); err != nil {
 		t.Fatal(err)
 	}
-	if ov.Profile != "qa" || ov.Fallback != "all" || ov.Runner != "own" {
+	if ov.Profile != "qa" || ov.Fallback != "all" || ov.Runner != "cli" {
 		t.Fatalf("workspace retry erased routing provenance: %+v", ov)
 	}
 	if ov.Model != "claude-sonnet-5-5" || ov.MaxDepth == nil || *ov.MaxDepth != 2 {

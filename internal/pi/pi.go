@@ -338,7 +338,7 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
 			p.Env = append(p.Env, guardToolsEnv+"="+guardToolsFor(p.Env), guardVerifyEnv+"="+req.Verify)
-			if codemodeOn(req.Codemode) {
+			if rtkwrap.CodemodeOn(req.Codemode) {
 				p.Env = append(p.Env, guardCodemodeEnv+"=1")
 				p.Env = codemodeLaunchEnv(p.Env, req.Codemode) // the shim strips rtk prefixes and never wraps
 			}

@@ -121,15 +121,6 @@ type RegistryModel struct {
 // Ref is the CLI's selection string for m.
 func (m RegistryModel) Ref() string { return m.Provider + "/" + m.ID }
 
-// ClientEnv is the complete env the runtime child gets for o.
-func ClientEnv(ctx context.Context, o Options) ([]string, error) {
-	co, err := buildClientOptions(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return co.Connection.(copilot.StdioConnection).Env, nil
-}
-
 // buildClientOptions pins stdio at an explicit CLI path; Env on the connection is the child's complete env.
 func buildClientOptions(ctx context.Context, o Options) (*copilot.ClientOptions, error) {
 	if strings.TrimSpace(o.CLIPath) == "" {

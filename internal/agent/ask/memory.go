@@ -67,7 +67,7 @@ func (r *askRun) startRecall(prompt string) func() string {
 // memoryRunOptions pins the memory job to claude's own CLI: it holds write tools, so Pi never leads.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	o := agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: true, WorkDir: workdir,
-		Fallback: route.FallbackNone, Runner: route.RunnerOwn}
+		Fallback: route.FallbackNone, Runner: route.RunnerCLI}
 	if schema := memory.JobAnswerSchema(ctx); schema != "" {
 		o.OutputSchema, o.Tools = schema, false
 	}

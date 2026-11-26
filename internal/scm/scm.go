@@ -72,10 +72,10 @@ type Repo struct {
 // Detect classifies a git remote URL; any non-GitHub remote is Bitbucket.
 func Detect(remote string) (Repo, error) {
 	host, path, ok := splitRemote(strings.TrimSpace(remote))
-	if !ok {
-		return Repo{}, fmt.Errorf("cannot parse git remote %q", redact(remote))
-	}
 	shown := redact(remote)
+	if !ok {
+		return Repo{}, fmt.Errorf("cannot parse git remote %q", shown)
+	}
 	lower := strings.ToLower(host)
 	isHTTP := strings.HasPrefix(strings.TrimSpace(remote), "http")
 	isSCP := !strings.Contains(remote, "://")

@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // gitRepo is a temp repo with one commit holding internal/x/a.go.
@@ -63,8 +64,8 @@ func TestDriverLineHelpers(t *testing.T) {
 		if got := firstLine(c.in); got != c.first {
 			t.Errorf("firstLine(%q) = %q, want %q", c.in, got, c.first)
 		}
-		if got := lastLine(c.in); got != c.last {
-			t.Errorf("lastLine(%q) = %q, want %q", c.in, got, c.last)
+		if got := textutil.LastLine(c.in); got != c.last {
+			t.Errorf("textutil.LastLine(%q) = %q, want %q", c.in, got, c.last)
 		}
 	}
 }
@@ -421,7 +422,7 @@ func ledgerLoops(t *testing.T) int {
 func TestDriverHandRunStopsAtTokenLimit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	noDispatch(t)
-	if err := Record(KindGateFix, "", dailyTokens, time.Now()); err != nil {
+	if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindGateFix, ID: "", Tokens: dailyTokens}); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -442,7 +443,7 @@ func TestDriverLoopStopsWhenItemsSpendTheDay(t *testing.T) {
 	steps := scripted([]outcome{kept}, false, &calls)
 	item := steps.item
 	steps.item = func(ctx context.Context, it Item) (outcome, error) {
-		if err := Record(KindBenchLoop, "", dailyTokens, time.Now()); err != nil {
+		if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindBenchLoop, ID: "", Tokens: dailyTokens}); err != nil {
 			t.Fatal(err)
 		}
 		return item(ctx, it)
@@ -457,7 +458,7 @@ func TestDriverHandRunRefusedAtFiveLoops(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	noDispatch(t)
 	for i := range dailyBenchLoops {
-		if err := Record(KindBenchLoop, strconv.Itoa(i), 0, time.Now()); err != nil {
+		if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindBenchLoop, ID: strconv.Itoa(i), Tokens: 0}); err != nil {
 			t.Fatal(err)
 		}
 	}

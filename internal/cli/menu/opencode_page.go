@@ -4,6 +4,7 @@
 package menu
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,10 +41,7 @@ func opencodeName(in opencode.OpencodeIntegration) string {
 	if n, ok := opencodeNames[in.ID]; ok {
 		return n
 	}
-	if in.Name != "" {
-		return in.Name
-	}
-	return in.ID
+	return cmp.Or(in.Name, in.ID)
 }
 
 // ocLogoutKey is ctrl+d: the page's double-press logout bind.

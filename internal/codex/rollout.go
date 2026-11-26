@@ -80,6 +80,9 @@ func readTokenCounts(path string, off int64) (int64, *wire.Usage) {
 	end := bytes.LastIndexByte(data, '\n') + 1
 	var last *wire.Usage
 	for line := range bytes.SplitSeq(data[:end], []byte{'\n'}) {
+		if !bytes.Contains(line, []byte(`"token_count"`)) { // skip decoding the bulky item records
+			continue
+		}
 		var rec struct {
 			Payload struct {
 				Type string `json:"type"`

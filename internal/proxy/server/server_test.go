@@ -360,7 +360,7 @@ func TestAuthRefreshFailureInvalidatesCachedCredential(t *testing.T) {
 	}
 
 	req := testRequest(t, http.MethodPost, up.URL, strings.NewReader("{}"))
-	if _, err := r.send(req, p, up.URL, []byte("{}"), func(http.Header) {}); err == nil {
+	if _, err := r.sendMethod(req, http.MethodPost, p, up.URL, []byte("{}"), func(http.Header) {}); err == nil {
 		t.Fatal("expected send to surface the Refresh failure")
 	}
 

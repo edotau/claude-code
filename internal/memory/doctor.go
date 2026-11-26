@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hooktelemetry"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -168,11 +169,6 @@ func markDoctorNoticeShown(path, stamp string) bool {
 	return shown
 }
 
-// writeDoctorNotice runs the doctor and caches its notice for root.
-func writeDoctorNotice(root string, staleDays int, now time.Time) error {
-	return cacheDoctorNotice(doctor(root, staleDays, now))
-}
-
 // cacheDoctorNotice caches problems' first line and a count (hot hints excluded); empty means checked and healthy.
 func cacheDoctorNotice(problems []string) error {
 	problems = slices.DeleteFunc(slices.Clone(problems), func(p string) bool {
@@ -203,34 +199,34 @@ func cacheDoctorNotice(problems []string) error {
 
 // refreshNotice re-caches root's session-start notice once its bank is settled; a failure is a note on w, never fatal.
 func refreshNotice(w io.Writer, verb, root string) {
-	if err := writeDoctorNotice(root, DefaultStaleDays, time.Now()); err != nil {
-		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
-	}
-}
-
-func refreshBankNotice(w io.Writer, verb, root string) {
-	if err := cacheDoctorNotice(doctorBank(root, DefaultStaleDays, time.Now())); err != nil {
+	if err := cacheDoctorNotice(doctor(root, DefaultStaleDays, time.Now())); err != nil {
 		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
 	}
 }
 
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
-	return doctorBank(root, staleDays, now)
-}
-
-func doctorBank(root string, staleDays int, now time.Time) []string {
-	problems := indexProblems(now) // first: the session-start notice shows only the first problem
-	stat := statBank()
-	problems = append(problems, bankProblems("home", stat, staleDays, now)...)
-	problems = append(problems, roundTripProblems(stat)...)
-	problems = append(problems, updateProblems(now)...)
-	problems = append(problems, journalProblems(now)...)
-	if root != "" {
-		problems = append(problems, nativeLinkProblems(root)...)
+	checks := []func() []string{
+		func() []string { return indexProblems(now) }, // first: the session-start notice shows only the first problem
+		func() []string {
+			stat := statBank()
+			return append(bankProblems("home", stat, staleDays, now), roundTripProblems(stat)...)
+		},
+		func() []string { return updateProblems(now) },
+		func() []string { return journalProblems(now) },
+		func() []string {
+			if root == "" {
+				return nil
+			}
+			return nativeLinkProblems(root)
+		},
+		candidateProblems,
+		func() []string { return accessNominations(now) },
 	}
-	problems = append(problems, candidateProblems()...)
-	return append(problems, accessNominations(now)...)
+	// The checks only read, so they run at once; the slots keep the report order.
+	found := make([][]string, len(checks))
+	parallel.Rethrow(parallel.All(len(checks), func(i int) error { found[i] = checks[i](); return nil })...)
+	return slices.Concat(found...)
 }
 
 // indexNotice is the session-start line for any index problem; `memory review` prints the cause and the fix.

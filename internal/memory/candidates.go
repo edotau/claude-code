@@ -78,11 +78,8 @@ func readCandidates() []candidate {
 
 // readCandidatesErr is readCandidates that reports a read failure; a missing file is no error, just no records.
 func readCandidatesErr() ([]candidate, error) {
-	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
+	data, _, err := readCandidatesLocked()
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
 		return nil, err
 	}
 	var out []candidate

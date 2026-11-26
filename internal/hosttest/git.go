@@ -61,8 +61,8 @@ func RepoAt(t *testing.T, dir string) string {
 	return dir
 }
 
-// cleanEnv returns os.Environ() without the git variables that override repository discovery.
-func cleanEnv() []string {
+// cleanEnv is os.Environ() minus git's discovery overrides, plus a fixed identity at email and no global config.
+func cleanEnv(email string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -72,15 +72,15 @@ func cleanEnv() []string {
 		}
 		env = append(env, kv)
 	}
-	return env
+	return append(env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL="+email, "GIT_COMMITTER_NAME=t",
+		"GIT_COMMITTER_EMAIL="+email, "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 }
 
 func buildTemplate() {
 	if tmpl, tmplErr = os.MkdirTemp("", "gittest-"); tmplErr != nil {
 		return
 	}
-	env := append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	env := cleanEnv("t@t.com")
 	steps := [][]string{{"init", "-q", "-b", "main"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t.com"},
 		{"commit", "--allow-empty", "-q", "-m", "init"}}
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
@@ -102,8 +102,7 @@ func In(t *testing.T, dir string, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+	cmd.Env = cleanEnv("t@t")
 	ownGroup(cmd)
 	cmd.WaitDelay = gitTimeout // a hook child holding the pipes must not block Wait after the kill
 	var stdout, stderr bytes.Buffer

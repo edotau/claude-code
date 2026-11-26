@@ -246,15 +246,14 @@ func ValidateRoutingInputOn(f RoutingField, input string, cur providers.Routing)
 func ApplyStagedRouting(r *providers.Routing, staged map[string]string, resetKeys map[string]bool) error {
 	for _, m := range Modules() {
 		for _, f := range m.Fields() {
-			switch {
-			case resetKeys[f.Key]:
-				if err := f.Set(r, ""); err != nil {
-					return err
-				}
-			case staged[f.Key] != "":
-				if err := f.Set(r, staged[f.Key]); err != nil {
-					return err
-				}
+			v := staged[f.Key]
+			if resetKeys[f.Key] {
+				v = ""
+			} else if v == "" {
+				continue
+			}
+			if err := f.Set(r, v); err != nil {
+				return err
 			}
 		}
 	}

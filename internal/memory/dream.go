@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -68,16 +69,24 @@ func (p dreamPreview) Report() string {
 
 // previewDream computes dreamPreview without writing anything.
 func previewDream() dreamPreview {
-	local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: paths.MemorySubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
-	for name, capLines := range archiveCaps {
-		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
-		p.Archivable += len(overflow)
-	}
-	_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
-	p.SessionRotate = len(rotate)
-	p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
-	p.RtkMisses, p.RtkErr = readDreamRtk()
+	var p dreamPreview
+	// the telemetry scan and the rtk spawn are independent of the bank reads, so they run alongside them
+	parallel.Rethrow(parallel.All(2, func(i int) error {
+		if i == 1 {
+			p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
+			p.RtkMisses, p.RtkErr = readDreamRtk()
+			return nil
+		}
+		local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
+		p.Dir, p.Oversized, p.Unreadable = paths.MemorySubDir(""), local.Oversized, local.Unreadable
+		for name, capLines := range archiveCaps {
+			_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
+			p.Archivable += len(overflow)
+		}
+		_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
+		p.SessionRotate = len(rotate)
+		return nil
+	})...)
 	return p
 }
 
@@ -94,24 +103,6 @@ func retryAfter(fails int) time.Duration {
 	return min(d, dreamInterval)
 }
 
-// dreamFailures is the consecutive failed runs recorded in the stamp ("failed" alone counts 1).
-func dreamFailures() int {
-	data, err := os.ReadFile(dreamStampPath())
-	if err != nil {
-		return 0
-	}
-	_, rest, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
-	f, ok := strings.CutPrefix(rest, "failed")
-	if !ok {
-		return 0
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(f))
-	if err != nil || n < 1 {
-		return 1
-	}
-	return n
-}
-
 // dreamChildEnv identifies a dream worker, including legacy callers of the read-only promote procedure.
 const dreamChildEnv = "CLAUDE_MEMORY_DREAM_CHILD"
 
@@ -126,32 +117,37 @@ func dreamStampPath() string {
 	return filepath.Join(paths.MemoryStateDir(), "last-dream-"+stateKey())
 }
 
-// dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
-func dreamStamp() (t time.Time, failed, ok bool) {
+// dreamStamp reads the stamp: its time (line 1) and the consecutive failed runs (line 2 "failed [n]"; bare counts 1).
+func dreamStamp() (t time.Time, fails int, ok bool) {
 	data, err := os.ReadFile(dreamStampPath())
 	if err != nil {
-		return time.Time{}, false, false
+		return time.Time{}, 0, false
 	}
 	first, rest, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	if f, failed := strings.CutPrefix(rest, "failed"); failed {
+		if fails, err = strconv.Atoi(strings.TrimSpace(f)); err != nil || fails < 1 {
+			fails = 1
+		}
+	}
 	t, err = time.Parse(time.RFC3339, first)
-	return t, strings.HasPrefix(rest, "failed"), err == nil
+	return t, fails, err == nil
 }
 
 // effectiveStamp is dreamStamp, but a future stamp (clock moved back) reads as none: it would hide every changed file.
-func effectiveStamp(now time.Time) (t time.Time, failed, ok bool) {
-	if t, failed, ok = dreamStamp(); ok && t.After(now) {
-		return time.Time{}, false, false
+func effectiveStamp(now time.Time) (t time.Time, fails int, ok bool) {
+	if t, fails, ok = dreamStamp(); ok && t.After(now) {
+		return time.Time{}, 0, false
 	}
-	return t, failed, ok
+	return t, fails, ok
 }
 
 // dreamDue: the last dream is over a day old (or never ran) and a bank changed since; a failed run is due at its stamp.
 func dreamDue(now time.Time) bool {
-	stamp, failed, ok := effectiveStamp(now)
+	stamp, fails, ok := effectiveStamp(now)
 	if ok && now.Sub(stamp) < dreamInterval {
 		return false
 	}
-	if ok && failed {
+	if ok && fails > 0 {
 		return true
 	}
 	names, err := newReports(proposalWatermark().Add(watermarkSlack))
@@ -261,16 +257,15 @@ const dreamNotDue = "not due"
 // dreamRun archives durable-file overflow, consolidates the bank on the agent, settles, and stamps.
 func dreamRun(o dreamOptions, res *DreamResult) error {
 	var run dreamRan
-	notDue, failures := false, dreamFailures() // read before the in-lock stamp resets the count
+	_, failures, _ := dreamStamp() // read before the in-lock stamp resets the count
+	notDue := false
 	lockErr := paths.WithFileLock(lockPathOf(), func() error {
 		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
 			fmt.Fprintln(o.Out, "memory dream: "+dreamNotDue)
 			return nil
 		}
 		run = dreamLocked(o)
-		// An interrupted settlement must remain retryable, even when the agent succeeded.
-		n := failures + 1
-		return stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n)
+		return stampDream(time.Now(), failures+1) // an interrupted settlement must remain retryable, even when the agent succeeded
 	})
 	if notDue && lockErr == nil {
 		res.Reason = dreamNotDue
@@ -283,9 +278,7 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 	run.fill(res)
 	flags := dreamPerformance(o.Out)
 	if err := errors.Join(lockErr, run.runErr, run.archiveErr, dreamSettle(o, flags)); err != nil { // settle after unlocking
-		// backdated, so dreamDue retries after the backoff for this many consecutive failures
-		n := failures + 1
-		return errors.Join(err, stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n))
+		return errors.Join(err, stampDream(time.Now(), failures+1))
 	}
 	return stampDream(time.Now(), 0)
 }
@@ -356,7 +349,7 @@ var DreamListing = dreamListing
 
 // dreamListing snapshots addressable bank entries and the refs needed to report applied changes.
 func dreamListing() (string, Versions, map[string]string, map[string]Doc, error) {
-	docs, base, err := newBankStore(false).Load()
+	docs, base, err := NewBankStore(false).Load()
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
@@ -407,10 +400,19 @@ func dreamEncodeListing(entries any) (string, error) {
 
 // runAgent runs outside the bank lock; the store's Apply takes the lock only to apply the answer.
 func (r *dreamRan) runAgent(o dreamOptions) {
-	r.plan = startPlanPhase(o.CWD)
+	var misses []rtkMiss
+	var rtkErr error
+	// the rtk spawn and the plan snapshot are independent, so they run concurrently
+	parallel.Rethrow(parallel.All(2, func(i int) error {
+		if i == 0 {
+			r.plan = startPlanPhase(o.CWD)
+		} else {
+			misses, rtkErr = readDreamRtk()
+		}
+		return nil
+	})...)
 	defer func() { r.dropReverted(r.plan.finish(o.Out)) }()
 	prompt := r.prompt + r.plan.promptBlock()
-	misses, rtkErr := readDreamRtk()
 	writeDreamRtk(o.Out, misses, rtkErr)
 	if block := rtkPromptBlock(misses); block != "" {
 		fmt.Fprintln(o.Out, "memory dream: tools-off; deferred proposal guidance:", block)
@@ -454,16 +456,11 @@ func (r *dreamRan) applyAnswer(answer string, out io.Writer) error {
 	if strings.TrimSpace(answer) == "" {
 		return errors.New("dream batch: runner returned no typed answer")
 	}
-	var batch Batch
-	decoder := json.NewDecoder(strings.NewReader(answer))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&batch); err != nil {
-		return fmt.Errorf("dream batch: %w", err)
+	batch, err := decodeBatch(answer)
+	if err == nil {
+		err = r.checkBatch(batch)
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return errors.New("dream batch: expected one JSON object")
-	}
-	if err := r.checkBatch(batch); err != nil {
+	if err != nil {
 		return fmt.Errorf("dream batch: %w", err)
 	}
 	if err := r.validateSide(batch); err != nil {
@@ -487,7 +484,7 @@ func (r *dreamRan) applyChecked(batch Batch, out io.Writer) error {
 	if err := r.preflightSide(batch); err != nil {
 		return fmt.Errorf("dream batch: %w", err)
 	}
-	results, err := newBankStore(false).Apply(batch, r.base, now)
+	results, err := NewBankStore(false).Apply(batch, r.base, now)
 	printResults(out, results)
 	err = withFailedOps(err, results)
 	r.recordApplied(results, planned, err)
@@ -529,8 +526,9 @@ func printResults(out io.Writer, results []OpResult) {
 	}
 }
 
-func checkSideCandidate(c candidate, seen map[string]int) error {
-	line, _ := json.Marshal(c)
+// checkSideCandidate validates one candidate and returns its JSON line.
+func checkSideCandidate(c candidate, seen map[string]int) (string, error) {
+	line, _ := json.Marshal(c) // a plain struct always encodes
 	err := oneLineFields(c.ID, c.Change, c.Target)
 	switch {
 	case err != nil:
@@ -542,27 +540,29 @@ func checkSideCandidate(c candidate, seen map[string]int) error {
 	if problems := checkCandidateLine(string(line), 1, seen); err == nil && len(problems) > 0 {
 		err = errors.New(problems[0])
 	}
-	return err
+	return string(line), err
 }
 
-func checkSideTest(p testProposal) error {
+// checkSideTest validates one test proposal and returns its parsed form.
+func checkSideTest(p testProposal) (testProposal, error) {
 	line, _ := json.Marshal(p)
-	if _, err := parseProposalLine(string(line)); err != nil {
-		return err
+	checked, err := parseProposalLine(string(line))
+	if err != nil {
+		return checked, err
 	}
-	return oneLineFields(p.Pkg, p.Case, p.Reason, p.Runtime)
+	return checked, oneLineFields(p.Pkg, p.Case, p.Reason, p.Runtime)
 }
 
 func (r *dreamRan) validateSide(b Batch) error {
 	seen := map[string]int{}
 	for _, c := range b.Candidates {
-		if err := checkSideCandidate(c, seen); err != nil {
+		if _, err := checkSideCandidate(c, seen); err != nil {
 			return fmt.Errorf("candidate %s: rejected: %w", c.ID, err)
 		}
 	}
 	keys := map[string]bool{}
 	for _, p := range b.TestProposals {
-		err := checkSideTest(p)
+		_, err := checkSideTest(p)
 		if keys[p.key()] {
 			err = errors.New("listed twice in one batch (same package and case)")
 		}
@@ -675,12 +675,11 @@ func (l *sideLedger) err() error {
 func (r *dreamRan) applySide(b Batch, out io.Writer) error {
 	l := &sideLedger{out: out}
 	for _, c := range b.Candidates {
-		line, _ := json.Marshal(c) // a plain struct always encodes
-		err := checkSideCandidate(c, map[string]int{})
+		line, err := checkSideCandidate(c, map[string]int{})
 		if err == nil {
-			err = proposeCandidate(io.Discard, string(line))
+			err = proposeCandidate(io.Discard, line)
 		}
-		if err == nil && !candidateStored(string(line)) {
+		if err == nil && !candidateStored(line) {
 			err = errors.New("the stored record differs from the proposal")
 		}
 		if err == nil {
@@ -698,11 +697,7 @@ func (r *dreamRan) applySide(b Batch, out io.Writer) error {
 func (r *dreamRan) applySideTests(proposals []testProposal, l *sideLedger) {
 	var tests []testProposal
 	for _, p := range proposals {
-		line, _ := json.Marshal(p)
-		checked, err := parseProposalLine(string(line))
-		if err == nil {
-			err = checkSideTest(p)
-		}
+		checked, err := checkSideTest(p)
 		if err != nil {
 			l.record("test proposal "+p.Case, err)
 			continue
@@ -786,32 +781,18 @@ func (r *dreamRan) checkPlanTask(t PlanTaskOp) error {
 	}
 }
 
-// checkBatch binds every edit to a unique ref and content hash from the model's snapshot.
+// checkBatch restricts a decoded (validated) batch to supersede, close, update and noop on the unique snapshot entries.
 func (r *dreamRan) checkBatch(batch Batch) error {
-	if err := batch.Validate(); err != nil {
-		return err
-	}
 	for _, op := range batch.Ops {
-		if err := r.checkDreamOp(op); err != nil {
-			return err
+		switch {
+		case op.Op == "add" || op.Target != "":
+			return errors.New("dream accepts only supersede, close, update and noop, routed by snapshot id")
+		case op.Op == "noop":
+		case r.files[op.ID] == "" || r.base[op.ID] == "":
+			return fmt.Errorf("unknown or ambiguous snapshot id %s", op.ID)
+		case op.By != "" && r.files[op.By] == "":
+			return fmt.Errorf("unknown or ambiguous snapshot by %s", op.By)
 		}
-	}
-	return nil
-}
-
-// checkDreamOp restricts typed dream operations to the unique entries shown to the model.
-func (r *dreamRan) checkDreamOp(op Op) error {
-	if op.Op == "add" || op.Target != "" {
-		return errors.New("dream accepts only supersede, close, update and noop, routed by snapshot id")
-	}
-	if op.Op == "noop" {
-		return nil
-	}
-	if r.files[op.ID] == "" || r.base[op.ID] == "" {
-		return fmt.Errorf("unknown or ambiguous snapshot id %s", op.ID)
-	}
-	if op.By != "" && r.files[op.By] == "" {
-		return fmt.Errorf("unknown or ambiguous snapshot by %s", op.By)
 	}
 	return nil
 }
@@ -889,8 +870,11 @@ func dreamRunLine(who string, err error, local bool) string {
 	return line
 }
 
-// stampDream writes the stamp; fails is the consecutive failure count (0 = success).
+// stampDream writes the stamp; fails > 0 (consecutive failures) backdates it so dreamDue retries after the backoff.
 func stampDream(at time.Time, fails int) error {
+	if fails > 0 {
+		at = at.Add(retryAfter(fails) - dreamInterval)
+	}
 	body := at.Format(time.RFC3339) + "\n"
 	if fails > 0 {
 		body += "failed " + strconv.Itoa(fails) + "\n"

@@ -45,12 +45,12 @@ func Start(in *core.Input) core.Result {
 		res.SystemMessage = memory.ConsumeCatchupNote()
 	}
 	if in.Source == "compact" || in.Source == "clear" {
-		if note := memory.ResumeNote(in.Source, in.SessionID, cwd, time.Now()); note != "" {
+		if note := memory.ResumeNote(in.Source, in.SessionID, cwd, now); note != "" {
 			res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, note)
 			body := ""
 			if in.Source == "compact" {
 				remaining := core.ContextCapChars - len(core.JoinContext(res.Context, note)) - len("\n\n")
-				body = memory.StewardHandoffBodyBudget(in.SessionID, time.Now(), remaining)
+				body = memory.StewardHandoffBodyBudget(in.SessionID, now, remaining)
 			}
 			res.Context = core.JoinContext(res.Context, body, note)
 		}

@@ -111,7 +111,7 @@ func pyStdinLine(line string) bool {
 	for k, seg := range segs {
 		if core.HeredocOp().MatchString(seg) {
 			args, ok := pyArgs(seg)
-			return ok && seps[k] != "|" && seps[k] != "|&" && pyStdinArgs(args)
+			return ok && !pipedOn(seps[k]) && pyStdinArgs(args)
 		}
 	}
 	return false

@@ -2,6 +2,7 @@
 package wire
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -34,8 +35,7 @@ type Denials struct {
 	Commands []string `json:"commands"`
 }
 
-// RouteObject parses "provider:profile", a bare provider (the pool, profile auto) or a bare profile as a route
-// naming provider and profile; nil when empty or the provider is unknown.
+// RouteObject is "provider:profile", a bare provider (profile auto) or a bare profile as a route; nil when unknown.
 func RouteObject(s string) *route.Route {
 	r := route.ParseLegacy(s)
 	if r.Provider == "" && r.Profile != "" {
@@ -215,9 +215,7 @@ func (r *Result) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
 	}
-	if !HasKey(b, "fallback_from") {
-		r.Fallback = aux.Old
-	}
+	r.Fallback = Older(b, "fallback_from", r.Fallback, aux.Old)
 	return nil
 }
 
@@ -231,12 +229,39 @@ func Older(b []byte, key, cur, old string) string {
 
 // HasKey reports whether the JSON object b names key, even as null; the older-key readers use it to let a new key win.
 func HasKey(b []byte, key string) bool {
+	if !bytes.Contains(b, []byte(`"`+key+`"`)) && !escapesKeyByte(b, key) {
+		return false // the common miss skips decoding the whole object
+	}
 	var m map[string]json.RawMessage
 	if json.Unmarshal(b, &m) != nil {
 		return false
 	}
 	_, ok := m[key]
 	return ok
+}
+
+// escapesKeyByte reports whether a \u00XX escape in b spells a byte of key, so key could appear escaped.
+func escapesKeyByte(b []byte, key string) bool {
+	for {
+		i := bytes.Index(b, []byte(`\u00`))
+		if i < 0 || i+6 > len(b) {
+			return false
+		}
+		if strings.IndexByte(key, unhex(b[i+4])<<4|unhex(b[i+5])) >= 0 { // a bad digit fails the full decode anyway
+			return true
+		}
+		b = b[i+4:]
+	}
+}
+
+func unhex(c byte) byte {
+	switch {
+	case c >= 'a':
+		return c - 'a' + 10
+	case c >= 'A':
+		return c - 'A' + 10
+	}
+	return c - '0'
 }
 
 // NewEnvelope builds the envelope for a finished run; err nil means success.

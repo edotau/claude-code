@@ -170,7 +170,7 @@ func discoverDestinations(p *providers.Provider) []string {
 	return d
 }
 
-// DiscoverPickerProfiles runs discoverPickerProfile over names, listing github rows with github; ok is false when one errored or none completed.
+// DiscoverPickerProfiles discovers each named profile; ok is false when one errored or none completed.
 func DiscoverPickerProfiles(reg *providers.Registry, names []string, github githubLister, apply, verify bool) (results []DiscoverResult, ok bool) {
 	results = make([]DiscoverResult, 0, len(names))
 	ok = true
@@ -202,8 +202,7 @@ type DropResult struct {
 	Error   string   `json:"error,omitempty"`
 }
 
-// DropPickerProfiles drops (or un-drops) ids from the global menu (when global) and each named profile's picker.
-// write false previews. ok is false when any profile errored.
+// DropPickerProfiles (un)drops ids from the global menu (when global) and each named picker; write false previews.
 func DropPickerProfiles(reg *providers.Registry, names, ids []string, undrop, global, write bool) (out []DropResult, ok bool) {
 	ok = true
 	if global && !undrop {

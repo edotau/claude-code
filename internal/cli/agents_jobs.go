@@ -48,7 +48,7 @@ func waitRowsProgress(ctx context.Context, ids []string, timeout time.Duration, 
 		if err != nil {
 			return nil, err
 		}
-		if !waitHasTimeout(rows) || time.Until(deadline) <= 0 {
+		if !slices.ContainsFunc(rows, func(r agent.WaitResult) bool { return r.State == agent.WaitTimeout }) || time.Until(deadline) <= 0 {
 			return rows, nil
 		}
 		for _, row := range rows {
@@ -69,15 +69,6 @@ func waitRowsProgress(ctx context.Context, ids []string, timeout time.Duration, 
 			last[row.ID] = line
 		}
 	}
-}
-
-func waitHasTimeout(rows []agent.WaitResult) bool {
-	for _, row := range rows {
-		if row.State == agent.WaitTimeout {
-			return true
-		}
-	}
-	return false
 }
 
 // waitProgressLine is one --progress row: id, step, tools, tokens so far, last log text; it is also the change key.

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
@@ -173,25 +174,25 @@ func transcriptPrompt(content json.RawMessage) string {
 	return out.String()
 }
 
-// sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.
-func sweepSkip(c sweepCand, current string, now time.Time, heads *headCache) string {
+// sweepSkip is why a finished session needs no save ("" = it does), plus the receipt it read once for sweepWhy.
+func sweepSkip(c sweepCand, current string, now time.Time, heads *headCache) (string, UpdateResult, bool) {
 	switch {
 	case c.id == current:
-		return "current session"
+		return "current session", UpdateResult{}, false
 	case now.Sub(c.mtime) < updateRearmCooldown:
-		return "live (modified within cooldown)"
+		return "live (modified within cooldown)", UpdateResult{}, false
 	case !heads.interactive(c):
-		return "headless (worker/leaf/ping)"
+		return "headless (worker/leaf/ping)", UpdateResult{}, false
 	}
-	if res, ok := readUpdateResult(c.id); ok && res.Status == updateOK && res.Time.After(c.mtime) {
-		return "already saved"
+	res, ok := readUpdateResult(c.id)
+	if ok && res.Status == updateOK && res.Time.After(c.mtime) {
+		return "already saved", res, ok
 	}
-	return ""
+	return "", res, ok
 }
 
-// sweepWhy returns why an eligible session needs saving, or "" when its edits are covered.
-func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int) string {
-	res, hasResult := readUpdateResult(c.id)
+// sweepWhy returns why an eligible session needs saving, or "" when its edits are covered; res is c's receipt.
+func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int, res UpdateResult, hasResult bool) string {
 	st, hasStamp := readStamp(stampPath(c.id))
 	covered := 0
 	if hasStamp {
@@ -246,11 +247,11 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 		if !all && len(out) >= catchupMax {
 			break
 		}
-		skip := sweepSkip(c, current, now, heads)
+		skip, res, ok := sweepSkip(c, current, now, heads)
 		if skip == "" {
-			if c.why = sweepWhy(&c, now, count); c.why == "" {
+			if c.why = sweepWhy(&c, now, count, res, ok); c.why == "" {
 				skip = "nothing new"
-				if res, ok := readUpdateResult(c.id); ok && ownerFixRequired(res) {
+				if ok && ownerFixRequired(res) {
 					skip = "needs fix (" + res.Class + ")"
 				}
 			}
@@ -266,15 +267,27 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 
 // recentTranscripts lists transcripts modified inside the catch-up window, newest first.
 func recentTranscripts(now time.Time) []sweepCand {
-	var recent []sweepCand
-	for _, p := range transcript.GlobIn(paths.ConfigDir(), "projects/*/*.jsonl") {
-		id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
-		fi, err := os.Stat(p)
-		if err != nil || !looksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
-			continue
-		}
-		recent = append(recent, sweepCand{id: id, path: p, size: fi.Size(), mtime: fi.ModTime()})
+	dirs := transcript.GlobIn(paths.ConfigDir(), "projects/*")
+	per := make([][]sweepCand, len(dirs))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(8, len(dirs)) { // each project dir's listing and stats are independent: workers take dirs in turn
+		wg.Go(func() {
+			for d := int(next.Add(1)) - 1; d < len(dirs); d = int(next.Add(1)) - 1 {
+				for _, p := range transcript.GlobIn(dirs[d], "*.jsonl") {
+					id := strings.TrimSuffix(filepath.Base(p), ".jsonl")
+					if !looksLikeSessionID(id) {
+						continue
+					}
+					if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) <= catchupWindow {
+						per[d] = append(per[d], sweepCand{id: id, path: p, size: fi.Size(), mtime: fi.ModTime()})
+					}
+				}
+			}
+		})
 	}
+	wg.Wait()
+	recent := slices.Concat(per...)
 	sort.Slice(recent, func(i, j int) bool { return recent[i].mtime.After(recent[j].mtime) })
 	return recent
 }
@@ -380,11 +393,8 @@ func catchupDoneCount() int {
 	return n
 }
 
-// ConsumeCatchupNote is the quiet SessionStart note (read once): a finished sweep's saved count.
-func ConsumeCatchupNote() string { return consumeSavedNote() }
-
-// consumeSavedNote is the one quiet line for a finished sweep (read once), or "" with nothing saved.
-func consumeSavedNote() string {
+// ConsumeCatchupNote is the quiet SessionStart note (read once): a finished sweep's saved count, or "" with none.
+func ConsumeCatchupNote() string {
 	if _, err := os.Stat(catchupDonePath()); err != nil {
 		return "" // common case: no note, so skip the lock
 	}

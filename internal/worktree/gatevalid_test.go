@@ -133,7 +133,7 @@ func TestRevalidateRootPackage(t *testing.T) {
 func TestClosure(t *testing.T) {
 	list := gvList()
 	list[0].TestImports = []string{gvMod + "d"}
-	got := closure(list, "/r", []string{"a"})
+	got := newGraph(list, "/r").closure([]string{"a"})
 	for _, want := range []string{"a", "lane", "b", "c"} {
 		if !got[want] {
 			t.Errorf("closure(a) misses %s: %v", want, got)
@@ -143,7 +143,7 @@ func TestClosure(t *testing.T) {
 	if got["d"] || got["w"] {
 		t.Errorf("closure(a) = %v, must not hold d or w", got)
 	}
-	if !closure(list, "/r", []string{"lane"})["d"] {
+	if !newGraph(list, "/r").closure([]string{"lane"})["d"] {
 		t.Error("closure(lane) must follow the root's own test imports")
 	}
 }

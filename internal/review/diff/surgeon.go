@@ -295,10 +295,7 @@ func printDiffReport(w io.Writer, result diffSurgeonResult) {
 		for _, cat := range cats {
 			lines := byCat[cat]
 			fmt.Fprintf(w, "    [%s] %d instance(s)\n", cat, len(lines))
-			for i, line := range lines {
-				if i >= 3 {
-					break
-				}
+			for _, line := range lines[:min(len(lines), 3)] {
 				fmt.Fprintf(w, "      %s\n", line)
 			}
 			if len(lines) > 3 {

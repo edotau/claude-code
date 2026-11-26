@@ -34,7 +34,7 @@ claude-code agents ask --background --overlay '{"agent":"codex","provider":"data
 No overlay `profile` and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:`
 line, else its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what
 ran (its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
-main session: `claude-code codex …`, or overlay `{"runner":"own"}`. Role rotation covers codex's models too.
+main session: `claude-code codex …`, or overlay `{"runner":"cli"}`. Role rotation covers codex's models too.
 
 ## Owns
 

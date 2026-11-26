@@ -859,7 +859,7 @@ func TestCmdWorktreeLandDrainDryRunChangesNothing(t *testing.T) {
 	repo := landFixtureCLISetup(t)
 	wt := landFixtureCLIWorktreePath(t, repo)
 	landFixtureCLIWrite(t, wt, "g.txt", "feature only\n", "feature advances")
-	if err := worktree.Enqueue(worktree.QueuedLane{Lane: wt, Repo: repo, Reason: worktree.QueueReady, Next: "land"}); err != nil {
+	if err := worktree.EnqueueWithin(10*time.Second, worktree.QueuedLane{Lane: wt, Repo: repo, Reason: worktree.QueueReady, Next: "land"}); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errb := hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"land", "--drain", "--dry-run", "--no-verify"}) })

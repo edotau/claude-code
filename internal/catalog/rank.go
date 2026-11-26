@@ -91,7 +91,7 @@ func Local() localRule { return loadRanks().Local }
 // RankOf is id's family rank: the first pattern matching its canonical id; an unknown id sorts after every family.
 func RankOf(id string) Rank {
 	t := loadRanks()
-	canonical := strings.ReplaceAll(ID(id), ".", "-") // Copilot spells 5.5 where the rows spell 5-5
+	canonical := dashed(ID(id)) // Copilot spells 5.5 where the rows spell 5-5
 	for _, r := range t.Families {
 		if r.prefix != "" {
 			// path.Match's trailing star spans any run without a slash

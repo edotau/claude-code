@@ -18,6 +18,7 @@ func TestLeafDispatchEveryAskCall(t *testing.T) {
 	at := time.Now().Add(-10 * time.Minute)
 	a := agent.Record{ID: "a", Agent: "codex", Time: at}
 	b := agent.Record{ID: "b", Agent: "codex", Time: at.Add(time.Second)}
+	in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
 	for _, tc := range []struct {
 		name string
 		recs []agent.Record
@@ -28,9 +29,15 @@ func TestLeafDispatchEveryAskCall(t *testing.T) {
 	} {
 		lr := leafRead{recs: tc.recs}
 		lr.scan.askTimes = []time.Time{at}
-		recs, _, ok := leafDispatch(lr, "codex")
-		if len(recs) != tc.want || ok != (tc.want > 0) {
-			t.Errorf("%s: jobs = %+v ok=%v", tc.name, recs, ok)
+		msg, _ := receiptFix(in, &lr).UpdatedInput["message"].(string)
+		got := 0
+		for _, id := range []string{"a", "b"} {
+			if strings.Contains(msg, "dispatch "+id+" (printed in its tool results)") {
+				got++
+			}
+		}
+		if got != tc.want {
+			t.Errorf("%s: %d printed receipts in %q, want %d", tc.name, got, msg, tc.want)
 		}
 	}
 }
@@ -39,7 +46,7 @@ func TestRelayMissingIDCap(t *testing.T) {
 	in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
 	old := time.Now().Add(-leafStopMaxWait - time.Minute)
 	lr := leafRead{scan: leafScan{askTimes: []time.Time{old}}}
-	r := receiptFix(in, "a1", &lr)
+	r := receiptFix(in, &lr)
 	if !strings.Contains(r.SystemMessage, unattributedNote) {
 		t.Fatalf("HIGH3 cap: %+v", r)
 	}

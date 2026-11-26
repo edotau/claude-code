@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -60,14 +61,14 @@ func generateFindingsList(pr *prInput, quality *qualityInput) []Finding {
 	for _, sev := range severityOrder {
 		for _, k := range pr.Risks[sev] {
 			findings = append(findings, Finding{
-				Source: "pr_analysis", Severity: sev, Category: orDefault(k.Name, "unknown"),
+				Source: "pr_analysis", Severity: sev, Category: cmp.Or(k.Name, "unknown"),
 				Message: k.Message, File: k.File, Count: new(k.Count),
 			})
 		}
 	}
 	for _, issue := range extractQualityIssues(quality) {
 		findings = append(findings, Finding{
-			Source: "quality_analysis", Severity: issue.Severity, Category: orDefault(issue.Type, "unknown"),
+			Source: "quality_analysis", Severity: issue.Severity, Category: cmp.Or(issue.Type, "unknown"),
 			Message: issue.Message, File: issue.File, Line: new(issue.Line),
 		})
 	}
@@ -75,13 +76,6 @@ func generateFindingsList(pr *prInput, quality *qualityInput) []Finding {
 		return severityWeights[findings[i].Severity] > severityWeights[findings[j].Severity]
 	})
 	return findings
-}
-
-func orDefault(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 var actionForCategory = map[string]string{

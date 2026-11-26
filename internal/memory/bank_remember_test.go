@@ -14,7 +14,7 @@ import (
 // TestRememberUnknownTypeErrors: an unmapped --type is refused, naming the valid set.
 func TestRememberUnknownTypeErrors(t *testing.T) {
 	tempConfig(t)
-	if _, err := Remember("bogus", "a fact", time.Now()); err == nil || !strings.Contains(err.Error(), "want") {
+	if _, err := RememberSupersedes("bogus", "a fact", "", time.Now()); err == nil || !strings.Contains(err.Error(), "want") {
 		t.Fatalf("Remember with an unknown type = %v, want an error naming the valid types", err)
 	}
 }
@@ -22,7 +22,7 @@ func TestRememberUnknownTypeErrors(t *testing.T) {
 // TestRememberEmptyFactErrors: whitespace-only input is refused before any write.
 func TestRememberEmptyFactErrors(t *testing.T) {
 	tempConfig(t)
-	if _, err := Remember("feedback", "   ", time.Now()); err == nil {
+	if _, err := RememberSupersedes("feedback", "   ", "", time.Now()); err == nil {
 		t.Fatal("Remember with an empty fact = nil error, want one")
 	}
 }
@@ -32,7 +32,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 	reads := countBankReads(t)
 
-	id, err := Remember("project", "adopt bbolt for the memory store", now)
+	id, err := RememberSupersedes("project", "adopt bbolt for the memory store", "", now)
 	if err != nil {
 		t.Fatalf("Remember: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 func assertLaterProjectEntryFirst(t *testing.T, id string, now time.Time) {
 	t.Helper()
 	// Round-trip: a second, later entry must still land ABOVE the first (newest-first).
-	id2, err := Remember("project", "a second, later decision", now.Add(time.Hour))
+	id2, err := RememberSupersedes("project", "a second, later decision", "", now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 	tempConfig(t)
 	for _, kind := range []string{"user", "feedback", "reference"} {
 		t.Run(kind, func(t *testing.T) {
-			id, err := Remember(kind, "prefer early returns over deep nesting", time.Now())
+			id, err := RememberSupersedes(kind, "prefer early returns over deep nesting", "", time.Now())
 			if err != nil {
 				t.Fatalf("Remember(%s): %v", kind, err)
 			}
@@ -118,7 +118,7 @@ func TestLastStampedIDExactMatchAndDirection(t *testing.T) {
 // A fact into an absent conventions.md lands under the scaffold header, not appendBlocks' "(archived)" one.
 func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 	tempConfig(t)
-	if _, err := Remember("user", "likes tea", time.Now()); err != nil {
+	if _, err := RememberSupersedes("user", "likes tea", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	body := mustRead(t, Path("conventions.md"))
@@ -137,7 +137,7 @@ func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 		{"id marker in the fact", "# Conventions\n\n- a rule\n", "quote <!-- id:deadbeef --> here"},
 	} {
 		write(t, path, c.body)
-		if _, err := Remember("feedback", c.fact, time.Now()); err == nil {
+		if _, err := RememberSupersedes("feedback", c.fact, "", time.Now()); err == nil {
 			t.Errorf("%s: Remember = nil error, want a refusal", c.name)
 		}
 		if got := mustRead(t, path); got != c.body {
@@ -168,7 +168,7 @@ func TestRememberSettlesInsideItsWriteLock(t *testing.T) {
 		case <-refused:
 		}
 	}
-	_, err := Remember("feedback", "settle in the same critical section", time.Now())
+	_, err := RememberSupersedes("feedback", "settle in the same critical section", "", time.Now())
 	close(release)
 	if intruded || err != nil {
 		t.Fatalf("Remember released the bank lock before settling: rival took it = %v, Remember err = %v", intruded, err)
@@ -204,7 +204,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	t.Cleanup(func() { afterRememberWrite = orig })
 	afterRememberWrite = lockStoreIndex(t)
 	const fact = "retry after a failed settle"
-	if _, err := Remember("feedback", fact, time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
+	if _, err := RememberSupersedes("feedback", fact, "", time.Now()); err == nil || !strings.Contains(err.Error(), "settle: ") {
 		t.Fatalf("Remember with a failing settle = %v, want an error naming the settle", err)
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
@@ -212,7 +212,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	}
 	afterRememberWrite = orig
 	_ = os.Remove(filepath.Join(paths.MemoryStoreDir(), ".git", "index.lock"))
-	if _, err := Remember("feedback", fact, time.Now()); err != nil {
+	if _, err := RememberSupersedes("feedback", fact, "", time.Now()); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 	if after, _ := os.ReadFile(path); strings.Count(string(after), fact) != 1 {
@@ -341,7 +341,7 @@ func TestRememberWritesTheBanksFileInTheBank(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		id, err := Remember("user", "prefer small diffs", time.Now())
+		id, err := RememberSupersedes("user", "prefer small diffs", "", time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -356,7 +356,7 @@ func TestRememberWritesTheBanksFileInTheBank(t *testing.T) {
 func TestRememberSupersedesStrikesOldEntry(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
-	oldID, err := Remember("project", "first plan", now)
+	oldID, err := RememberSupersedes("project", "first plan", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestRememberSupersedesRefusals(t *testing.T) {
 	if _, err := os.Stat(paths.MemoryStoreDir()); err == nil {
 		t.Error("a refused supersede created the store")
 	}
-	a, _ := Remember("project", "A", time.Now())
+	a, _ := RememberSupersedes("project", "A", "", time.Now())
 	b, err := RememberSupersedes("project", "B", a, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -400,7 +400,7 @@ func TestRememberSupersedesRefusals(t *testing.T) {
 func TestRememberFeedbackClassWritesNote(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 11, 24, 9, 0, 0, 0, time.UTC)
-	rel, err := Remember("feedback-correction", "Never claim a test passed without running it: ran it", now)
+	rel, err := RememberSupersedes("feedback-correction", "Never claim a test passed without running it: ran it", "", now)
 	if err != nil || rel != "feedback/feedback-never-claim-a-test-passed-without-running-it-ran-it.md" {
 		t.Fatalf("Remember = %q, %v; want the feedback/ note path", rel, err)
 	}
@@ -414,7 +414,7 @@ func TestRememberFeedbackClassWritesNote(t *testing.T) {
 	if idx := mustRead(t, catalogPath()); !strings.Contains(idx, "("+rel+")") {
 		t.Errorf("index.md has no line for %s: %q", rel, idx)
 	}
-	again, err := Remember("feedback-correction", "Never claim a test passed without running it: ran it", now)
+	again, err := RememberSupersedes("feedback-correction", "Never claim a test passed without running it: ran it", "", now)
 	if err != nil || again == rel {
 		t.Fatalf("a repeat = %q, %v; want a distinct note, never an overwrite", again, err)
 	}
@@ -426,11 +426,11 @@ func TestRememberFeedbackClassWritesNote(t *testing.T) {
 // TestDropCommitsSinceMovesHeadBack: a failed write leaves no commit past the pre-write HEAD.
 func TestDropCommitsSinceMovesHeadBack(t *testing.T) {
 	tempConfig(t)
-	if _, err := Remember("project", "first", time.Now()); err != nil {
+	if _, err := RememberSupersedes("project", "first", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := StoreRepo().headSHA()
-	if _, err := Remember("project", "second", time.Now()); err != nil {
+	if _, err := RememberSupersedes("project", "second", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if head, _ := StoreRepo().headSHA(); head == before {
@@ -460,12 +460,12 @@ func TestFeedbackNoteSettleFailureKeepsTheNote(t *testing.T) {
 // TestDropCommitsSinceKeepsPeerCommits: two commits past the pre-write HEAD means a peer's is among them.
 func TestDropCommitsSinceKeepsPeerCommits(t *testing.T) {
 	tempConfig(t)
-	if _, err := Remember("project", "first", time.Now()); err != nil {
+	if _, err := RememberSupersedes("project", "first", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := StoreRepo().headSHA()
 	for _, f := range []string{"second", "third"} {
-		if _, err := Remember("project", f, time.Now()); err != nil {
+		if _, err := RememberSupersedes("project", f, "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -510,11 +510,11 @@ func TestJobReportHostileLabel(t *testing.T) {
 func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 11, 10, 1, 2, 3, 0, time.UTC)
-	first, err := Remember("project", "same fact", now)
+	first, err := RememberSupersedes("project", "same fact", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Remember("project", "same fact", now)
+	second, err := RememberSupersedes("project", "same fact", "", now)
 	if err != nil || second == first {
 		t.Fatalf("second Remember = %q, %v; want an id distinct from the first, %q", second, err, first)
 	}
@@ -535,7 +535,7 @@ func TestRememberWritesOnlyTheNewEntry(t *testing.T) {
 		t.Run(c.file, func(t *testing.T) {
 			tempConfig(t)
 			write(t, Path(c.file), c.before)
-			id, err := Remember(c.kind, c.fact, time.Now())
+			id, err := RememberSupersedes(c.kind, c.fact, "", time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -562,7 +562,7 @@ func TestRememberStampsOtherIDFiles(t *testing.T) {
 	tempConfig(t)
 	long := "- User:   odd " + strings.Repeat("legacy  text ", 14) + "<!-- id:aaaa1111 -->\n"
 	write(t, Path("conventions.md"), "# Conventions\n\n"+long+"\n- unstamped rule\n")
-	if _, err := Remember("project", "a decision", time.Now()); err != nil {
+	if _, err := RememberSupersedes("project", "a decision", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	after := mustRead(t, Path("conventions.md"))
@@ -579,7 +579,7 @@ func TestRememberStampsDecisionAboveUnclosedFenceBelow(t *testing.T) {
 	tempConfig(t)
 	path := Path("decisionLog.md")
 	write(t, path, templates()["decisionLog.md"]+"\n## 2026-01-01 — old\n\n```go\nx := 1\n")
-	id, err := Remember("project", "new fact", time.Now())
+	id, err := RememberSupersedes("project", "new fact", "", time.Now())
 	if err != nil || id == "" {
 		t.Fatalf("Remember = %q, %v; want an id", id, err)
 	}
@@ -630,7 +630,7 @@ func TestRememberPreservesInlineIDExample(t *testing.T) {
 			before := "# Bank\n\n"
 			write(t, Path(file), before)
 			fact := "use ``literal ` <!-- id:11111111 --> code`` as an example"
-			id, err := Remember(kind, fact, testEnv().Now)
+			id, err := RememberSupersedes(kind, fact, "", testEnv().Now)
 			if err != nil || id == "" || id == "11111111" {
 				t.Fatalf("Remember = %q, %v", id, err)
 			}

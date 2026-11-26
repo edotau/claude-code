@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -195,10 +196,7 @@ func formatMarkdownReport(r Report) string {
 	renderMarkdownActionItems(&b, r.ActionItems)
 	renderMarkdownFindings(&b, "Critical Issues (Must Fix)", filterFindings(r.Findings, "critical"))
 	high := filterFindings(r.Findings, "high")
-	if len(high) > 10 {
-		high = high[:10]
-	}
-	renderMarkdownFindings(&b, "High Priority Issues", high)
+	renderMarkdownFindings(&b, "High Priority Issues", high[:min(len(high), 10)])
 
 	renderMarkdownReviewOrder(&b, r.ReviewOrder)
 
@@ -226,10 +224,7 @@ func renderMarkdownReviewOrder(b *strings.Builder, order []string) {
 	}
 	fmt.Fprintln(b, "## Suggested Review Order")
 	fmt.Fprintln(b)
-	for i, fp := range order {
-		if i >= 10 {
-			break
-		}
+	for i, fp := range order[:min(len(order), 10)] {
 		fmt.Fprintf(b, "%d. `%s`\n", i+1, fp)
 	}
 	fmt.Fprintln(b)
@@ -251,11 +246,7 @@ func renderMarkdownActionItems(b *strings.Builder, items []ActionItem) {
 		}
 		fmt.Fprintf(b, "%d. %s **[%s]** %s\n", i+1, e, item.Priority, item.Action)
 		if len(item.FilesAffected) > 0 {
-			n := item.FilesAffected
-			if len(n) > 3 {
-				n = n[:3]
-			}
-			fmt.Fprintf(b, "   - Files: %s\n", strings.Join(n, ", "))
+			fmt.Fprintf(b, "   - Files: %s\n", strings.Join(item.FilesAffected[:min(len(item.FilesAffected), 3)], ", "))
 		}
 	}
 	fmt.Fprintln(b)
@@ -267,7 +258,7 @@ func renderMarkdownFindings(b *strings.Builder, title string, findings []Finding
 	}
 	fmt.Fprintf(b, "## %s\n\n", title)
 	for _, f := range findings {
-		fmt.Fprintf(b, "- **%s** in `%s`\n", f.Category, orDefault(f.File, "unknown"))
+		fmt.Fprintf(b, "- **%s** in `%s`\n", f.Category, cmp.Or(f.File, "unknown"))
 		fmt.Fprintf(b, "  - %s\n", f.Message)
 	}
 	fmt.Fprintln(b)
@@ -305,10 +296,7 @@ func formatTextReport(r Report) string {
 
 	if len(r.ActionItems) > 0 {
 		fmt.Fprintln(&b, "--- ACTION ITEMS ---")
-		for i, item := range r.ActionItems {
-			if i >= 10 {
-				break
-			}
+		for i, item := range r.ActionItems[:min(len(r.ActionItems), 10)] {
 			fmt.Fprintf(&b, "  %d. [%s] %s\n", i+1, item.Priority, item.Action)
 		}
 		fmt.Fprintln(&b)
@@ -318,7 +306,7 @@ func formatTextReport(r Report) string {
 	if len(critical) > 0 {
 		fmt.Fprintln(&b, "--- CRITICAL ISSUES ---")
 		for _, f := range critical {
-			fmt.Fprintf(&b, "  [%s] %s\n", orDefault(f.File, "unknown"), f.Message)
+			fmt.Fprintf(&b, "  [%s] %s\n", cmp.Or(f.File, "unknown"), f.Message)
 		}
 		fmt.Fprintln(&b)
 	}

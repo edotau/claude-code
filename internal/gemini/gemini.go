@@ -725,8 +725,11 @@ func agyRefusedTool(ev agyEvent) (string, bool) {
 	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
 		return "", false
 	}
-	tool, ok := map[string]string{"run_command": "Bash", "read_file": "Read", "write_file": "Write", "edit_file": "Edit"}[u.ToolName]
-	return tool, ok
+	i := slices.IndexFunc(agyToolOrder, func(t struct{ agy, claude string }) bool { return t.agy == u.ToolName })
+	if i < 0 {
+		return "", false
+	}
+	return agyToolOrder[i].claude, true
 }
 
 // agyDeniedActions is the display name (else action) of each action agy reports denied.

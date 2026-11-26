@@ -34,7 +34,7 @@ func admittedPlan(p RoutePlan, ch Chain) RoutePlan {
 	p.Admitted = make([]PlanHop, 0, len(ch.Dispatches))
 	p.Agents = nil
 	for i, d := range ch.Dispatches {
-		h := PlanHop{Runner: Runner{Kind: RunnerOwn, Agent: d.Agent.Name()}, Workspace: admittedWorkspace(p, d)}
+		h := PlanHop{Runner: Runner{Kind: RunnerCLI, Agent: d.Agent.Name()}, Workspace: admittedWorkspace(p, d)}
 		if d.Agent.Name() == agentid.Pi {
 			h.Runner = Runner{Kind: RunnerPi, Agent: d.agentName()}
 		} else if i != ch.OwnHop() && !plannedRunnerHead(p, h) {

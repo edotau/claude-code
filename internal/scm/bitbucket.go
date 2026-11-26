@@ -3,13 +3,11 @@
 package scm
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -51,61 +49,37 @@ func (h *BitbucketHost) redact(s string) string {
 
 // do sends one request and returns the body; a 401 names the vault fix, a 403 the missing permission, never the token.
 func (h *BitbucketHost) do(ctx context.Context, method, path string, q url.Values, body any, accept string) ([]byte, error) {
-	var rd io.Reader
+	hdr := http.Header{"Authorization": {"Bearer " + h.Token}, "Accept": {accept}}
+	var b []byte
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if b, err = json.Marshal(body); err != nil {
 			return nil, err
 		}
-		rd = bytes.NewReader(b)
+		hdr.Set("Content-Type", "application/json")
 	}
 	u := h.Base + path
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u, rd)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+h.Token)
-	req.Header.Set("Accept", accept)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := h.HTTP.Do(req)
-	if err != nil {
+	code, data, _, err := httpx.Do(ctx, httpx.Call{Client: h.HTTP, Method: method, URL: u, Header: hdr, Body: b, Limit: maxBodyBytes})
+	if code == 0 {
 		return nil, fmt.Errorf("bitbucket %s %s: %s", method, path, h.redact(err.Error()))
 	}
-	defer resp.Body.Close()
-	data, rerr := readCapped(resp.Body)
-	if err := statusErr(method, path, resp.StatusCode); err != nil {
+	if err := statusErr(method, path, code); err != nil {
 		return nil, err
 	}
-	if rerr != nil {
-		return nil, bodyErr(method, path, h.redact(rerr.Error()), rerr)
+	if errors.Is(err, httpx.ErrTooLarge) {
+		return nil, fmt.Errorf("bitbucket %s %s: body over %d MiB: %w", method, path, maxBodyBytes>>20, httpx.ErrTooLarge)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, h.redact(err.Error()))
 	}
 	return data, nil
 }
 
-// bodyErr names the cap and keeps httpx.ErrTooLarge matchable; any other read error stays redacted text.
-func bodyErr(method, path, msg string, cause error) error {
-	if errors.Is(cause, httpx.ErrTooLarge) {
-		return fmt.Errorf("bitbucket %s %s: body over %d MiB: %w", method, path, maxBodyBytes>>20, httpx.ErrTooLarge)
-	}
-	return fmt.Errorf("bitbucket %s %s: reading body: %s", method, path, msg)
-}
-
 // maxBodyBytes caps a Bitbucket response body; a longer one is an error, never a truncation.
 const maxBodyBytes = 32 << 20
-
-// readCapped reads at most maxBodyBytes; a longer body is httpx.ErrTooLarge.
-func readCapped(r io.Reader) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxBodyBytes+1))
-	if err == nil && len(data) > maxBodyBytes {
-		err = httpx.ErrTooLarge
-	}
-	return data, err
-}
 
 func statusErr(method, path string, code int) error {
 	switch {
@@ -170,12 +144,13 @@ func prState(s string) string {
 	return "open"
 }
 
-func (h *BitbucketHost) pages(ctx context.Context, path string, q url.Values, limit int) ([]bbPR, error) {
-	var all []bbPR
+// pages reads every page of a paged GET, stopping early once limit (> 0) rows are in.
+func pages[T any](ctx context.Context, h *BitbucketHost, path string, q url.Values, limit int) ([]T, error) {
+	var all []T
 	for start := 0; ; {
 		q.Set("start", strconv.Itoa(start))
 		var page struct {
-			Values        []bbPR
+			Values        []T
 			IsLastPage    bool
 			NextPageStart int
 		}
@@ -211,7 +186,7 @@ func (h *BitbucketHost) List(ctx context.Context, o ListOpts) ([]PR, error) {
 	if o.Author == "" {
 		limit = o.Limit // no post-fetch filter drops rows, so the first Limit rows suffice
 	}
-	raws, err := h.pages(ctx, path, q, limit)
+	raws, err := pages[bbPR](ctx, h, path, q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -300,26 +275,14 @@ func (h *BitbucketHost) Checks(ctx context.Context, id, sha string) ([]Check, er
 	if err != nil {
 		return nil, err
 	}
+	path := "/rest/build-status/1.0/commits/" + url.PathEscape(sha)
+	vals, err := pages[struct{ State, Name, Key, URL string }](ctx, h, path, url.Values{"limit": {"100"}}, 0)
+	if err != nil {
+		return nil, err
+	}
 	checks := []Check{}
-	for start := 0; ; {
-		var page struct {
-			Values        []struct{ State, Name, Key, URL string }
-			IsLastPage    bool
-			NextPageStart int
-		}
-		q := url.Values{"limit": {"100"}, "start": {strconv.Itoa(start)}}
-		if err := h.getJSON(ctx, "/rest/build-status/1.0/commits/"+url.PathEscape(sha), q, &page); err != nil {
-			return nil, err
-		}
-		for _, v := range page.Values {
-			checks = append(checks, Check{Name: cmp.Or(v.Name, v.Key), State: buildState(v.State), URL: v.URL})
-		}
-		if page.IsLastPage || len(page.Values) == 0 {
-			break
-		}
-		if start, err = advance(start, page.NextPageStart); err != nil {
-			return nil, err
-		}
+	for _, v := range vals {
+		checks = append(checks, Check{Name: cmp.Or(v.Name, v.Key), State: buildState(v.State), URL: v.URL})
 	}
 	return checks, nil
 }

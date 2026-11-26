@@ -114,7 +114,7 @@ func TestEnqueueRejectsDuplicateID(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, pool := range []string{"pool", "other"} {
-		if _, _, err := q.Enqueue("a", pool, now); err == nil || q.Len() != 1 {
+		if _, _, err := q.Enqueue("a", pool, now); err == nil || len(q.waiting) != 1 {
 			t.Fatal("duplicate ID occupied another queue slot")
 		}
 	}
@@ -179,8 +179,8 @@ func TestAdmitOrderUnderPoolCap(t *testing.T) {
 	delete(cool, "databricks·qa")
 	q.Admit(now)
 	wantGranted(t, "cool-down over", ws, true, true, true, true)
-	if q.Len() != 0 {
-		t.Fatalf("queue left %d", q.Len())
+	if len(q.waiting) != 0 {
+		t.Fatalf("queue left %d", len(q.waiting))
 	}
 }
 

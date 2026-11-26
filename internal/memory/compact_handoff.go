@@ -170,27 +170,36 @@ type handoffGit struct {
 	truncated               []string
 }
 
-// readHandoffGit runs the four git reads under ctx; a missing upstream leaves its fields empty.
+// readHandoffGit runs the four independent git reads concurrently under ctx; a missing upstream empties its fields.
 func readHandoffGit(ctx context.Context, cwd string) handoffGit {
-	var g handoffGit
-	run := func(args ...string) string {
-		out, err := proc.RunGit(ctx, "", append([]string{"-C", cwd}, args...)...)
-		if err != nil && ctx.Err() != nil {
-			g.truncated = append(g.truncated, args[0]+" "+args[len(args)-1])
-		}
-		return out
+	calls := [][]string{{"rev-parse", "--show-toplevel", "--short", "HEAD"}, {"status", "--short", "--branch"},
+		{"rev-parse", "--short", "@{u}"}, {"log", "--oneline", "-" + strconv.Itoa(handoffListMax+1), "@{u}..HEAD"}}
+	outs, cut := make([]string, len(calls)), make([]string, len(calls))
+	var wg sync.WaitGroup
+	for i, args := range calls {
+		wg.Go(func() {
+			var err error
+			if outs[i], err = proc.RunGit(ctx, "", append([]string{"-C", cwd}, args...)...); err != nil && ctx.Err() != nil {
+				cut[i] = args[0] + " " + args[len(args)-1]
+			}
+		})
 	}
-	top := strings.Fields(run("rev-parse", "--show-toplevel", "--short", "HEAD"))
-	if len(top) == 2 {
+	wg.Wait()
+	var g handoffGit
+	if outs[2] == "" {
+		cut[3] = "" // the log counts only once an upstream is known, as when it ran after
+	}
+	g.truncated = slices.DeleteFunc(cut, func(c string) bool { return c == "" })
+	if top := strings.Fields(outs[0]); len(top) == 2 {
 		g.root, g.head = top[0], top[1]
 	}
-	status := splitRawLines(run("status", "--short", "--branch"))
+	status := splitRawLines(outs[1])
 	if len(status) > 0 && strings.HasPrefix(status[0], "## ") {
 		g.branchLine, status = status[0], status[1:]
 	}
 	g.status = status
-	if g.upstreamSHA = run("rev-parse", "--short", "@{u}"); g.upstreamSHA != "" {
-		g.log = splitRawLines(run("log", "--oneline", "-"+strconv.Itoa(handoffListMax+1), "@{u}..HEAD"))
+	if g.upstreamSHA = outs[2]; g.upstreamSHA != "" {
+		g.log = splitRawLines(outs[3])
 	}
 	return g
 }

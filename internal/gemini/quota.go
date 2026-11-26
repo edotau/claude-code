@@ -63,15 +63,18 @@ func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) 
 		return b, nil
 	}
 	cache := paths.DiskTTL[[]byte]{
-		Name: "gemini-usage", Path: filepath.Join(paths.StateDir(), "agy-usage.json"), TTL: quotaTTL,
+		Name: "gemini-usage", Path: usageCachePath(), TTL: quotaTTL,
 		Decode: valid, Encode: valid,
 	}
 	return cache.Get(ctx, run)
 }
 
+// usageCachePath is the disk cache of agy's /usage reply.
+func usageCachePath() string { return filepath.Join(paths.StateDir(), "agy-usage.json") }
+
 // CheckCached is Check from the disk cache up to quotaStaleMax old, never spawning agy; an error means no usable read.
 func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, error) {
-	file := filepath.Join(paths.StateDir(), "agy-usage.json")
+	file := usageCachePath()
 	st, err := os.Stat(file)
 	if err != nil {
 		return ModelQuota{}, errors.New("no recent agy usage cache")
@@ -307,7 +310,7 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 func freshQuotas(ctx context.Context) ([]QuotaRow, error) {
 	quotaFetchMu.Lock() // waits out a fetch in flight, whose disk write would otherwise land after the removal
 	quotaMemo.Drop()
-	_ = os.Remove(filepath.Join(paths.StateDir(), "agy-usage.json"))
+	_ = os.Remove(usageCachePath())
 	quotaFetchMu.Unlock()
 	return Quotas(ctx)
 }
@@ -343,7 +346,7 @@ func releaseResetHolds(rows []QuotaRow, now time.Time) error {
 
 // usageNewerThanState reports the cached /usage read postdating every route-state write, so no hold is newer than it.
 func usageNewerThanState() bool {
-	usage, err := os.Stat(filepath.Join(paths.StateDir(), "agy-usage.json"))
+	usage, err := os.Stat(usageCachePath())
 	if err != nil {
 		return false
 	}

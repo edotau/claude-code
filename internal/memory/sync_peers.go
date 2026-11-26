@@ -498,7 +498,7 @@ func pushOnce(ctx context.Context, st EnvelopeStore, peer string, out io.Writer,
 		fmt.Fprintf(out, "push %s: invalid peer answer; refused\n", peer)
 		return serveApplied{}, 0, syncRefused
 	}
-	_, n, err := ReadStream(bytes.NewReader(in.body))
+	_, n, err := ReadStream(bytes.NewBuffer(in.body))
 	if err != nil {
 		fmt.Fprintf(out, "push %s: local stream: %v\n", peer, err)
 		return serveApplied{}, 0, syncRefused

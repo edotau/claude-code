@@ -32,7 +32,7 @@ func savedWorking(t *testing.T) Contract {
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	c := savedWorking(t)
-	if err := Record("d-1", gatePass); err != nil {
+	if _, err := Update("d-1", func(c Contract) (Contract, error) { return c.WithRecord(gatePass) }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Load("d-1")

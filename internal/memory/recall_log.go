@@ -11,9 +11,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unsafe"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -35,10 +38,13 @@ const (
 	accessLockWait    = 500 * time.Millisecond
 )
 
-// accessLines renders one log line per entry, sharing the timestamp and sanitized reason.
-func accessLines(now time.Time, entries []string, reason string) string {
+// accessLines renders one line per entry sharing timestamp and reason; a session makes "session -- <id> -- " records.
+func accessLines(now time.Time, entries []string, reason, session string) string {
 	var lines strings.Builder
 	prefix := now.UTC().Format(time.RFC3339) + " -- "
+	if session != "" { // only the learner reads session records
+		prefix = sessionTag + " -- " + session + " -- " + prefix
+	}
 	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
 	for _, entry := range entries {
 		lines.WriteString(prefix)
@@ -50,19 +56,6 @@ func accessLines(now time.Time, entries []string, reason string) string {
 
 // sessionTag opens a session record; an older reader cannot parse it as a timestamp and skips the whole line.
 const sessionTag = "session"
-
-// sessionLines renders "session -- <id> -- <ts> -- <entry> -- <reason>" records, which only the learner reads.
-func sessionLines(now time.Time, entries []string, reason, session string) string {
-	var lines strings.Builder
-	prefix := sessionTag + " -- " + session + " -- " + now.UTC().Format(time.RFC3339) + " -- "
-	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
-	for _, entry := range entries {
-		lines.WriteString(prefix)
-		lines.WriteString(sanitizeField(entry, accessEntryMax))
-		lines.WriteString(suffix)
-	}
-	return lines.String()
-}
 
 // accessLogWritable reports whether path may be appended to: not a planted symlink/oddity, and its dir exists.
 func accessLogWritable(path string) bool {
@@ -85,7 +78,7 @@ func logAccessBatch(now time.Time, entries []string, reason, session string) {
 	if !accessLogWritable(path) {
 		return
 	}
-	lines := accessLines(now, entries, reason)
+	lines := accessLines(now, entries, reason, "")
 	write := func() error { return rotateAndAppend(path, now, entries, reason, session, lines) }
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
 		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate unlocked; a timeout drops it
@@ -95,15 +88,16 @@ func logAccessBatch(now time.Time, entries []string, reason, session string) {
 // rotateAndAppend rotates and appends under one lock so concurrent hooks and verbs never interleave renames.
 func rotateAndAppend(path string, now time.Time, entries []string, reason, session, lines string) error {
 	maybeRotateAccessLog(path, now)
-	if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
-		lines = accessLines(now, newToday(path, now, entries, ""), accessRecall)
+	session = strings.ToLower(session)
+	sessionOK := looksLikeSessionID(session)
+	fresh := entries
+	if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing; one scan serves both
+		var plain []string
+		plain, fresh = newToday(path, now, entries, session, sessionOK)
+		lines = accessLines(now, plain, accessRecall, "")
 	}
-	if looksLikeSessionID(session) {
-		fresh := entries
-		if reason == accessRecall { // one record per session, id and day is all the learner needs
-			fresh = newToday(path, now, entries, strings.ToLower(session))
-		}
-		lines += sessionLines(now, fresh, reason, strings.ToLower(session))
+	if sessionOK { // one record per session, id and day is all the learner needs
+		lines += accessLines(now, fresh, reason, session)
 	}
 	if lines == "" {
 		return nil
@@ -111,24 +105,33 @@ func rotateAndAppend(path string, now time.Time, entries []string, reason, sessi
 	return appendAccessLines(path, lines)
 }
 
-// newToday drops entries (and repeats within entries) that path already holds as a recall inject on now's UTC day.
-func newToday(path string, now time.Time, entries []string, session string) []string {
+// newToday drops entries (and repeats) path holds as a recall inject on now's UTC day: plain, and session's.
+func newToday(path string, now time.Time, entries []string, session string, withSession bool) (plain, sess []string) {
 	day := now.UTC().Format("2006-01-02")
-	seen := map[string]bool{}
+	seen, seenSess := map[string]bool{}, map[string]bool{}
 	eachParsedLine(path, func(ts time.Time, entry, reason, s string) {
-		if reason == accessRecall && s == session && ts.UTC().Format("2006-01-02") == day {
+		if reason != accessRecall || ts.UTC().Format("2006-01-02") != day {
+			return
+		}
+		if s == "" {
 			seen[entry] = true
+		} else if withSession && s == session {
+			seenSess[entry] = true
 		}
-	})
-	var fresh []string
-	for _, e := range entries {
-		key := sanitizeField(e, accessEntryMax)
-		if !seen[key] {
-			seen[key] = true
-			fresh = append(fresh, e)
+	}, accessRecall)
+	fresh := func(seen map[string]bool) (out []string) { // keyed by the sanitized log form, repeats dropped too
+		for _, e := range entries {
+			if key := sanitizeField(e, accessEntryMax); !seen[key] {
+				seen[key] = true
+				out = append(out, e)
+			}
 		}
+		return out
 	}
-	return fresh
+	if withSession {
+		sess = fresh(seenSess)
+	}
+	return fresh(seen), sess
 }
 
 func appendAccessLines(path, lines string) error {
@@ -212,10 +215,14 @@ func accessStatsAt(path string, now time.Time, windowDays int) (map[string]acces
 	return stats, oldest
 }
 
-// eachAccessLine calls fn per parsed line of path's generations, oldest first, then the active log.
-func eachAccessLine(path string, fn func(ts time.Time, entry, reason string)) {
+// eachAccessLine calls fn per plain line of path's generations, oldest first, then the active log; see eachParsedLine.
+func eachAccessLine(path string, fn func(ts time.Time, entry, reason string), reasons ...string) {
 	for i := accessGenerations; i >= 0; i-- {
-		eachLineIn(accessGeneration(path, i), fn)
+		eachParsedLine(accessGeneration(path, i), func(ts time.Time, entry, reason, session string) {
+			if session == "" { // session records are the learner's alone
+				fn(ts, entry, reason)
+			}
+		}, reasons...)
 	}
 }
 
@@ -257,21 +264,19 @@ func LogBriefRecall(session, block string) {
 	logAccessBatch(time.Now(), ids, accessRecall, session)
 }
 
-// eachLineIn calls fn per plain line of the single log file p; session records are the learner's alone.
-func eachLineIn(p string, fn func(ts time.Time, entry, reason string)) {
-	eachParsedLine(p, func(ts time.Time, entry, reason, session string) {
-		if session == "" {
-			fn(ts, entry, reason)
-		}
-	})
-}
-
-func eachParsedLine(p string, fn func(ts time.Time, entry, reason, session string)) {
+// eachParsedLine calls fn per parsed line of p; given reasons, a line whose tail ends in none is skipped unparsed.
+func eachParsedLine(p string, fn func(ts time.Time, entry, reason, session string), reasons ...string) {
 	data, err := os.ReadFile(p)
-	if err != nil {
+	if err != nil || len(data) == 0 {
 		return
 	}
-	for line := range strings.SplitSeq(string(data), "\n") {
+	text := unsafe.String(&data[0], len(data)) // data is never written again, so the string needs no copy
+	for line := range strings.SplitSeq(text, "\n") {
+		if len(reasons) > 0 && !slices.ContainsFunc(reasons, func(r string) bool {
+			return strings.HasSuffix(strings.TrimRightFunc(line, unicode.IsSpace), r)
+		}) {
+			continue // parseAccessLine's reason is the trimmed tail, so a line without one could never match
+		}
 		if ts, entry, reason, session := parseAccessLine(line); !ts.IsZero() {
 			fn(ts, entry, reason, session)
 		}
@@ -286,7 +291,7 @@ func returnCounts(now time.Time) map[string]int {
 		if ts.After(cutoff) && (reason == AccessSearch || reason == AccessShow) {
 			counts[entry]++
 		}
-	})
+	}, AccessSearch, AccessShow)
 	return counts
 }
 

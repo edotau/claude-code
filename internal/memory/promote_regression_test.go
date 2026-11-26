@@ -29,7 +29,7 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	if got := aliasRead(t, path); got != body {
 		t.Fatal("archiveFile rewrote the bank while its lock was held")
 	}
-	id, err := Remember("feedback", "concurrent knowledge", now)
+	id, err := RememberSupersedes("feedback", "concurrent knowledge", "", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +61,8 @@ func TestExtractBlockSurfacesReadError(t *testing.T) {
 	if err := os.MkdirAll(Path("decisionLog.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := extractBlock("abcd1234")
+	_, err := findBlock("abcd1234")
 	if err == nil || errors.Is(err, errNoBlock) {
-		t.Errorf("extractBlock err = %v, want the read error, not errNoBlock", err)
+		t.Errorf("findBlock err = %v, want the read error, not errNoBlock", err)
 	}
 }

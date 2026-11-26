@@ -104,14 +104,14 @@ func relativeRepeatedC(cmd string) bool {
 
 // ticksRepo is the one main checkout cmd's repos resolve to; "" when none or several, so no other repo is named.
 func ticksRepo(cwd, cmd string) string {
-	cands, base := commitCandidates(cwd, cmd), cwd
-	if m := leadingCD().FindStringSubmatch(cmd); m != nil {
-		cands, base = cands[:len(cands)-1], candidateDir(strings.Trim(m[1], `"'`), cwd) // the cd target replaces cwd
+	cands, base, lead := commitCandidates(cwd, cmd), cwd, leadingCD().FindStringSubmatch(cmd)
+	if lead != nil {
+		cands, base = cands[:len(cands)-1], candidateDir(lead[1], cwd) // the cd target replaces cwd
 	}
 	for _, m := range anyDirArg().FindAllStringSubmatch(cmd, -1) { // every -C names a repo, whatever the verb
-		cands = append(cands, candidateDir(strings.Trim(m[1], `"'`), base))
+		cands = append(cands, candidateDir(m[1], base))
 	}
-	if len(cdCall().FindAllString(cmd, 2)) > len(leadingCD().FindStringSubmatch(cmd))/2 || relativeRepeatedC(cmd) { // a cd past the leading one or a chained relative -C: unknowable
+	if len(cdCall().FindAllString(cmd, 2)) > len(lead)/2 || relativeRepeatedC(cmd) { // a cd past the leading one or a chained relative -C: unknowable
 		return ""
 	}
 	var main string
@@ -274,7 +274,7 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 func commitCandidates(cwd, cmd string) []string {
 	base, cdFound := cwd, false
 	if m := leadingCD().FindStringSubmatch(cmd); m != nil {
-		base, cdFound = candidateDir(strings.Trim(m[1], `"'`), cwd), true
+		base, cdFound = candidateDir(m[1], cwd), true
 	}
 	var cands []string
 	for _, seg := range cmdSegment().Split(cmd, -1) { // only commit invocations name a candidate repo
@@ -282,7 +282,7 @@ func commitCandidates(cwd, cmd string) []string {
 			continue
 		}
 		if m := gitDirArg().FindStringSubmatch(seg); m != nil {
-			cands = append(cands, candidateDir(strings.Trim(m[1], `"'`), base))
+			cands = append(cands, candidateDir(m[1], base))
 		}
 	}
 	if cdFound {
@@ -291,9 +291,9 @@ func commitCandidates(cwd, cmd string) []string {
 	return append(cands, cwd)
 }
 
-// candidateDir expands a leading ~ or ~/ and anchors a relative path to base.
+// candidateDir unquotes p, expands a leading ~ or ~/ and anchors a relative path to base.
 func candidateDir(p, base string) string {
-	return paths.AnchorPath(paths.ExpandHome(p), base)
+	return paths.AnchorPath(paths.ExpandHome(strings.Trim(p, `"'`)), base)
 }
 
 var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {

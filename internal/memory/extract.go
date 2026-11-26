@@ -16,8 +16,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -828,8 +831,9 @@ func ClassifyExtract(storeRoot string, opts ExtractOptions) (ExtractResult, erro
 }
 
 func extractFiles(root *os.Root, now time.Time) ([]extractFile, error) {
-	var files []extractFile
-	err := fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
+	var found []fs.DirEntry
+	var rels []string
+	walkErr := fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("extract walk %s: %w", rel, err)
 		}
@@ -839,21 +843,49 @@ func extractFiles(root *os.Root, now time.Time) ([]extractFile, error) {
 			}
 			return nil
 		}
-		if skipExtractFile(rel, d) {
-			return nil
+		if !skipExtractFile(rel, d) {
+			found, rels = append(found, d), append(rels, rel)
 		}
-		data, err := root.ReadFile(filepath.FromSlash(rel))
-		if err != nil {
-			return fmt.Errorf("extract read %s: %w", rel, err)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return fmt.Errorf("extract stat %s: %w", rel, err)
-		}
-		files = append(files, newExtractFile(rel, data, info.ModTime(), now))
 		return nil
 	})
-	return files, err
+	files := make([]extractFile, len(rels))
+	err := extractEach(len(rels), func(i int) error {
+		data, err := root.ReadFile(filepath.FromSlash(rels[i]))
+		if err != nil {
+			return fmt.Errorf("extract read %s: %w", rels[i], err)
+		}
+		info, err := found[i].Info()
+		if err != nil {
+			return fmt.Errorf("extract stat %s: %w", rels[i], err)
+		}
+		files[i] = newExtractFile(rels[i], data, info.ModTime(), now)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, walkErr
+}
+
+// extractEach runs fn over 0..n-1 on all CPUs and returns the lowest index's error, as a sequential loop would.
+func extractEach(n int, fn func(i int) error) error {
+	errs := make([]error, n)
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(n, runtime.GOMAXPROCS(0)) {
+		wg.Go(func() {
+			for i := int(next.Add(1) - 1); i < n; i = int(next.Add(1) - 1) {
+				errs[i] = fn(i)
+			}
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func skipExtractDir(rel, name string) bool {

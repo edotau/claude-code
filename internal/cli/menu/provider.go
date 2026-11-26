@@ -210,7 +210,7 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 		}
 		fmt.Fprintf(os.Stderr, "%s: pick models now? [Y/n] ", s.Row)
 		if yes(d.br) {
-			offerModels(d, s.Row)
+			offerModels(d, s.Row, false)
 		}
 	}
 	return st

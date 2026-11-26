@@ -326,7 +326,7 @@ func formatPython(path string) (bool, string) {
 		}
 	}
 	// ruff-only chain: check --fix covers autoflake (F401/F841) + isort (I); format is black-compatible.
-	run(root, "ruff", "check", "--fix", "--quiet", path) // exits 1 on lint it cannot fix, so only format decides clean
+	runTool(root, "ruff", "check", "--fix", "--quiet", path) // exits 1 on lint it cannot fix, so only format decides clean
 	return runTool(root, "ruff", "format", "--quiet", path)
 }
 
@@ -334,11 +334,9 @@ func formatPython(path string) (bool, string) {
 func classicPythonChain(root, path string, tools map[string]bool) (ran, ok bool) {
 	ok = true
 	step := func(name string, args ...string) {
-		if resolveTool(root, name) == "" {
-			return
+		if stepOK, missing := runTool(root, name, args...); missing == "" {
+			ran, ok = true, stepOK && ok
 		}
-		ran = true
-		ok = run(root, name, args...) && ok // run before the && so every step executes
 	}
 	if tools["ruff"] {
 		step("ruff", "check", "--fix", "--quiet", path)
@@ -388,19 +386,11 @@ func resolveTool(root, name string) string {
 	return ""
 }
 
-// runTool is run, plus name when the formatter is not installed.
-func runTool(dir, name string, args ...string) (bool, string) {
-	if resolveTool(dir, name) == "" {
-		return false, name
-	}
-	return run(dir, name, args...), ""
-}
-
-// run executes a formatter from dir under toolTimeout; reports whether it ran AND exited 0.
-func run(dir, name string, args ...string) bool {
+// runTool executes a formatter from dir under toolTimeout; ok means it exited 0, missing names an absent tool.
+func runTool(dir, name string, args ...string) (ok bool, missing string) {
 	p := resolveTool(dir, name)
 	if p == "" {
-		return false
+		return false, name
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), toolTimeout)
 	defer cancel()
@@ -408,7 +398,7 @@ func run(dir, name string, args ...string) bool {
 	cmd.Dir = dir
 	proc.OwnGroup(cmd)          // the timeout kills the formatter's whole group, wrapper-spawned children included
 	cmd.WaitDelay = time.Second // grandchildren holding the output pipe must not outlive the timeout
-	return cmd.Run() == nil
+	return cmd.Run() == nil, ""
 }
 
 func isExec(p string) bool {

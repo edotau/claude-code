@@ -383,10 +383,13 @@ func allowedList(key string) string {
 // scanAgentCalls calls fn per agent( call (not subagent(/x.agent()) with its offset, line, options and opus-ok marker.
 func scanAgentCalls(src string, fn func(at, line int, window string, marked bool)) {
 	masked := stripStrings(src) // same length as src: an `agent(` inside a string or comment is prose
-	for i := 0; i+5 <= len(src); i++ {
-		if masked[i:i+5] != "agent" {
-			continue
+	line, counted := 1, 0       // line of src[counted], advanced incrementally so each call is not a rescan
+	for i := 0; ; i++ {
+		j := strings.Index(masked[i:], "agent")
+		if j < 0 {
+			return
 		}
+		i += j
 		if i > 0 && isIdentByte(src[i-1]) {
 			continue // subagent(, myagent(, x.agent( — not the workflow primitive
 		}
@@ -401,7 +404,9 @@ func scanAgentCalls(src string, fn func(at, line int, window string, marked bool
 			markerEnd = len(src)
 		}
 		marked := strings.Contains(src[i:markerEnd], lintOpusOK)
-		fn(i, 1+strings.Count(src[:i], "\n"), window, marked)
+		line += strings.Count(src[counted:i], "\n")
+		counted = i
+		fn(i, line, window, marked)
 	}
 }
 

@@ -51,16 +51,11 @@ func sshSocket() string {
 
 // readSSH reads one PNG from the bridge socket sock; the server writes it and closes, zero bytes meaning none.
 func readSSH(sock string) ([]byte, error) {
-	if err := checkSocket(sock); err != nil {
+	conn, err := dialBridge(sock)
+	if err != nil {
 		return nil, err
 	}
-	d := net.Dialer{Timeout: sshTimeout}
-	conn, err := d.DialContext(context.Background(), "unix", sock)
-	if err != nil {
-		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
-	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
 	b, err := io.ReadAll(io.LimitReader(conn, sshMaxPNG+1))
 	if err != nil {
 		return nil, fmt.Errorf("clipboard bridge read: %w", err)
@@ -75,6 +70,20 @@ func readSSH(sock string) ([]byte, error) {
 		return nil, fmt.Errorf("clipboard bridge sent a non-PNG: %w", err)
 	}
 	return b, nil
+}
+
+// dialBridge connects to our own bridge socket sock with the round-trip deadline set.
+func dialBridge(sock string) (net.Conn, error) {
+	if err := checkSocket(sock); err != nil {
+		return nil, err
+	}
+	d := net.Dialer{Timeout: sshTimeout}
+	conn, err := d.DialContext(context.Background(), "unix", sock)
+	if err != nil {
+		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
+	return conn, nil
 }
 
 // checkSocket refuses a /tmp path another local user could have pre-bound: it must be our own socket.
@@ -384,16 +393,11 @@ func checkDropDir(dropDir string) error {
 
 // requestFile asks the bridge on sock for the Mac file at path and returns its bytes.
 func requestFile(sock, path string) ([]byte, error) {
-	if err := checkSocket(sock); err != nil {
+	conn, err := dialBridge(sock)
+	if err != nil {
 		return nil, err
 	}
-	d := net.Dialer{Timeout: sshTimeout}
-	conn, err := d.DialContext(context.Background(), "unix", sock)
-	if err != nil {
-		return nil, fmt.Errorf("%w (%s: %v)", errNoBridge, sock, err)
-	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(sshTimeout))
 	req, _ := json.Marshal(bridgeReq{V: 1, Op: "file", Path: path})
 	if _, err := conn.Write(append(req, '\n')); err != nil {
 		return nil, fmt.Errorf("clipboard bridge write: %w", err)

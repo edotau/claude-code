@@ -30,7 +30,7 @@ func GrepExit(in *core.Input) (res core.Result) {
 // exitedOne reports a first line of exactly `Exit code 1` (optionally after `Error: `), not 10, 127 and the like.
 func exitedOne(errText string) bool {
 	first, _, _ := strings.Cut(strings.TrimSpace(errText), "\n")
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(first), "Error: ")) == "Exit code 1"
+	return strings.TrimSpace(strings.TrimPrefix(first, "Error: ")) == "Exit code 1"
 }
 
 // lastStageGrep names the grep tool the command's final pipeline stage runs, else "".
@@ -129,8 +129,7 @@ func arithStep(c byte) int { return 1 - 2*int(c-'(') }
 // heredocOperand parses what follows `<<` (optional `-`, blanks, a word) and the bytes it spans.
 func heredocOperand(s string) (heredocWant, int) {
 	w := heredocWant{dash: strings.HasPrefix(s, "-")}
-	body := strings.TrimPrefix(s, "-")
-	word := strings.TrimLeft(body, " \t")
+	word := strings.TrimLeft(strings.TrimPrefix(s, "-"), " \t")
 	delim, n := heredocWord(word)
 	w.delim = delim
 	return w, len(s) - len(word) + n

@@ -119,7 +119,7 @@ func parseWavesBytes(file string, raw []byte) (WavePlan, error) {
 		t := WaveTask{ID: "Phase " + m[1] + "." + strings.ToUpper(m[2]), Wave: n, Agent: attrs["agent"],
 			Leaf: attrs["leaf"], Profile: attrs["profile"], Owns: ownEntries(owns, nil),
 			Verify: attrs["verify"], Findings: attrs["findings"], Task: bodies[m[1]+"."+strings.ToUpper(m[2])],
-			Done: task.closed()}
+			Done: !open(task)}
 		t.BlockedBy, t.BlockedText = blockers(attrs["blocked by"])
 		if t.Task == "" {
 			t.Task = "Implement " + t.ID + " from " + file
@@ -360,9 +360,6 @@ func ownsRefusal(own string) string {
 	}
 	return ""
 }
-
-// closed reports a ticked or struck task: neither launches a leaf.
-func (t Task) closed() bool { return t.Done || t.Dropped }
 
 func waveOverlap(w Wave) error {
 	byID := map[string]WaveTask{}

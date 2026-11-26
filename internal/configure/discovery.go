@@ -105,15 +105,12 @@ func serve(ctx context.Context, res ModelResult, mode ModelMode, dialects []stri
 			return res, err
 		}
 		res.Snapshot, res.Raw = &snap, snap.Models
-		res.Models = shape(catalog.UsableIn(p, snap.Models, dialects))
-		return res, nil
-	}
-	infos, _, _, err := catalog.Served(ctx, p)
-	if err != nil {
+	} else if infos, _, _, err := catalog.Served(ctx, p); err != nil {
 		return res, err
+	} else {
+		res.Raw = infos
 	}
-	res.Raw = infos
-	res.Models = shape(catalog.UsableIn(p, infos, dialects))
+	res.Models = shape(catalog.UsableIn(p, res.Raw, dialects))
 	return res, nil
 }
 

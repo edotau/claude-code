@@ -255,9 +255,7 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 	return nil
 }
 
-// parseOverlay decodes one document strictly and checks it; errors name keys, never values.
-func parseOverlay(raw []byte) (Overlay, error) { return parseOverlayFrom(raw, "typed", false) }
-
+// parseOverlayFrom decodes one document strictly and checks it; errors name keys, never values.
 func parseOverlayFrom(raw []byte, origin string, stored bool) (Overlay, error) {
 	raw = forgivingLimits(raw)
 	if stored {

@@ -25,6 +25,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+// parseOverlay parses raw as a typed (non-stored) overlay document.
+func parseOverlay(raw []byte) (Overlay, error) { return parseOverlayFrom(raw, "typed", false) }
+
 // Each tampered or tricked overlay document is refused with its own message; an own 0600 file loads.
 func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 	dir := t.TempDir()

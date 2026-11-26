@@ -511,7 +511,7 @@ func TestMemoryRecallLoad(t *testing.T) {
 	t.Run("appends bodies under the byte cap", func(t *testing.T) {
 		memCfg(t)
 		memoryBankRepo(t)
-		if _, err := memory.Remember("feedback", "loadable fact about widgets and gadgets", time.Now()); err != nil {
+		if _, err := memory.RememberSupersedes("feedback", "loadable fact about widgets and gadgets", "", time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		out := memCLIOK(t, "search", "--open", "3", "loadable", "widgets", "gadgets", "fact")

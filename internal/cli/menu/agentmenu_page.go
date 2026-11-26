@@ -171,15 +171,14 @@ func activateOnSignIn(d *dialog, internal string, rows []billingRow) {
 	for i, r := range rows {
 		if run := r.run; r.key != "" || r.label == "Login" {
 			rows[i].run = func() bool {
-				ok := run()
-				if ok {
-					if r.key == modeAPIKey {
-						agentActiveOn(d, internal)
-						return true
-					}
-					return pinOwnLogin(d, internal)
+				if !run() {
+					return false
 				}
-				return ok
+				if r.key == modeAPIKey {
+					agentActiveOn(d, internal)
+					return true
+				}
+				return pinOwnLogin(d, internal)
 			}
 		}
 	}

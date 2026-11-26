@@ -24,7 +24,7 @@ import (
 // auditCommand is the full audit started on main after a promote; empty skips it (tests).
 var auditCommand = "make audit"
 
-// SwapAuditCommand sets the post-promote audit command ("" skips it) and returns a restore func, for other packages' tests.
+// SwapAuditCommand sets the post-promote audit command ("" skips it) and returns a restore func, for tests.
 func SwapAuditCommand(cmd string) (restore func()) {
 	old := auditCommand
 	auditCommand = cmd

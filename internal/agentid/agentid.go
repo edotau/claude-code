@@ -30,11 +30,6 @@ func All() []string {
 // External is the agents that run an external CLI (All without claude).
 func External() []string { return All()[1:] }
 
-// Projected is the external agents whose CLI reads a synced agents dir (External without NoProjection ones).
-func Projected() []string {
-	return slices.DeleteFunc(External(), func(n string) bool { return facts(n).NoProjection })
-}
-
 // CoworkerType is the type of a Pi code-mode run: its subagent type, --agent value and record type; Pi has none.
 const CoworkerType = "coworker"
 
@@ -67,7 +62,7 @@ func Known(name string) bool {
 }
 
 // Binary is the executable an agent runs: gemini is agy, every other agent its own name.
-func Binary(name string) string { return cmp.Or(facts(name).binary, name) }
+func Binary(name string) string { return cmp.Or(Routing(name).binary, name) }
 
 // Effort is a reasoning-effort level on the harness scale.
 type Effort string
@@ -157,7 +152,8 @@ var roster = []struct {
 		nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}}},
 }
 
-func facts(name string) RouteFacts {
+// Routing is name's routing facts; the zero value for a name off the roster.
+func Routing(name string) RouteFacts {
 	for _, agent := range roster {
 		if agent.name == name {
 			return agent.RouteFacts
@@ -166,11 +162,8 @@ func facts(name string) RouteFacts {
 	return RouteFacts{}
 }
 
-// Routing is name's routing facts.
-func Routing(name string) RouteFacts { return facts(name) }
-
 // NativeEfforts is the values agent's CLI accepts, weakest first; nil means model-specific (passed through).
-func NativeEfforts(agent string) []string { return slices.Clone(facts(agent).nativeEfforts) }
+func NativeEfforts(agent string) []string { return slices.Clone(Routing(agent).nativeEfforts) }
 
 // SplitNativeEffort cuts a case-sensitive Gemini effort suffix, preserving the split even when ok is false.
 func SplitNativeEffort(model string) (base, effort string, ok bool) {

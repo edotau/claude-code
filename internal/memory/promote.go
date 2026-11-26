@@ -326,24 +326,12 @@ func blockIn(path, name, id string) (string, error) {
 	return "", nil
 }
 
-// extractBlock finds the id-marked block in the typed files, returning its logical filename and text.
-func extractBlock(id string) (string, string, error) {
-	for name := range idFiles {
-		blk, err := blockIn(Path(name), name, id)
-		if err != nil {
-			return "", "", err
-		}
-		if blk != "" {
-			return name, blk, nil
-		}
-	}
-	return "", "", errNoBlock
-}
-
 // findBlock searches typed files before their archive/<stem>-*.md overflow.
 func findBlock(id string) (string, error) {
-	if _, block, err := extractBlock(id); !errors.Is(err, errNoBlock) {
-		return block, err
+	for name := range idFiles {
+		if blk, err := blockIn(Path(name), name, id); err != nil || blk != "" {
+			return blk, err
+		}
 	}
 	for name := range idFiles {
 		ap := paths.MemorySub("archive", strings.TrimSuffix(name, ".md")+"-*.md")

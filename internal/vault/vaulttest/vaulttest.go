@@ -128,10 +128,8 @@ func Keyring(t testing.TB) *FakeKeyring {
 // UseKeyring is Use without HARNESS_VAULT_KEY, so the master key resolves through the fake keyring.
 func UseKeyring(t testing.TB) (string, *FakeKeyring) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	dir := Use(t)
 	t.Setenv("HARNESS_VAULT_KEY", "")
-	t.Setenv("CLAUDE_PROFILE", "") // the launching session's marker must not steer a hermetic vault
 	return dir, Keyring(t)
 }
 

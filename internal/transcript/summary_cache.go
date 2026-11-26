@@ -68,7 +68,7 @@ func SummaryCachePath() string {
 type SummaryCache struct {
 	path         string
 	old, cur     map[string]summaryRow
-	hits, misses int
+	hits, misses int  // counted for tests
 	dirty        bool // a settled miss stored a row, so Save has something new to write
 }
 
@@ -89,9 +89,6 @@ func readSummaryRows(path string) map[string]summaryRow {
 	}
 	return f.Files
 }
-
-// Stats reports how many Responses calls were served from the cache and how many re-read the file.
-func (c *SummaryCache) Stats() (hits, misses int) { return c.hits, c.misses }
 
 // Responses is ReadResponses through the cache: a row whose size and mtime match, on a file older than a minute, wins.
 func (c *SummaryCache) Responses(path string) ([]Response, error) {
@@ -156,3 +153,6 @@ var summaryCacheFormat = schemas.Register(schemas.Format{
 	New:     func() any { return &summaryCacheFile{} },
 	Version: summaryCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",
 })
+
+// Stats reports how many Responses calls were served from the cache and how many re-read the file.
+func (c *SummaryCache) Stats() (hits, misses int) { return c.hits, c.misses }

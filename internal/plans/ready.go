@@ -146,7 +146,7 @@ func readyTasks(root string, plan Plan, lines []string) []ReadyTask {
 	}
 	var out []ReadyTask
 	for _, t := range plan.Tasks {
-		if t.closed() || t.ID == "" {
+		if !open(t) || t.ID == "" {
 			continue
 		}
 		// a code span quoting "Blocked by" is prose about the key, not the key
@@ -223,7 +223,7 @@ func blockReason(t Task, blocked string, byID map[string]Task) string {
 		return "waits on the owner: " + m
 	}
 	for _, id := range ids {
-		if !byID[id].closed() {
+		if open(byID[id]) {
 			return "blocked by " + id + " (open)"
 		}
 	}

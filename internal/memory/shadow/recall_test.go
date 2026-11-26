@@ -17,7 +17,6 @@ import (
 
 func recallStore(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "0")
 	root := paths.MemoryStoreDir()
@@ -147,7 +146,6 @@ func TestRecallRowsStale(t *testing.T) {
 }
 
 func TestRecallRowsMissing(t *testing.T) {
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := paths.MemoryStoreDir()
 	writeShadowStore(t, root, false)

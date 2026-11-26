@@ -100,8 +100,8 @@ func TestResumeKeepsDefaultAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := flagArg(fresh.Argv, "--session-id")
-	if f, ok := readFacts(id); !ok || f.Model != "qwen3-coder" {
-		t.Fatalf("recorded facts = %+v (ok %v), want model qwen3-coder", f, ok)
+	if rec, err := readSessionRecord(id); err != nil || rec.ov.Model != "qwen3-coder" {
+		t.Fatalf("recorded facts = %+v (err %v), want model qwen3-coder", rec.ov, err)
 	}
 	if got := fresh.Set["ANTHROPIC_MODEL"]; got != "qwen3-coder" {
 		t.Fatalf("fresh ANTHROPIC_MODEL = %q", got)
@@ -128,9 +128,10 @@ func TestSessionOverlayResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := flagArg(fresh.Argv, "--session-id")
-	ov, ok := readFacts(id)
-	if !ok || ov.Provider != "openai" || ov.Profile != "ollama" || ov.Model != "qwen3-coder" {
-		t.Fatalf("saved launch overlay = %+v (ok %v)", ov, ok)
+	rec, err := readSessionRecord(id)
+	ov := rec.ov
+	if err != nil || ov.Provider != "openai" || ov.Profile != "ollama" || ov.Model != "qwen3-coder" {
+		t.Fatalf("saved launch overlay = %+v (err %v)", ov, err)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "gw")
 	t.Setenv("ANTHROPIC_MODEL", "should-not-win")
@@ -216,9 +217,9 @@ func TestSessionRecordsTypedOverlayCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ov, ok := readFacts(flagArg(plan.Argv, "--session-id"))
-	if !ok || ov.MaxDepth == nil || *ov.MaxDepth != 2 {
-		t.Fatalf("saved overlay = %+v, ok %v", ov, ok)
+	rec, err := readSessionRecord(flagArg(plan.Argv, "--session-id"))
+	if err != nil || rec.ov.MaxDepth == nil || *rec.ov.MaxDepth != 2 {
+		t.Fatalf("saved overlay = %+v, err %v", rec.ov, err)
 	}
 }
 

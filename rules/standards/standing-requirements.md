@@ -45,7 +45,8 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R15 Plan tests:** default to basic feature tests taking a couple of seconds; defer long tests until use warrants
   them. Dream lists further suggestions. Enforced in plan/brief templates and dream Phase 5c.
 - **R16 Test time:** reduce runtime without parallel tests or changed assertions. Leaves run only tests they wrote
-  or repair, by exact function, never the suite. Packages run once at sign-off; the full suite once, at most twice, at landing.
+  or repair, by exact function, never the suite. Packages run once at sign-off; the full suite once, at most twice,
+  at landing.
   Aim below 20 seconds per package solo; memory code/test speed is standing work.
 - **R17 Security reviews:** secrets/guard/SSH/sync/exfiltration reviews go to Gemini first.
   GPT briefs ask about robustness and data loss, not attacks, to avoid vendor-filter refusals.

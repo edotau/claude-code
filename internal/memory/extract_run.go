@@ -2,9 +2,8 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -531,9 +530,9 @@ func extractRollback(dir *os.Root, removed []extractRemoval) (err error) {
 }
 
 func extractRemainingHash(root string) (string, error) {
-	hashes := map[string]string{}
-	var names []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	var found []fs.DirEntry
+	var names, full []string
+	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -547,24 +546,22 @@ func extractRemainingHash(root string) (string, error) {
 		if err != nil {
 			return err
 		}
-		hash, err := extractHashFile(p, d)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		names = append(names, rel)
-		hashes[rel] = hash
+		found, names, full = append(found, d), append(names, filepath.ToSlash(rel)), append(full, p)
 		return nil
 	})
-	if err != nil {
+	hashes := make([]string, len(names))
+	err := extractEach(len(names), func(i int) (err error) {
+		hashes[i], err = extractHashFile(full[i], found[i])
+		return err
+	})
+	if err = cmp.Or(err, walkErr); err != nil {
 		return "", err
 	}
-	slices.Sort(names)
-	hash := sha256.New()
-	for _, rel := range names {
-		fmt.Fprintf(hash, "%d:%s:%s\n", len(rel), rel, hashes[rel])
+	digests := make(map[string]string, len(names))
+	for i, rel := range names {
+		digests[rel] = hashes[i]
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return extractGroupHash(digests), nil
 }
 
 func extractHashFile(p string, d fs.DirEntry) (string, error) {

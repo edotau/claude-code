@@ -436,16 +436,16 @@ func TestRunBadRecordFailsHeadless(t *testing.T) {
 
 // Armed on macOS a Databricks hop runs routed BYOK: router base /p/dbx, no GitHub login, the login env stripped.
 func TestArmCopilotBYOK(t *testing.T) {
-	got, child := runArmedBYOK(t)
+	got, child, fp := runArmedBYOK(t)
 	if got.UseLoggedInUser || got.GitHubToken != "" || got.MultiProvider() {
 		t.Errorf("UseLoggedInUser=%v GitHubToken set=%v registry=%v; want BYOK with no GitHub login",
 			got.UseLoggedInUser, got.GitHubToken != "", got.MultiProvider())
 	}
-	base := proc.EnvCopilotProviderBaseURL + "=" + testRouterBase + "/p/dbx"
-	if !slices.Contains(child, base) || !slices.Contains(child, "COPILOT_OFFLINE=true") {
-		t.Errorf("child env lacks %s or COPILOT_OFFLINE=true", base)
+	base := testRouterBase + "/p/dbx"
+	if child[proc.EnvCopilotProviderBaseURL] != fp(base) || child["COPILOT_OFFLINE"] != fp("true") {
+		t.Errorf("child env lacks %s=%s or COPILOT_OFFLINE=true", proc.EnvCopilotProviderBaseURL, base)
 	}
-	if keyed, leaked := byokKeyState(child); !keyed || leaked {
+	if keyed, leaked := byokKeyState(child, fp); !keyed || leaked {
 		t.Errorf("child env: BYOK key present=%v, a GitHub token or the workspace token leaked=%v", keyed, leaked)
 	}
 }
@@ -467,17 +467,16 @@ func TestArmedBYOKFromRunValues(t *testing.T) {
 }
 
 // byokKeyState reports whether the child carries a BYOK key and whether a planted GitHub or workspace token reached it.
-func byokKeyState(child []string) (keyed, leaked bool) {
-	for _, kv := range child {
-		k, v, _ := strings.Cut(kv, "=")
-		keyed = keyed || (v != "" && (k == proc.EnvCopilotProviderBearerToken || k == proc.EnvCopilotProviderAPIKey))
-		leaked = leaked || v == "planted-gh-token" || (strings.HasPrefix(k, proc.CopilotProviderPrefix) && v == "fixture-workspace-token")
+func byokKeyState(child map[string]string, fp func(string) string) (keyed, leaked bool) {
+	for k, v := range child {
+		keyed = keyed || (v != fp("") && (k == proc.EnvCopilotProviderBearerToken || k == proc.EnvCopilotProviderAPIKey))
+		leaked = leaked || v == fp("planted-gh-token") || (strings.HasPrefix(k, proc.CopilotProviderPrefix) && v == fp("fixture-workspace-token"))
 	}
 	return keyed, leaked
 }
 
-// runArmedBYOK runs copilot on dbx inside databricks:dbx on macOS with GitHub tokens planted: SDK options, child env.
-func runArmedBYOK(t *testing.T) (sdk.Options, []string) {
+// runArmedBYOK runs copilot on dbx in databricks:dbx on macOS, GitHub tokens planted: options, env fingerprints, fp.
+func runArmedBYOK(t *testing.T) (sdk.Options, map[string]string, func(string) string) {
 	t.Helper()
 	macFallbackScratch(t)
 	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
@@ -497,11 +496,31 @@ func runArmedBYOK(t *testing.T) (sdk.Options, []string) {
 	if _, err := copilotAgent.Run(t.Context(), req, wire.Discard); err != nil {
 		t.Fatal(err)
 	}
-	env, err := sdk.ClientEnv(t.Context(), got)
-	if err != nil {
-		t.Fatal(err)
+	debug := filepath.Join(t.TempDir(), "overlay.jsonl")
+	t.Setenv("COWORKER_OVERLAY_DEBUG", debug)
+	t.Setenv("COWORKER_OVERLAY_DEBUG_SALT", "test-salt")
+	last := func() map[string]string {
+		raw, err := os.ReadFile(debug)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+		var rec struct {
+			FP map[string]string `json:"fp"`
+		}
+		if err := json.Unmarshal(lines[len(lines)-1], &rec); err != nil {
+			t.Fatal(err)
+		}
+		return rec.FP
 	}
-	return got, env
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // the child env is recorded before the runtime starts, so no live CLI is needed
+	_, _ = sdk.Ask(ctx, got, "hi", nil)
+	child := last()
+	return got, child, func(v string) string {
+		agentconfig.RecordOverlayDebug("probe", []string{"V=" + v})
+		return last()["V"]
+	}
 }
 
 func assertCodexManagedBlock(t *testing.T, codexCfg []byte) {

@@ -212,7 +212,7 @@ func GHAccounts() []string {
 func GHToken(account string) string {
 	dir := ghConfigDir()
 	stamp := ""
-	if info, err := os.Stat(filepath.Join(dir, "hosts.yml")); err == nil {
+	if info, err := os.Stat(ghHostsFile()); err == nil {
 		stamp = fmt.Sprint(info.Size(), info.ModTime().UnixNano())
 	}
 	key := strings.Join([]string{account, dir, os.Getenv("GH_HOST"), os.Getenv("PATH"), stamp}, "\x00")

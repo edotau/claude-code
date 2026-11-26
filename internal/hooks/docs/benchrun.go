@@ -1,6 +1,7 @@
 package docs
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -160,7 +161,7 @@ func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
 		return
 	}
 	if files := benchedFiles(ctx, top, sha); len(files) > 0 {
-		benchStart(ctx, in, top, sha, files)
+		benchEnqueue(top, []benchJob{{top, sha, in.SessionID, files}}) // admission and lock waits belong to the detached worker
 	}
 }
 
@@ -191,11 +192,6 @@ func BenchLanded(ctx context.Context, top, before, after, session string) {
 		}
 	}
 	benchEnqueue(top, jobs)
-}
-
-// Admission and lock waits belong to the detached worker, never the tool's hook process.
-func benchStart(_ context.Context, in *core.Input, top, sha string, files []string) {
-	benchEnqueue(top, []benchJob{{top, sha, in.SessionID, files}})
 }
 
 // benchEnqueue publishes jobs in landing order; one consumer runs them oldest first, so none is dropped.
@@ -342,23 +338,18 @@ func benchReadMarker(base string) (benchMarker, bool) {
 }
 
 func benchPending(base string) bool {
-	raw, err := os.ReadFile(base + ".marker")
-	var m benchMarker
-	return err != nil || json.Unmarshal(raw, &m) != nil || m.Exit == nil
+	m, ok := benchReadMarker(base)
+	return !ok || m.Exit == nil
 }
 
 // A worker that died between completion and delivery leaves an exit with no notice outcome.
 func benchUndelivered(base string) (benchJob, bool) {
-	var m benchMarker
 	var job benchJob
-	raw, err := os.ReadFile(base + ".marker")
-	if err != nil || json.Unmarshal(raw, &m) != nil || m.Exit == nil || m.Notice != "" {
+	m, ok := benchReadMarker(base)
+	if !ok || m.Exit == nil || m.Notice != "" || m.PID > 0 && m.PID != os.Getpid() && proc.Alive(m.PID) {
 		return job, false
 	}
-	if m.PID > 0 && m.PID != os.Getpid() && proc.Alive(m.PID) {
-		return job, false
-	}
-	raw, err = os.ReadFile(base + ".job.json")
+	raw, err := os.ReadFile(base + ".job.json")
 	if err != nil || json.Unmarshal(raw, &job) != nil || job.SessionID == "" {
 		return job, false
 	}
@@ -531,7 +522,7 @@ func benchLoopDecision(ctx context.Context, job benchJob) string {
 func benchCleanLanes(ctx context.Context, job benchJob) {
 	var out strings.Builder
 	if err := benchLaneClean(ctx, job.Top, &out); err != nil {
-		fmt.Fprintf(&out, "automatic lane clean failed: %s\n", strings.SplitN(err.Error(), "\n", 2)[0])
+		fmt.Fprintf(&out, "automatic lane clean failed: %s\n", firstErrLine(err))
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if line == "" || job.SessionID == "" {
@@ -941,9 +932,8 @@ func TickOrBench(in *core.Input) core.Result {
 func benchFinish(in *core.Input) core.Result {
 	result := in.Nested(benchField, "result")
 	base := strings.TrimSuffix(result, ".json")
-	markerRaw, err := os.ReadFile(base + ".marker")
-	var m benchMarker
-	if err != nil || json.Unmarshal(markerRaw, &m) != nil || m.Exit == nil || in.SessionID == "" {
+	m, ok := benchReadMarker(base)
+	if !ok || m.Exit == nil || in.SessionID == "" {
 		return core.Result{}
 	}
 	raw, _ := os.ReadFile(result)
@@ -988,10 +978,7 @@ func benchComparisons(raw []byte) (lines, subjects []string) {
 	}
 	subject := map[string]string{}
 	for _, p := range rep.Packages {
-		baseline := p.Before.Commit
-		if baseline == "" {
-			baseline = "unknown"
-		}
+		baseline := cmp.Or(p.Before.Commit, "unknown")
 		prefix := fmt.Sprintf("bench %s vs %s %s: ", rep.Commit, baseline, p.Pkg)
 		for _, b := range p.Benchmarks {
 			reason := p.baselineReason(b.Name)
@@ -1048,11 +1035,7 @@ func benchNoticeSummary(raw []byte, remaining int) string {
 	_ = json.Unmarshal(raw, &rep)
 	var baselines []string
 	for _, p := range rep.Packages {
-		baseline := p.Before.Commit
-		if baseline == "" {
-			baseline = "unknown"
-		}
-		if !slices.Contains(baselines, baseline) {
+		if baseline := cmp.Or(p.Before.Commit, "unknown"); !slices.Contains(baselines, baseline) {
 			baselines = append(baselines, baseline)
 		}
 	}

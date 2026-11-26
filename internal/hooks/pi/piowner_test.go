@@ -26,7 +26,7 @@ func TestPiBriefArgvAddsReportPath(t *testing.T) {
 	if i := slices.Index(argv, "--brief"); i < 0 || i != len(argv)-2 {
 		t.Fatalf("argv = %q, want --brief last", argv)
 	}
-	t.Setenv(route.OverlayVar, `{"runner":"own"}`)
+	t.Setenv(route.OverlayVar, `{"runner":"cli"}`)
 	if inh, err := piBriefArgv("fast", map[string]any{}, "u"); err != nil || slices.Contains(inh, "--overlay") ||
 		!slices.Contains(inh, "--agent") || !slices.Contains(inh, "--tier") {
 		t.Fatalf("inherited overlay argv = %q, err = %v", inh, err)

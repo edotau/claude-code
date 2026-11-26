@@ -60,29 +60,46 @@ func Append(e Entry) {
 }
 
 // Read reads every entry, oldest first; a missing ledger file is empty, not an error.
-func Read() ([]Entry, error) { return readMatching(nil) }
+func Read() ([]Entry, error) {
+	var out []Entry
+	err := readMatching(nil, 0, func(e Entry) { out = append(out, e) })
+	return out, err
+}
 
-// readMatching is Read decoding only lines that contain sub (nil keeps every line).
-func readMatching(sub []byte) ([]Entry, error) {
+// readMatching feeds fn the lines containing sub (nil: all) in the last tail bytes (0: all), a cut first line skipped.
+func readMatching(sub []byte, tail int64, fn func(Entry)) error {
 	f, err := os.Open(Path())
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
-	var out []Entry
-	err = textutil.EachLineErr(f, func(line []byte) {
+	var r io.Reader = f
+	skip := false
+	if tail > 0 {
+		info, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		size := info.Size()
+		off := max(0, size-tail)
+		r, skip = io.NewSectionReader(f, off, size-off), off > 0
+	}
+	return textutil.EachLineErr(r, func(line []byte) {
+		if skip {
+			skip = false
+			return
+		}
 		if !bytes.Contains(line, sub) {
 			return
 		}
 		var e Entry
 		if _, err := schemas.Decode(format, line, &e); err == nil {
-			out = append(out, e)
+			fn(e)
 		}
 	})
-	return out, err
 }
 
 // ProfileName is the registry row that served the entry; pre-attribution lines stored it in Provider.

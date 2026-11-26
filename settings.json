@@ -1,7 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "CLAUDE_CODE_DISABLE_MOUSE": "1",
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "72",
     "CLAUDE_CODE_SCROLL_SPEED": "2",
@@ -173,6 +172,5 @@
   "remoteControlAtStartup": true,
   "askUserQuestionTimeout": "5m",
   "autoConnectIde": false,
-  "idleCompaction": false,
-  "switchModelsOnFlag": true
+  "idleCompaction": false
 }

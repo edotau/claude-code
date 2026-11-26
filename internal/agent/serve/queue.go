@@ -51,10 +51,10 @@ func (q *Queue) Enqueue(id, pool string, now time.Time) (*waiter, int, error) {
 	if len(q.waiting) >= MaxQueue {
 		return nil, 0, ErrQueueFull
 	}
-	ahead := 0
 	if q.admitted[id] {
 		return nil, 0, errors.New("job already admitted")
 	}
+	ahead := 0
 	for _, w := range q.waiting {
 		if w.id == id {
 			return nil, 0, errors.New("job already queued")
@@ -73,13 +73,6 @@ func (q *Queue) Remove(w *waiter) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.waiting = slices.DeleteFunc(q.waiting, func(x *waiter) bool { return x == w })
-}
-
-// Len is the number of jobs waiting.
-func (q *Queue) Len() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.waiting)
 }
 
 // capOf is pool's cap: the account limit, lowered to the queue's ceiling.
@@ -243,6 +236,5 @@ func runningByPool() map[string][]string {
 
 // coolEnd holds only for a transient 429, never for a usage observation's reset date.
 func coolEnd(pool string, _ time.Time) time.Time {
-	s := router.LoadState()
-	return s.CoolingUntil(pool)
+	return router.LoadState().CoolingUntil(pool)
 }

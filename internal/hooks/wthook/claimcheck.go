@@ -295,11 +295,7 @@ func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 
 // liveVerdict is laneVerdict's harness-checkout half.
 func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
-	hits, err := liveTracked(ctx, live, edits)
-	if isBash(in) && laneText(cmd) {
-		staged, serr := liveStaged(ctx, in, cmd, live)
-		hits, err = append(hits, staged...), cmp.Or(err, serr)
-	}
+	hits, err := liveTracked(ctx, in, cmd, live, edits)
 	if len(hits) == 0 {
 		if err = cmp.Or(err, ctx.Err()); err != nil {
 			return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check lanes-mode protection (%v); allowed", err)}
@@ -337,11 +333,7 @@ const laneSeenKind = "worktree-lanes"
 // otherVerdict notes a tracked change in another repo's main checkout until Claim marks it seen; never blocks.
 func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
 	for _, root := range otherRoots(in, cmd, edits, live) {
-		hits, _ := liveTracked(ctx, root, edits) // a git error fails open
-		if isBash(in) && laneText(cmd) {
-			staged, _ := liveStaged(ctx, in, cmd, root)
-			hits = append(hits, staged...)
-		}
+		hits, _ := liveTracked(ctx, in, cmd, root, edits) // a git error fails open
 		if len(hits) == 0 {
 			continue
 		}
@@ -385,8 +377,8 @@ func otherRoots(in *core.Input, cmd string, edits []string, live string) []strin
 	return slices.Sorted(maps.Keys(set))
 }
 
-// liveTracked is the edited paths that are tracked files of the live checkout, with any git error (fail open).
-func liveTracked(ctx context.Context, live string, edits []string) ([]string, error) {
+// liveTracked is the edited tracked files of live plus what cmd's git add, commit, apply, am or mv changes there.
+func liveTracked(ctx context.Context, in *core.Input, cmd, live string, edits []string) (hits []string, err error) {
 	var specs []string
 	for _, p := range edits {
 		if top, _ := paths.CheckoutOf(filepath.Dir(p)); paths.Real(top) != live {
@@ -396,10 +388,19 @@ func liveTracked(ctx context.Context, live string, edits []string) ([]string, er
 			specs = append(specs, ":(literal)"+rel)
 		}
 	}
-	if len(specs) == 0 {
-		return nil, nil
+	if len(specs) > 0 {
+		hits, err = gitPaths(ctx, live, live, append([]string{"ls-files", "-z", "--"}, specs...)...)
 	}
-	return gitPaths(ctx, live, live, append([]string{"ls-files", "-z", "--"}, specs...)...)
+	if !isBash(in) || !laneText(cmd) {
+		return hits, err
+	}
+	shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), in.CWD, func(target, verb string, args []string) bool {
+		verb, args = verbAsGit(verb, args)
+		h, e := laneHits(ctx, target, verb, args, live)
+		hits, err = append(hits, h...), cmp.Or(err, e)
+		return false
+	})
+	return hits, err
 }
 
 // laneGitCmd pre-screens a Bash command for the git verbs besides add/commit that change tracked files.
@@ -407,17 +408,6 @@ var laneGitCmd = core.Gate(`\bgit\b[^;&|\n]*\b(?:apply|am|mv)\b`, "git")
 
 // laneText reports text that may stage, commit, apply a patch or move a file.
 func laneText(cmd string) bool { return stageText(cmd) || laneGitCmd.MatchString(cmd) }
-
-// liveStaged is what the command's git add, commit, apply, am or mv would change in the live checkout, and any error.
-func liveStaged(ctx context.Context, in *core.Input, cmd, live string) (out []string, err error) {
-	shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), in.CWD, func(target, verb string, args []string) bool {
-		verb, args = verbAsGit(verb, args)
-		hits, e := laneHits(ctx, target, verb, args, live)
-		out, err = append(out, hits...), cmp.Or(err, e)
-		return false
-	})
-	return out, err
-}
 
 // laneHits is one git call's changes to the live checkout; apply and am name no files, so they stand for any.
 func laneHits(ctx context.Context, target, verb string, args []string, live string) ([]string, error) {
@@ -510,7 +500,7 @@ func claimWarn(err error) core.Result {
 // MayRefuse reports whether ClaimCheck could note or act on a Bash call; it reads no claims and marks nothing seen.
 func MayRefuse(in *core.Input) bool {
 	cmd := in.ToolCommand()
-	return isBash(in) && (stageText(cmd) || laneText(cmd) || len(core.WrittenPaths(cmd, in.CWD)) > 0)
+	return isBash(in) && (laneText(cmd) || len(core.WrittenPaths(cmd, in.CWD)) > 0)
 }
 
 // isBash reports a shell call under any agent's tool name (Claude's Bash, Copilot's bash).
@@ -547,7 +537,7 @@ func (v claimView) editCheck(p string) core.Result {
 	if top != "" && !dirty[p] && slices.ContainsFunc(v.claims[p], func(h worktree.ClaimHit) bool { return h.TS >= v.cleanAt(p) }) {
 		markClean(v.in.SessionID, p) // nobody's hunks are left in p: claims made before now are retired
 	}
-	hits, err := v.freshHits(top, p, dirty)
+	hits, err := worktree.FreshHits(v.ctx, top, p, dirty, v.claims[p], v.cleanAt(p))
 	if err != nil {
 		return claimWarn(err)
 	}
@@ -605,11 +595,6 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 	return worktree.ReadDirty(ctx, top)
 }
 
-// freshHits keeps p's claims when p is dirty, dropping those older than p's last commit or this session's clean mark.
-func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]worktree.ClaimHit, error) {
-	return worktree.FreshHits(v.ctx, top, p, dirty, v.claims[p], v.cleanAt(p))
-}
-
 // cleanAt is this session's latest clean mark on p; 0 when none.
 func (v claimView) cleanAt(p string) int64 {
 	if v.clean == nil {
@@ -634,27 +619,21 @@ func firstSighting(session, key string) bool {
 
 func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 
-// verbFiles reads a worktree-commit call's words with the CLI's own grammar: its files and whether --dry-run is set.
-func verbFiles(args []string) (files []string, dry, ok bool) {
-	fs := helptext.NewFlagSet("worktree commit", helptext.Page{})
-	fs.SetOutput(io.Discard)
-	fs.String("m", "", "")
-	d := fs.Bool("dry-run", false, "")
-	files, err := helptext.ParseArgs(fs, args)
-	return files, *d, err == nil
-}
-
-// verbAsGit reads a worktree-commit call as the git commit it makes (-- <files>); other calls come back unchanged.
+// verbAsGit reads a worktree-commit call, by the CLI's own grammar, as the git commit it makes (-- <files>).
 func verbAsGit(verb string, args []string) (string, []string) {
 	if verb != shell.WorktreeCommit {
 		return verb, args
 	}
-	files, dry, ok := verbFiles(args)
-	if !ok || len(files) == 0 {
+	fs := helptext.NewFlagSet("worktree commit", helptext.Page{})
+	fs.SetOutput(io.Discard)
+	fs.String("m", "", "")
+	dry := fs.Bool("dry-run", false, "")
+	files, err := helptext.ParseArgs(fs, args)
+	if err != nil || len(files) == 0 {
 		return "", nil
 	}
 	out := []string{"--"}
-	if dry {
+	if *dry {
 		out = []string{"--dry-run", "--"}
 	}
 	return "commit", append(out, files...)

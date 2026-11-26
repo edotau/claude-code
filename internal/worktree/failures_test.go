@@ -21,11 +21,11 @@ func TestFailures(t *testing.T) {
 		t.Fatalf("first report = %v, %v", ok, err)
 	}
 	for _, s := range []string{"a", "b"} {
-		got, more, err := FailuresSince(root, s, 3)
+		got, more, err := FailuresSinceWithin(root, s, 3, time.Minute)
 		if err != nil || len(got) != 1 || more != 0 || strings.Contains(got[0].Summary, "\n") {
 			t.Fatalf("session %s first drain = %+v, %d, %v", s, got, more, err)
 		}
-		if got, _, _ := FailuresSince(root, s, 3); len(got) != 0 {
+		if got, _, _ := FailuresSinceWithin(root, s, 3, time.Minute); len(got) != 0 {
 			t.Fatalf("session %s saw %+v twice", s, got)
 		}
 	}
@@ -35,7 +35,7 @@ func TestFailures(t *testing.T) {
 	if ok, _ := ReportFailure(root, Failure{Kind: FailBench, Subject: "y"}); !ok {
 		t.Fatal("distinct subject dropped")
 	}
-	if got, _, _ := FailuresSince(root, "a", 3); len(got) != 1 || got[0].Subject != "y" {
+	if got, _, _ := FailuresSinceWithin(root, "a", 3, time.Minute); len(got) != 1 || got[0].Subject != "y" {
 		t.Fatalf("known cursor drain = %+v, want only y", got)
 	}
 	if _, err := ReportFailure(root, Failure{Kind: "nope", Subject: "x"}); err == nil {
@@ -69,7 +69,7 @@ func TestFailuresTrimKeepsNewest(t *testing.T) {
 	if len(recs) != failureKeep || recs[len(recs)-1].Subject != "new" || recs[len(recs)-1].Seq != 1201 {
 		t.Fatalf("after trim: %d records, last %+v", len(recs), recs[len(recs)-1])
 	}
-	if got, more, _ := FailuresSince(root, "s", 100); len(got) != 12 || more != 0 || got[0].Seq != 1190 {
+	if got, more, _ := FailuresSinceWithin(root, "s", 100, time.Minute); len(got) != 12 || more != 0 || got[0].Seq != 1190 {
 		t.Fatalf("cursor at 1189 after trim = %d records, %d more, first %+v", len(got), more, got[0])
 	}
 }

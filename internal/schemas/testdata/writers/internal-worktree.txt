@@ -3,11 +3,11 @@ internal/worktree/audit.go:claimAuditReport	unversioned: empty marker: exclusive
 internal/worktree/audit.go:ensureWorker	unversioned: empty flock file probed for a draining worker, and an empty restart stamp whose mtime spaces respawns
 internal/worktree/commit.go:undoAdd	unversioned: git index: saved bytes renamed over it from a held index.lock, git's own protocol
 internal/worktree/failures.go:DoneFailure	unversioned: empty marker: a failure's fix is finished
+internal/worktree/failures.go:FailuresSinceWithin	unversioned: text: a session failure-log cursor: the last Seq it saw
 internal/worktree/failures.go:NotePrompt	unversioned: text: a session's last user-prompt unix time, the owner-present stamp
 internal/worktree/failures.go:appendFailure	unversioned: json: one broadcast failure record the next-Seq counter beside failures.jsonl
 internal/worktree/failures.go:appendRaw	unversioned: json: one broadcast failure record appended to failures.jsonl
 internal/worktree/failures.go:claimFailure	unversioned: text: the session slug that holds a failure, published by hard link
-internal/worktree/failures.go:failuresSince	unversioned: text: a session failure-log cursor: the last Seq it saw
 internal/worktree/failures.go:trimFailures	unversioned: json: failures.jsonl cut to its newest records
 internal/worktree/failures.go:writeOffer	unversioned: json: a failure's fix-now deliveries: sessions, last time, fallback sent
 internal/worktree/land.go:acquire	unversioned: text: the land-lock holder pid and who, beside the land lock

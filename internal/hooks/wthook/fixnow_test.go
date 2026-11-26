@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -94,7 +95,7 @@ func TestFixNowThirdDeliveryIsPlainNotice(t *testing.T) {
 	if err := os.WriteFile(offer, []byte(`{"sessions":["s1","s2"],"time":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := worktree.FailuresSince(worktree.FailuresDir(), "s3", 10); err != nil { // the cursor's own notice is spent
+	if _, _, err := worktree.FailuresSinceWithin(worktree.FailuresDir(), "s3", 10, time.Minute); err != nil { // the cursor's own notice is spent
 		t.Fatal(err)
 	}
 	if got := FixNow(&core.Input{SessionID: "s3", CWD: cwd}); got.Decision != core.Allow {

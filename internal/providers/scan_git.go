@@ -103,6 +103,8 @@ func scanGitLogOutput(stdout io.Reader, deny []string) ([]string, error) {
 	commit, file := "", ""
 	addition, hunk := false, false
 	next := 0
+	// isTestFixture of fixtureFile, recomputed only when the file changes
+	fixtureFile, fixture := "", isTestFixture("")
 	// fragments of one over-long line, joined before any match
 	var pending []byte
 	br := bufio.NewReaderSize(stdout, 1<<20)
@@ -126,7 +128,9 @@ func scanGitLogOutput(stdout io.Reader, deny []string) ([]string, error) {
 		if !addition {
 			continue
 		}
-		fixture := isTestFixture(file)
+		if file != fixtureFile {
+			fixtureFile, fixture = file, isTestFixture(file)
+		}
 		if !fixture && slices.ContainsFunc(secretPattern().FindAllString(line, -1), tokenShaped) {
 			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
 		}
@@ -140,9 +144,11 @@ var hunkNewStart = sync.OnceValue(func() *regexp.Regexp { return regexp.MustComp
 
 // newLineNo tracks the new-file line number: it is the number of an added line, and next is the one after it.
 func newLineNo(line string, hunk, addition bool, next int) (int, int) {
-	if m := hunkNewStart().FindStringSubmatch(line); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		return 0, n
+	if strings.HasPrefix(line, "@@") {
+		if m := hunkNewStart().FindStringSubmatch(line); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			return 0, n
+		}
 	}
 	if addition {
 		return next, next + 1
@@ -346,14 +352,15 @@ func denyHost(rawURL string) string {
 // identifierKinds names the kinds of real workspace identifiers on an added line, never their values.
 func identifierKinds(line string, deny []string, fixture bool) []string {
 	var kinds []string
-	named := slices.ContainsFunc(workspaceHost().FindAllString(line, -1), realWorkspaceHost)
-	if !fixture && (named || hostShape().MatchString(line)) {
+	lower := strings.ToLower(line)
+	// every shape regex needs a case-folded "databric", whose letters fold only to ASCII
+	shaped := !fixture && strings.Contains(lower, "databric")
+	if shaped && (slices.ContainsFunc(workspaceHost().FindAllString(line, -1), realWorkspaceHost) || hostShape().MatchString(line)) {
 		kinds = append(kinds, "real-shaped Databricks workspace host")
 	}
-	if !fixture && workspaceOrgID().MatchString(line) {
+	if shaped && workspaceOrgID().MatchString(line) {
 		kinds = append(kinds, "Databricks workspace id in a URL")
 	}
-	lower := strings.ToLower(line)
 	if slices.ContainsFunc(deny, func(h string) bool { return strings.Contains(lower, h) }) {
 		kinds = append(kinds, "host of a configured Databricks profile")
 	}

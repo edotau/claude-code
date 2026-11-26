@@ -95,9 +95,6 @@ func importShadow() (docs []string, changed bool, err error) {
 
 var _ memory.BankStore = sqlBankStore{}
 
-// NewSQLBankStore returns the seam over db; for tests only; callers open the store through memory.OpenBankStore.
-func NewSQLBankStore(db *sql.DB) memory.BankStore { return sqlBankStore{db: db} }
-
 // entryRow is one live entries row with the ids a write needs.
 type entryRow struct {
 	rowid   int64

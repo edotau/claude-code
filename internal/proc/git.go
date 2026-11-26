@@ -120,16 +120,18 @@ type StatusEntry struct{ Code, Path, From string }
 // StatusEntries parses `git status --porcelain=v1 -z` output; R or C in either code column marks a rename or copy.
 func StatusEntries(out string) []StatusEntry {
 	var entries []StatusEntry
-	fields := strings.Split(out, "\x00")
-	for i := 0; i < len(fields); i++ {
-		f := fields[i]
+	if n := strings.Count(out, "\x00"); n > 0 {
+		entries = make([]StatusEntry, 0, n) // one allocation; a clean tree's "" stays nil
+	}
+	for out != "" {
+		var f string
+		f, out, _ = strings.Cut(out, "\x00")
 		if len(f) < 4 {
 			continue
 		}
 		e := StatusEntry{Code: f[:2], Path: f[3:]}
-		if strings.ContainsAny(e.Code, "RC") && i+1 < len(fields) {
-			i++
-			e.From = fields[i]
+		if strings.ContainsAny(e.Code, "RC") && out != "" {
+			e.From, out, _ = strings.Cut(out, "\x00")
 		}
 		entries = append(entries, e)
 	}

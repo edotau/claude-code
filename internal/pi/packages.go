@@ -104,14 +104,10 @@ func parseLocal(item string) (Package, error) {
 	if !localChar().MatchString(item) {
 		return Package{}, fmt.Errorf("package %q: a local path allows only letters, digits and the characters : . _ - / and backslash", item)
 	}
-	if slicesHasDotDot(item) {
+	if slices.Contains(strings.FieldsFunc(item, func(r rune) bool { return r == '/' || r == '\\' }), "..") {
 		return Package{}, fmt.Errorf("package %q: a local path must not contain '..'", item)
 	}
 	return Package{Spec: item, Kind: KindLocal, Name: filepath.Clean(item)}, nil
-}
-
-func slicesHasDotDot(p string) bool {
-	return slices.Contains(strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }), "..")
 }
 
 // LocalPath is a local package's absolute path: a relative one resolves against configDir, never the cwd,

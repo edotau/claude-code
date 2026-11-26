@@ -152,7 +152,7 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 		return CheckResult{ID: t.ID, Status: StatusFail, Error: "client route unavailable"}
 	}
 	call := ProbeCall{URL: url, Body: body(true), Anthropic: anthropic, Responses: t.Responses, Stream: !t.NoStream}
-	rep, err := probeBudget(ctx, p, o, call)
+	rep, err := ProbeOnce(ctx, p, o, call)
 	r.HTTP, r.LatencyMS = rep.HTTP, rep.LatencyMS
 	switch {
 	case err != nil:
@@ -190,7 +190,7 @@ func probeTarget(p *providers.Provider, o CheckOptions, t CheckTarget, chatBase,
 
 // retryToolsLess resends c without tools after a non-transient failure and folds the verdict into r.
 func retryToolsLess(ctx context.Context, p *providers.Provider, o CheckOptions, r CheckResult, c ProbeCall) CheckResult {
-	rep2, err2 := probeBudget(ctx, p, o, c)
+	rep2, err2 := ProbeOnce(ctx, p, o, c)
 	switch {
 	case err2 == nil && rep2.Broken != "":
 		r.Status, r.HTTP, r.LatencyMS, r.Error, r.Events, r.Bytes = StatusBroken, rep2.HTTP, rep2.LatencyMS, rep2.Broken, rep2.Events, rep2.Bytes
@@ -288,13 +288,8 @@ type ProbeReply struct {
 	Bytes     int
 }
 
-// ProbeOnce sends c (resent once with a larger budget when a reasoning model ran out); zero options as in Probe.
+// ProbeOnce sends c, resent once with budgetRetryTokens when a reasoning model ran out; zero options as in Probe.
 func ProbeOnce(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
-	return probeBudget(ctx, p, o, c)
-}
-
-// probeBudget is probeRequest, resent once with budgetRetryTokens when the tiny budget ran out (a reasoning model).
-func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
 	o.Client, o.Timeout = cmp.Or(o.Client, http.DefaultClient), cmp.Or(o.Timeout, 30*time.Second)
 	r, err := probeRequest(ctx, p, o, c)
 	if err != nil || r.HTTP != http.StatusBadRequest || !strings.Contains(r.Body, budgetExhausted) {
@@ -353,12 +348,10 @@ func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, c 
 // streamReply reads a 2xx SSE reply to its end; a deadline is a transient error, any other early end is Broken.
 func streamReply(ctx context.Context, resp *http.Response, c ProbeCall, timeout time.Duration, start time.Time) (ProbeReply, error) {
 	events, n, done, serr := scanStream(resp.Body, c)
-	rep := ProbeReply{HTTP: resp.StatusCode, Events: events, Bytes: n}
+	rep := ProbeReply{HTTP: resp.StatusCode, LatencyMS: time.Since(start).Milliseconds(), Events: events, Bytes: n}
 	if serr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		rep.LatencyMS = time.Since(start).Milliseconds()
 		return rep, fmt.Errorf("timeout after %s", timeout)
 	}
-	rep.LatencyMS = time.Since(start).Milliseconds()
 	switch {
 	case !done:
 		rep.Broken = fmt.Sprintf("stream ended without %s after %d events, %d bytes", terminatorName(c), events, n)

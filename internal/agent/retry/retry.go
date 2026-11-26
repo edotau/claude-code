@@ -110,7 +110,7 @@ type Error struct {
 	Earlier    []*Error      // the attempts before this one, oldest first; Do sets it on the error it returns
 	Terminal   bool          // a state check refused the attempt: retrying cannot help
 	Waited     time.Duration // wall time Do spent on attempts and waits before giving up
-	Connect    bool          // failed before any response (dial, TLS, tunnel), not an HTTP status: Do tries the other egress path
+	Connect    bool          // failed before any response (dial, TLS, tunnel): Do tries the other egress path
 
 	// ProxyRefused: this attempt's KindAuth came from the loopback proxy refusing its own session token, never an account.
 	ProxyRefused bool
@@ -686,8 +686,8 @@ func WithoutEarlier(e *Error) *Error {
 	return &snap
 }
 
-// abandoned is the error of a wait that could not take its permit back: the cancellation, earlier failures kept.
-func abandoned(err error, attempt int, last *Error, earlier []*Error, pending bool) *Error { // pending: last is not yet in earlier
+// abandoned is the error of a wait that could not retake its permit; pending means last is not yet in earlier.
+func abandoned(err error, attempt int, last *Error, earlier []*Error, pending bool) *Error {
 	e := &Error{Kind: KindFatal, Err: err, Attempts: attempt, Earlier: earlier}
 	if last != nil {
 		e.Agent = last.Agent

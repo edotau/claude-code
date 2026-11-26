@@ -37,9 +37,8 @@ type Call struct {
 	NoRedirect  bool // return a 3xx instead of following it
 	Attempts    int  // zero or one means no retry
 	Base        time.Duration
-	Retry       func(int) bool    // statuses to retry
-	Response    *[]byte           // DoJSON saves the bounded response when non-nil
-	DecodeError func(error) error // optional mapping for JSON decoding failures
+	Retry       func(int) bool // statuses to retry
+	Response    *[]byte        // DoJSON saves the bounded response when non-nil
 }
 
 // Do sends c: status (0 = no response), up to Limit bytes, header; a read error or ErrTooLarge keeps the status.
@@ -63,9 +62,6 @@ func DoJSON(ctx context.Context, c Call, out any) (int, error) {
 	}
 	if err == nil && status/100 == 2 && out != nil {
 		err = json.Unmarshal(body, out)
-		if err != nil && c.DecodeError != nil {
-			err = c.DecodeError(err)
-		}
 	}
 	return status, err
 }

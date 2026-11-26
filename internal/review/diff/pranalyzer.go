@@ -14,23 +14,23 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 type fileCategory struct {
+	name     string
 	patterns []*regexp.Regexp
 	weight   int
 }
 
-// fileCategoryOrder preserves Python dict insertion order (critical, high, medium, low) for iteration.
-var fileCategoryOrder = []string{"critical", "high", "medium", "low"}
-
-var fileCategories = sync.OnceValue(func() map[string]fileCategory {
-	return map[string]fileCategory{
-		"critical": {compileAll("auth", "security", "password", "token", "secret", "payment", "billing", "crypto", "encrypt"), 5},
-		"high":     {compileAll("api", "database", "migration", "schema", "model", "config", "env", "middleware"), 4},
-		"medium":   {compileAll("service", "controller", "handler", "util", "helper"), 3},
-		"low":      {compileAll("test", "spec", "mock", "fixture", "story", "readme", "docs", `\.md$`), 1},
+// fileCategories is checked in Python dict insertion order (critical, high, medium, low); first match wins.
+var fileCategories = sync.OnceValue(func() []fileCategory {
+	return []fileCategory{
+		{"critical", compileAll("auth", "security", "password", "token", "secret", "payment", "billing", "crypto", "encrypt"), 5},
+		{"high", compileAll("api", "database", "migration", "schema", "model", "config", "env", "middleware"), 4},
+		{"medium", compileAll("service", "controller", "handler", "util", "helper"), 3},
+		{"low", compileAll("test", "spec", "mock", "fixture", "story", "readme", "docs", `\.md$`), 1},
 	}
 })
 
@@ -203,11 +203,10 @@ func patchFor(repo, path, oldPath, base, head string) (string, error) {
 
 func categorizeFile(filepath string) (string, int) {
 	lower := strings.ToLower(filepath)
-	for _, cat := range fileCategoryOrder {
-		info := fileCategories()[cat]
-		for _, re := range info.patterns {
+	for _, c := range fileCategories() {
+		for _, re := range c.patterns {
 			if re.MatchString(lower) {
-				return cat, info.weight
+				return c.name, c.weight
 			}
 		}
 	}
@@ -455,10 +454,9 @@ func printPRReport(w io.Writer, r PRReport) {
 	fmt.Fprintf(w, "Commits: %d\n", s.Commits)
 
 	fmt.Fprintln(w, "\n--- RISK SUMMARY ---")
-	fmt.Fprintf(w, "Critical: %d\n", len(r.Risks.Critical))
-	fmt.Fprintf(w, "High: %d\n", len(r.Risks.High))
-	fmt.Fprintf(w, "Medium: %d\n", len(r.Risks.Medium))
-	fmt.Fprintf(w, "Low: %d\n", len(r.Risks.Low))
+	for _, sev := range severityOrder {
+		fmt.Fprintf(w, "%s: %d\n", textutil.Title(sev), len(*r.Risks.bucket(sev)))
+	}
 
 	printRiskList(w, "CRITICAL", r.Risks.Critical)
 	printRiskList(w, "HIGH", r.Risks.High)
@@ -482,10 +480,7 @@ func printCommitIssues(w io.Writer, issues []CommitIssue) {
 		return
 	}
 	fmt.Fprintln(w, "\n--- COMMIT MESSAGE ISSUES ---")
-	for i, issue := range issues {
-		if i >= 5 {
-			break
-		}
+	for _, issue := range issues[:min(len(issues), 5)] {
 		fmt.Fprintf(w, "  %s: %s\n", issue.Commit, issue.Issue)
 	}
 }

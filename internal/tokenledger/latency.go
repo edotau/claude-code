@@ -1,15 +1,9 @@
 package tokenledger
 
 import (
-	"bytes"
-	"io"
 	"math"
-	"os"
 	"slices"
 	"time"
-
-	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // LatencyKey is one served row and model as the ledger spells them.
@@ -29,32 +23,9 @@ type samples struct{ first, total []int64 }
 
 // LatencyStats reads the ledger's last latencyTail bytes; rows before since or without first_ms are skipped.
 func LatencyStats(since time.Time) (map[LatencyKey]Latency, error) {
-	f, err := os.Open(Path())
-	if os.IsNotExist(err) {
-		return map[LatencyKey]Latency{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := info.Size()
-	off := max(0, size-latencyTail)
 	got := map[LatencyKey]*samples{}
-	skip := off > 0
-	err = textutil.EachLineErr(io.NewSectionReader(f, off, size-off), func(line []byte) {
-		if skip {
-			skip = false
-			return
-		}
-		if !bytes.Contains(line, []byte(`"first_ms"`)) {
-			return
-		}
-		var e Entry
-		if _, err := schemas.Decode(format, line, &e); err != nil || e.FirstMs <= 0 || e.Ts.Before(since) {
+	err := readMatching([]byte(`"first_ms"`), latencyTail, func(e Entry) {
+		if e.FirstMs <= 0 || e.Ts.Before(since) {
 			return
 		}
 		k := LatencyKey{e.Provider, e.ProfileName(), e.Model}

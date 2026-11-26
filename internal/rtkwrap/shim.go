@@ -323,11 +323,9 @@ func rtkMain(args []string) int {
 	_, dirs := resolve(filepath.SplitList(os.Getenv("PATH")), rtkName, self)
 	real := rtkBinary(dirs, self)
 	env := withPath(os.Environ(), dirs)
+	codemode := CodeMode()
 	name, rest, strip := stripRtk(args[1:])
-	if !CodeMode() {
-		strip = false
-	}
-	if strip {
+	if strip && codemode {
 		cmd, _ := resolve(dirs, name, self)
 		logVerdict(filepath.Base(name), "stripped", "", rest)
 		if cmd == "" {
@@ -338,7 +336,7 @@ func rtkMain(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtkwrap: %s: %v\n", name, err)
 		return exitNoExec
 	}
-	if CodeMode() {
+	if codemode {
 		logVerdict(rtkName, "raw", "rtk-verb", args[1:])
 	}
 	if real == "" {

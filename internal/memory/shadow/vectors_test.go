@@ -14,7 +14,6 @@ import (
 
 func vectorsEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "off")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }
 

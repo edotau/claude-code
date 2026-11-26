@@ -74,11 +74,6 @@ func Review(name string, args []string, o ReviewOptions) int {
 	return runSingleReview(name, diff, o, parent, started)
 }
 
-// LoadOverlays is LoadOverlay with its typed and inherited layers, for ApplyOverlay's callers.
-func LoadOverlays(ctx context.Context, value, busy string) (merged, typed, inherited agentconfig.Overlay, err error) {
-	return loadOverlays(ctx, value, busy)
-}
-
 // reviewLane runs the cloud review when the overlay sets cloud; a run with no overlay does no work here.
 func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
 	value := cmp.Or(o.Overlay, os.Getenv(route.OverlayVar))
@@ -105,7 +100,7 @@ func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
 // reviewOverlay is the review's overlay through ApplyOverlay: the stored one, --overlay, then a typed --model.
 func reviewOverlay(o ReviewOptions) (agentconfig.Overlay, error) {
 	ctx := context.Background()
-	_, typed, inherited, err := loadOverlays(ctx, o.Overlay, "")
+	_, typed, inherited, err := LoadOverlays(ctx, o.Overlay, "")
 	if err != nil {
 		return agentconfig.Overlay{}, err
 	}

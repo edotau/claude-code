@@ -50,21 +50,20 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 	}
 	overlay = dropMissingGoPin(overlay)
 
-	if check {
-		// Read-only: --check/--dry-run must not drop a lock file beside the user's settings.
-		return merge(dest, overlay, true)
-	}
 	// Read, backup and write are one critical section; the lock lives in harness state, not beside VS Code's file.
 	var result mergeResult
-	err := withLock("vscode.lock", dest, func() (mergeErr error) {
-		result, mergeErr = merge(dest, overlay, false)
+	err := withLock("vscode.lock", dest, check, func() (mergeErr error) {
+		result, mergeErr = merge(dest, overlay, check)
 		return mergeErr
 	})
 	return result, err
 }
 
-// withLock runs fn under the named harness-state lock; a lock that cannot be opened or won in time is an error.
-func withLock(name, dest string, fn func() error) error {
+// withLock runs fn under the named harness-state lock (check runs it unlocked: --check/--dry-run drop no lock file).
+func withLock(name, dest string, check bool, fn func() error) error {
+	if check {
+		return fn()
+	}
 	lock := filepath.Join(paths.StateDir(), name)
 	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
 		return err
@@ -217,7 +216,7 @@ func syncAll(o syncOptions) (outcome, error) {
 	if out.Result, err = syncSettings(o.Template, out.DestPath, paths.ConfigDir(), paths.BinDir(), o.Check); err != nil {
 		return out, err
 	}
-	if out.KbDestPath, out.Skip, out.Note, err = resolveKeybindingsDest(o.KeybindingsDest, o.Dest, out.DestPath); err != nil {
+	if out.KbDestPath, out.Skip, out.Note, err = resolveDest(o.KeybindingsDest, o.Dest, "keybindings.json", "keybindings"); err != nil {
 		return out, err
 	}
 	if !out.Skip {
@@ -238,23 +237,11 @@ func syncAll(o syncOptions) (outcome, error) {
 	return out, err
 }
 
-// resolveKeybindingsDest: explicit kbDest wins; an explicit dest alone uses the settings file's directory.
-func resolveKeybindingsDest(kbDest, dest, destPath string) (path string, skip bool, note string, err error) {
-	switch {
-	case kbDest != "":
-		return kbDest, false, "", nil
-	case dest != "":
-		return filepath.Join(filepath.Dir(destPath), "keybindings.json"), false, "", nil
-	default:
-		return defaultKeybindingsDest()
-	}
-}
-
 // syncModelsFor resolves the chat models file next to the settings dest (or ModelsDest) and merges it.
 func syncModelsFor(o syncOptions) (modelsOutcome, error) {
 	var m modelsOutcome
 	var err error
-	if m.Dest, m.Skip, m.Note, err = resolveModelsDest(o.ModelsDest, o.Dest); err != nil || m.Skip {
+	if m.Dest, m.Skip, m.Note, err = resolveDest(o.ModelsDest, o.Dest, modelsFileName, "chat models"); err != nil || m.Skip {
 		return m, err
 	}
 	m.Result, m.Removed, err = syncModels(m.Dest, o.Check)

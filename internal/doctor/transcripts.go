@@ -227,7 +227,7 @@ func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d 
 	}
 	c.scanned++
 	c.bytes += info.Size()
-	hits, err := transcriptCountFile(s.root, path, counter, fix)
+	hits, err := transcriptFile(s.root, path, counter, fix)
 	if err != nil {
 		transcriptFailure(c, err)
 		return
@@ -273,18 +273,18 @@ func transcriptFailure(c *transcriptCounts, err error) {
 
 var errTranscriptInvalid = errors.New("transcript would not stay valid")
 
-// transcriptFile masks path under the store root; a one-file store is opened from its directory.
-func transcriptFile(root, path string, m *secretredact.Matcher, fix bool) (int, error) {
-	if !fix || filepath.Ext(path) == ".json" {
+// transcriptFile counts path's hits, or with fix masks it under the store root (a one-file store opens from its dir).
+func transcriptFile(root, path string, counter *secretredact.Counter, fix bool) (int, error) {
+	if !fix {
+		return counter.File(path)
+	}
+	m := counter.Matcher()
+	if filepath.Ext(path) == ".json" {
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return 0, err
 		}
-		hits := m.Mask(b)
-		if !fix {
-			return hits, nil
-		}
-		if hits > 0 && !json.Valid(b) {
+		if m.Mask(b) > 0 && !json.Valid(b) {
 			return 0, errTranscriptInvalid
 		}
 	}
@@ -352,11 +352,4 @@ func mergeTranscriptCounts(c *transcriptCounts, entry transcriptCounts) {
 	for reason, n := range entry.skipped {
 		c.skipped[reason] += n
 	}
-}
-
-func transcriptCountFile(root, path string, counter *secretredact.Counter, fix bool) (int, error) {
-	if fix {
-		return transcriptFile(root, path, counter.Matcher(), true)
-	}
-	return counter.File(path)
 }

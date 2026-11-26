@@ -25,22 +25,22 @@ import (
 
 // gatePinned gates a non-claude agent pinned to pin: exactly one candidate on that profile, or a Skip.
 func (t *RouteTable) gatePinned(
-	ctx context.Context, reg *providers.Registry, alias, agent, pin string, spec PinSpec, st State, o PickOpts, now time.Time,
+	ctx context.Context, pg *pickGate, alias, agent, pin string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	if agentid.Routing(agent).SubLadder && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		return t.gateOpencodeCandidate(ctx, alias, pin, st, o, now, configured, res)
 	}
-	if agentid.Routing(agent).GoogleOrDatabricks && reg != nil && !geminiRow(reg, pin) {
+	if agentid.Routing(agent).GoogleOrDatabricks && pg.reg != nil && !geminiRow(pg.reg, pin) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + pin})
 		return nil
 	}
-	return t.gateProfile(ctx, reg, alias, agent, pin, spec.Model, "", st, o, now, configured, res)
+	return t.gateProfile(ctx, pg, alias, agent, pin, spec.Model, "", st, o, now, configured, res)
 }
 
 // gateProfile applies the configured and auth checks for an agent on a profile.
 func (t *RouteTable) gateProfile(
-	ctx context.Context, reg *providers.Registry, alias, agent, pin, model, effort string, st State, o PickOpts, now time.Time,
+	ctx context.Context, pg *pickGate, alias, agent, pin, model, effort string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	cell, ok := t.Cell(agent, alias)
@@ -49,14 +49,14 @@ func (t *RouteTable) gateProfile(
 		return nil
 	}
 	var p *providers.Provider
-	if reg != nil {
-		p = reg.Providers[pin]
+	if pg.reg != nil {
+		p = pg.reg.Providers[pin]
 	}
 	if p == nil {
 		res.Skipped = append(res.Skipped, Skip{agent, gateRow, "pinned profile " + pin + " is not in the registry"})
 		return nil
 	}
-	if !o.canServe(agent, p) || !providers.CredentialPresent(p) {
+	if !o.canServe(agent, p) || !pg.credentialPresent(p) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned profile " + pin + " cannot serve " + agent + " (no route or credential)"})
 		return nil
 	}

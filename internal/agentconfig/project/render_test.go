@@ -137,9 +137,9 @@ func TestRenderOpenCodeAgentPermissions(t *testing.T) {
 
 // The projection targets are exactly the external agents that have a vendor home to project into.
 func TestTargetsAreTheExternalAgents(t *testing.T) {
-	want := agentid.Projected()
+	want := slices.DeleteFunc(agentid.External(), func(n string) bool { return agentid.Routing(n).NoProjection })
 	sort.Strings(want)
 	if got := Names(); !slices.Equal(got, want) {
-		t.Errorf("Names() = %v, want agentid.Projected() = %v", got, want)
+		t.Errorf("Names() = %v, want external agents with a vendor home = %v", got, want)
 	}
 }

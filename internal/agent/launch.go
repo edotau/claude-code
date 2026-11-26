@@ -318,15 +318,6 @@ func (s Schema) routedProvider(ctx context.Context, p *providers.Provider) *prov
 	return &rp
 }
 
-// routerRoute is a copy of p routed through the router with a session token as key (the proxy endpoint).
-func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
-	ep, err := EndpointURL(s.scopedCtx(ctx), p, route.Route{Endpoint: EndpointProxy}, dialect)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: %w", s.Name, err)
-	}
-	return s.routedProvider(ctx, p), ep.Base + s.CLI.RouterSuffix[dialect], ep.Key, nil
-}
-
 // PreviewRouterBase returns the loopback router base for --print-env without starting the daemon.
 func PreviewRouterBase(ctx context.Context) string {
 	base := proxy.Base(proxy.DefaultPort)
@@ -948,11 +939,6 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { return planSet[proc.EnvFold(k)] })
 	p.Unset = slices.Concat(p.Unset, unset, []string{route.OverlayVar})
 	return p
-}
-
-// confinementDocContext excludes the env layer and per-run vendor budgets.
-func confinementDocContext(ctx context.Context) string {
-	return childDoc(confinementOverlay(ctx))
 }
 
 // confinementOverlay is the overlay a child of ctx's run gets, on the run's resolved unit.

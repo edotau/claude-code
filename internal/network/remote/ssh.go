@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -269,19 +268,7 @@ func withTunnel(argv []string, flag, spec string) []string {
 }
 
 // tailnetHosts lists the other tailnet machines' DNS names; tests swap it.
-var tailnetHosts = func() []string {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	st, err := tailscale.Status(ctx)
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, p := range st.Peers {
-		names = append(names, strings.TrimSuffix(p.DNSName, "."))
-	}
-	return names
-}
+var tailnetHosts = func() []string { names, _ := peerNames(time.Second, false); return names }
 
 // Complete completes after --host or egressFlag: host names, then local's words; bash splits <flag>=<host> at the =.
 func Complete(words []string, egressFlag string, local func([]string) []string) []string {

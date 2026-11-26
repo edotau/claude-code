@@ -17,16 +17,28 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	_ "github.com/edotau/claude-code/internal/nonet" // test binaries refuse real DNS: tests mock their API calls
 	"github.com/edotau/claude-code/internal/proc"
 )
 
+// testConfigDir is one private temp dir per test process, so an unset CLAUDE_CONFIG_DIR stays off live data.
+var testConfigDir = sync.OnceValue(func() string {
+	if d, err := os.MkdirTemp("", "claude-config-test-"); err == nil {
+		return d
+	}
+	return filepath.Join(os.TempDir(), "claude-config-test")
+})
+
 // ConfigDir is CLAUDE_CONFIG_DIR, else the git clone holding the running binary in its bin/, else ~/.claude.
 func ConfigDir() string {
 	if d := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); d != "" {
 		return d
+	}
+	if testing.Testing() { // a test binary never falls back to the live ~/.claude
+		return testConfigDir()
 	}
 	if r := installRoot(); r != "" {
 		return r
@@ -813,20 +825,23 @@ func ProtectedDBs() []string {
 
 // Protected reports whether p is or holds a state database, one of its sidecars or a state/backups/*.db snapshot.
 func Protected(p string) bool {
-	state := filepath.Join(ConfigDir(), "state")
-	backups := filepath.Join(state, "backups")
-	if SameFile(filepath.Dir(p), backups) && strings.HasSuffix(FoldCase(filepath.Base(p)), ".db") {
+	resolve := func(p string) string { return FoldCase(Real(p)) } // each side resolved once: Real is a syscall walk
+	backups := filepath.Join(ConfigDir(), "state", "backups")
+	rp, rdir, rbackups, base := resolve(p), resolve(filepath.Dir(p)), resolve(backups), FoldCase(filepath.Base(p))
+	if rdir == rbackups && strings.HasSuffix(base, ".db") {
 		return true
 	}
-	if snaps, _ := filepath.Glob(filepath.Join(backups, "*.db")); len(snaps) > 0 && SameFile(p, backups) {
-		return true
-	}
-	for _, path := range protectedDBs() {
-		if InsideDir(path, p) {
+	if rp == rbackups {
+		if snaps, _ := filepath.Glob(filepath.Join(backups, "*.db")); len(snaps) > 0 {
 			return true
 		}
-		db, base := filepath.Base(path), FoldCase(filepath.Base(p))
-		if SameFile(filepath.Dir(p), filepath.Dir(path)) && (strings.HasPrefix(base, db+".") || slices.Contains([]string{"-wal", "-shm", "-journal"}, strings.TrimPrefix(base, db))) {
+	}
+	for _, path := range protectedDBs() {
+		if Within(resolve(path), rp) {
+			return true
+		}
+		db := filepath.Base(path)
+		if rdir == resolve(filepath.Dir(path)) && (strings.HasPrefix(base, db+".") || slices.Contains([]string{"-wal", "-shm", "-journal"}, strings.TrimPrefix(base, db))) {
 			return true
 		}
 	}

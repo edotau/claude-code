@@ -35,38 +35,36 @@ func opencode(p *providers.Provider, dialect, base, model, cred string, routed b
 		return nil, nil, err
 	}
 	npm, options, env := opencodeProviderOptions(p, dialect, base, cred)
+	def := id + "/" + model
 	if p.Preset == providers.PresetDatabricks {
-		return opencodeDatabricksLaunch(p, id, dialect, base, model, cred, routed, env, h)
-	}
-	menu := opencodeModels(p, model, h)
-	if routed && dialect == providers.ProtocolAnthropic {
-		opencodeDisableToolStreaming(menu)
-	}
-	cfg := map[string]any{
-		"$schema": "https://opencode.ai/config.json",
-		"model":   id + "/" + model,
-		"provider": map[string]any{id: map[string]any{
-			"npm": npm, "name": "claude-code", "options": options,
-			"models": menu,
-		}},
+		if env, def, err = opencodeDatabricks(p, id, dialect, base, model, cred, routed, env); err != nil {
+			return env, nil, err
+		}
+	} else {
+		menu := opencodeModels(p, model, h)
+		if routed && dialect == providers.ProtocolAnthropic {
+			opencodeDisableToolStreaming(menu)
+		}
+		body, err := json.Marshal(map[string]any{
+			"$schema": "https://opencode.ai/config.json", "model": def,
+			"provider": map[string]any{id: map[string]any{"npm": npm, "name": "claude-code", "options": options, "models": menu}},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		env = append(modelsDefined(env), opencodeConfigEnv+"="+string(body))
 	}
 	url, err := interactivePlugin(h)
 	if err != nil {
 		return nil, nil, err
 	}
-	opencodeHarnessWith(h, url)(cfg)
-	body, err := json.Marshal(cfg)
-	if err != nil {
+	if env, err = mutateOpencodeConfigEnv(env, false, opencodeHarnessWith(h, url)); err != nil {
 		return nil, nil, err
 	}
-	env = append(modelsDefined(env), opencodeConfigEnv+"="+string(body))
 	if h == nil {
 		return env, nil, nil
 	}
-	if !h.Tools {
-		env = append(env, opencodePermissionEnv+`="deny"`)
-	}
-	return env, opencodeArgv(id+"/"+model, *h), nil
+	return denyToolsOff(env, *h), opencodeArgv(def, *h), nil
 }
 
 func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) (string, map[string]any, []string) {
@@ -93,28 +91,6 @@ func opencodeDisableToolStreaming(menu map[string]any) {
 			menu[id] = claudeEntry(entry)
 		}
 	}
-}
-
-func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string, h *agent.Headless) ([]string, []string, error) {
-	denv, def, err := opencodeDatabricks(p, id, dialect, base, model, cred, routed, env)
-	if err != nil {
-		return denv, nil, err
-	}
-	url, err := interactivePlugin(h)
-	if err != nil {
-		return nil, nil, err
-	}
-	if denv, err = mutateOpencodeConfigEnv(denv, false, opencodeHarnessWith(h, url)); err != nil {
-		return nil, nil, err
-	}
-	if h == nil {
-		return denv, nil, nil
-	}
-	if !h.Tools {
-		// an inherited value would override the tools-off deny
-		denv = append(denv, opencodePermissionEnv+`="deny"`)
-	}
-	return denv, opencodeArgv(def, *h), nil
 }
 
 // interactivePlugin writes interactive guards; failures abort launch to keep guards fail-closed.
@@ -207,11 +183,15 @@ func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 			opencodeToolsOff(cfg)
 		}
 	})
+	return denyToolsOff(env, h), opencodeArgv(model, h)
+}
+
+// denyToolsOff pins the tools-off permission env: an inherited value would override the deny.
+func denyToolsOff(env []string, h agent.Headless) []string {
 	if !h.Tools {
-		// pin it: an inherited value would override the tools-off deny
-		env = append(env, opencodePermissionEnv+`="deny"`)
+		return append(env, opencodePermissionEnv+`="deny"`)
 	}
-	return env, opencodeArgv(model, h)
+	return env
 }
 
 // opencodeArgv is the `opencode run` argv for h; model "" leaves -m to opencode's own config.

@@ -3,6 +3,7 @@ package jev
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,18 +122,12 @@ func Needs(ctx context.Context, a, b string) (Result, error) {
 }
 
 func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Result, []byte, error) {
-	base := strings.TrimRight(proc.Value(ctx, urlEnv), "/")
-	if base == "off" || base == "" && testing.Testing() { // a test binary never reaches the real server
-		return Result{}, nil, ErrOff
-	}
-	if base == "" {
-		base = defaultURL
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	start := time.Now()
-	payload, _ := json.Marshal(map[string]any{"state": state, "questions": qs})
-	body, err := post(ctx, base+"/v1/systemone", payload)
+	body, err := post(ctx, strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL, "/v1/systemone",
+		map[string]any{"state": state, "questions": qs})
+	if errors.Is(err, ErrOff) {
+		return Result{}, nil, err
+	}
 	return Result{Ms: time.Since(start).Milliseconds()}, body, err
 }
 
@@ -151,8 +146,15 @@ func topProb(a answer) float64 {
 	return top
 }
 
-func post(ctx context.Context, url string, payload []byte) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+// post sends payload as JSON to base (def when "") plus path within timeout; "off", or "" under test, is ErrOff.
+func post(ctx context.Context, base, def, path string, payload any) ([]byte, error) {
+	if base == "off" || base == "" && testing.Testing() { // a test binary never reaches the real server
+		return nil, ErrOff
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	b, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cmp.Or(base, def)+path, bytes.NewReader(b))
 	if err != nil {
 		return nil, ErrDown
 	}

@@ -113,13 +113,9 @@ func run(ctx context.Context, root, stdin string, args ...string) ([]byte, []byt
 // findings is check's result: exit 1 with a report on stdout is "findings", any other failure an error.
 func findings(out []byte, err error) ([]Finding, error) {
 	var ee *exec.ExitError
-	if err == nil || (errors.As(err, &ee) && ee.ExitCode() == 1 && len(bytes.TrimSpace(out)) > 0) {
-		return decode(out)
+	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 1 || len(bytes.TrimSpace(out)) == 0) {
+		return nil, err
 	}
-	return nil, err
-}
-
-func decode(out []byte) ([]Finding, error) {
 	if len(bytes.TrimSpace(out)) == 0 {
 		return nil, nil
 	}

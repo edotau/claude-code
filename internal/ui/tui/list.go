@@ -289,7 +289,8 @@ func listFootLine(s listState, color bool) line {
 		p := s.spec.Binds[s.pending].Confirm
 		return line{p, ansi.Style(color, ansi.Bold+ansi.Red, p)}
 	}
-	return line{listFooter(s.spec), ansi.Style(color, ansi.Dim, listFooter(s.spec))}
+	f := listFooter(s.spec)
+	return line{f, ansi.Style(color, ansi.Dim, f)}
 }
 
 // listRow renders row r (spec index i, view position p) as its clipped cells and the styled line.

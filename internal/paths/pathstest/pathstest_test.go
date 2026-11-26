@@ -87,13 +87,14 @@ func expectVendorFatal(t *testing.T, want string, run func(testing.TB)) {
 	run(fatalVendorTB{TB: t})
 }
 
+// An unset CLAUDE_CONFIG_DIR is a temp dir in tests; only an explicit one can still name the real ~/.claude.
 func TestFakeVendorRefusesRealConfig(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	u, err := user.Current()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", u.HomeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(u.HomeDir, ".claude"))
 
 	tb := &fatalTB{TB: t}
 	returned := make(chan struct{}, 1)

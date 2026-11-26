@@ -248,7 +248,7 @@ func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilot
 	pk := copilotPick{title: modelTitle("copilot — model", "github", "copilot catalog")}
 	if cat.Databricks {
 		pk.title = modelTitle("copilot — model", "databricks", cat.Profile)
-		pk.rows, pk.extra = copilotExtraRowsNoSDK(d, cur)
+		withoutSDKCatalog(d, func() { pk.rows, pk.extra = copilotExtraRows(d, cur) })
 		pk.ids, pk.rows = appendDatabricksCopilotRows(cat, cur, pk.rows)
 		return pk, nil
 	}
@@ -264,12 +264,6 @@ func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilot
 		}
 	}
 	return pk, nil
-}
-
-// copilotExtraRowsNoSDK is copilotExtraRows for Databricks endpoints: no SDK catalog fetch, cache left untouched.
-func copilotExtraRowsNoSDK(d *dialog, cur string) (rows [][2]string, runs []func() bool) {
-	withoutSDKCatalog(d, func() { rows, runs = copilotExtraRows(d, cur) })
-	return rows, runs
 }
 
 // withoutSDKCatalog runs fn with the dialog's SDK catalog cache emptied (no fetch) and restores it after.
@@ -478,25 +472,15 @@ func opencodeModels(opencodeID string) []string {
 // catalogFn is the discovery seam over configure.CatalogForAlias; tests stub the served-model listing.
 var catalogFn = configure.CatalogForAlias
 
-// modelsMenu is the session profile's alias page (aliases + Unpin all) until Back/Esc.
-func modelsMenu(d *dialog) bool {
-	sel, err := providers.Select(d.reg, "")
+// offerModels is profile's alias page ("" = the session's; withUnpin adds Unpin all); false when it cannot select.
+func offerModels(d *dialog, profile string, withUnpin bool) bool {
+	sel, err := providers.Select(d.reg, profile)
 	if err != nil {
 		d.println(err)
 		return false
 	}
-	modelsPage(d, sel, true)
+	modelsPage(d, sel, withUnpin)
 	return true
-}
-
-// offerModels is the profile/login flow's discovery step: the profile's served models, picked per alias.
-func offerModels(d *dialog, profile string) {
-	sel, err := providers.Select(d.reg, profile)
-	if err != nil {
-		d.println(err)
-		return
-	}
-	modelsPage(d, sel, false)
 }
 
 // modelsPage loops the alias rows.

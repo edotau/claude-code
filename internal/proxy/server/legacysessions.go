@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -203,13 +202,10 @@ func readLegacy(file string) ([]legacySession, error) {
 // pruneLegacy marks old-format entries whose process exited; probes run without mu.
 func (s *sessionStore) pruneLegacy() {
 	s.mu.Lock()
-	entries := make([]legacySession, 0, len(s.legacy))
-	for _, e := range s.legacy {
-		entries = append(entries, e)
-	}
+	entries := slices.Collect(maps.Values(s.legacy))
 	s.mu.Unlock()
 	for _, e := range entries {
-		if start, err := s.procStart(e.PID); errors.Is(err, proc.ErrNoProcess) || (err == nil && start != e.Start) {
+		if s.probe(e.PID, e.Start) == whyExited {
 			s.mu.Lock()
 			s.legacyDead[e.Hash] = true
 			if _, ok := s.renewed[e.Hash]; ok { // a dead holder's renewal leaves the file

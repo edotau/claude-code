@@ -34,7 +34,7 @@ claude-code agents ask --background --overlay '{"agent":"copilot","provider":"da
 No overlay `profile` and no `model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:`
 line, else its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what
 ran (its own CLI is the fallback hop). The Copilot CLI on its own login stays
-reachable from the main session: `claude-code copilot …`, or overlay `{"runner":"own"}`. Role rotation covers
+reachable from the main session: `claude-code copilot …`, or overlay `{"runner":"cli"}`. Role rotation covers
 copilot's models too.
 
 ## Owns

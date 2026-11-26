@@ -22,14 +22,14 @@ type RunnerKind uint8
 
 const (
 	RunnerPi  RunnerKind = iota + 1 // Pi on the workspace, the asked agent's model
-	RunnerOwn                       // the agent's own CLI
+	RunnerCLI                       // the agent's own CLI
 )
 
 func (k RunnerKind) MarshalText() ([]byte, error) {
 	switch k {
 	case RunnerPi:
 		return []byte("pi"), nil
-	case RunnerOwn:
+	case RunnerCLI:
 		return []byte("own"), nil
 	}
 	return nil, fmt.Errorf("runner kind %d", k)
@@ -40,7 +40,7 @@ func (k *RunnerKind) UnmarshalText(b []byte) error {
 	case "pi":
 		*k = RunnerPi
 	case "own":
-		*k = RunnerOwn
+		*k = RunnerCLI
 	default:
 		return fmt.Errorf("runner kind %q", b)
 	}
@@ -155,7 +155,7 @@ func PlanRoute(ctx context.Context, o RunOptions, parent ParentRoute) (RoutePlan
 	p.Fenced = true
 	p.Pool = leadWith(planPool(ctx, reg, o, p), replayLead(parent.Replay)) // before tier and runners: both read Pool[0]
 	p.Tier = planTier(ctx, reg, o, p.Pool)
-	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == route.RunnerOwn)
+	p.Runners, p.Barred = planRunners(ctx, reg, o, p, parent.Carried || ov.Runner == route.RunnerCLI)
 	if rp := parent.Replay; rp != nil && len(rp.Runners) > 0 && rp.Agent == p.Agent && o.SessionID == "" {
 		p.Runners, p.Barred = slices.Clone(rp.Runners), rp.Barred // a retry replays its runners; a session stays on its CLI
 	}
@@ -385,7 +385,7 @@ func mayStepUp(reg *providers.Registry, o RunOptions, asked string, pool []Works
 
 // planRunners is pi then the agent's own CLI on a Databricks lead, the own CLI alone with Barred when pi cannot run.
 func planRunners(ctx context.Context, reg *providers.Registry, o RunOptions, p RoutePlan, own bool) ([]Runner, string) {
-	self := Runner{Kind: RunnerOwn, Agent: p.Agent}
+	self := Runner{Kind: RunnerCLI, Agent: p.Agent}
 	onDatabricks := len(p.Pool) > 0 && databricksRow(reg, p.Pool[0].Profile)
 	if p.Agent == agentid.Pi {
 		return piAskRunners(o, p, onDatabricks), ""
@@ -399,11 +399,11 @@ func planRunners(ctx context.Context, reg *providers.Registry, o RunOptions, p R
 	return []Runner{{Kind: RunnerPi, Agent: p.Agent}, self}, "" // --fallback none never drops pi (D2)
 }
 
-// piBar is why the pi runner cannot run o: --runner own, a resumed session, --native, a carried ask, a Pi gap.
+// piBar is why the pi runner cannot run o: --runner cli, a resumed session, --native, a carried ask, a Pi gap.
 func piBar(ctx context.Context, o RunOptions, agentName string, own bool) string {
 	switch {
-	case own || o.Runner == route.RunnerOwn:
-		return "--runner own runs " + agentName + "'s own CLI"
+	case own || o.Runner == route.RunnerCLI:
+		return "--runner cli runs " + agentName + "'s own CLI"
 	case o.SessionID != "":
 		return "a resumed session stays on its own CLI"
 	case o.Native:
@@ -426,7 +426,7 @@ func piAskRunners(o RunOptions, p RoutePlan, onDatabricks bool) []Runner {
 	if oneHop || !moves || !onDatabricks {
 		return rs
 	}
-	return append(rs, Runner{Kind: RunnerOwn, Agent: agentid.Claude})
+	return append(rs, Runner{Kind: RunnerCLI, Agent: agentid.Claude})
 }
 
 // Hops is p runner-major (D3): pi on every pool workspace, each own CLI on Pool[0], the agent hops, then local.

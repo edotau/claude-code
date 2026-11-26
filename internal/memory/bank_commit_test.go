@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -837,10 +838,11 @@ func TestRollbackKeepsNativeEdit(t *testing.T) {
 
 func TestCaptureNativeKeepsEditMissedByStatus(t *testing.T) {
 	store := seedRecoveryFact(t)
+	changes := []storeChange{{Rel: "r/fact.md", Data: []byte("batch\n")}}
+	pre, _ := os.Lstat(filepath.Join(store, "r/fact.md"))
 	write(t, filepath.Join(store, "r/fact.md"), "late native edit\n")
 	var rec commitReceipt
-	changes := []storeChange{{Rel: "r/fact.md", Data: []byte("batch\n")}}
-	if _, _, err := captureNative(StoreRepo(), "batch", changes, nil, &rec); err != nil {
+	if _, _, err := captureNative(StoreRepo(), "batch", changes, nil, []fs.FileInfo{pre}, &rec); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := StoreRepo().run("show", "HEAD:r/fact.md"); err != nil || got != "late native edit" {

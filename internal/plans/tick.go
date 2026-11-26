@@ -243,9 +243,6 @@ const gitReadTimeout = 10 * time.Second
 // plansLock is the path of the lock every plan write holds.
 func plansLock() string { return filepath.Join(paths.StateDir(), "plans.lock") }
 
-// WithLock runs fn under the plans lock, for a writer outside this package (memory sync).
-func WithLock(fn func() error) error { return paths.WithFileLock(plansLock(), fn) }
-
 // WriteFile replaces a plan under the plans lock, so a mirror or save never interleaves with a tick or claim.
 func WriteFile(dest string, data []byte) error {
 	return paths.WithFileLock(plansLock(), func() error {
@@ -460,7 +457,7 @@ func TaskPlans(home string, skip []string, id string, want func(Task) bool) []st
 		return nil
 	}
 	var out []string
-	for _, d := range loadDatedPlans(entries, home, skip) {
+	for _, d := range loadPlans(entries, home, skip, nil) {
 		if t, ok := findTask(d.plan, id); ok && want(t) {
 			out = append(out, d.path)
 		}
@@ -910,7 +907,7 @@ func tickTargets(root, worktree string, skip []string, commits []Commit) ([]stri
 	}
 	var targets []string
 	allow := map[string]func(Task) bool{}
-	for _, d := range loadDatedPlans(entries, Home(root), skip) {
+	for _, d := range loadPlans(entries, Home(root), skip, nil) {
 		recent := eligible(d.path, worktree)
 		elig := func(t Task) bool { return recent(t) || t.Claim != "" }
 		for _, t := range d.plan.Tasks {
@@ -937,7 +934,7 @@ func TaskTrailers(root, plan string, ids []string) (trailer string, notes []stri
 	if err != nil && plan == "" {
 		return "", []string{fmt.Sprintf("plans: no plans home (%v); committed without a Task trailer", err)}, nil
 	}
-	all := loadDatedPlans(entries, home, MirrorDests())
+	all := loadPlans(entries, home, MirrorDests(), nil)
 	if plan != "" {
 		if all, err = scopePlan(root, plan, home, all); err != nil {
 			return "", nil, err

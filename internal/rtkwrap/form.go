@@ -21,10 +21,14 @@ var forms sync.Map // formKey -> model-facing form; only answers rtk gave are ke
 // ForModel is cmd's `rtk rewrite` form (exit 3 too) with every rtk pinned by path, so a child's PATH cannot swap it.
 func ForModel(ctx context.Context, cmd, cwd string) string {
 	bin := paths.RTKBinary()
-	if formSkipped(bin, cmd, cwd) {
+	if CodeMode() || bin == "" || Vetoed(cmd, cwd) || EnvAltered(cmd) { // code mode, no rtk, a veto or a PATH/HOME change
 		return cmd
 	}
-	if t := shell.Tokens(cmd); t[0] == rtkName { // already wrapped: pin it so a child's PATH cannot swap the binary
+	t := shell.Tokens(cmd)
+	if len(t) == 0 {
+		return cmd
+	}
+	if t[0] == rtkName { // already wrapped: pin it so a child's PATH cannot swap the binary
 		return PinRTK(cmd, textutil.QuoteSH(bin))
 	}
 	key := formKey(bin, cwd, cmd)
@@ -38,15 +42,6 @@ func ForModel(ctx context.Context, cmd, cwd string) string {
 	out = pinnedForm(out, cmd, bin)
 	forms.Store(key, out)
 	return out
-}
-
-// formSkipped: code mode, no rtk, an empty command, a veto, or a PATH/HOME change keep cmd bare.
-func formSkipped(bin, cmd, cwd string) bool {
-	if CodeMode() || bin == "" || Vetoed(cmd, cwd) || EnvAltered(cmd) {
-		return true
-	}
-	t := shell.Tokens(cmd)
-	return len(t) == 0
 }
 
 // formKey changes with PATH, the rtk binary's identity and rtk's config file, so an edit to any re-asks rtk.

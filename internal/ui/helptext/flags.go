@@ -240,10 +240,8 @@ func consumesValue(fs *flag.FlagSet, a string) bool {
 	if f == nil {
 		return false
 	}
-	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && bf.IsBoolFlag() {
-		return false
-	}
-	return true
+	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !bf.IsBoolFlag()
 }
 
 // removedFlags maps each flag removed in the profile rename to its hint; they stay errors, never aliases.
@@ -296,17 +294,12 @@ func firstRemoved(fs *flag.FlagSet, args, names []string) string {
 	return ""
 }
 
-// RemovedFlagHintFS is RemovedFlagHintIn that reads fs (may be nil) to know which flags take a value.
+// RemovedFlagHintFS is the error for the first of names before "--" and not a flag's value (fs may be nil), or nil.
 func RemovedFlagHintFS(fs *flag.FlagSet, args []string, names ...string) error {
 	if name := firstRemoved(fs, args, names); name != "" {
 		return fmt.Errorf("%s %s", name, removedFlags[name])
 	}
 	return nil
-}
-
-// RemovedFlagHintIn is the error for the first of names typed before "--" and not a flag's value, or nil.
-func RemovedFlagHintIn(args []string, names ...string) error {
-	return RemovedFlagHintFS(nil, args, names...)
 }
 
 // RemovedFlagHint returns the error for a removed flag before "--" (not a flag value), or nil.

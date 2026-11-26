@@ -315,8 +315,7 @@ func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
 func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) (wire.Result, error) {
-	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
-	res.Written = out.Written
+	res.SessionID, res.Answer, res.Usage, res.Written = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage, out.Written
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)
@@ -454,9 +453,9 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == pinProfile() {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
-	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {
+	if err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks {
 		// the fallback serves the requested tier, not its default opus
-		t.Model = tierModel(t.Provider, tier)
+		t.Model = cmp.Or(tierModel(t.Provider, resumeAlias(req.Model)), t.Model)
 	}
 	return t, note, err
 }

@@ -20,9 +20,8 @@ var loginSecrets = []string{OAuthTokenEnv, CopilotTokenEnv, "OPENCODE_API_KEY"}
 
 // routeSecret reports a route credential: an agent login, a profile's auth env or any-method secret, any *_OAUTH/*_M2M.
 func (r *Registry) routeSecret(name string) bool {
-	if slices.Contains(loginSecrets, name) ||
-		strings.HasSuffix(name, "_"+strings.ToUpper(AuthOAuth)) || strings.HasSuffix(name, "_"+strings.ToUpper(AuthM2M)) ||
-		strings.HasSuffix(name, "_"+strings.ToUpper(AuthM2M)+"_ACCESS") {
+	hasSuffix := func(m string) bool { return strings.HasSuffix(name, "_"+strings.ToUpper(m)) }
+	if slices.Contains(loginSecrets, name) || slices.ContainsFunc([]string{AuthOAuth, AuthM2M, AuthM2M + "_ACCESS"}, hasSuffix) {
 		return true
 	}
 	for _, p := range r.Providers {
@@ -33,7 +32,8 @@ func (r *Registry) routeSecret(name string) bool {
 			return true
 		}
 		for m, f := range authTable {
-			if f.Token && SecretName(p.Provider, p.Name, m) == name {
+			// a SecretName always ends _<METHOD>, so the cheap suffix test skips its regex work
+			if f.Token && hasSuffix(m) && SecretName(p.Provider, p.Name, m) == name {
 				return true
 			}
 		}

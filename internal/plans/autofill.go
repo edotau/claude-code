@@ -253,7 +253,7 @@ func releaseConcluded(in ReadyInput) []string {
 // releaseOne frees t's autofill claim in plan f when its run concluded not ok; the notice line, else "".
 func releaseOne(f string, t Task) string {
 	m := autofillClaim().FindStringSubmatch(t.Claim)
-	if m == nil || t.closed() || t.ID == "" {
+	if m == nil || !open(t) || t.ID == "" {
 		return ""
 	}
 	status, done := batchOutcome(m[1])
@@ -429,7 +429,7 @@ func planLine(r ReadyTask) (Task, string, bool) {
 		return Task{}, "", false
 	}
 	for _, t := range parseBytes(r.Plan, b).Tasks {
-		if t.ID != "" && !t.closed() && taskKey(t) == r.ID {
+		if t.ID != "" && open(t) && taskKey(t) == r.ID {
 			attrs := waveAttributes(ownLine(strings.Split(string(b), "\n"), t))
 			return t, cmp.Or(attrs["agent"], attrs["leaf"]), true
 		}

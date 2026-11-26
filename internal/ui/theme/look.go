@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -131,17 +130,13 @@ func LoadPalettes() Palettes {
 	if json.Unmarshal(data, &pal) != nil {
 		return embeddedPalettes()
 	}
-	for role, h := range pal.Semantic {
-		if !paintableHex(h) {
-			delete(pal.Semantic, role) // Sem then serves the baked tone, not a silent black
-		}
-	}
 	dropUnpaintable(&pal)
 	return pal
 }
 
-// dropUnpaintable removes bad hex from gradient ramps (an emptied ramp goes) and powerline colors, like Semantic.
+// dropUnpaintable removes bad hex from semantic roles, gradient ramps (an emptied ramp goes) and powerline colors.
 func dropUnpaintable(pal *Palettes) {
+	maps.DeleteFunc(pal.Semantic, func(_, h string) bool { return !paintableHex(h) }) // Sem then serves the baked tone, not a silent black
 	for name, hexes := range pal.Gradients {
 		kept := slices.DeleteFunc(hexes, func(h string) bool { return !paintableHex(h) })
 		if len(kept) == 0 {
@@ -165,13 +160,7 @@ func paintableHex(h string) bool {
 
 // GradientNames returns every named gradient ramp the resolved palette carries, sorted.
 func GradientNames() []string {
-	pal := LoadPalettes()
-	names := make([]string, 0, len(pal.Gradients))
-	for n := range pal.Gradients {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(LoadPalettes().Gradients))
 }
 
 // EmbeddedTheme returns name's stops and the dim tone from the built-in palettes, ignoring local overrides.
@@ -294,14 +283,5 @@ func slot(m map[string]string, key string) (ansi.RGB, bool) {
 	return rgb, ok
 }
 
-var (
-	currentOnce sync.Once
-	currentPal  Palette
-	currentOK   bool
-)
-
 // Current is loadPalette(Dir()), resolved once per process.
-func Current() (Palette, bool) {
-	currentOnce.Do(func() { currentPal, currentOK = loadPalette(Dir()) })
-	return currentPal, currentOK
-}
+var Current = sync.OnceValues(func() (Palette, bool) { return loadPalette(Dir()) })

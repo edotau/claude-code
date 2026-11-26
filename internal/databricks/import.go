@@ -249,10 +249,7 @@ func pickSubset[T any](title, doneNote string, items []T, label func(T) [2]strin
 
 // pickToggle is a checklist in the arrow-key picker (all checked at start); Done returns the marks, Esc cancels.
 func pickToggle(title, doneNote string, labels [][2]string) ([]bool, error) {
-	on := make([]bool, len(labels))
-	for i := range on {
-		on[i] = true
-	}
+	on := slices.Repeat([]bool{true}, len(labels))
 	at := 0
 	for {
 		rows := make([][2]string, 0, len(labels)+1)
@@ -638,7 +635,7 @@ func pairRows(rows []importRow, choices map[string]string, names map[string]stri
 		if sp.Auth != providers.AuthM2M || sp.Skip != "" {
 			continue
 		}
-		users := hostUsers(rows, *sp)
+		users := hostUsers(rows, *sp, false)
 		target, explicit := pairTarget(rows, *sp, users, choices)
 		paired := attachToTarget(rows, users, target, sp, names)
 		if !paired && len(users) > 0 && !explicit && sp.Action != "skip" {
@@ -718,21 +715,11 @@ func existingHost(raw json.RawMessage) string {
 	return host
 }
 
-// sameHostRows are the user rows in sp's workspace, including ones an earlier pairing already consumed.
-func sameHostRows(rows []importRow, sp importRow) (users []int) {
-	for j, u := range rows {
-		if u.Skip == "" && u.Host == sp.Host && u.Auth == providers.AuthOAuth && sameWorkspace(u.WorkspaceID, sp.WorkspaceID) {
-			users = append(users, j)
-		}
-	}
-	return users
-}
-
-// hostUsers are the user rows on sp's host, whatever their workspace; an explicit pair may name any of them.
-func hostUsers(rows []importRow, sp importRow) []int {
+// hostUsers are the user rows on sp's host (only sp's workspace when sameWS), including ones already paired.
+func hostUsers(rows []importRow, sp importRow, sameWS bool) []int {
 	var users []int
 	for j, u := range rows {
-		if u.Skip == "" && u.Host == sp.Host && u.Auth == providers.AuthOAuth {
+		if u.Skip == "" && u.Host == sp.Host && u.Auth == providers.AuthOAuth && (!sameWS || sameWorkspace(u.WorkspaceID, sp.WorkspaceID)) {
 			users = append(users, j)
 		}
 	}
@@ -762,7 +749,7 @@ func pairTarget(rows []importRow, sp importRow, users []int, choices map[string]
 			return rows[j].Name, false
 		}
 	}
-	cands := sameHostRows(rows, sp)
+	cands := hostUsers(rows, sp, true)
 	if len(cands) == 1 && principalsFor(rows, rows[cands[0]]) == 1 {
 		return rows[cands[0]].Name, false
 	}

@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -10,9 +11,17 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 func TestEventLine(t *testing.T) {
+	line := func(raw string, width int) (string, bool) {
+		var ev wire.Event
+		if json.Unmarshal([]byte(raw), &ev) != nil {
+			return "", false
+		}
+		return paneEventLine(ev, width)
+	}
 	tests := []struct {
 		name, raw, want string
 		ok              bool
@@ -29,13 +38,13 @@ func TestEventLine(t *testing.T) {
 		{"heartbeat", `{"schema":1,"dispatch_id":"x","type":"heartbeat","t_ms":15000,"live":"quiet"}`, "", false},
 	}
 	for _, tt := range tests {
-		got, ok := eventLine([]byte(tt.raw), 80)
+		got, ok := line(tt.raw, 80)
 		if got != tt.want || ok != tt.ok || strings.ContainsFunc(got, unicode.IsControl) {
-			t.Errorf("%s: eventLine = %q, %v; want %q, %v", tt.name, got, ok, tt.want, tt.ok)
+			t.Errorf("%s: paneEventLine = %q, %v; want %q, %v", tt.name, got, ok, tt.want, tt.ok)
 		}
 	}
-	long := []byte(`{"schema":1,"type":"text","text":"` + strings.Repeat("x", 100) + `"}`)
-	if got, _ := eventLine(long, 200); len([]rune(got)) != maxLineWidth || !strings.HasSuffix(got, "…") {
+	long := `{"schema":1,"type":"text","text":"` + strings.Repeat("x", 100) + `"}`
+	if got, _ := line(long, 200); len([]rune(got)) != maxLineWidth || !strings.HasSuffix(got, "…") {
 		t.Errorf("wide terminal line = %q, want %d cells ending in …", got, maxLineWidth)
 	}
 }

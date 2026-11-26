@@ -25,8 +25,6 @@ type Error struct {
 	Hints []string
 }
 
-func (e *Error) Error() string { return e.Msg }
-
 // authError is implemented by errors that mean a rejected credential (retry.Error).
 type authError interface{ IsAuth() bool }
 

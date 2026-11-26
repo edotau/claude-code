@@ -39,8 +39,7 @@ func ApplyRouteOverlay(ctx context.Context, value route.Route, profile, agentNam
 	return ApplyRoute(ctx, value, profile, agentName, model, fallback)
 }
 
-// ApplyRoute is ctx with want as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
-// An inherited confinement is a fence: want must lie inside it, and nothing of it ever fills want.
+// ApplyRoute sets want as a minimal $COWORKER_OVERLAY (+CLAUDE_PROFILE); want must fit, never inherit, a parent fence.
 func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model, fallback string) (context.Context, error) {
 	ip, iprof, err := router.OverlayRoute(ctx)
 	if err != nil {

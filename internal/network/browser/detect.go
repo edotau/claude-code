@@ -45,10 +45,10 @@ func DetectDefault(env Env) (Report, error) {
 	env = memoizeProbes(env)
 	def, err := Default(env) // errDefaultUnsupported still carries the resolved (non-Chromium) name
 	if def.Name == "" {
-		if failedDefault(env, err) {
-			return Report{GeneratedAt: env.now()}, err
+		if !failedDefault(env, err) {
+			err = nil
 		}
-		return Report{GeneratedAt: env.now()}, nil
+		return Report{GeneratedAt: env.now()}, err
 	}
 	return Report{Browsers: []browser{def}, Default: def.Name, GeneratedAt: env.now()}, nil
 }
@@ -86,10 +86,8 @@ func detectFamily(env Env, s spec, b *browser) {
 	switch s.family {
 	case familyChromium:
 		detectChromium(env, s, b)
-	case familySafari:
-		detectSafari(env, b)
-	case familyFirefox:
-		detectFirefox(env, b)
+	case familySafari, familyFirefox: // no Claude extension and no CDP here; WebDriver-based control is not built
+		*b = stubUnsupported(*b)
 	}
 }
 
@@ -224,16 +222,4 @@ func rollupExtension(profiles []profile) string {
 		return stateDisabled
 	}
 	return stateNoExtension
-}
-
-// detectSafari: Safari has no Claude extension and no CDP; WebDriver-based control is not built.
-func detectSafari(_ Env, b *browser) {
-	b.Host = stateUnsupported
-	b.Paths = controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}
-}
-
-// detectFirefox: Firefox has no Claude extension and no CDP here; WebDriver-based control is not built.
-func detectFirefox(_ Env, b *browser) {
-	b.Host = stateUnsupported
-	b.Paths = controlPaths{Extension: stateUnsupported, CDP: stateUnsupported}
 }

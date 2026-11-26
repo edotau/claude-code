@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os/exec"
@@ -56,7 +57,7 @@ func (w *limitWatch) Write(p []byte) (int, error) {
 	w.buf = append(w.buf, p...)
 	var hit *retry.Error
 	for hit == nil {
-		i := strings.IndexByte(string(w.buf), '\n')
+		i := bytes.IndexByte(w.buf, '\n')
 		if i < 0 {
 			break
 		}

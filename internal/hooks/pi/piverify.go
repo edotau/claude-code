@@ -43,7 +43,7 @@ func judgePiVerify(ctx context.Context, c piCall) ([]plans.VerifyStep, *piVerdic
 		if ctx.Err() != nil { // the judging shares the verify deadline, so a long chain cannot outrun the idle watch
 			return nil, &piVerdict{Usage: "verify before settle skipped: judging ran out of time"}
 		}
-		if reason := piBashBlock(c, textutil.ShellJoin(append(slices.Clone(s.Env), s.Argv...))); reason != "" {
+		if reason := piModulesBlock(c, "Bash", map[string]any{"command": textutil.ShellJoin(append(slices.Clone(s.Env), s.Argv...))}); reason != "" {
 			return nil, &piVerdict{Block: reason}
 		}
 	}

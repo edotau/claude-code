@@ -136,7 +136,7 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 // finish runs the recall, model pin and label steps and renders the result.
 func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string) core.Result {
 	st := in.Nested("tool_input", "subagent_type")
-	extraNote := core.JoinContext(e.recallStep(ctx, in, promptField, task, true), e.benchNote(in.CWD, task),
+	extraNote := core.JoinContext(e.recall(ctx, in, promptField, task, true), e.benchNote(in.CWD, task),
 		degradedNote(task, briefPlanTask(task)))
 	if e.mode == modeDeferred {
 		return core.Result{Context: extraNote}
@@ -201,16 +201,11 @@ type effortPlan struct {
 	mode          spawnMode
 }
 
-// recallStep is recall for the run's mode: a spawn mod's marker moves it to a note, its query skips it (it stamps).
-func (e *effortPlan) recallStep(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
+// recall appends the memory-recall block to the prompt, or returns it as a note; the mod's query skips it (it stamps).
+func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
 	if e.mode == modeQuery {
 		return ""
 	}
-	return e.recall(ctx, in, promptField, task, asNote)
-}
-
-// recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
-func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
 	suffix, note := briefRecall(ctx, in.SessionID, task, asNote)
 	if suffix != "" {
 		e.updated[promptField] = task + suffix

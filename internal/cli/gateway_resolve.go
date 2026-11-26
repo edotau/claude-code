@@ -144,8 +144,7 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 			}
 			doc["auto"] = auto
 		}
-		b, _ := json.MarshalIndent(doc, "", "  ")
-		fmt.Println(string(b))
+		_ = helptext.WriteJSON(os.Stdout, doc)
 		return 0
 	}
 	if choice == nil {
@@ -167,8 +166,7 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 // printRows prints one PASS/FAIL row per profile (or a JSON array).
 func printRows(rows []resolve.ProfileRow, format string) int {
 	if format == helptext.JSON {
-		b, _ := json.MarshalIndent(rows, "", "  ")
-		fmt.Println(string(b))
+		_ = helptext.WriteJSON(os.Stdout, rows)
 	} else {
 		for _, r := range rows {
 			if r.Route != nil {
@@ -181,10 +179,8 @@ func printRows(rows []resolve.ProfileRow, format string) int {
 			}
 		}
 	}
-	for _, r := range rows {
-		if r.Pass {
-			return 0
-		}
+	if slices.ContainsFunc(rows, func(r resolve.ProfileRow) bool { return r.Pass }) {
+		return 0
 	}
 	return 1
 }
@@ -207,8 +203,7 @@ func cmdPoolTable(ctx context.Context, usable bool, task string, tools bool, fal
 	}
 	rows := resolve.PoolRows(ctx, reg, resolve.Tiers(task), tools, fallback, time.Now())
 	if format == helptext.JSON {
-		b, _ := json.MarshalIndent(rows, "", "  ")
-		fmt.Println(string(b))
+		_ = helptext.WriteJSON(os.Stdout, rows)
 		return 0
 	}
 	resolve.RenderPoolTable(os.Stdout, rows, helptext.TermWidth(os.Stdout), time.Now())

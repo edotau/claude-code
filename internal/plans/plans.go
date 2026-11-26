@@ -591,12 +591,7 @@ type datedPlan struct {
 	plan Plan
 }
 
-// loadDatedPlans parses the dated, non-skipped plans in home.
-func loadDatedPlans(entries []os.DirEntry, home string, skip []string) []datedPlan {
-	return loadPlans(entries, home, skip, nil)
-}
-
-// loadPlans is loadDatedPlans that parses only files keep accepts (nil keeps all).
+// loadPlans parses the dated, non-skipped plans in home that keep accepts (nil keeps all).
 func loadPlans(entries []os.DirEntry, home string, skip []string, keep func([]byte) bool) (all []datedPlan) {
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
@@ -771,7 +766,12 @@ func OpenPlans(repoRoot string, limit int) []OpenPlan {
 	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
 	entries = slices.DeleteFunc(entries, func(e os.DirEntry) bool { return len(e.Name()) < 10 || e.Name()[:10] < cutoff })
 	var out []OpenPlan
-	for _, d := range slices.Backward(loadDatedPlans(entries, home, nil)) {
+	for i := range slices.Backward(entries) { // parse newest first, stopping at limit
+		one := loadPlans(entries[i:i+1], home, nil, nil)
+		if len(one) == 0 {
+			continue
+		}
+		d := one[0]
 		base := filepath.Base(d.path)
 		s, op := summarize(d.plan), OpenPlan{Slug: strings.TrimSuffix(base, ".md")}
 		op.Ticked, op.Total = s.Ticked, s.Total

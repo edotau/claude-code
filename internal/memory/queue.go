@@ -143,6 +143,9 @@ func claimNext(now time.Time) (job, string, bool) {
 			due = append(due, cand{j, p})
 		}
 	}
+	if len(due) == 0 { // every drain ends on an empty claim: skip the mkdir and process probe
+		return job{}, "", false
+	}
 	slices.SortFunc(due, func(a, b cand) int { return a.j.Enqueued.Compare(b.j.Enqueued) })
 	runDir := filepath.Join(queueDir(), "running")
 	if os.MkdirAll(runDir, 0o700) != nil {

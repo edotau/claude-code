@@ -34,7 +34,7 @@ func TestMissingTemplateEnv(t *testing.T) {
 		{"missing", `{}`, "A,B"},
 		{"user set", `{"env":{"A":"x"}}`, "B"},
 	} {
-		got := missingTemplateEnv(tmpl, []byte(tc.user))
+		got, _ := missingTemplateKeys(tmpl, []byte(tc.user))["env"].(map[string]any)
 		keys := ""
 		for _, k := range []string{"A", "B"} {
 			if _, ok := got[k]; ok {

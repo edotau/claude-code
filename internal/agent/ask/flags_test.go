@@ -153,11 +153,11 @@ func TestApplyRecordRoundTripsNoTools(t *testing.T) {
 	}
 }
 
-// A replayed record keeps its --runner own, so code mode is rechecked against the own CLI.
+// A replayed record keeps its --runner cli, so code mode is rechecked against the own CLI.
 func TestApplyRecordRestoresRunner(t *testing.T) {
 	s := newAskTarget()
-	s.Apply(agent.Record{Agent: "codex", Request: agent.RunOptions{Runner: "own"}}, io.Discard)
-	if *s.Runner != "own" {
+	s.Apply(agent.Record{Agent: "codex", Request: agent.RunOptions{Runner: "cli"}}, io.Discard)
+	if *s.Runner != "cli" {
 		t.Errorf("runner = %q, want own", *s.Runner)
 	}
 	if mode, why, _ := validateCodemode("on", "codex", *s.Runner, true, false); mode != "off" || why == "" {
@@ -856,21 +856,21 @@ func TestRunnerFlagValidatesAndCarries(t *testing.T) {
 	if err := runnerCheck(&askFlags{runner: "bogus"}); err == nil {
 		t.Fatal("--runner bogus accepted")
 	}
-	if err := runnerCheck(&askFlags{runner: "own"}); err != nil {
-		t.Fatalf("--runner own: %v", err)
+	if err := runnerCheck(&askFlags{runner: "cli"}); err != nil {
+		t.Fatalf("--runner cli: %v", err)
 	}
-	ctx, err := carryOverlay(context.Background(), agentconfig.Overlay{Runner: "own"})
+	ctx, err := carryOverlay(context.Background(), agentconfig.Overlay{Runner: "cli"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil); ov.Runner != route.RunnerOwn {
+	if ov, _ := agentconfig.LoadOverlayContext(ctx, "", nil); ov.Runner != route.RunnerCLI {
 		t.Fatalf("carried runner = %q, want own", ov.Runner)
 	}
 }
 
-func TestPiRunnerOwnsCodemode(t *testing.T) {
-	if got, _, _ := validateCodemode("on", "codex", route.RunnerOwn, true, false); got != "off" {
-		t.Errorf("codex --runner own code mode = %q, want off", got)
+func TestPiRunnerCLIsCodemode(t *testing.T) {
+	if got, _, _ := validateCodemode("on", "codex", route.RunnerCLI, true, false); got != "off" {
+		t.Errorf("codex --runner cli code mode = %q, want off", got)
 	}
 	if got, _, _ := validateCodemode("on", "opencode", "", true, false); got != "on" {
 		t.Errorf("opencode --codemode on = %q, want its own row to keep on", got)
@@ -935,7 +935,7 @@ func TestRetryReplayPlanCutoff(t *testing.T) {
 	rec := agent.Record{ID: "d-1", Agent: "codex", Cutoff: agent.CutoffDeadline, RoutePlan: &ran}
 	fs, _ := askFlagSet()
 	got := replayPlan(fs, rec, true)
-	want := []agent.Runner{{Kind: agent.RunnerOwn, Agent: agentid.Claude}}
+	want := []agent.Runner{{Kind: agent.RunnerCLI, Agent: agentid.Claude}}
 	if got.Agent != agentid.Claude || !slices.Equal(got.Runners, want) || got.Pool != nil || got.Fallback != ran.Fallback || !got.Fence.Open {
 		t.Fatalf("replay = %+v; want claude own CLI, no pool, the recorded fence and policy", got)
 	}

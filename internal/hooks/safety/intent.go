@@ -143,7 +143,7 @@ func quotedOp(before, line string, at int) bool {
 
 // dataPipeline reports that segs[i]'s output, if piped, reaches only data commands.
 func dataPipeline(segs, seps []string, i int, runs, keepCommit bool) bool {
-	for k := i; seps[k] == "|" || seps[k] == "|&"; k++ {
+	for k := i; pipedOn(seps[k]); k++ {
 		if k+1 >= len(segs) || !dataSegment(segs[k+1], runs, keepCommit) {
 			return false
 		}

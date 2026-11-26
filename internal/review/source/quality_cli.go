@@ -315,16 +315,13 @@ func analyzeDirectory(dir, language string, warn io.Writer) (directoryReport, er
 		return directoryReport{}, errors.New("no supported files found")
 	}
 
-	total := 0.0
+	total, smells, violations := 0.0, 0, 0
 	for _, r := range results {
 		total += float64(r.QualityScore)
-	}
-	avg := PyFloat(Round1(total / float64(len(results))))
-	smells, violations := 0, 0
-	for _, r := range results {
 		smells += len(r.Smells)
 		violations += len(r.SolidViolations)
 	}
+	avg := PyFloat(Round1(total / float64(len(results))))
 	sort.SliceStable(results, func(i, j int) bool { return results[i].QualityScore < results[j].QualityScore })
 
 	return directoryReport{

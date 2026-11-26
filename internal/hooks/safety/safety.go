@@ -186,7 +186,7 @@ func messageArg(flat string) bool {
 	segs, seps := shell.SegmentsSep(flat)
 	for k, seg := range segs {
 		if strings.Contains(seg, msgSlot) {
-			return inertSegment(seg) && seps[k] != "|" && seps[k] != "|&"
+			return inertSegment(seg) && !pipedOn(seps[k])
 		}
 	}
 	return false
@@ -314,7 +314,7 @@ func dropPatchArgs(cmd string) (string, int) {
 func patchCall(seg, words, sep string) bool {
 	toks := shell.Tokens(words)
 	return len(toks) > 0 && toks[0] == "apply_patch" && strings.HasPrefix(strings.TrimLeft(seg, " \t"), "apply_patch ") &&
-		sep != "|" && sep != "|&"
+		!pipedOn(sep)
 }
 
 // literalWord reports one quoted word the shell passes as written: '…' alone, or "…" with no substitution.
@@ -370,7 +370,11 @@ func protectedWrite(cmd, cwd string, raw []string, twin map[string]string) strin
 
 // protectedPath reports whether p, or its symlink-resolved form, falls under a folded Edit deny glob.
 func protectedPath(p string, globs []string) bool {
-	return matchesProtected(p, globs) || matchesProtected(paths.Real(p), globs)
+	if matchesProtected(p, globs) {
+		return true
+	}
+	r := paths.Real(p)
+	return r != p && matchesProtected(r, globs)
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.

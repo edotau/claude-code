@@ -16,7 +16,7 @@ import (
 // seedConventionBlock plants one id-marked conventions.md bullet in the bank and returns its id.
 func seedConventionBlock(t *testing.T) string {
 	t.Helper()
-	id, err := Remember("feedback", "promote me to home", time.Now())
+	id, err := RememberSupersedes("feedback", "promote me to home", "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

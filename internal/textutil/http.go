@@ -64,8 +64,7 @@ func retryDelay(attempt int, base time.Duration, h http.Header, now time.Time) t
 	return wait
 }
 
-// WaitRetry sleeps RetryDelay on ctx; if ctx ends first it returns last (the final failed response) wrapped with
-// the context error, or the bare context error when last is nil.
+// WaitRetry sleeps retryDelay on ctx; if ctx ends first it returns the ctx error, wrapped by last when non-nil.
 func WaitRetry(ctx context.Context, attempt int, base time.Duration, h http.Header, last error) error {
 	err := RetrySleep(ctx, retryDelay(attempt, base, h, time.Now()))
 	if err == nil || last == nil {

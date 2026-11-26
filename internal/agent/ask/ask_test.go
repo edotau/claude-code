@@ -888,9 +888,19 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	scan := worktree.ProcessScan
 	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
+	// an empty non-repo cwd: each dispatch's write watch would otherwise `git status` the live checkout
+	cwd, err := os.MkdirTemp("", "ask-cwd")
+	if err == nil {
+		err = os.Chdir(cwd)
+	}
+	if err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	cleanup()
+	_ = os.RemoveAll(cwd)
 	_ = os.RemoveAll(armSharedBin.dir)
+	_ = os.RemoveAll(linkedFakes.dir)
 	_ = os.RemoveAll(cliSharedBin.dir)
 	os.Exit(code)
 }

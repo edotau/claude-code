@@ -140,7 +140,7 @@ func (t *RouteTable) gateRow(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
-	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
+	g := t.gateProfile(ctx, pg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
 		// a quiet row reports only real account state
 		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth {
@@ -198,7 +198,7 @@ func (t *RouteTable) gateArm(
 	}
 	var group []Candidate
 	if !agentid.Routing(agent).GoogleOrDatabricks || geminiRow(pg.reg, arm) {
-		group = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
+		group = t.gateProfile(ctx, pg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
 	} else {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + arm})
 	}
@@ -209,7 +209,7 @@ func (t *RouteTable) gateArm(
 		group = append(group, t.gateOpencodeCandidate(ctx, alias, ArmOpencodeSub, st, o, now, configured, res)...)
 	}
 	for _, row := range own {
-		group = append(group, t.gateProfile(ctx, pg.reg, alias, agent, row, spec.Model, "", st, o, now, configured, res)...)
+		group = append(group, t.gateProfile(ctx, pg, alias, agent, row, spec.Model, "", st, o, now, configured, res)...)
 	}
 	return group
 }
@@ -329,7 +329,7 @@ func (t *RouteTable) gateSessionCopilot(
 	if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == account }) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
 		return nil
 	}
-	return t.gateProfile(ctx, reg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
+	return t.gateProfile(ctx, pg, alias, "copilot", profile, model, effort, st, o, now, configured, res)
 }
 
 // sessionCopilotTaken reports that account is already held by an earlier gate or is the copilot cell's own account.
@@ -385,7 +385,7 @@ func (t *RouteTable) gateBase(
 ) []Candidate {
 	var group []Candidate
 	if agent != "claude" && spec.Profile != "" {
-		group = t.gatePinned(ctx, pg.reg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
+		group = t.gatePinned(ctx, pg, alias, agent, spec.Profile, spec, st, o, now, configured, res)
 		group = append(group, t.gateRecordFallback(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateWorkspaces(ctx, pg, alias, agent, spec, group, st, o, now, configured, res)...)
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
@@ -411,7 +411,7 @@ func (t *RouteTable) gateRecordFallback(
 	if agent == "claude" || len(group) > 0 || fb == "" || fb == spec.Profile || o.Policy.Resolved().Kind == PolicyNone {
 		return nil
 	}
-	return t.gatePinned(ctx, pg.reg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res)
+	return t.gatePinned(ctx, pg, alias, agent, fb, PinSpec{Profile: fb}, st, o, now, configured, res)
 }
 
 func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {

@@ -81,12 +81,7 @@ type codexStreamState struct {
 	stopTail     func()          // stops and joins the rollout usage tailer
 }
 
-// parseCodexStream emits text, tools and usage, retaining the last message as the answer.
-func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
-	return parseCodexIdle(nil)(br, sink, onMeaningful, logs...)
-}
-
-// parseCodexIdle is parseCodexStream that feeds every event to idle: a nil idle is no watch.
+// parseCodexIdle emits text, tools and usage, keeping the last message as the answer; a nil idle is no watch.
 func parseCodexIdle(idle *agent.IdleTimeout) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
 		state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful, idle: idle, running: map[string]bool{}, marked: map[string]bool{}}

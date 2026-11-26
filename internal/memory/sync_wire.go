@@ -108,7 +108,7 @@ func serveExport(st EnvelopeStore, since map[string]int64, w io.Writer, limit in
 		return err
 	}
 	slices.Sort(all)
-	x := &exporter{st: st, w: w, limit: limit}
+	x := &exporter{st: st, w: w, limit: limit, tag: "memory sync"}
 	for _, o := range all {
 		if !originRE.MatchString(o) {
 			return fmt.Errorf("memory sync: invalid stored origin %q", o)
@@ -122,11 +122,14 @@ func serveExport(st EnvelopeStore, since map[string]int64, w io.Writer, limit in
 	return json.NewEncoder(w).Encode(streamEnd{End: true, Count: x.n}) // a capped stream is a valid prefix; the next pass takes the rest
 }
 
-// exporter counts the rows and bytes written across origins.
+// exporter counts the rows and bytes written across origins; limit 0 is uncapped, tag prefixes its errors.
 type exporter struct {
 	st             EnvelopeStore
 	w              io.Writer
 	n, size, limit int
+	tag            string
+	line           bytes.Buffer
+	enc            *json.Encoder
 }
 
 // origin writes one origin's rows past after; capped means the size limit stopped the whole export.
@@ -134,26 +137,16 @@ func (x *exporter) origin(origin string, after int64) (capped bool, err error) {
 	for {
 		rows, err := x.st.ChangesAfter(origin, after, envelopePageSize)
 		if err != nil {
-			return false, fmt.Errorf("memory sync: export %q: %w", origin, err)
+			return false, fmt.Errorf("%s: export %q: %w", x.tag, origin, err)
 		}
 		for _, e := range rows {
 			if e.Origin != origin || e.Seq != after+1 {
-				return false, fmt.Errorf("memory sync: export %q: seq %d after %d is out of order", origin, e.Seq, after)
+				return false, fmt.Errorf("%s: export %q: seq %d after %d is out of order", x.tag, origin, e.Seq, after)
 			}
-			line, err := json.Marshal(e)
-			if err != nil {
-				return false, err
+			if capped, err := x.row(e); capped || err != nil {
+				return capped, err
 			}
-			if len(line)+64 > streamReadMax {
-				return false, fmt.Errorf("memory sync: envelope %q/%d exceeds the stream size cap", origin, e.Seq)
-			}
-			if x.size += len(line) + 1; x.size > x.limit && x.n > 0 {
-				return true, nil
-			}
-			if _, err := x.w.Write(append(line, '\n')); err != nil {
-				return false, err
-			}
-			x.n, after = x.n+1, e.Seq
+			after = e.Seq
 		}
 		if len(rows) < envelopePageSize {
 			return false, nil
@@ -161,14 +154,36 @@ func (x *exporter) origin(origin string, after int64) (capped bool, err error) {
 	}
 }
 
+// row encodes e into the reused line buffer and writes it unless the size limit stops the export first.
+func (x *exporter) row(e Envelope) (capped bool, err error) {
+	if x.enc == nil {
+		x.enc = json.NewEncoder(&x.line)
+		x.enc.SetEscapeHTML(false)
+	}
+	x.line.Reset()
+	if err := x.enc.Encode(e); err != nil {
+		return false, err
+	}
+	if x.limit > 0 {
+		if x.line.Len()+63 > streamReadMax {
+			return false, fmt.Errorf("memory sync: envelope %q/%d exceeds the stream size cap", e.Origin, e.Seq)
+		}
+		if x.size += x.line.Len(); x.size > x.limit && x.n > 0 {
+			return true, nil
+		}
+	}
+	if _, err := x.w.Write(x.line.Bytes()); err != nil {
+		return false, fmt.Errorf("%s: write %q/%d: %w", x.tag, e.Origin, e.Seq, err)
+	}
+	x.n++
+	return false, nil
+}
+
 // ReadStream returns the envelope lines of a stream ending in {"end":true,"count":N} with N right, else refuses it.
 func ReadStream(r io.Reader) (body []byte, count int, err error) {
-	raw, err := io.ReadAll(io.LimitReader(r, streamReadMax+1))
+	raw, err := readCapped(r)
 	if err != nil {
-		return nil, 0, fmt.Errorf("memory sync: read stream: %w", err)
-	}
-	if len(raw) > streamReadMax {
-		return nil, 0, errors.New("memory sync: stream is over the size cap; refused whole")
+		return nil, 0, err
 	}
 	trimmed := bytes.TrimRight(raw, "\r\n ")
 	i := bytes.LastIndexByte(trimmed, '\n')
@@ -196,6 +211,19 @@ func ReadStream(r io.Reader) (body []byte, count int, err error) {
 		return nil, 0, fmt.Errorf("memory sync: stream holds %d envelopes but its end line says %d; refused whole", n, end.Count)
 	}
 	return body, end.Count, nil
+}
+
+// readCapped reads r up to the stream cap; an in-memory buffer lends its bytes instead of being copied.
+func readCapped(r io.Reader) (raw []byte, err error) {
+	if b, ok := r.(*bytes.Buffer); ok {
+		raw = b.Next(streamReadMax + 1)
+	} else if raw, err = io.ReadAll(io.LimitReader(r, streamReadMax+1)); err != nil {
+		return nil, fmt.Errorf("memory sync: read stream: %w", err)
+	}
+	if len(raw) > streamReadMax {
+		return nil, errors.New("memory sync: stream is over the size cap; refused whole")
+	}
+	return raw, nil
 }
 
 // ImportStream applies r in one transaction when the store offers it; an error leaves nothing applied.

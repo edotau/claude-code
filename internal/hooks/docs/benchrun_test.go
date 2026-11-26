@@ -154,7 +154,8 @@ func TestBenchWorkerSerializesAndFinishesBeforeNotice(t *testing.T) {
 	var bases []string
 	for _, sha := range []string{strings.Repeat("a", 40), strings.Repeat("b", 40)} {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		benchStart(context.Background(), in, t.TempDir(), sha, nil)
+		top := t.TempDir()
+		benchEnqueue(top, []benchJob{{top, sha, in.SessionID, nil}})
 		bases = append(bases, filepath.Join(paths.StateDir(), "bench", "post-commit", sha))
 	}
 	done := make(chan struct{}, 2)
@@ -373,7 +374,8 @@ func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
 	sha := strings.Repeat("c", 40)
 	base := filepath.Join(paths.StateDir(), "bench", "post-commit", sha)
 	in := core.ParseInput(strings.NewReader(`{"session_id":"bench-busy-bound"}`))
-	benchStart(context.Background(), in, t.TempDir(), sha, nil)
+	top := t.TempDir()
+	benchEnqueue(top, []benchJob{{top, sha, in.SessionID, nil}})
 	done := make(chan struct{})
 	go func() { benchWorker(base, false); close(done) }()
 	if got := waitBench(t, entered); got != base+".json" {
@@ -757,9 +759,8 @@ func prepareBenchLoopRefusal(t *testing.T, root, scenario string, now time.Time)
 			t.Fatal(err)
 		}
 	case "budget refused":
-		if err := bench.Record(bench.KindGateFix, "", 15_000_000, now); err != nil {
-			t.Fatal(err)
-		}
+		writeBenchFixture(t, filepath.Join(root, "budget.jsonl"),
+			`{"at":"`+now.Format(time.RFC3339Nano)+`","kind":"`+bench.KindGateFix+`","id":"","tokens":15000000}`+"\n")
 	case "loop already locked":
 		f, err := os.OpenFile(filepath.Join(root, "loop.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
@@ -918,12 +919,12 @@ func TestBenchFailureReported(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	raw := strings.Replace(cannedBench, `"flags":["noisy"],`, "", 1)
 	benchReportRegressions([]byte(raw), "/r.json")
-	got, _, err := worktree.FailuresSince(worktree.FailuresDir(), "s", 5)
+	got, _, err := worktree.FailuresSinceWithin(worktree.FailuresDir(), "s", 5, time.Minute)
 	if err != nil || len(got) != 1 || got[0].Kind != worktree.FailBench || got[0].Subject != "internal/memory Noisy" {
 		t.Fatalf("regression report = %+v, %v", got, err)
 	}
 	benchReportRegressions([]byte(cannedBench), "/r.json") // the noisy comparison is inconclusive
-	if got, _, _ := worktree.FailuresSince(worktree.FailuresDir(), "t", 5); len(got) != 1 {
+	if got, _, _ := worktree.FailuresSinceWithin(worktree.FailuresDir(), "t", 5, time.Minute); len(got) != 1 {
 		t.Fatalf("inconclusive run reported: %+v", got)
 	}
 }
@@ -975,7 +976,8 @@ func TestBenchWorkerSkipsCommitThatDoesNotBuild(t *testing.T) {
 	benchRun = func([]string, string, *os.File) int { return benchSkipExit }
 	sha := strings.Repeat("e", 40)
 	base := filepath.Join(paths.StateDir(), "bench", "post-commit", sha)
-	benchStart(context.Background(), core.ParseInput(strings.NewReader(`{"session_id":"s"}`)), t.TempDir(), sha, nil)
+	top := t.TempDir()
+	benchEnqueue(top, []benchJob{{top, sha, "s", nil}})
 	_ = os.MkdirAll(filepath.Dir(base), 0o700)
 	raw, _ := json.Marshal(benchJob{Top: t.TempDir(), SHA: sha, SessionID: "s"})
 	writeBenchFixture(t, base+".job.json", string(raw))

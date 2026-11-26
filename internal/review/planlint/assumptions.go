@@ -75,35 +75,16 @@ func simpleMatcher(re *regexp.Regexp) func(string) (string, bool) {
 	}
 }
 
-var (
-	vagueActionKeywordRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)\b(?:fix|improve|optimize|refactor|update|enhance)\b`)
-	})
-	vagueActionExceptionRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^\s+\w+\s+(?:to|so|by)\b`) })
-	unscopedSubjectKeywordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\b(?:the\s+user|users)\b`) })
-	unscopedSubjectExceptRe  = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)\b(?:who|which|admin|role|authenticated|specific)\b`)
-	})
-)
-
-// matchUnlessFollowed emulates a negative lookahead (RE2 has none): the first keyword hit not followed by except.
-func matchUnlessFollowed(keyword, except *regexp.Regexp, s string) (string, bool) {
-	for _, m := range keyword.FindAllStringIndex(s, -1) {
-		if !except.MatchString(s[m[1]:]) {
-			return s[m[0]:m[1]], true
+// unlessFollowed emulates a negative lookahead (RE2 has none): the first keyword hit not followed by except.
+func unlessFollowed(keyword, except *regexp.Regexp) func(string) (string, bool) {
+	return func(s string) (string, bool) {
+		for _, m := range keyword.FindAllStringIndex(s, -1) {
+			if !except.MatchString(s[m[1]:]) {
+				return s[m[0]:m[1]], true
+			}
 		}
+		return "", false
 	}
-	return "", false
-}
-
-// vagueActionMatch replicates `\b(keyword)\b(?!\s+\w+\s+(?:to|so|by))`: a specific target ("... to/so/by") may follow.
-func vagueActionMatch(s string) (string, bool) {
-	return matchUnlessFollowed(vagueActionKeywordRe(), vagueActionExceptionRe(), s)
-}
-
-// unscopedSubjectMatch replicates `\b(the user|users)\b(?!.*\b(who|...)\b)`: a scoping word may follow anywhere.
-func unscopedSubjectMatch(s string) (string, bool) {
-	return matchUnlessFollowed(unscopedSubjectKeywordRe(), unscopedSubjectExceptRe(), s)
 }
 
 var signals = sync.OnceValue(func() []signalDef {
@@ -136,12 +117,16 @@ var signals = sync.OnceValue(func() []signalDef {
 		{
 			"vague-action",
 			"Vague action verb. What specifically changes? What's the measurable result?",
-			vagueActionMatch,
+			// `\b(keyword)\b(?!\s+\w+\s+(?:to|so|by))`: a specific target ("... to/so/by") may follow.
+			unlessFollowed(regexp.MustCompile(`(?i)\b(?:fix|improve|optimize|refactor|update|enhance)\b`),
+				regexp.MustCompile(`(?i)^\s+\w+\s+(?:to|so|by)\b`)),
 		},
 		{
 			"unscoped-subject",
 			"Which user(s)? All? A specific role? Authenticated only?",
-			unscopedSubjectMatch,
+			// `\b(the user|users)\b(?!.*\b(who|...)\b)`: a scoping word may follow anywhere.
+			unlessFollowed(regexp.MustCompile(`(?i)\b(?:the\s+user|users)\b`),
+				regexp.MustCompile(`(?i)\b(?:who|which|admin|role|authenticated|specific)\b`)),
 		},
 	}
 })

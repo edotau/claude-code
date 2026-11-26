@@ -866,10 +866,7 @@ func LandQueueFile() string {
 	return paths.MoveLegacy(filepath.Join(dir, "merge-queue.json"), filepath.Join(dir, "land-queue.json"))
 }
 
-// Enqueue adds q or replaces the entry for its lane; a zero QueuedAt keeps the first queued-at, a set one wins.
-func Enqueue(q QueuedLane) error { return EnqueueWithin(queueEditWait, q) }
-
-// EnqueueWithin is Enqueue with the queue lock wait bounded by wait.
+// EnqueueWithin adds or replaces q's lane entry within wait; a zero QueuedAt keeps the first queued-at, a set one wins.
 func EnqueueWithin(wait time.Duration, q QueuedLane) error {
 	q.Lane = paths.Canon(q.Lane)
 	keep := q.QueuedAt == 0
@@ -890,7 +887,7 @@ func EnqueueWithin(wait time.Duration, q QueuedLane) error {
 // Dequeue drops lane's entry; a missing queue or entry is no error.
 func Dequeue(lane string) error {
 	lane = paths.Canon(lane)
-	return editQueue(func(lanes []QueuedLane) []QueuedLane {
+	return editQueueWithin(queueEditWait, func(lanes []QueuedLane) []QueuedLane {
 		return slices.DeleteFunc(slices.Clone(lanes), func(e QueuedLane) bool { return e.Lane == lane })
 	})
 }
@@ -938,8 +935,6 @@ const (
 	queuePruneWait = 100 * time.Millisecond
 	queueEditWait  = 10 * time.Second
 )
-
-func editQueue(fn func([]QueuedLane) []QueuedLane) error { return editQueueWithin(queueEditWait, fn) }
 
 func editQueueWithin(wait time.Duration, fn func([]QueuedLane) []QueuedLane) error {
 	file := LandQueueFile()

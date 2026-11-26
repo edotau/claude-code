@@ -65,7 +65,7 @@ func Status(on bool, line string) string {
 	if !on {
 		return Strip(line)
 	}
-	if !strings.ContainsAny(line, "\ue000\ue001\ue003") {
+	if !strings.Contains(line, spanLead) {
 		return paintTokens(line)
 	}
 	var out strings.Builder
@@ -140,6 +140,7 @@ const (
 	SpanOff  = "\ue001"
 	SpanEnd  = "\ue002"
 	SpanWarn = "\ue003"
+	spanLead = "\xee\x80" // shared UTF-8 lead of every span marker: one byte scan instead of a rune-set scan
 )
 
 var spanRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[\ue000\ue001\ue003][^\ue002]*\ue002") })
@@ -148,7 +149,7 @@ var spanStrip = strings.NewReplacer(SpanOK, "", SpanOff, "", SpanWarn, "", SpanE
 
 // Strip removes the span markers from s.
 func Strip(s string) string {
-	if !strings.ContainsAny(s, "\ue000\ue001\ue002\ue003") {
+	if !strings.Contains(s, spanLead) {
 		return s
 	}
 	return spanStrip.Replace(s)

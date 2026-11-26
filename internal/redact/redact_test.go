@@ -189,7 +189,7 @@ func BenchmarkMaskKnownValues(b *testing.B) {
 	for _, size := range []int{64 << 10, 1 << 20, 16 << 20} {
 		for _, kind := range []string{"text", "jsonl"} {
 			input := benchSample(size, kind == "jsonl", append([]string{vals[199]}, values...)...)
-			for name, mask := range map[string]func([]byte) int{"values": m.MaskValues, "all": m.Mask} {
+			for name, mask := range map[string]func([]byte) int{"values": func(b []byte) int { n, _ := m.scan(b, true, nil, nil); return n }, "all": m.Mask} {
 				b.Run(fmt.Sprintf("%s/bytes=%d/%s", kind, size, name), func(b *testing.B) {
 					buf := make([]byte, size)
 					b.ReportAllocs()

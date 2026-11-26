@@ -66,9 +66,12 @@ func recallFiles(root string) (map[string]string, bool) {
 		}
 		names = append(names, more...)
 	}
+	infos := make([]os.FileInfo, len(names))
+	errs := make([]error, len(names))
+	eachParallel(len(names), func(i int) { infos[i], errs[i] = os.Stat(filepath.Join(root, filepath.FromSlash(names[i]))) })
 	files := make(map[string]string, len(names))
-	for _, name := range names {
-		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
+	for i, name := range names {
+		info, err := infos[i], errs[i]
 		if errors.Is(err, os.ErrNotExist) && !strings.Contains(name, "/") {
 			continue
 		}

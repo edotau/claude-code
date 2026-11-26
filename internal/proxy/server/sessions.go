@@ -94,7 +94,7 @@ func (s *sessionStore) mintFenced(profiles []string, pid int, failoverProvider s
 	return proxy.SignSessionToken(s.secret, c, s.now())
 }
 
-// accept reports whether tok is a live token whose set holds profile.
+// accept reports whether tok is a live token whose set and fence hold profile.
 func (s *sessionStore) accept(tok, profile string) bool {
 	if !strings.HasPrefix(tok, proxy.SessionTokenPrefix) || profile == "" {
 		return false
@@ -106,6 +106,7 @@ const (
 	whyExpired = "session token expired"
 	whyExited  = "the process the session token was bound to has exited"
 	whyUnknown = "the session token's process could not be verified"
+	whyFenced  = "session token is outside its confinement fence"
 )
 
 // check is "" when tok serves profile now, else why not; a passed liveness probe is trusted for sessionVerify.
@@ -123,7 +124,7 @@ func (s *sessionStore) check(tok, profile string) string {
 	fresh := ent != nil && now.Sub(ent.checked) < sessionVerify
 	s.mu.Unlock()
 	if !fresh {
-		if why := s.probe(c); why != "" {
+		if why := s.probe(c.PID, c.Start); why != "" {
 			return why
 		}
 	}
@@ -133,6 +134,9 @@ func (s *sessionStore) check(tok, profile string) string {
 		s.noteSeenLocked(hash, c, now)
 	}
 	s.slideLegacyLocked(hash, now)
+	if !c.FenceAllows(profile) { // after the seen note: a fenced-out live token still counts as live
+		return whyFenced
+	}
 	return ""
 }
 
@@ -151,15 +155,15 @@ func (s *sessionStore) verify(tok string) (proxy.SessionClaims, string) {
 	return c, ""
 }
 
-// probe checks c's pid still names the process it was minted for; it never holds mu (ps may exec on darwin).
-func (s *sessionStore) probe(c proxy.SessionClaims) string {
-	start, err := s.procStart(c.PID)
+// probe checks pid still names the process started at start; it never holds mu (ps may exec on darwin).
+func (s *sessionStore) probe(pid int, start string) string {
+	got, err := s.procStart(pid)
 	switch {
 	case errors.Is(err, proc.ErrNoProcess):
 		return whyExited
 	case err != nil:
 		return whyUnknown
-	case start != c.Start:
+	case got != start:
 		return whyExited
 	}
 	return ""
@@ -202,12 +206,6 @@ func (s *sessionStore) claims(tok string) (proxy.SessionClaims, bool) {
 	return c, err == nil
 }
 
-// failoverProvider is tok's server-side failover provider group, or "" when pinned to profiles only.
-func (s *sessionStore) failoverProvider(tok string) string {
-	c, _ := s.claims(tok)
-	return c.Failover
-}
-
 // count is the tokens this daemon accepted whose process still lives; it is shown, never consulted for auth.
 func (s *sessionStore) count() int {
 	s.pruneLegacy()
@@ -216,7 +214,7 @@ func (s *sessionStore) count() int {
 	s.mu.Unlock()
 	dead := []string{}
 	for hash, ses := range probe {
-		if start, err := s.procStart(ses.pid); errors.Is(err, proc.ErrNoProcess) || (err == nil && start != ses.start) {
+		if s.probe(ses.pid, ses.start) == whyExited {
 			dead = append(dead, hash)
 		}
 	}

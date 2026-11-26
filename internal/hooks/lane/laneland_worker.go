@@ -16,13 +16,14 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // laneJob is one finished run in a lane: who to tell, its UNFIXED verdict, its plan task, and a still-done check.
 type laneJob struct {
-	lane, session, verdict, task string
-	done                         func() bool // the run is still finished; rechecked right before the land
+	lane, session, verdict, task, job string      // job: the background ask's id, "" for a leaf
+	done                              func() bool // the run is still finished; rechecked right before the land
 }
 
 // Bounds of the detached worker; vars so tests run in milliseconds.
@@ -95,7 +96,8 @@ func runJobLane(id string) {
 			verdict = HandbackVerdict(env.Handback)
 		}
 	}
-	runLaneJob(laneJob{lane: lane, session: os.Getenv(paths.SessionIDEnv), verdict: verdict, task: rec.PlanTask, done: done})
+	runLaneJob(laneJob{lane: lane, session: os.Getenv(paths.SessionIDEnv), verdict: verdict, task: rec.PlanTask, job: rec.ID,
+		done: done})
 }
 
 // jobFinished reloads the record each call, so a job resumed later under a new PID is not seen as finished.
@@ -222,6 +224,9 @@ func laneHold(j laneJob, e worktree.Entry, repo *worktree.Repo, q *worktree.Queu
 func verdictHold(j laneJob, q *worktree.QueuedLane) bool {
 	land := laneLandCmd(j.lane)
 	switch {
+	case j.job != "" && j.verdict == laneUnfinished:
+		q.Reason = "job cut off before it finished"
+		q.Next = "continue it: claude-code agents ask --retry " + j.job + " --recover --runner pi|cli, or " + land
 	case j.verdict == laneUnfinished || j.done != nil && !j.done():
 		q.Reason, q.Next = "leaf or job not finished", "once it hands back, "+land
 	case j.verdict == "missing":
@@ -243,10 +248,7 @@ func laneLandCmd(lane string) string {
 const laneTextCap = 300
 
 func capText(s string) string {
-	if len(s) > laneTextCap {
-		return s[:laneTextCap] + "..."
-	}
-	return s
+	return textutil.CapRunes(s, laneTextCap, "...")
 }
 
 // laneChanged is the files the lane's commits change against the main checkout's branch.
@@ -266,13 +268,11 @@ func laneChanged(repo *worktree.Repo, lane string) []string {
 
 // restrictionFiles is the changed files that can add a block, deny or narrower sandbox (owner review).
 func restrictionFiles(files []string) []string {
-	return slices.DeleteFunc(slices.Clone(files), func(f string) bool { return !restricting(f) })
-}
-
-func restricting(f string) bool {
-	base := filepath.Base(f)
-	return strings.HasPrefix(f, "internal/hooks/safety/") || f == "internal/settings/hookspec.go" ||
-		strings.HasPrefix(base, "settings") && strings.HasSuffix(base, ".json") || strings.HasPrefix(f, "(")
+	return slices.DeleteFunc(slices.Clone(files), func(f string) bool {
+		base := filepath.Base(f)
+		return !strings.HasPrefix(f, "internal/hooks/safety/") && f != "internal/settings/hookspec.go" &&
+			(!strings.HasPrefix(base, "settings") || !strings.HasSuffix(base, ".json")) && !strings.HasPrefix(f, "(")
+	})
 }
 
 // lateVerdict tells the session a run finished unclean after its lane already landed, so it is fixed on main.

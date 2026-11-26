@@ -145,7 +145,7 @@ func patRow(name string) (*providers.Provider, func() error, error) {
 		return nil, noop, err
 	}
 	undo := func() error { return restoreOverlayAuth(name, prevAuth) }
-	if err := switchAuthTypeTo(io.Discard, p, providers.AuthPAT, false); err != nil {
+	if err := switchAuthType(io.Discard, p, providers.AuthPAT, false); err != nil {
 		return nil, noop, err
 	}
 	if reg, err = providers.Load(); err != nil {
@@ -278,8 +278,7 @@ func parseMint(args []string) (f mintFlags, code int, done bool) {
 		return f, usageProfile("token", names[0]), true
 	}
 	if err := checkProfileFlag(fs, f.profile); err != nil {
-		fail("token: %v", err)
-		return f, 2, true
+		return f, failCode(2, "token: %v", err), true
 	}
 	if _, err := providers.ResolveIdentity("", f.as); err != nil || f.as == providers.IdentityAuto {
 		return f, fail("token: --as must be user or sp"), true

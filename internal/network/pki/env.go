@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -24,16 +25,19 @@ type site struct{ name, nameserver, nexus string }
 type kv struct{ key, val string }
 
 func parseSites(raw string) ([]site, error) {
-	var sites []site
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
+	var sites []site
 	for i, entry := range strings.Split(raw, ",") {
-		parts := strings.SplitN(strings.TrimSpace(entry), "=", 3)
-		if len(parts) != 3 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[2]) == "" {
+		parts := strings.SplitN(entry, "=", 3)
+		for j := range parts {
+			parts[j] = strings.TrimSpace(parts[j])
+		}
+		if len(parts) != 3 || slices.Contains(parts, "") {
 			return nil, fmt.Errorf("%s entry %d is malformed: want %s", envSites, i+1, sitesShape)
 		}
-		sites = append(sites, site{strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])})
+		sites = append(sites, site{parts[0], parts[1], parts[2]})
 	}
 	return sites, nil
 }
