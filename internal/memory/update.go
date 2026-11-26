@@ -843,7 +843,7 @@ func tagOps(session string, historical bool) []Op {
 		case "BUG":
 			op = Op{Op: "add", Target: "progress", Section: "Known Issues", Text: t.Text}
 		case "NOTE":
-			op = Op{Op: "add", Target: "note", Text: t.Text}
+			op = Op{Op: "add", Target: "conventions", Text: t.Text} // "note" is no bank file: the store refused the whole batch
 		default:
 			continue
 		}

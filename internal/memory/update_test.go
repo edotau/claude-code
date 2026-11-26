@@ -872,6 +872,22 @@ func TestTagBlockHistoricalFiltersBeforeTheCap(t *testing.T) {
 	}
 }
 
+// TestTagOpsTargetBankFiles: every Go-filed tag op names a file the store routes, so a tag cannot void the batch.
+func TestTagOpsTargetBankFiles(t *testing.T) {
+	tempConfig(t)
+	write(t, TagEventsPath("s9"), `{"event":"next","text":"n","at":"x"}`+"\n"+
+		`{"event":"bug","text":"b","at":"x"}`+"\n"+`{"event":"note","text":"keep","at":"x"}`+"\n")
+	ops := tagOps("s9", false)
+	if len(ops) != 3 {
+		t.Fatalf("tagOps = %+v, want one op per tag", ops)
+	}
+	for _, o := range ops {
+		if name, res := routeBatchOp(nil, o); name == "" {
+			t.Errorf("add to %q is not routed: %s", o.Target, res.Reason)
+		}
+	}
+}
+
 // TestFileDecisionEventsGoWritesTheEntry: a recorded DECISION lands in decisionLog.md once and leaves the tag block.
 func TestFileDecisionEventsGoWritesTheEntry(t *testing.T) {
 	tempConfig(t)

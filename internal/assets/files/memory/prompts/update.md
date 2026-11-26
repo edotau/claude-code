@@ -15,6 +15,8 @@ and status word; you give the content.
 - `update`, `supersede` or `close` an existing entry: `id` is a ref from the listing (never invent one); a stored id
   also needs `read` (the same ref); `close` needs `reason` `done|stale|superseded-by` (+ `by`).
 - `noop` with a `note` when nothing is worth persisting; `{"ops": []}` is valid.
+- At most 60 ops; `text` and `title` at most 1200 characters each (split a longer summary into two entries); `title`
+  and `note` are one line. A ref that starts with `z` has no stored id: `update` or `close` it, never `supersede` it.
 - Go already files DECISION events and the NEXT, BUG and NOTE tags; never re-add them. One `sessionHistory` add for
   the session; update activeContext and progress entries instead of repeating them.
 
