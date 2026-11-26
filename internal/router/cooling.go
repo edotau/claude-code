@@ -3,6 +3,8 @@ package router
 import (
 	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // coolingSelf is the Cooling key for the account as a whole; per-model holds sit beside it under ModelKey.
@@ -18,7 +20,7 @@ func MarkCooling(account string, until, now time.Time) (bool, error) {
 
 // MarkModelCooling remembers a per-minute-token hold on account's model alone, with MarkCooling's rules.
 func MarkModelCooling(account, model string, until, now time.Time) (bool, error) {
-	return markCooling(account, ModelKey(model), until, now)
+	return markCooling(account, models.ModelKey(model), until, now)
 }
 
 func markCooling(account, key string, until, now time.Time) (bool, error) {
@@ -39,7 +41,7 @@ func (s State) CoolingUntil(account string) time.Time {
 
 // ModelCoolingUntil is when account's per-model hold on model ends; zero when it has none.
 func (s State) ModelCoolingUntil(account, model string) time.Time {
-	return s[account].Cooling[ModelKey(model)]
+	return s[account].Cooling[models.ModelKey(model)]
 }
 
 // accountCooling checks the account's own hold, then the gateway's hold on its profile ("<provider>·<p>" → p).

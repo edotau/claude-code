@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -74,7 +75,7 @@ func TestPickRotationAcrossWorkspaces(t *testing.T) {
 			if tc.held != "" {
 				if err := update(func(s State) {
 					s[ProviderAccount(workspaces[0])] = Entry{
-						ModelDead: map[string]time.Time{ModelKey(tc.held): now.Add(time.Hour)},
+						ModelDead: map[string]time.Time{models.ModelKey(tc.held): now.Add(time.Hour)},
 					}
 				}); err != nil {
 					t.Fatal(err)

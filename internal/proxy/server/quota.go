@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -106,7 +107,7 @@ func (r *Router) invalidateCredential(name string) {
 
 // deadKey is profile:canonical-model, so marked ([1m]) and unmarked spellings of one model share a verdict.
 func deadKey(t providers.Target) string {
-	return t.Provider.Name + ":" + router.ModelKey(t.Model)
+	return t.Provider.Name + ":" + models.ModelKey(t.Model)
 }
 
 // isDead reports a live mark from this process or quota.json; a persisted mark cleared since (a login) lifts ours.

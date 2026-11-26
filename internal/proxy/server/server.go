@@ -445,11 +445,6 @@ func (r *Router) attempts(in *http.Request, reg *providers.Registry, target prov
 	return attemptLadder{rows: out, primary: target, coolingFrom: first}
 }
 
-// failoverLadder is the target followed by one failover target per usable fallback provider, in registry order.
-func (r *Router) failoverLadder(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
-	return r.failoverLadderFor(nil, reg, target, clientAuth)
-}
-
 // failoverLadderFor adds reg.Fallback plus, for auto-failover tokens, same-provider healthy siblings.
 func (r *Router) failoverLadderFor(in *http.Request, reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
 	out := []providers.Target{target}

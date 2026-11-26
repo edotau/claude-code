@@ -76,12 +76,7 @@ func sameVersion(read, fi os.FileInfo) bool {
 	return read != nil && os.SameFile(read, fi) && fi.ModTime().Equal(read.ModTime()) && fi.Size() == read.Size()
 }
 
-// mintWithFailover signs a token for profiles bound to pid's identity, with an optional same-provider failover group.
-func (s *sessionStore) mintWithFailover(profiles []string, pid int, failoverProvider string) (string, error) {
-	return s.mintFenced(profiles, pid, failoverProvider, nil, false)
-}
-
-// mintFenced is mintWithFailover with the confinement fence the token carries signed in.
+// mintFenced signs a token bound to pid's identity, with optional failover and a confinement fence.
 func (s *sessionStore) mintFenced(profiles []string, pid int, failoverProvider string, fence []string,
 	open bool) (string, error) {
 	if !validProfiles(profiles) || pid <= 0 || (failoverProvider != "" && !validProfile(failoverProvider)) {
@@ -97,11 +92,6 @@ func (s *sessionStore) mintFenced(profiles []string, pid int, failoverProvider s
 	c := proxy.SessionClaims{Profiles: profiles, Failover: failoverProvider, PID: pid, Start: start,
 		Fence: fence, Open: open}
 	return proxy.SignSessionToken(s.secret, c, s.now())
-}
-
-// mint is mintWithFailover with no failover group.
-func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
-	return s.mintWithFailover(profiles, pid, "")
 }
 
 // accept reports whether tok is a live token whose set holds profile.

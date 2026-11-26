@@ -77,14 +77,14 @@ func TestCredentialLadderCachesMissesUntilSignIn(t *testing.T) {
 	var requests sync.WaitGroup
 	for range 99 {
 		requests.Go(func() {
-			ladder := r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+			ladder := r.failoverLadderFor(nil, reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
 			if len(ladder) != 1 {
 				t.Errorf("signed-out rows reached ladder: %d targets", len(ladder))
 			}
 		})
 	}
 	requests.Wait()
-	r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+	r.failoverLadderFor(nil, reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
 	a, b := opens["signed-out-a"].Load(), opens["signed-out-b"].Load()
 	t.Logf("presence vault opens over 100 ladder builds: %d", a+b)
 	if a != 1 || b != 1 {
@@ -96,7 +96,7 @@ func TestCredentialLadderCachesMissesUntilSignIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ladder := r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+	ladder := r.failoverLadderFor(nil, reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
 	if len(ladder) != 2 || ladder[1].Provider.Name != "signed-out-a" {
 		t.Fatal("the vault sign-in did not reach the next ladder inside the miss window")
 	}

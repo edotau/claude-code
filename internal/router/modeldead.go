@@ -20,14 +20,14 @@ func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
 	}
 	return tryUpdate(authMarkWait, func(s State) {
 		e := s[account]
-		e.ModelDead = extendHold(e.ModelDead, ModelKey(model), until, now)
+		e.ModelDead = extendHold(e.ModelDead, models.ModelKey(model), until, now)
 		s[account] = e
 	})
 }
 
 // ClearModelDead drops account's quota-dead mark on model while it still reads held; a newer or longer mark stays.
 func ClearModelDead(account, model string, held time.Time) (bool, error) {
-	key := ModelKey(model)
+	key := models.ModelKey(model)
 	if !sharedState()[account].ModelDead[key].Equal(held) {
 		return true, nil
 	}
@@ -47,7 +47,7 @@ func PerModelQuota(account string) bool { return account == "google·antigravity
 
 // ModelDead reports a live quota-dead mark on account's model.
 func (s State) ModelDead(account, model string, now time.Time) bool {
-	return s[account].ModelDead[ModelKey(model)].After(now)
+	return s[account].ModelDead[models.ModelKey(model)].After(now)
 }
 
 // deadAccounts is what candidateDead reads for account: the account, then its profile's gateway account.

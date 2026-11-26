@@ -164,7 +164,7 @@ func TestSessionTokenValidAcrossDaemons(t *testing.T) {
 
 func mintOn(t *testing.T, r *Router) string {
 	t.Helper()
-	tok, err := r.sessions.mint([]string{"dev"}, os.Getpid())
+	tok, err := r.sessions.mintFenced([]string{"dev"}, os.Getpid(), "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func mintOn(t *testing.T, r *Router) string {
 
 func TestSessionTokenRefusedUnderAnotherSecret(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tok, err := newRouter(secret).sessions.mint([]string{"dev"}, os.Getpid())
+	tok, err := newRouter(secret).sessions.mintFenced([]string{"dev"}, os.Getpid(), "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestPassthroughLocalHeader(t *testing.T) {
 			if c.failover {
 				failover = "openai"
 			}
-			tok, err := r.sessions.mintWithFailover([]string{"pt"}, os.Getpid(), failover)
+			tok, err := r.sessions.mintFenced([]string{"pt"}, os.Getpid(), failover, nil, false)
 			if err != nil {
 				t.Fatal(err)
 			}

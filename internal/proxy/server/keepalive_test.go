@@ -103,7 +103,7 @@ func TestKeepaliveUsesRequestEgress(t *testing.T) {
 			}
 			if tc.session {
 				var err error
-				if tok, err = g.r.sessions.mint([]string{"hot"}, os.Getpid()); err != nil {
+				if tok, err = g.r.sessions.mintFenced([]string{"hot"}, os.Getpid(), "", nil, false); err != nil {
 					t.Fatal(err)
 				}
 			}

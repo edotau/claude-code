@@ -457,7 +457,7 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 	var routed *Router
 	srv := setupRouter(t, `{"default":"dev","providers":{"databricks":{"dev":`+row("DEV_TOKEN")+`,"qa":`+
 		row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
-	token, err := routed.sessions.mint([]string{"dev"}, os.Getpid())
+	token, err := routed.sessions.mintFenced([]string{"dev"}, os.Getpid(), "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 	srv := setupRouter(t, `{"default":"ultra","providers":{"anthropic":{"ultra":`+
 		anthropicProvider(up.URL, "ULTRA_KEY", `{"opus":"u-opus"}`)+`},"databricks":{"dev":`+row("DEV_TOKEN")+
 		`,"qa":`+row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
-	token, err := routed.sessions.mint([]string{"ultra", "dev", "ultra"}, os.Getpid())
+	token, err := routed.sessions.mintFenced([]string{"ultra", "dev", "ultra"}, os.Getpid(), "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +617,7 @@ func TestScopedAuthDeadProviderReturnsForbidden(t *testing.T) {
 	t.Setenv("UP2_KEY", "k2")
 	var routed *Router
 	srv := setupRouter(t, failoverOverlay(up1.URL, up2.URL), func(r *Router) { routed = r })
-	token, err := routed.sessions.mint([]string{"up1"}, os.Getpid())
+	token, err := routed.sessions.mintFenced([]string{"up1"}, os.Getpid(), "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -807,7 +807,7 @@ func setupAutoFailoverRig(t *testing.T) (*httptest.Server, string, *atomic.Int32
 		`,"qa":` + row(qaUp.URL, "QA_TOKEN") + `},"anthropic":{"ant":` + anthropicProvider(antUp.URL, "ANT_KEY", `{"opus":"claude-opus-5-5"}`) + `}}}`
 	var routed *Router
 	srv := setupRouter(t, overlay, func(r *Router) { routed = r })
-	tok, err := routed.sessions.mintWithFailover([]string{"dev"}, os.Getpid(), "databricks")
+	tok, err := routed.sessions.mintFenced([]string{"dev"}, os.Getpid(), "databricks", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

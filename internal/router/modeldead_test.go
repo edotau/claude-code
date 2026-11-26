@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/copilotauth"
+	"github.com/edotau/claude-code/internal/models"
 	_ "github.com/edotau/claude-code/internal/nonet"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -16,8 +17,8 @@ func TestModelKeySharesOneMarker(t *testing.T) {
 		{"unknown-model[1m]", "unknown-model"},
 		{"databricks-gpt-6-1-terra", "gpt-6-1-terra"},
 	} {
-		if ModelKey(tc.a) != ModelKey(tc.b) {
-			t.Errorf("ModelKey(%q) = %q, ModelKey(%q) = %q; want one key", tc.a, ModelKey(tc.a), tc.b, ModelKey(tc.b))
+		if models.ModelKey(tc.a) != models.ModelKey(tc.b) {
+			t.Errorf("models.ModelKey(%q) = %q, models.ModelKey(%q) = %q; want one key", tc.a, models.ModelKey(tc.a), tc.b, models.ModelKey(tc.b))
 		}
 	}
 }

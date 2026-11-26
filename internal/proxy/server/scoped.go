@@ -143,9 +143,6 @@ func (s *Scoped) publish(sc proxy.Scope) error {
 	return nil
 }
 
-// Base is the proxy's base URL.
-func (s *Scoped) Base() string { return proxy.Base(s.port) }
-
 // Done is closed once the listener has stopped serving, by Close or an unexpected exit.
 func (s *Scoped) Done() <-chan struct{} { return s.done }
 

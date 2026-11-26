@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 )
@@ -197,7 +198,7 @@ func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
 		t.Fatalf("baseline candidates = %+v, want codex first", baseline.Candidates)
 	}
 	first := baseline.Candidates[0]
-	dead := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(time.Hour)}}}
+	dead := State{first.Account: {ModelDead: map[string]time.Time{models.ModelKey(first.Model): now0.Add(time.Hour)}}}
 	got := pick(tb, "sonnet", "codex", dead, route.FallbackAgents)
 	if len(got.Candidates) == 0 || got.Candidates[len(got.Candidates)-1].Agent != "codex" {
 		t.Errorf("quota-dead codex candidates = %+v, want codex last", got.Candidates)
@@ -212,7 +213,7 @@ func TestPickDemotesQuotaDeadModelBehindLiveCandidates(t *testing.T) {
 	if quotaSkip != 1 {
 		t.Errorf("quota-dead skips = %+v, want one tried-last quota skip", got.Skipped)
 	}
-	expired := State{first.Account: {ModelDead: map[string]time.Time{ModelKey(first.Model): now0.Add(-time.Hour)}}}
+	expired := State{first.Account: {ModelDead: map[string]time.Time{models.ModelKey(first.Model): now0.Add(-time.Hour)}}}
 	afterExpiry := pick(tb, "sonnet", "codex", expired, route.FallbackAgents)
 	if runners(afterExpiry) != runners(baseline) {
 		t.Errorf("expired-mark order = %s, want baseline order %s", runners(afterExpiry), runners(baseline))

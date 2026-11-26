@@ -22,12 +22,13 @@ func TestScopedDrainIfIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
+	base := proxy.Base(s.port)
 	secret, err := proxy.ClientSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
 	do := func(method, path string) int {
-		req, _ := http.NewRequestWithContext(context.Background(), method, s.Base()+path, strings.NewReader("{}"))
+		req, _ := http.NewRequestWithContext(context.Background(), method, base+path, strings.NewReader("{}"))
 		req.Header.Set(proxy.ClientHeader, secret)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -62,7 +63,8 @@ func TestOpenLeavesNoProxyJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	resp, err := http.Get(s.Base() + "/healthz")
+	base := proxy.Base(s.port)
+	resp, err := http.Get(base + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +73,8 @@ func TestOpenLeavesNoProxyJSON(t *testing.T) {
 		t.Fatalf("healthz = %d, want 200", resp.StatusCode)
 	}
 	sc, err := proxy.ReadScope("t", "i")
-	if err != nil || proxy.Base(sc.Port) != s.Base() {
-		t.Fatalf("ReadScope = %+v, %v; want port of %s", sc, err, s.Base())
+	if err != nil || proxy.Base(sc.Port) != base {
+		t.Fatalf("ReadScope = %+v, %v; want port of %s", sc, err, base)
 	}
 	if _, err := os.Stat(stateJSON); !os.IsNotExist(err) {
 		t.Fatalf("proxy.json exists while open: %v", err)
@@ -96,12 +98,13 @@ func TestScopedCloseIdleReturnsFast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Get(s.Base() + "/healthz") // leaves one idle keepalive connection
+	base := proxy.Base(s.port)
+	resp, err := http.Get(base + "/healthz") // leaves one idle keepalive connection
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	c, err := net.Dial("tcp", s.Base()[len("http://"):]) // a gate-answered request whose body never arrives
+	c, err := net.Dial("tcp", base[len("http://"):]) // a gate-answered request whose body never arrives
 	if err != nil {
 		t.Fatal(err)
 	}

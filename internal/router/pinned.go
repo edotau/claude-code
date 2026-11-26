@@ -301,7 +301,7 @@ func DiscoverySkipKey(agent, entry string) string { return agent + "|" + entry }
 
 // HeldUntil is when a live quota hold or capability skip on e keeps agent's entry out of a pick; nil when none.
 func HeldUntil(e Entry, agent, entry string, now time.Time) *time.Time {
-	if until := e.ModelDead[ModelKey(entry)]; until.After(now) {
+	if until := e.ModelDead[models.ModelKey(entry)]; until.After(now) {
 		return &until
 	}
 	if at, ok := e.DiscoverySkip[DiscoverySkipKey(agent, entry)]; ok && now.Sub(at) < DiscoverySkipTTL {
