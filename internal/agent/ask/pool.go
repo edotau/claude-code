@@ -123,7 +123,7 @@ func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.R
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
 		}
-		if errors.Is(err, providers.ErrModelSpec) {
+		if errors.Is(err, providers.ErrModelSpec) || errors.Is(err, errColonForm) {
 			usage++
 		}
 		tasks = append(tasks, t)

@@ -32,7 +32,7 @@ claude-code agents ask --background --agent codex --codemode on --provider datab
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(the receipt reads `codex via pi`; its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
+(its own CLI is the fallback hop). The Codex CLI itself stays reachable from the
 main session: `claude-code codex …`, or `agents ask --runner own`. Role rotation covers codex's models too.
 
 ## Owns

@@ -213,7 +213,7 @@ func TestMemoryBudgetReceiptCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "claude-code memory update --session " + session
+	want := "claude-code memory update --session " + session // a uuid needs no quotes in sh or cmd.exe
 	var fix string
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if value, ok := strings.CutPrefix(line, "fix="); ok {

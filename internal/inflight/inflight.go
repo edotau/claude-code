@@ -233,7 +233,7 @@ func LiveDispatches(owner int) int {
 		return 0
 	}
 	n := 0
-	liveRecords(func(o int, _ string) {
+	liveRecords(func(o int, _ route.Route) {
 		if o == owner {
 			n++
 		}
@@ -241,12 +241,12 @@ func LiveDispatches(owner int) int {
 	return n
 }
 
-// LiveRoutes counts the alive dispatch records per overlay confinement ("databricks:qa"); unrouted ones are skipped.
-func LiveRoutes() map[string]int {
-	out := map[string]int{}
-	liveRecords(func(_ int, route string) {
-		if route != "" {
-			out[route]++
+// LiveRoutes counts the alive dispatch records per structured route (provider + profile); unrouted ones are skipped.
+func LiveRoutes() map[route.Route]int {
+	out := map[route.Route]int{}
+	liveRecords(func(_ int, r route.Route) {
+		if !r.IsZero() {
+			out[r]++
 		}
 	})
 	return out
@@ -257,12 +257,12 @@ const recordReaders = 8
 
 type liveRecord struct {
 	owner int
-	route string
+	route route.Route
 	alive bool
 }
 
 // liveRecords calls fn with the owner and route of every dispatch record whose job is alive, in name order.
-func liveRecords(fn func(owner int, route string)) {
+func liveRecords(fn func(owner int, r route.Route)) {
 	dir := paths.DispatchDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -315,17 +315,18 @@ func readLiveRecord(path string) (liveRecord, bool) {
 	return liveRecord{owner: r.Owner, route: routeKey(r.Route), alive: true}, false
 }
 
-// routeKey keys a record's route: an object as provider[:profile], a legacy string as is, null or junk as "".
-func routeKey(raw json.RawMessage) string {
+// routeKey keys a record's route as a structured {Provider, Profile}: object or legacy string, null or junk as zero.
+func routeKey(raw json.RawMessage) route.Route {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return s
+		r := route.ParseLegacy(s)
+		return route.Route{Provider: r.Provider, Profile: r.Profile}
 	}
 	var r route.Route
 	if json.Unmarshal(raw, &r) != nil {
-		return ""
+		return route.Route{}
 	}
-	return route.Join(r.Provider, r.Profile)
+	return route.Route{Provider: r.Provider, Profile: r.Profile}
 }
 
 // readSized is os.ReadFile with one read syscall for a file that keeps its stat size (records land by rename).

@@ -858,6 +858,34 @@ func flagRoute(f *askFlags) route.Route {
 	return route.Route{}
 }
 
+const routeForms = "use --provider P --profile N or --overlay '{\"provider\":\"P\",\"profile\":\"N\"}'"
+
+// checkTypedRoute refuses the colon form on every input, then a half-typed route (see checkRoutePair).
+func checkTypedRoute(f *askFlags, envOverlay string) error {
+	if strings.Contains(f.provider+f.profile, ":") || route.ColonForm(f.overlay) || route.ColonForm(envOverlay) {
+		return errors.New("the provider:profile form is not accepted: " + routeForms)
+	}
+	if cmp.Or(f.overlay, envOverlay, f.spec, f.host, f.job, f.retry, f.batchSrc) != "" || f.native {
+		return nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil
+	}
+	return checkRoutePair(reg, f.provider, f.profile)
+}
+
+// checkRoutePair refuses a provider with profiles typed without one, and a registry profile typed without its provider.
+func checkRoutePair(reg *providers.Registry, provider, profile string) error {
+	switch {
+	case provider != "" && profile == "" && len(reg.ProfilesOf(provider)) > 0:
+		return fmt.Errorf("--provider %s needs --profile: %s", provider, routeForms)
+	case provider == "" && profile != "" && (reg.Row(profile) != nil || strings.Contains(profile, "·")):
+		return fmt.Errorf("--profile needs --provider: %s", routeForms)
+	}
+	return nil
+}
+
 // flagConflict refuses a typed flag setting a key of the --overlay on the same command line to another value.
 func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
 	or := ov.Route()

@@ -39,7 +39,7 @@ func carryAdmissionRecord(t *testing.T, flags ...string) agent.Record {
 }
 
 func TestCarryRouteUsesInnerFlagsAndOverlay(t *testing.T) {
-	for _, flags := range [][]string{{"--profile", "dev"}, {"--overlay", `{"provider":"databricks","profile":"dev"}`}} {
+	for _, flags := range [][]string{{"--provider", "databricks", "--profile", "dev"}, {"--overlay", `{"provider":"databricks","profile":"dev"}`}} {
 		rec := carryAdmissionRecord(t, flags...)
 		got, err := carryRoute(t.Context(), rec)
 		if err != nil || got.Profile != "dev" || got.Provider != "databricks" {
@@ -54,7 +54,7 @@ func TestCarryRouteUsesInnerFlagsAndOverlay(t *testing.T) {
 func TestCarryAdmissionBeforeChildAndTakeover(t *testing.T) {
 	for _, outcome := range []serve.Outcome{serve.Admitted, serve.Direct} {
 		t.Run(string(outcome), func(t *testing.T) {
-			rec := carryAdmissionRecord(t, "--profile", "dev")
+			rec := carryAdmissionRecord(t, "--provider", "databricks", "--profile", "dev")
 			oldAdmit, oldExec := admitJob, carryExec
 			t.Cleanup(func() { admitJob, carryExec = oldAdmit, oldExec })
 			admissions, executions := 0, 0
@@ -87,7 +87,7 @@ func TestCarryAdmissionBeforeChildAndTakeover(t *testing.T) {
 }
 
 func TestCarryAdmissionCancellationDoesNotStartChild(t *testing.T) {
-	rec := carryAdmissionRecord(t, "--profile", "dev")
+	rec := carryAdmissionRecord(t, "--provider", "databricks", "--profile", "dev")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	oldAdmit, oldExec := admitJob, carryExec

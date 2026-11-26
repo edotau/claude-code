@@ -110,7 +110,7 @@ func modelCarryCases() []modelCase {
 				modelRecord("a", "", "codex", true), modelRecord("b", "a", "codex", true),
 				modelRecord("c", "b", "pi", false),
 			},
-			want: `[{"kind":"dispatch","id":"c","depth":0,"via":"a","agent":"codex→pi"}]`,
+			want: `[{"kind":"dispatch","id":"c","depth":0,"via":"a","agent":"codex"}]`,
 		},
 	}
 }
@@ -170,7 +170,7 @@ func TestBuildSession(t *testing.T) {
 	}
 	want := `[{"kind":"session","id":"session","depth":0,"children":[` +
 		`{"kind":"subagent","id":"sub","depth":1,"agent":"claude","children":[` +
-		`{"kind":"dispatch","id":"b","depth":2,"via":"a","agent":"codex→pi","children":[` +
+		`{"kind":"dispatch","id":"b","depth":2,"via":"a","agent":"codex","children":[` +
 		`{"kind":"dispatch","id":"c","depth":3,"agent":"claude"}]}]}]},` +
 		`{"kind":"dispatch","id":"root","depth":0,"agent":"pi"}]`
 	if string(got) != want {
@@ -269,7 +269,7 @@ func TestBuildWorkflow(t *testing.T) {
 	want := `[{"kind":"session","id":"session","depth":0,"children":[` +
 		`{"kind":"workflow","id":"run","depth":1,"agent":"review","children":[` +
 		`{"kind":"subagent","id":"one","depth":2,"agent":"claude","children":[` +
-		`{"kind":"dispatch","id":"worker","depth":3,"via":"carrier","agent":"codex→pi"}]},` +
+		`{"kind":"dispatch","id":"worker","depth":3,"via":"carrier","agent":"codex"}]},` +
 		`{"kind":"subagent","id":"two","depth":2,"agent":"codex"}]}]}]`
 	if string(got) != want {
 		t.Fatalf("Build() = %s, want %s", got, want)

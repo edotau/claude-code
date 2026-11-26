@@ -846,3 +846,22 @@ func TestRetryJobChildReplaysPlan(t *testing.T) {
 		t.Fatalf("job child retried = %+v, %v; want d-1 with the record's plan", got, ok)
 	}
 }
+
+func TestCheckRoutePair(t *testing.T) {
+	reg := &providers.Registry{}
+	if err := checkRoutePair(reg, "noprofiles", ""); err != nil {
+		t.Errorf("a provider with no profiles alone: %v", err)
+	}
+	if err := checkRoutePair(reg, "", ""); err != nil {
+		t.Errorf("no route: %v", err)
+	}
+	if err := checkTypedRoute(&askFlags{provider: "databricks:dev"}, ""); err == nil {
+		t.Error("colon form accepted")
+	}
+	if err := checkRoutePair(reg, "", "databricks·dev"); err == nil {
+		t.Error("qualified profile without a provider accepted")
+	}
+	if route.ColonForm(filepath.Join(t.TempDir(), "x")) {
+		t.Error("a path is not a colon route")
+	}
+}

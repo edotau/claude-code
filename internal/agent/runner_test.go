@@ -17,11 +17,11 @@ func TestStampRunnerPiCarriesClaude(t *testing.T) {
 		t.Fatalf("runner %q asked %q type %q", res.Runner, res.Asked, res.Type)
 	}
 	line := wire.RanOn(res)
-	if !strings.HasPrefix(line, "ran on claude via pi · ") {
+	if !strings.HasPrefix(line, "ran on claude · ") {
 		t.Fatalf("receipt %q", line)
 	}
 	rec.Runner, rec.Type = res.Runner, res.Type
-	if got := RowLabel(rec); got != "claude via pi" {
+	if got := RowLabel(rec); got != "claude" {
 		t.Fatalf("row label %q", got)
 	}
 }
@@ -34,7 +34,7 @@ func TestStampRunnerTypedAgentKeepsItsName(t *testing.T) {
 		}
 		pi := stampRunner(Record{Agent: a}, wire.Result{Agent: "pi", Model: "databricks-gpt-6-sol", Hops: []wire.Hop{{Agent: "pi"}}})
 		if pi.Type != a || pi.Runner != "pi" {
-			t.Fatalf("%s via pi: type %q runner %q", a, pi.Type, pi.Runner)
+			t.Fatalf("%s on the pi runner: type %q runner %q", a, pi.Type, pi.Runner)
 		}
 	}
 }
@@ -92,12 +92,25 @@ func TestStampRunnerOwnAndCodeMode(t *testing.T) {
 	rec := Record{Agent: "pi"}
 	rec.Request.Codemode = "on"
 	got := stampRunner(rec, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
-	if label := wire.RunLabel(got.Type, got.Runner); label != "coworker via pi" {
-		t.Fatalf("code mode: label %q, want coworker via pi", label)
+	if label := wire.RunLabel(got.Type, got.Runner); label != "coworker" {
+		t.Fatalf("code mode: label %q, want coworker", label)
 	}
 	got = stampRunner(Record{Agent: "pi"}, wire.Result{Agent: "pi", Model: "databricks-kimi-k3"})
 	if got.Type != "kimi" || got.Runner != "pi" || got.Asked != "" {
 		t.Fatalf("pi ask: runner %q type %q asked %q", got.Runner, got.Type, got.Asked)
+	}
+}
+
+func TestRowLabelPlainPiReadsPi(t *testing.T) {
+	plain := Record{Agent: "pi", Type: "kimi", Runner: "pi"}
+	if got := RowLabel(plain); got != "pi" {
+		t.Fatalf("plain pi ask label %q, want pi", got)
+	}
+	if got := RowLabel(Record{Agent: "pi", Type: "coworker", Runner: "pi"}); got != "coworker" {
+		t.Fatalf("code-mode label %q, want coworker", got)
+	}
+	if got := RowLabel(Record{Agent: "claude", Type: "claude", Runner: "pi"}); got != "claude" {
+		t.Fatalf("carried claude label %q, want claude", got)
 	}
 }
 

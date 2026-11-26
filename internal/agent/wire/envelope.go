@@ -270,13 +270,8 @@ func RanOn(res Result) string {
 	return line
 }
 
-// RunLabel is the label every surface shows for a run: its agent type, "<type> via <runner>" when one carried it.
-func RunLabel(typ, runner string) string {
-	if runner == "" {
-		return typ
-	}
-	return typ + " via " + runner
-}
+// RunLabel is the label every surface shows for a run: its asked agent type, never the runner that carried it.
+func RunLabel(typ, _ string) string { return typ }
 
 // RequestedLabel renders a requested target for a reader: "<model> on <profile>", else whichever is known.
 func RequestedLabel(model, profile string) string {

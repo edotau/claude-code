@@ -26,6 +26,14 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
+// keep sets dispatchKeep to n for the test.
+func keep(t *testing.T, n int) {
+	t.Helper()
+	old := dispatchKeep
+	dispatchKeep = n
+	t.Cleanup(func() { dispatchKeep = old })
+}
+
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.
 func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	setConfigDir(t)
@@ -50,9 +58,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 
 func assertDispatchRecordPruning(t *testing.T, base time.Time) {
 	t.Helper()
-	old := dispatchKeep
-	dispatchKeep = 2
-	defer func() { dispatchKeep = old }()
+	keep(t, 2)
 	for i := 1; i <= dispatchKeep+dispatchPruneMargin; i++ {
 		if err := NewRecord("gemini", RunOptions{Prompt: "q"}, base.Add(time.Duration(i)*time.Minute)).Save(); err != nil {
 			t.Fatal(err)
@@ -83,17 +89,7 @@ func TestRecordJSONRoundTripsRepoPIDLog(t *testing.T) {
 	if got.Repo != r.Repo || got.PID != r.PID || got.Log != r.Log {
 		t.Fatalf("round trip = %+v, want %+v", got, r)
 	}
-
-	t.Run("zero fields omitted", assertRecordZeroFieldsOmitted)
-}
-
-func assertRecordZeroFieldsOmitted(t *testing.T) {
-	t.Helper()
-	zero := Record{ID: "y"}
-	zb, err := json.Marshal(zero)
-	if err != nil {
-		t.Fatal(err)
-	}
+	zb, _ := json.Marshal(Record{ID: "y"})
 	if s := string(zb); strings.Contains(s, `"repo"`) || strings.Contains(s, `"pid"`) || strings.Contains(s, `"log"`) {
 		t.Fatalf("zero-valued repo/pid/log must be omitted: %s", s)
 	}
@@ -103,9 +99,7 @@ func assertRecordZeroFieldsOmitted(t *testing.T) {
 func TestPruneDispatchesRemovesLog(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 1
-	defer func() { dispatchKeep = old }()
+	keep(t, 1)
 
 	first := NewRecord("codex", RunOptions{Prompt: "p"}, base)
 	if err := first.Save(); err != nil {
@@ -114,9 +108,6 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	logPath := filepath.Join(paths.DispatchDir(), first.ID+".log")
 	if err := os.WriteFile(logPath, []byte("job output"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := os.Stat(logPath); err != nil {
-		t.Fatalf("log must exist before prune: %v", err)
 	}
 	agyLog := AgyLogPath(first.ID)
 	if err := os.WriteFile(agyLog, []byte("agy"), 0o600); err != nil {
@@ -138,9 +129,7 @@ func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 2
-	defer func() { dispatchKeep = old }()
+	keep(t, 2)
 
 	// a live process to stand in for the active job's PID.
 	cmd := exec.Command("sleep", "30")
@@ -201,9 +190,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 1
-	defer func() { dispatchKeep = old }()
+	keep(t, 1)
 
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -228,9 +215,7 @@ func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
 func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 1
-	defer func() { dispatchKeep = old }()
+	keep(t, 1)
 
 	fg := NewRecord("codex", RunOptions{Prompt: "fg"}, base) // Status "running", Log left empty
 	if err := fg.Save(); err != nil {
@@ -278,9 +263,7 @@ func TestRecordAlive(t *testing.T) {
 func TestPruneDispatchesKeepsAlivePID0RecordDropsStalePID0Record(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 2
-	defer func() { dispatchKeep = old }()
+	keep(t, 2)
 
 	stale := NewRecord("codex", RunOptions{Prompt: "stale"}, base) // PID 0, Time stays 8 days in the past: not alive
 	if err := stale.Save(); err != nil {
@@ -333,9 +316,7 @@ func savePruneRecords(t *testing.T, base time.Time, count int) {
 
 func TestPruneDispatchesMarginBoundaryKeepsOldestActiveRecord(t *testing.T) {
 	setConfigDir(t)
-	old := dispatchKeep
-	dispatchKeep = 2
-	t.Cleanup(func() { dispatchKeep = old })
+	keep(t, 2)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	active := NewRecord("codex", RunOptions{Prompt: "oldest active"}, base)
 	active.PID = os.Getpid()
@@ -490,12 +471,11 @@ func TestPrintDispatchLogPreviewCutsOnRuneBoundary(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	var out string
-	var outSb420 strings.Builder
+	var sb strings.Builder
 	for _, r := range RecentRecords(20) {
-		outSb420.WriteString(r.LogLine())
+		sb.WriteString(r.LogLine())
 	}
-	out += outSb420.String()
+	out := sb.String()
 	if !utf8.ValidString(out) {
 		t.Fatalf("output is not valid UTF-8: %q", out)
 	}
@@ -532,9 +512,7 @@ func TestReserveIsExclusiveAcrossBatches(t *testing.T) {
 // A reserved record is a complete running record from its first byte, so a concurrent prune keeps it.
 func TestReservedRecordSurvivesPrune(t *testing.T) {
 	setConfigDir(t)
-	old := dispatchKeep
-	dispatchKeep = 1
-	t.Cleanup(func() { dispatchKeep = old })
+	keep(t, 1)
 	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -1119,9 +1097,7 @@ func TestCutoffHintNamesNextCommand(t *testing.T) {
 // claimRecord pre-creates the file, so Save never prunes; finishSave must.
 func TestFinishSavePrunesClaimedRecords(t *testing.T) {
 	setConfigDir(t)
-	old := dispatchKeep
-	dispatchKeep = 2
-	t.Cleanup(func() { dispatchKeep = old })
+	keep(t, 2)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	active := ClaimRecord("codex", RunOptions{Prompt: "running"}, base)
 	active.PID = os.Getpid()
@@ -1157,9 +1133,7 @@ func TestFinishSavePrunesClaimedRecords(t *testing.T) {
 func TestFinishingRecordSurvivesItsOwnPrune(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
-	old := dispatchKeep
-	dispatchKeep = 1
-	defer func() { dispatchKeep = old }()
+	keep(t, 1)
 	resumed := NewRecord("codex", RunOptions{Prompt: "p"}, base)
 	resumed.Status = "ok"
 	if err := resumed.Save(); err != nil {
@@ -1218,9 +1192,7 @@ func TestRecordOutcomeAndResumeHint(t *testing.T) {
 
 func TestPruneDispatchesKeepsUnreadableRecordAndLog(t *testing.T) {
 	setConfigDir(t)
-	old := dispatchKeep
-	dispatchKeep = 2
-	t.Cleanup(func() { dispatchKeep = old })
+	keep(t, 2)
 	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -1490,5 +1462,29 @@ func TestNoteProxyStampsRunningRecord(t *testing.T) {
 	got, err := LoadRecord(rec.ID)
 	if err != nil || got.Proxy != "phase:w1" {
 		t.Fatalf("Proxy = %q, err %v", got.Proxy, err)
+	}
+}
+
+func TestRecordFallbackNames(t *testing.T) {
+	for _, in := range []string{
+		`{"fallback":"codex","fallback_policy":"none"}`,
+		`{"fallback_from":"codex","fallback_mode":"none"}`,
+	} {
+		var r Record
+		if err := json.Unmarshal([]byte(in), &r); err != nil || r.Fallback != "codex" || r.FallbackPolicy != "none" {
+			t.Errorf("%s: got %q %q, %v", in, r.Fallback, r.FallbackPolicy, err)
+		}
+	}
+	out, _ := json.Marshal(Record{Fallback: "codex", FallbackPolicy: "none"})
+	if s := string(out); !strings.Contains(s, `"fallback_from":"codex"`) || !strings.Contains(s, `"fallback_mode":"none"`) {
+		t.Errorf("marshal: %s", s)
+	}
+}
+
+func TestParseArgsRefusesColonForm(t *testing.T) {
+	for _, args := range [][]string{{"--profile", "databricks:dev"}, {"--overlay", "databricks:dev"}} {
+		if _, _, err := ParseArgs(args, true); err == nil {
+			t.Errorf("%v accepted", args)
+		}
 	}
 }

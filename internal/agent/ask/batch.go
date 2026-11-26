@@ -271,8 +271,14 @@ func lineBrief(tl batchLine, agentName string, base agent.RunOptions) (string, e
 	return brief, err
 }
 
+// errColonForm marks a refused provider:profile value; a batch counts it as a usage error.
+var errColonForm = errors.New("the provider:profile form is not accepted")
+
 func lineRoute(l parsedLine, req *agent.RunOptions) error {
 	tl := l.Task
+	if strings.Contains(tl.Profile, ":") {
+		return fmt.Errorf("profile: %w: %s", errColonForm, routeForms)
+	}
 	if tl.Profile != "" {
 		req.Lead = ""
 		req.Account = ""

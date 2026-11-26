@@ -143,13 +143,6 @@ func Current() (Schema, bool) {
 	return current(), true
 }
 
-// StubSchema swaps the registered schema for s and returns the restore func (tests only).
-func StubSchema(s Schema) func() {
-	prev := current
-	current = func() Schema { return s }
-	return func() { current = prev }
-}
-
 // Argv turns one spec object into ask argv (keys in schema order), its prompt and Task; every problem names the key.
 func (s Schema) Argv(raw []byte) (argv []string, prompt string, task Task, err error) {
 	doc, err := decodeDoc(raw)

@@ -68,6 +68,9 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
+	if strings.Contains(o.Provider, ":") || route.ColonForm(o.Overlay) {
+		return LaunchOptions{}, nil, &UsageError{Msg: "the provider:profile form is not accepted: use --profile N or --overlay '{\"provider\":\"P\",\"profile\":\"N\"}'"}
+	}
 	err := o.foldOverlay()
 	return o, rest, modelSpecUsage(o.Model, err)
 }

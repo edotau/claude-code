@@ -120,6 +120,7 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {
+	reportFailedJobs(in)
 	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
 		inflight.Release(owner, id)
 		if core.SpawnTools[in.ToolName] { // only a spawn claims a plan task; a failed one never reaches SubagentStop

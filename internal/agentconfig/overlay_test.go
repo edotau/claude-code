@@ -312,13 +312,20 @@ func TestOverlayProviderMode(t *testing.T) {
 
 func TestLoadOverlayPresets(t *testing.T) {
 	for value, want := range map[string]route.Route{
-		"coworker":      {Provider: "databricks", Profile: "auto"},
-		"databricks:qa": {Provider: "databricks", Profile: "qa"},
-		"anthropic":     {Provider: "anthropic", Profile: "auto"},
+		"coworker":  {Provider: "databricks", Profile: "auto"},
+		"anthropic": {Provider: "anthropic", Profile: "auto"},
 	} {
 		o, err := LoadOverlayContext(t.Context(), value, nil)
 		if err != nil || o.Provider != want.Provider || o.Profile != want.Profile || !o.Empty() {
 			t.Errorf("%s: got %+v, %v", value, o, err)
+		}
+	}
+	for _, bad := range []string{"databricks:qa", "databricks:dev", "openai:x"} {
+		_, err := LoadOverlayContext(t.Context(), bad, nil)
+		if err == nil || !strings.Contains(err.Error(), "colon form is removed") {
+			t.Errorf("%s: err = %v, want colon form refusal", bad, err)
+		} else if strings.Contains(err.Error(), bad) || strings.Contains(err.Error(), "databricks") || strings.Contains(err.Error(), "openai") {
+			t.Errorf("%s: err %q echoes the input value", bad, err)
 		}
 	}
 	t.Chdir(t.TempDir())

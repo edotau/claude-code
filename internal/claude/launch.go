@@ -781,6 +781,9 @@ func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
 		return helptext.Fail("%v", err)
 	}
 	o, rest, err := parseAnthropicArgs(args)
+	if launchUsage(err) {
+		return helptext.FailUsage("%v", err)
+	}
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}

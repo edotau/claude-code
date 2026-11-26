@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -46,7 +47,7 @@ func nodeRows(nodes []Node) []nested {
 
 // foldInto is the carry row d showing worker w's model, tokens and last event; id, status and elapsed stay d's.
 func foldInto(d, w Dispatch) Dispatch {
-	if w.Agent != d.Agent {
+	if w.Agent != d.Agent && w.takeover { // a carried child is the asked agent; only a takeover names who finished
 		d.Agent = d.Agent + "→" + w.Agent
 	}
 	d.Model, d.Usage, d.Provider = cmp.Or(w.Model, d.Model), w.Usage, cmp.Or(w.Provider, d.Provider)
@@ -151,11 +152,11 @@ func (d Dispatch) since(now time.Time) string {
 
 // jobCells are a dispatch row after its marker: agent, model, "· provider", profile, ↑in, ↓out, since, elapsed.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
-	typ, runner := dispatchType(d), d.Runner
-	if runner == "" && d.Status == statusRunning && d.recType == "" && d.Agent == agentid.Pi && typ != agentid.Pi {
-		runner = agentid.Pi // a running pi ask has no record type yet: the model's type, carried by pi
+	typ := dispatchType(d)
+	if d.Agent == agentid.Pi && !d.codeMode && d.recType != string(models.TypeCoworker) {
+		typ = agentid.Pi // a plain pi ask asked no other type: its row reads pi, the stored type stays
 	}
-	name := wire.RunLabel(typ, runner)
+	name := wire.RunLabel(typ, d.Runner)
 	if d.Fallback != "" && d.Runner == "" {
 		name = d.Fallback + "→" + d.Agent + " ⚠"
 	}

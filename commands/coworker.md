@@ -22,11 +22,12 @@ allowed-tools: Bash(claude-code agents label coworker *), Bash(claude-code agent
 ```
 
 Launcher only, a plain ask with no relay subagent (`--carry` refuses pi); the run is typed `coworker` and its receipt
-reads `coworker via pi`. Empty `$ARGUMENTS` or `help`: print the block above and stop. Otherwise:
+reads `coworker`. Empty `$ARGUMENTS` or `help`: print the block above and stop. Otherwise:
 
 1. Take the leading flags in the block above off `$ARGUMENTS` (any order, each optional); the rest is the task.
-   Add `--provider databricks --profile <p>` when neither `--provider` nor `--profile` was given, and `--codemode on` when
-   `--codemode` was not.
+   When neither `--provider` nor `--profile` was given, add `--provider databricks --profile dev|qa|prod` (pick one), or
+   `--overlay {"provider":"databricks","profile":"auto"}` for the least-busy pick (`--profile auto` is refused). Add
+   `--codemode on` when `--codemode` was not.
 2. Run `claude-code agents brief --path pi`, Read the path it prints, then Write the task verbatim to it.
 3. Run `claude-code agents label coworker [--model <m> from step 1] --task <that path>` (prints `<label>:`; empty
    output means no prefix).

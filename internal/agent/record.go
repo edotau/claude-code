@@ -70,42 +70,42 @@ type Record struct {
 	DurationMs     int64       `json:"duration_ms,omitempty"`
 	FirstEventMs   int64       `json:"first_event_ms,omitempty"` // spawn to the first stream event, ms
 	Proxy          string      `json:"proxy,omitempty"`          // the proxy route label the final attempt ran through
-	Fallback       string      `json:"fallback,omitempty"`       // the original agent's name, when it ran instead
+	Fallback       string      `json:"fallback_from,omitempty"`  // the original agent's name, when it ran instead
 	FallbackReason string      `json:"fallback_reason,omitempty"`
-	FallbackKind   string      `json:"fallback_kind,omitempty"`   // the failure the local hop took over (retry.Kind.String())
-	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
-	Repo           string      `json:"repo,omitempty"`            // main checkout root the job belongs to
-	RanRoute       route.Route `json:"ran_route,omitzero"`        // the row that answered, as the ran-on line names it
-	RanIdentity    string      `json:"ran_identity,omitempty"`    // sp | user: the Databricks identity the proxy last served the run
-	Attempts       []wire.Hop  `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
-	Route          route.Route `json:"route,omitzero"`            // overlay confinement at launch, so a running job shows where it is going
-	Account        string      `json:"account,omitempty"`         // the account key the run is charged to; moves with the hop
-	PID            int         `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
-	PPID           int         `json:"ppid,omitempty"`            // parent pid at launch or claim, before reparenting
-	PGID           int         `json:"pgid,omitempty"`            // process group at launch or claim
-	PIDStart       string      `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
-	Background     bool        `json:"background,omitempty"`      // set only by the `ask --background` spawn
-	Log            string      `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
-	Activity       *Activity   `json:"activity,omitempty"`        // running only: usage, tool calls and last event time so far
-	ToolStats      ToolStats   `json:"tool_stats,omitempty"`      // per tool name: calls, errors, total ms
-	Progress       string      `json:"progress,omitempty"`        // "part 2/3" or "queued <RFC3339Nano> <pool>"
-	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
-	FallbackPolicy string      `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
-	RoutePlan      *RoutePlan  `json:"route_plan,omitempty"`      // the dispatch's one routing decision; nil on an old record
-	RetryOf        string      `json:"retry_of,omitempty"`        // ask --retry --background: the retried id; its --job child replays RoutePlan
-	Live           bool        `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
-	TaskID         string      `json:"task_id,omitempty"`         // ask --batch: the task line's id
-	BatchID        string      `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
-	PlanTask       string      `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
-	Preflight      *Preflight  `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
-	Wrote          *[]string   `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
-	Cwd            string      `json:"cwd,omitempty"`             // absolute directory a local run started in; --retry reuses it
-	Tree           string      `json:"tree,omitempty"`            // git top of the working tree the run started in
-	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
-	TakeoverOf     string      `json:"takeover_of,omitempty"`     // a --carry takeover: the cut-off child dispatch this run finished
-	Report         string      `json:"report,omitempty"`          // absolute path of the report `memory report --job` stored
-	Jev            *JevShadow  `json:"jev,omitempty"`             // shadow tier pick of Open-Jev beside the keyword one; routes nothing
+	FallbackKind   string      `json:"fallback_kind,omitempty"` // the failure the local hop took over (retry.Kind.String())
+	RanAs          string      `json:"ran_as,omitempty"`        // the agent that answered, when a fallback dispatch did
+	Repo           string      `json:"repo,omitempty"`          // main checkout root the job belongs to
+	RanRoute       route.Route `json:"ran_route,omitzero"`      // the row that answered, as the ran-on line names it
+	RanIdentity    string      `json:"ran_identity,omitempty"`  // sp | user: the Databricks identity the proxy last served the run
+	Attempts       []wire.Hop  `json:"attempts,omitempty"`      // every hop of a re-picked or moved run; absent for a one-hop run
+	Route          route.Route `json:"route,omitzero"`          // overlay confinement at launch, so a running job shows where it is going
+	Account        string      `json:"account,omitempty"`       // the account key the run is charged to; moves with the hop
+	PID            int         `json:"pid,omitempty"`           // pid of the detached `claude-code agents ask --job` child
+	PPID           int         `json:"ppid,omitempty"`          // parent pid at launch or claim, before reparenting
+	PGID           int         `json:"pgid,omitempty"`          // process group at launch or claim
+	PIDStart       string      `json:"pid_start,omitempty"`     // proc.StartTime of PID at spawn: tells a reused pid apart
+	Background     bool        `json:"background,omitempty"`    // set only by the `ask --background` spawn
+	Log            string      `json:"log,omitempty"`           // absolute path of the job's combined stdout+stderr log
+	Activity       *Activity   `json:"activity,omitempty"`      // running only: usage, tool calls and last event time so far
+	ToolStats      ToolStats   `json:"tool_stats,omitempty"`    // per tool name: calls, errors, total ms
+	Progress       string      `json:"progress,omitempty"`      // "part 2/3" or "queued <RFC3339Nano> <pool>"
+	Owner          int         `json:"owner,omitempty"`         // launching Claude Code session pid (inflight.SessionOwner)
+	Host           string      `json:"host,omitempty"`          // ask --host: the ssh host the dispatch ran on
+	FallbackPolicy string      `json:"fallback_mode,omitempty"` // the --fallback mode asked for (all|agents|none)
+	RoutePlan      *RoutePlan  `json:"route_plan,omitempty"`    // the dispatch's one routing decision; nil on an old record
+	RetryOf        string      `json:"retry_of,omitempty"`      // ask --retry --background: the retried id; its --job child replays RoutePlan
+	Live           bool        `json:"live,omitempty"`          // ask --live: a claude session held open on <id>.sock
+	TaskID         string      `json:"task_id,omitempty"`       // ask --batch: the task line's id
+	BatchID        string      `json:"batch_id,omitempty"`      // ask --batch: the id shared by every task of the run
+	PlanTask       string      `json:"plan_task,omitempty"`     // ask --batch: the task line's optional plan_task
+	Preflight      *Preflight  `json:"preflight,omitempty"`     // what the preflight failed or skipped, and what it chose
+	Wrote          *[]string   `json:"wrote,omitempty"`         // files the run changed, absolute; nil: not observed
+	Cwd            string      `json:"cwd,omitempty"`           // absolute directory a local run started in; --retry reuses it
+	Tree           string      `json:"tree,omitempty"`          // git top of the working tree the run started in
+	TreeChanged    *[]string   `json:"tree_changed,omitempty"`  // files changed in a tree another dispatch shared; Wrote is then nil
+	TakeoverOf     string      `json:"takeover_of,omitempty"`   // a --carry takeover: the cut-off child dispatch this run finished
+	Report         string      `json:"report,omitempty"`        // absolute path of the report `memory report --job` stored
+	Jev            *JevShadow  `json:"jev,omitempty"`           // shadow tier pick of Open-Jev beside the keyword one; routes nothing
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -579,19 +579,16 @@ func (r Record) Save() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	b, err := r.encode()
-	if err != nil {
-		return err
-	}
 	path := filepath.Join(dir, r.ID+".json")
 	_, statErr := os.Lstat(path)
 	if r.Report == "" && statErr == nil { // a stale snapshot never drops the report `memory report --job` stored
-		if cur, err := readRecord(path); err == nil && cur.Report != "" {
+		if cur, err := readRecord(path); err == nil {
 			r.Report = cur.Report
-			if b, err = r.encode(); err != nil {
-				return err
-			}
 		}
+	}
+	b, err := r.encode()
+	if err != nil {
+		return err
 	}
 	if err := paths.AtomicWrite(path, b, 0o600); err != nil {
 		return err
@@ -777,17 +774,20 @@ func ranRoute(res wire.Result) route.Route {
 	return route.Route{}
 }
 
-// UnmarshalJSON reads route and ran_route as an object, or as the "provider:profile" string older records hold.
+// UnmarshalJSON reads route and ran_route as an object or an older "provider:profile" string, and old fallback names.
 func (r *Record) UnmarshalJSON(b []byte) error {
 	type plain Record
 	aux := struct {
 		*plain
 		Route    legacyRoute `json:"route"`
 		RanRoute legacyRoute `json:"ran_route"`
+		OldFrom  string      `json:"fallback"`
+		OldMode  string      `json:"fallback_policy"`
 	}{plain: (*plain)(r)}
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
 	}
+	r.Fallback, r.FallbackPolicy = cmp.Or(r.Fallback, aux.OldFrom), cmp.Or(r.FallbackPolicy, aux.OldMode)
 	r.Route, r.RanRoute = route.Route(aux.Route), route.Route(aux.RanRoute)
 	return nil
 }
@@ -1191,9 +1191,8 @@ func recordTree(ctx context.Context, workdir, reqWorkdir string) (tree, repo str
 	if join, ok := ctx.Value(treeKey{}).(func() (string, string)); ok && workdir == reqWorkdir {
 		return join()
 	}
-	cwd := workdir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
+	if workdir == "" {
+		workdir, _ = os.Getwd()
 	}
-	return treeAndRepo(ctx, cwd)
+	return treeAndRepo(ctx, workdir)
 }

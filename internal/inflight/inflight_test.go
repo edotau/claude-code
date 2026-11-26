@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestSessionOwner(t *testing.T) {
@@ -159,8 +160,10 @@ func TestLiveRoutesObjectAndLegacyString(t *testing.T) {
 		}
 	}
 	got := LiveRoutes()
-	if len(got) != 2 || got["databricks:dev"] != 1 || got["databricks:qa"] != 1 {
-		t.Fatalf("LiveRoutes = %v, want databricks:dev and databricks:qa once each", got)
+	dev := route.Route{Provider: "databricks", Profile: "dev"}
+	qa := route.Route{Provider: "databricks", Profile: "qa"}
+	if len(got) != 2 || got[dev] != 1 || got[qa] != 1 {
+		t.Fatalf("LiveRoutes = %v, want databricks/dev and databricks/qa once each", got)
 	}
 }
 
@@ -171,7 +174,7 @@ func TestSettledRecordRewrittenRunningIsSeen(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "a.json")
-	if err := os.WriteFile(path, []byte(`{"status":"ok","route":"x:y"}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"status":"ok","route":"databricks:qa"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s := NewSettled(dir)
@@ -183,11 +186,11 @@ func TestSettledRecordRewrittenRunningIsSeen(t *testing.T) {
 	if !NewSettled(dir).Skip("a.json") {
 		t.Fatal("unchanged settled record was not skipped")
 	}
-	body := fmt.Sprintf(`{"status":"running","pid":%d,"time":%q,"route":"x:y"}`, os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	body := fmt.Sprintf(`{"status":"running","pid":%d,"time":%q,"route":"databricks:qa"}`, os.Getpid(), time.Now().UTC().Format(time.RFC3339))
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := LiveRoutes(); got["x:y"] != 1 {
+	if got := LiveRoutes(); got[route.Route{Provider: "databricks", Profile: "qa"}] != 1 {
 		t.Fatalf("LiveRoutes = %v, want the rewritten record counted", got)
 	}
 }
@@ -241,10 +244,11 @@ func benchmarkDispatchRecords(b *testing.B) {
 
 func BenchmarkLiveRecords2000Records5Running(b *testing.B) {
 	benchmarkDispatchRecords(b)
+	want := []route.Route{{Provider: "databricks", Profile: "qa"}, {Provider: "databricks", Profile: "dev"}}
 	count := 0
-	visit := func(owner int, route string) {
-		if owner != os.Getpid() || route != []string{"databricks:qa", "databricks:dev"}[count%2] {
-			b.Fatalf("unexpected live record %d: owner=%d route=%q", count, owner, route)
+	visit := func(owner int, r route.Route) {
+		if owner != os.Getpid() || r != want[count%2] {
+			b.Fatalf("unexpected live record %d: owner=%d route=%+v", count, owner, r)
 		}
 		count++
 	}
@@ -260,12 +264,13 @@ func BenchmarkLiveRecords2000Records5Running(b *testing.B) {
 
 func BenchmarkLiveRoutes2000Records5Running(b *testing.B) {
 	benchmarkDispatchRecords(b)
-	var routes map[string]int
+	var routes map[route.Route]int
 	b.ReportAllocs()
 	for b.Loop() {
 		routes = LiveRoutes()
 	}
-	if len(routes) != 2 || routes["databricks:qa"] != 3 || routes["databricks:dev"] != 2 {
-		b.Fatalf("live routes = %v, want databricks:qa=3 databricks:dev=2", routes)
+	qa, dev := route.Route{Provider: "databricks", Profile: "qa"}, route.Route{Provider: "databricks", Profile: "dev"}
+	if len(routes) != 2 || routes[qa] != 3 || routes[dev] != 2 {
+		b.Fatalf("live routes = %v, want databricks/qa=3 databricks/dev=2", routes)
 	}
 }

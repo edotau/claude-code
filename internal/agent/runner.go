@@ -77,6 +77,9 @@ func ranTarget(rec Record, res wire.Result) (model, kind string) {
 
 // RowLabel is r's label on every row: its agent type, else the answering agent, with the runner after it.
 func RowLabel(r Record) string {
+	if r.Agent == agentid.Pi && r.Type != string(models.TypeCoworker) {
+		return agentid.Pi // a plain pi ask asked no other type: its row reads pi, the stored type stays
+	}
 	return wire.RunLabel(cmp.Or(r.Type, r.RanAs, r.Agent), RunnerOf(r))
 }
 

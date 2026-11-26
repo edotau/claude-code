@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -44,8 +45,41 @@ func specParts(value string, stdin io.Reader) ([]string, string, askspec.Task, e
 	if err != nil {
 		return nil, "", askspec.Task{}, err
 	}
+	if raw, err = settingsKeys(raw); err != nil {
+		return nil, "", askspec.Task{}, err
+	}
 	s, _ := askspec.Current()
 	return s.Argv(raw)
+}
+
+// settingsKeys spells a spec in the record's names (route.AgentSettings) as ask's flag keys; flag keys pass through.
+func settingsKeys(raw []byte) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil || (doc["fallback_mode"] == nil && doc["route"] == nil) {
+		return raw, nil // not an object, or no renamed key: Argv reports it
+	}
+	if v, ok := doc["fallback_mode"]; ok {
+		delete(doc, "fallback_mode")
+		doc["fallback"] = v
+	}
+	if v, ok := doc["route"]; ok {
+		delete(doc, "route")
+		var r route.Route
+		dec := json.NewDecoder(bytes.NewReader(v))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&r); err != nil {
+			return nil, fmt.Errorf("spec route: %w", err)
+		}
+		if r.Profile == route.AutoArm { // the pool picks: a provider alone
+			r.Profile = ""
+		}
+		for k, val := range map[string]string{"provider": r.Provider, "profile": r.Profile, "as": r.Identity} {
+			if val != "" {
+				doc[k], _ = json.Marshal(val)
+			}
+		}
+	}
+	return json.Marshal(doc)
 }
 
 // specBrief is prompt as the leaf brief the own, report and verify keys describe; no contract returns it as is.
@@ -335,6 +369,9 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	}
 	if r.f.provider == "" && r.typedProv != "" {
 		_ = r.fs.Set("provider", r.typedProv)
+	}
+	if fr := flagRoute(r.f); r.f.host == "" && r.f.provider == "" && r.f.profile != "" && fr.Provider != "" { // the re-run types the pair
+		_ = r.fs.Set("provider", fr.Provider)
 	}
 	overlayArg := r.canonicalOverlayArg()
 	argv := canonicalArgv(r.fs, r.f.listValues(), prompt, taskFromStdin(r.pos), overlayArg)

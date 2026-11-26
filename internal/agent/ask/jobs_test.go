@@ -65,7 +65,7 @@ func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
 	cliFakes(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"live-test":{"preset":"databricks","host":"https://test.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	vaulttest.Secret(t, "DATABRICKS_LIVE_TEST_PAT", "test-pat")
-	code, out, stderr := runCLI(t, "ask", "--live", "--agent", "gemini", "--provider", "databricks", "--format", "json")
+	code, out, stderr := runCLI(t, "ask", "--live", "--agent", "gemini", "--provider", "databricks", "--profile", "live-test", "--format", "json")
 	if code != 1 {
 		t.Fatalf("exit %d, want refused test-binary spawn\n%s\n%s", code, out, stderr)
 	}

@@ -43,13 +43,8 @@ type Dispatch struct {
 // agentName is the agent d stands for: the asked agent on a pi runner hop, else its engine.
 func (d Dispatch) agentName() string { return cmp.Or(d.runFor, d.Agent.Name()) }
 
-// runnerLabel is dispatchLabel, a pi runner hop as "<asked> via pi".
-func runnerLabel(d Dispatch) string {
-	if d.runFor != "" {
-		return d.runFor + " via " + dispatchLabel(d.Agent)
-	}
-	return dispatchLabel(d.Agent)
-}
+// runnerLabel is the asked agent's label: a pi runner hop shows the agent it runs for, not the runner.
+func runnerLabel(d Dispatch) string { return cmp.Or(d.runFor, dispatchLabel(d.Agent)) }
 
 // explicitStop reports hop i ending the chain on an explicit backend; pi runner hops hand on to the agent's CLI.
 func (c Chain) explicitStop(i int, req RunOptions) bool { return c.leads(i) && explicitBackend(req) }

@@ -19,7 +19,7 @@ the main session owns orchestration. Pick it when the work parses tool output (c
 or is a script of many calls. Code mode sets `CODEMODE=on`, so the rtk-rewrite hook, the rtkwrap shims and
 `rtkwrap.ForModel` leave every command bare (`rules/standards/rtk.md` → Code mode). The type `coworker` means Pi in
 code mode (`CodeModeRow.TypedByMode`, `/Users/edotau/.claude/internal/agentid/agentid.go`): its record is typed
-`coworker` and its receipt reads `coworker via pi`. A dispatch typed `pi` or `code-mode`, or a `claude` brief whose
+`coworker` and its receipt reads `coworker`. A dispatch typed `pi` or `code-mode`, or a `claude` brief whose
 `Agent:` line names `pi`, is retyped here; a `Codemode: off` brief goes back to `claude` as a plain Pi ask. Dispatch
 and brief fields: `skills/subagent-workflows/SKILL.md`.
 

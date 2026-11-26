@@ -52,7 +52,7 @@ type Attempt struct {
 // LeafArgs is the one `agents ask` line, the brief on stdin, run in the lane.
 func LeafArgs(req LeafRequest) []string {
 	return []string{"agents", "ask", "--background", "--format", "json", "--workdir", req.Lane,
-		"--provider", "databricks", "--tools", "-"}
+		"--overlay", `{"provider":"databricks","profile":"auto"}`, "--tools", "-"}
 }
 
 // LocalFindings drops findings whose path is not a plain repo-relative file name; dropped counts them.

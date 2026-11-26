@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // writeMeta lays down <transcript dir>/<session>/subagents/agent-<agent>.meta.json mapping agent → toolUseId.
@@ -1380,5 +1381,51 @@ func TestHeldJobsKeptInState(t *testing.T) {
 	s.addHeldIDs(ReadHeldJobs("a1"))
 	if len(s.heldJobs) != 1 || s.heldJobs[0] != "j1" {
 		t.Fatalf("held ids = %v", s.heldJobs)
+	}
+}
+
+func TestReleaseReportsFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	id := "20261126T010000.000-claude"
+	old := loadDispatch
+	t.Cleanup(func() { loadDispatch = old })
+	loadDispatch = func(string) (agent.Record, error) {
+		return agent.Record{ID: id, Status: "error", Error: "refused", Repo: "/repo"}, nil
+	}
+	in := core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUseFailure","tool_name":"Workflow","tool_use_id":"t","error":"ask: dispatch ` + id + `"}`))
+	for range 2 {
+		if got := Release(in); got.Decision == core.Block || got.Reason != "" {
+			t.Fatalf("report changed release: %+v", got)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(worktree.FailuresDir(), "failures.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f worktree.Failure
+	if err := json.Unmarshal(bytes.TrimSpace(data), &f); err != nil {
+		t.Fatalf("want one deduped record: %v: %s", err, data)
+	}
+	if f.Kind != worktree.FailDispatch || f.Subject != id || f.Summary != "refused" || f.Repo != "/repo" {
+		t.Fatalf("failure = %+v", f)
+	}
+}
+
+func TestReleaseReportsMiddleJob(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	a, b, c := "20261126T010000.000-claude", "20261126T010001.000-claude", "20261126T010002.000-claude"
+	old := loadDispatch
+	t.Cleanup(func() { loadDispatch = old })
+	loadDispatch = func(id string) (agent.Record, error) {
+		if id == b {
+			return agent.Record{ID: id, Status: "error", Error: "crashed"}, nil
+		}
+		return agent.Record{ID: id, Status: "ok"}, nil
+	}
+	out := "job " + a + " started\\njob " + b + " started\\njob " + c + " started"
+	Release(core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Workflow","tool_use_id":"t","tool_response":{"stdout":"` + out + `"}}`)))
+	data, err := os.ReadFile(filepath.Join(worktree.FailuresDir(), "failures.jsonl"))
+	if err != nil || bytes.Count(data, []byte("\n")) != 1 || !bytes.Contains(data, []byte(b)) {
+		t.Fatalf("want one failure for the middle job: %v: %s", err, data)
 	}
 }

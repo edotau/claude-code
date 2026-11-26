@@ -579,7 +579,11 @@ func TestAutoPickedDatabricksPiFirst(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(router.EnvFallback, tc.mode)
-			args := append([]string{"--provider", "databricks", "--dry-run", "--format", "json"}, tc.args...)
+			routeFlags := []string{"--overlay", `{"provider":"databricks","profile":"auto"}`}
+			if slices.Contains(tc.args, "--profile") {
+				routeFlags = []string{"--provider", "databricks"}
+			}
+			args := append(append(routeFlags, "--dry-run", "--format", "json"), tc.args...)
 			code, out, stderr := runCLI(t, append([]string{"ask"}, append(args, "reply ok")...)...)
 			var doc dryDoc
 			if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil {
@@ -587,7 +591,7 @@ func TestAutoPickedDatabricksPiFirst(t *testing.T) {
 			}
 			want := []string{"claude (databricks·dev, " + tc.ownModel + ")"}
 			if tc.wantPi {
-				want = append([]string{"claude via pi (databricks·dev, databricks-claude-sonnet-5-5)"}, want...)
+				want = append([]string{"claude (databricks·dev, databricks-claude-sonnet-5-5)"}, want...)
 			}
 			if !slices.Equal(doc.Hops, want) {
 				t.Fatalf("hops = %v, want %v", doc.Hops, want)
@@ -614,7 +618,7 @@ func TestAutoPickedDatabricksRetryPiFirst(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil {
 		t.Fatalf("exit %d, decode %v: %s\n%s", code, err, out, stderr)
 	}
-	want := []string{"claude via pi (databricks·dev, databricks-claude-sonnet-5-5)", "claude (databricks·dev, databricks-claude-sonnet-5-5)"}
+	want := []string{"claude (databricks·dev, databricks-claude-sonnet-5-5)", "claude (databricks·dev, databricks-claude-sonnet-5-5)"}
 	if !slices.Equal(doc.Hops, want) {
 		t.Fatalf("hops = %v, want %v", doc.Hops, want)
 	}

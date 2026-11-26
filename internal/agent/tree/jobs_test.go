@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// A carried pair is one row: the carry id and elapsed, the child's model, tokens and route; Pi shows as "codex→pi".
+// A carried pair is one row, the child's model and route; only a Pi takeover shows "codex→pi".
 func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	now := time.Now()
 	outer := Dispatch{ID: "1-codex", Agent: "codex", Model: "auto", Status: statusRunning, Duration: "2m43s", carry: true, launch: "dev", Route: "databricks:dev"}
@@ -25,6 +25,10 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
 	pi := Dispatch{ID: "3-pi", Agent: "pi", Model: "databricks-claude-opus-5-5", Status: statusRunning, Parent: "1-codex"}
+	if rows := jobRows([]Dispatch{outer, child, pi}); len(rows) != 1 || rows[0].Agent != "codex" {
+		t.Errorf("carried pi rows = %+v, want one codex row", rows)
+	}
+	pi.takeover = true
 	if rows := jobRows([]Dispatch{outer, child, pi}); len(rows) != 1 || rows[0].Agent != "codex→pi" {
 		t.Errorf("takeover rows = %+v, want one codex→pi row", rows)
 	}
@@ -104,11 +108,11 @@ func TestJobRowsTypeLabelsAndAlignedRoute(t *testing.T) {
 		{run("codex", "databricks-gpt-6-sol", "databricks", "qa"), "codex"},
 		{run("gemini", "gemini-4-argon", "databricks", "qa"), "gemini"},
 		{run("copilot", "gpt-6-sol", "github", "qa"), "copilot"},
-		{run("pi", "databricks-gpt-6-sol", "databricks", "dev"), "codex via pi"},
-		{run("pi", "gemini-4-argon", "databricks", "dev"), "gemini via pi"},
-		{run("pi", "gpt-6-sol", "github", "dev"), "copilot via pi"},
-		{run("pi", "databricks-kimi-k3", "databricks", "dev"), "kimi via pi"},
-		{run("pi", "databricks-grok-4-7", "databricks", "dev"), "grok via pi"},
+		{run("pi", "databricks-gpt-6-sol", "databricks", "dev"), "pi"},
+		{run("pi", "gemini-4-argon", "databricks", "dev"), "pi"},
+		{run("pi", "gpt-6-sol", "github", "dev"), "pi"},
+		{run("pi", "databricks-kimi-k3", "databricks", "dev"), "pi"},
+		{run("pi", "databricks-grok-4-7", "databricks", "dev"), "pi"},
 	} {
 		if got := jobCells(c.d, now, nil)[0]; got != c.want {
 			t.Errorf("%s on %s: label %q, want %q", c.d.Agent, c.d.Model, got, c.want)

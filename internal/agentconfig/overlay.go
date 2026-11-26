@@ -141,16 +141,15 @@ func ReadJSONSource(label, value string, stdin io.Reader) ([]byte, error) {
 	return raw, nil
 }
 
-// presetDoc is the overlay a preset names: "coworker" (the Databricks arm) or provider[:profile]; routing keys only.
+// presetDoc is the overlay a preset names: "coworker" (the Databricks arm) or a bare provider; routing keys only.
 func presetDoc(value string) (string, bool) {
 	if value = strings.TrimSpace(value); value == "coworker" {
-		value = route.Join(router.RouteDatabricks, "")
+		value = router.RouteDatabricks
 	}
-	provider, profile, err := route.Parse(value)
-	if err != nil || provider == "" {
+	if !slices.Contains(providers.ProviderKeys(), value) {
 		return "", false
 	}
-	return InlineOverlay(provider, cmp.Or(profile, route.AutoArm)), true // a provider needs a profile: auto picks
+	return InlineOverlay(value, route.AutoArm), true // a provider needs a profile: auto picks
 }
 
 // readOverlaySource returns value's error label and bytes: a preset, stdin for -, inline JSON, else the file it names.
@@ -158,6 +157,9 @@ func readOverlaySource(value string, stdin io.Reader) (string, []byte, error) {
 	if _, err := os.Lstat(value); errors.Is(err, fs.ErrNotExist) { // a file by that name, even unreadable, still wins
 		if doc, ok := presetDoc(value); ok {
 			return "overlay", []byte(doc), nil
+		}
+		if p, _, hasColon := strings.Cut(strings.TrimSpace(value), ":"); hasColon && slices.Contains(providers.ProviderKeys(), p) {
+			return "overlay", nil, errors.New("provider:profile colon form is removed; use JSON {\"provider\":...,\"profile\":...}")
 		}
 	}
 	return readJSONSource("overlay", value, stdin)

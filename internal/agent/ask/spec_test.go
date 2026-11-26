@@ -269,3 +269,25 @@ func TestCompletionFlagsOfferSpecChoices(t *testing.T) {
 		}
 	}
 }
+
+func TestSpecAcceptsSettingsNames(t *testing.T) {
+	argv, _, _, err := specParts(`{"prompt":"x","fallback_mode":"none","route":{"provider":"databricks","profile":"dev"}}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--fallback none", "--provider databricks", "--profile dev"} {
+		if !strings.Contains(strings.Join(argv, " "), want) {
+			t.Errorf("argv %v lacks %s", argv, want)
+		}
+	}
+}
+
+func TestSpecRouteStrict(t *testing.T) {
+	if _, _, _, err := specParts(`{"prompt":"x","route":{"provider":"databricks","profle":"dev"}}`, nil); err == nil {
+		t.Error("a mistyped route key was accepted")
+	}
+	argv, _, _, err := specParts(`{"prompt":"x","route":{"provider":"databricks","profile":"auto"}}`, nil)
+	if err != nil || strings.Contains(strings.Join(argv, " "), "--profile") {
+		t.Errorf("auto: %v %v", argv, err)
+	}
+}

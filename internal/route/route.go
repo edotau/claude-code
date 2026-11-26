@@ -4,6 +4,7 @@ package route
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"unicode"
@@ -54,6 +55,16 @@ func ParseLegacy(s string) Route {
 		return Route{Provider: provider, Profile: profile}
 	}
 	return Route{}
+}
+
+// ColonForm reports a provider:profile value (an overlay preset); JSON, "-" and an existing file are not one.
+func ColonForm(v string) bool {
+	v = strings.TrimSpace(v)
+	if _, err := os.Lstat(v); err == nil {
+		return false
+	}
+	provider, _, named := strings.Cut(v, ":")
+	return named && !strings.HasPrefix(v, "{") && slices.Contains(Providers, provider)
 }
 
 // named reports a key that only means something under a provider.

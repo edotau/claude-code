@@ -33,7 +33,7 @@ claude-code agents ask --background --agent opencode --provider databricks --pro
 
 No `--profile` and no `--model`: the profile rotates (R7/R20) and the model comes from the brief's `Tier:` line, else
 its wording, through the rotation (`agent.TaskTier`). On the Databricks route the run's receipt names what ran
-(the receipt reads `opencode via pi`; its own CLI is the fallback hop). The OpenCode CLI and its catalog stay
+(its own CLI is the fallback hop). The OpenCode CLI and its catalog stay
 reachable from the main session: `claude-code opencode …`, or overlay `{"runner":"own"}`. Role rotation covers
 opencode's models too.
 

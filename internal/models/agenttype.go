@@ -10,7 +10,7 @@ const (
 	TypeCodex   Type = "codex"
 	TypeCopilot Type = "copilot"
 	TypeGemini  Type = "gemini"
-	// TypeCoworker is a Pi code-mode run, shown "coworker via pi".
+	// TypeCoworker is a Pi code-mode run, shown "coworker".
 	TypeCoworker Type = "coworker"
 )
 
