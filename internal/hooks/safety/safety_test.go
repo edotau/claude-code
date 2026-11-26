@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
 
 // inertMentions only talk about a denied shape (the template denies sudo); none of them runs it.

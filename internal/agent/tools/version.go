@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentid"
 )
 
 // versionProbeTimeout bounds a `--version` call; it is not a login probe, so it is not agent.ProbeTimeout.

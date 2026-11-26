@@ -1,0 +1,231 @@
+package plans
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+)
+
+// trailerCommit lands an empty commit naming plan task id and returns its short sha.
+func trailerCommit(t *testing.T, repo, plan, id string) string {
+	t.Helper()
+	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "feat: "+id+"\n\nTask: "+plan+" "+id)
+	return strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
+}
+
+func auditProblems(r AuditReport) string {
+	var rows []string
+	for _, f := range r.Reported {
+		rows = append(rows, f.Plan+"|"+f.ID+"|"+f.Problem)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// auditFixture is a repo whose origin has one trailer commit, with plans a and c dated today and b yesterday.
+func auditFixture(t *testing.T) (repo, a, b, c, pushed string) {
+	t.Helper()
+	repo = gitRepo(t, "main")
+	origin := t.TempDir()
+	hosttest.In(t, origin, "init", "-q", "--bare")
+	hosttest.In(t, repo, "remote", "add", "origin", origin)
+	pushed = trailerCommit(t, repo, "2026-10-05-a", "1.1")
+	hosttest.In(t, repo, "push", "-q", "origin", "main")
+	trailerCommit(t, repo, "2026-10-05-a", "1.2")
+	trailerCommit(t, repo, "2026-10-05-a", "9.9")
+	steps := "- [ ] **you** — Decide D1\n- [ ] Live check on the real surface\n- [ ] Scoped tests for the touched packages\n- [ ] Review (x)\n" +
+		"- [ ] Full suite once\n- [ ] Commit, push per task\n- [ ] Handoff / memory update\n"
+	home := Home(repo)
+	a, b, c = filepath.Join(home, "2026-10-05-a.md"), filepath.Join(home, "2026-10-04-b.md"), filepath.Join(home, "2026-10-05-c.md")
+	writeFile(t, a, "- [ ] 1.1 One\n- [ ] 1.2 Two\n")
+	writeFile(t, b, "- [x] D1 — Pick one\n- [x] 1.1 One ("+pushed+")\n- [x] 1.2 Two <!-- working: x --> ("+pushed+")\n"+steps)
+	writeFile(t, c, "- [ ] 1.1 One\n- [ ] 1.1 Again\n- [ ] 1.3 Open (abc1234)\n")
+	return repo, a, b, c, pushed
+}
+
+func TestAuditTicksPushedAndReportsTheRest(t *testing.T) {
+	hermetic(t)
+	repo, a, b, c, pushed := auditFixture(t)
+	all := func() string { return readFile(t, a) + readFile(t, b) + readFile(t, c) }
+	before, ctx := all(), context.Background()
+	dry, err := Audit(ctx, repo, AuditOpts{DryRun: true})
+	if err != nil || len(dry.Changed) != 7 || all() != before {
+		t.Fatalf("dry run must plan 7 changes and write none: %d %v", len(dry.Changed), err)
+	}
+	if _, err := os.Stat(auditLogFile()); err == nil {
+		t.Fatal("a dry run must not log")
+	}
+	got, err := Audit(ctx, repo, AuditOpts{})
+	if err != nil || len(got.Changed) != 7 {
+		t.Fatalf("changed=%d err=%v", len(got.Changed), err)
+	}
+	for _, want := range []string{"2026-10-05-a|1.2|landed locally, not pushed", "2026-10-05-a|9.9|trailer names a task the plan does not have",
+		"2026-10-04-b|1.2|ticked task still holds a claim", "2026-10-05-c|1.1|duplicate id", "2026-10-05-c|1.3|open task carries a sha"} {
+		if !strings.Contains(auditProblems(got), want) {
+			t.Errorf("missing finding %q in:\n%s", want, auditProblems(got))
+		}
+	}
+	checkAuditWrites(t, a, b, pushed)
+	after := all()
+	if again, err := Audit(ctx, repo, AuditOpts{}); err != nil || len(again.Changed) != 0 || all() != after {
+		t.Fatalf("a second run must change nothing: %d %v", len(again.Changed), err)
+	}
+}
+
+func checkAuditWrites(t *testing.T, a, b, pushed string) {
+	t.Helper()
+	if planA := readFile(t, a); !strings.Contains(planA, "[x] 1.1 One ("+pushed+")") || !strings.Contains(planA, "[ ] 1.2") {
+		t.Fatalf("only the pushed trailer ticks:\n%s", planA)
+	}
+	if planB := readFile(t, b); strings.Count(planB, "("+pushed+")") != 2+6 || !strings.Contains(planB, "[ ] **you**") {
+		t.Fatalf("process steps tick with the landing sha, the owner line stays:\n%s", planB)
+	}
+	if log := readFile(t, auditLogFile()); strings.Count(log, "\n") != 7 || !strings.Contains(log, "--reopen --plan") {
+		t.Fatalf("each write logs its undo:\n%s", log)
+	}
+}
+
+// A plan whose build tasks were all struck has its closing steps struck with a reason, never ticked.
+func TestAuditStrikesProcessStepsOfAStruckPlan(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-04-d.md")
+	writeFile(t, plan, "- [ ] ~~1.1 Gone~~\n- [ ] Full suite once\n- [ ] Handoff\n")
+	got, err := Audit(context.Background(), repo, AuditOpts{})
+	if err != nil || len(got.Changed) != 2 || strings.Count(readFile(t, plan), "~~ — superseded: plan closed: every build task struck") != 2 {
+		t.Fatalf("closing steps strike with the reason: %+v %v\n%s", got.Changed, err, readFile(t, plan))
+	}
+}
+
+// --all audits a home whose checkout sits beside the repo and names each plan of a home with none.
+func TestAuditAllResolvesSiblingCheckouts(t *testing.T) {
+	hermetic(t)
+	repo, sibling := gitRepo(t, "main"), gitRepo(t, "main")
+	writeFile(t, filepath.Join(Home(sibling), "2026-10-05-s.md"), "- [ ] 1.1 Open (abc1234)\n")
+	writeFile(t, filepath.Join(Home(repo), "..", "gone-repo", "2026-10-05-g.md"), "- [ ] 1.1 One\n")
+	got, err := Audit(context.Background(), repo, AuditOpts{DryRun: true, All: true})
+	rows := auditProblems(got)
+	if err != nil || got.Plans != 2 || !strings.Contains(rows, "2026-10-05-s|1.1|open task carries a sha") || strings.Count(rows, "no checkout") != 1 {
+		t.Fatalf("plans=%d err=%v:\n%s", got.Plans, err, rows)
+	}
+}
+
+// A judged run's strike with no found cite or of a claimed task is reopened; a prose edit reverts every change.
+func TestRecheckOwnedRevertsUnprovenStrikes(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-05-j.md")
+	writeFile(t, plan, "# J\n\n- [ ] 1.1 One\n- [ ] 1.2 Two <!-- working: x -->\n- [ ] 1.3 Three\n")
+	cite := func(kind, ref string) bool { return kind == "decision" && ref == "ab12cd34" }
+	strike := func(id, why string) {
+		if err := Strike(plan, id, why); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := TakeSnapshot(repo)
+	strike("1.1", "x — evidence: decision:deadbeef")
+	strike("1.2", "x — evidence: decision:ab12cd34")
+	strike("1.3", "x — evidence: decision:ab12cd34")
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, cite, nil)
+	if got := readFile(t, plan); err != nil || len(rep.Reverted) != 2 || len(rep.Kept) != 1 || strings.Count(got, "~~") != 2 {
+		t.Fatalf("kept %d reverted %d err %v:\n%s", len(rep.Kept), len(rep.Reverted), err, got)
+	}
+	before = TakeSnapshot(repo)
+	writeFile(t, plan, strings.Replace(readFile(t, plan), "# J", "# J edited", 1))
+	strike("1.1", "x — evidence: decision:ab12cd34")
+	if rep, _ = RecheckOwned(context.Background(), repo, "dream", before, cite, nil); !rep.TextChanged || len(rep.Reverted) != 1 {
+		t.Fatalf("a prose edit must revert the run's changes: %+v", rep)
+	}
+}
+
+// A judged run keeps at most JobChangeCap changes, in plan order; the rest are reopened.
+func TestRecheckOwnedCapsChanges(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-05-k.md")
+	var body strings.Builder
+	for i := range JobChangeCap + 1 {
+		fmt.Fprintf(&body, "- [ ] 1.%d Task\n", i+1)
+	}
+	writeFile(t, plan, body.String())
+	before := TakeSnapshot(repo)
+	for i := range JobChangeCap + 1 {
+		if err := Strike(plan, fmt.Sprintf("1.%d", i+1), "x — evidence: note:notes/a.md"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, func(string, string) bool { return true }, nil)
+	if err != nil || len(rep.Kept) != JobChangeCap || len(rep.Reverted) != 1 || rep.Reverted[0].ID != fmt.Sprintf("1.%d", JobChangeCap+1) {
+		t.Fatalf("kept %d reverted %+v err %v", len(rep.Kept), rep.Reverted, err)
+	}
+}
+
+// A failing log append never stops the reverts: every unproven strike is reopened and the error is returned.
+func TestRecheckOwnedRevertsDespiteLogErrors(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-06-l.md")
+	writeFile(t, plan, "- [ ] 1.1 One\n- [ ] 1.2 Two\n")
+	if err := os.MkdirAll(auditLogFile(), 0o700); err != nil { // a directory where the log file belongs
+		t.Fatal(err)
+	}
+	before := TakeSnapshot(repo)
+	for _, id := range []string{"1.1", "1.2"} {
+		if err := Strike(plan, id, "x — evidence: decision:deadbeef"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := RecheckOwned(context.Background(), repo, "dream", before, func(string, string) bool { return false }, nil)
+	if got := readFile(t, plan); err == nil || len(rep.Reverted) != 2 || strings.Contains(got, "~~") {
+		t.Fatalf("reverted %d err %v:\n%s", len(rep.Reverted), err, got)
+	}
+}
+
+func TestPlanSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	for body, want := range map[string]string{
+		"# Plan: x\n\nDate: 2026-10-05. Snapshot: harness `3a1197f64` (main).\n": "3a1197f64",
+		"# Plan: x\n\nDate: 2026-10-05. Snapshot: `<sha>`\n":                     "-",
+		"# Plan: x\n": "-",
+	} {
+		file := filepath.Join(dir, "p.md")
+		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := planSnapshot(file); got != want {
+			t.Errorf("planSnapshot(%q) = %q, want %q", body, got, want)
+		}
+	}
+}
+
+// A pushed commit covering a task's owns and subject, with no Task trailer, is reported and ticks nothing.
+func TestAuditOwnedSubjectReportsOnly(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	origin := t.TempDir()
+	hosttest.In(t, origin, "init", "-q", "--bare")
+	hosttest.In(t, repo, "remote", "add", "origin", origin)
+	plan := filepath.Join(Home(repo), "2026-10-05-d.md")
+	body := "- [ ] 2.1 Widget parser fix owns: w.go\n"
+	writeFile(t, plan, body)
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(plan, past, past); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteRel(t, repo, "w.go", "package w\n")
+	hosttest.In(t, repo, "add", "w.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "fix: widget parser fix")
+	hosttest.In(t, repo, "push", "-q", "origin", "main")
+	got, err := Audit(context.Background(), repo, AuditOpts{})
+	if err != nil || len(got.Changed) != 0 || readFile(t, plan) != body {
+		t.Fatalf("owned files + subject ticked: %+v %v\n%s", got.Changed, err, readFile(t, plan))
+	}
+	if !strings.Contains(auditProblems(got), "2026-10-05-d.md|2.1|owned files + subject, no Task trailer: not ticked") {
+		t.Fatalf("missing the candidate finding:\n%s", auditProblems(got))
+	}
+}

@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // placementRepo makes a temp git repo with one tracked root doc, so the gate has real git state.

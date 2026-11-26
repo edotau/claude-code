@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // catalogHomeMax bounds the home entry lines the catalog carries; the rest are reachable by search.

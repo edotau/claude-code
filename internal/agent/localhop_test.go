@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 const testMaxPrompt = 100 // tokens

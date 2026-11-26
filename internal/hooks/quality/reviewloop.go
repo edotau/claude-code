@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 var unfixedLine = regexp.MustCompile(`(?im)^[\s>*_-]*UNFIXED:[ \t]*(.*)$`)

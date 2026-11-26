@@ -1,1 +1,0 @@
-internal/sqlite/sqlite.go:touch	unversioned: empty 0600 file the caller's SQLite store opens (the store versions itself with PRAGMA user_version)

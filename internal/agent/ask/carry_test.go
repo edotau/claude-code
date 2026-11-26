@@ -16,12 +16,12 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 func carryAdmissionRecord(t *testing.T, flags ...string) agent.Record {

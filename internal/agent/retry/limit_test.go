@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12; the marker dir ends empty.

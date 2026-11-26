@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/clipboard"
 )
 
 // cmdClip saves the clipboard image as a PNG and prints its path; --serve, --clear and `paste` are its helper modes.

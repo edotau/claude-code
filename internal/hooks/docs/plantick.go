@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/shell"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 var gitDirArg = sync.OnceValue(func() *regexp.Regexp {

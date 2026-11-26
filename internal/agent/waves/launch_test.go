@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
 )
 
 func launchExecutable(t *testing.T) string {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // Seams for `agents watch`: the recheck interval and the session owner; tests replace them.

@@ -1,3 +1,0 @@
-internal/databricks/config.go:writeScratch	unversioned: foreign: temp rescue config
-internal/databricks/export.go:mergeInto	unversioned: foreign: export --merge into ~/.databrickscfg
-internal/databricks/export.go:writeFile0600	unversioned: foreign: -o export output

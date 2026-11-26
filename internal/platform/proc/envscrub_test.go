@@ -1,0 +1,182 @@
+package proc
+
+import (
+	"slices"
+	"strings"
+	"testing" // tests refuse real DNS: mock API calls
+
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
+)
+
+// Each deny-table family drops every member unless it is kept by name.
+func TestScrubDropsDenyFamilies(t *testing.T) {
+	deny := []string{
+		"DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_CONFIG_PROFILE",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY",
+		"AZURE_OPENAI_ENDPOINT",
+		"GEMINI_API_KEY",
+		"COPILOT_GITHUB_TOKEN",
+		"HARNESS_CODEX_API_KEY",
+	}
+	environ := make([]string, len(deny))
+	for i, k := range deny {
+		environ[i] = k + "=secret"
+	}
+	kept, dropped := Scrub(environ, nil)
+	if len(kept) != 0 {
+		t.Errorf("kept = %q, want none", kept)
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(dropped)), slices.Sorted(slices.Values(deny))) {
+		t.Errorf("dropped = %q, want every deny-table name", dropped)
+	}
+}
+
+// An inherited agy gateway selection is dropped, and a launch-kept name survives.
+func TestScrubDropsAgyGatewayEnv(t *testing.T) {
+	environ := []string{"AGY_LLM_GATEWAY_URL=http://evil", "AGY_LLM_GATEWAY_API_KEY=k", "AGY_LLM_GATEWAY_TIER_PRO=x", "AGY_OTHER=1"}
+	for name, scrub := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubAgent": ScrubAgent} {
+		kept, dropped := scrub(environ, nil)
+		if !slices.Equal(kept, []string{"AGY_OTHER=1"}) || len(dropped) != 3 {
+			t.Errorf("%s: kept = %q dropped = %q, want only AGY_OTHER kept", name, kept, dropped)
+		}
+	}
+	kept, _ := Scrub(environ, map[string]bool{"AGY_LLM_GATEWAY_URL": true})
+	if !slices.Contains(kept, "AGY_LLM_GATEWAY_URL=http://evil") {
+		t.Errorf("kept = %q, want the keep-listed name to survive", kept)
+	}
+}
+
+// Non-credential vars, and anything outside the deny table, pass through untouched.
+func TestScrubKeepsNonCredentialVars(t *testing.T) {
+	environ := []string{"PATH=/bin", "HOME=/h", "GH_TOKEN=x", "GITHUB_TOKEN=y", "AWS_PROFILE=p", "LANG=en_US"}
+	kept, dropped := Scrub(environ, nil)
+	if !slices.Equal(kept, environ) || dropped != nil {
+		t.Errorf("kept = %q dropped = %q, want everything kept untouched", kept, dropped)
+	}
+}
+
+// A name in keep survives the scrub even though it matches the deny table.
+func TestScrubHonoursKeep(t *testing.T) {
+	kept, dropped := Scrub([]string{"DATABRICKS_HOST=y"}, map[string]bool{"DATABRICKS_HOST": true})
+	if !slices.Equal(kept, []string{"DATABRICKS_HOST=y"}) || dropped != nil {
+		t.Errorf("kept = %q dropped = %q, want DATABRICKS_HOST kept", kept, dropped)
+	}
+}
+
+func TestKeepSetParsesHarnessKeepEnv(t *testing.T) {
+	t.Setenv(envKeepVar, " DATABRICKS_HOST ,, HOME,")
+	keep := EnvKeepSet([]string{"PATH"})
+	for _, want := range []string{"PATH", "DATABRICKS_HOST", "HOME"} {
+		if !keep[want] {
+			t.Errorf("keep[%q] missing from %v", want, keep)
+		}
+	}
+	if len(keep) != 3 {
+		t.Errorf("keep = %v, want exactly 3 names (empty tokens dropped)", keep)
+	}
+}
+
+func TestKeepSetEmpty(t *testing.T) {
+	t.Setenv(envKeepVar, "")
+	if keep := EnvKeepSet(nil); len(keep) != 0 {
+		t.Errorf("keep = %v, want empty", keep)
+	}
+}
+
+// ScrubAgent drops HARNESS_VAULT_KEY on top of the shared deny table; Scrub itself must keep it,
+// since the Claude Code launch (not a vendor child) still needs it to open the vault for hooks.
+func TestScrubVendorDropsVaultKeyScrubKeepsIt(t *testing.T) {
+	environ := []string{"HARNESS_VAULT_KEY=topsecret", "PATH=/bin"}
+	kept, dropped := Scrub(environ, nil)
+	if !slices.Contains(kept, "HARNESS_VAULT_KEY=topsecret") {
+		t.Errorf("Scrub kept = %q, want HARNESS_VAULT_KEY kept for the Claude Code launch", kept)
+	}
+	vkept, vdropped := ScrubAgent(environ, nil)
+	if slices.ContainsFunc(vkept, func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") }) {
+		t.Errorf("ScrubAgent kept = %q, want HARNESS_VAULT_KEY dropped from a vendor child", vkept)
+	}
+	if !slices.Contains(vdropped, "HARNESS_VAULT_KEY") {
+		t.Errorf("ScrubAgent dropped = %q, want HARNESS_VAULT_KEY named", vdropped)
+	}
+	if !slices.Contains(vkept, "PATH=/bin") {
+		t.Errorf("ScrubAgent kept = %q, want PATH kept", vkept)
+	}
+	if len(dropped) != 0 {
+		t.Errorf("Scrub dropped = %q, want nothing dropped from this environ", dropped)
+	}
+}
+
+// A keep name lets a vendor child opt HARNESS_VAULT_KEY back in explicitly (e.g. --keep-env).
+func TestScrubVendorHonoursKeep(t *testing.T) {
+	kept, dropped := ScrubAgent([]string{"HARNESS_VAULT_KEY=x"}, map[string]bool{"HARNESS_VAULT_KEY": true})
+	if !slices.Equal(kept, []string{"HARNESS_VAULT_KEY=x"}) || dropped != nil {
+		t.Errorf("kept = %q dropped = %q, want HARNESS_VAULT_KEY kept via --keep-env", kept, dropped)
+	}
+}
+
+// Stale session marker and vault-only pins are dropped; vendor-read *_MODEL names pass through.
+func TestScrubPinNames(t *testing.T) {
+	drop := []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL", "CLAUDE_HAIKU_MODEL",
+		"CLAUDE_FABLE_MODEL", "COPILOT_PROFILE", "CODEX_PROFILE", "GEMINI_PROFILE", "OPENCODE_PROFILE",
+		"HARNESS_CODEX_PROFILE", "HARNESS_CODEX_CATALOG", "HARNESS_CARRY_VERIFY"}
+	keep := []string{"COPILOT_MODEL", "GEMINI_MODEL", "CODEX_MODEL", "OPENCODE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CONFIG_DIR"}
+	var environ []string
+	for _, k := range append(slices.Clone(drop), keep...) {
+		environ = append(environ, k+"=x")
+	}
+	for name, fn := range map[string]func([]string, map[string]bool) ([]string, []string){"Scrub": Scrub, "ScrubAgent": ScrubAgent} {
+		kept, dropped := fn(environ, nil)
+		if !slices.Equal(slices.Sorted(slices.Values(dropped)), slices.Sorted(slices.Values(drop))) || len(kept) != len(keep) {
+			t.Errorf("%s: dropped = %q kept = %q", name, dropped, kept)
+		}
+	}
+}
+
+// foldCase makes deny globs and keep names match regardless of case; off, case stays significant.
+func TestScrubFoldsCaseOnWindows(t *testing.T) {
+	environ := []string{"Anthropic_Api_Key=a", "github_token=b", "Databricks_Host=c", "Path=d"}
+	for _, tc := range []struct {
+		fold bool
+		keep map[string]bool
+		want []string
+	}{
+		{true, nil, []string{"Path=d"}},
+		{true, map[string]bool{"GITHUB_TOKEN": true}, []string{"github_token=b", "Path=d"}},
+		{false, nil, environ},
+	} {
+		FoldCaseForTest(t, tc.fold)
+		got := Drop(environ, tc.keep, []string{"ANTHROPIC_API_KEY", "*_TOKEN", "DATABRICKS_*"})
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("fold=%v keep=%v: got %q, want %q", tc.fold, tc.keep, got, tc.want)
+		}
+	}
+}
+
+// The cached Scrub globs hold upper-case patterns only, so they match the same under either fold setting.
+func TestScrubCachedGlobsFoldCase(t *testing.T) {
+	environ := []string{"Anthropic_Base_Url=a", "Harness_Vault_Key=b", "Path=c"}
+	for _, tc := range []struct {
+		fold             bool
+		wantScrub, wantA []string
+	}{
+		{true, []string{"Harness_Vault_Key=b", "Path=c"}, []string{"Path=c"}},
+		{false, environ, environ},
+	} {
+		FoldCaseForTest(t, tc.fold)
+		if got, _ := Scrub(environ, nil); !slices.Equal(got, tc.wantScrub) {
+			t.Errorf("fold=%v Scrub = %q, want %q", tc.fold, got, tc.wantScrub)
+		}
+		if got, _ := ScrubAgent(environ, nil); !slices.Equal(got, tc.wantA) {
+			t.Errorf("fold=%v ScrubAgent = %q, want %q", tc.fold, got, tc.wantA)
+		}
+	}
+	FoldCaseForTest(t, true)
+	if !EnvBlocked("harness_x") {
+		t.Error("EnvBlocked(harness_x) = false with fold on")
+	}
+	FoldCaseForTest(t, false)
+	if EnvBlocked("harness_x") {
+		t.Error("EnvBlocked(harness_x) = true with fold off")
+	}
+}

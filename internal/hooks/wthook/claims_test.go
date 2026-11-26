@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // claimInput is a parsed hook payload for the claims modules.

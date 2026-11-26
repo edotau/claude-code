@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/platform/redact"
 )
 
 // readEvents decodes the event file at path, one Event per line.

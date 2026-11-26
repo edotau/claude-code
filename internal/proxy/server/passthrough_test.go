@@ -18,15 +18,15 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
-	_ "github.com/edotau/claude-code/internal/codex" // register the rows whose suffixes are checked
-	_ "github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/models"
-	_ "github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/providers"
+	_ "github.com/edotau/claude-code/internal/driver/codex" // register the rows whose suffixes are checked
+	_ "github.com/edotau/claude-code/internal/driver/copilot"
+	_ "github.com/edotau/claude-code/internal/driver/opencode"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // ptOverlay: "pt" serves openai, responses and gemini; "oa" serves openai only.

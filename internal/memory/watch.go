@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // UpdateIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.

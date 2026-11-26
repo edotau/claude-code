@@ -11,13 +11,13 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/proxyteam"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // overlaySetAbout is the settable-key help, listing the keys of overlayTable.

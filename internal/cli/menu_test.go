@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // The README's menu image is the current menu: a verb added or reworded without `make help-svg` fails the gate.

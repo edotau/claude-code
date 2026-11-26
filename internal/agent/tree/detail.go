@@ -21,8 +21,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // streamFunc writes a job's event lines to w until the job settles or ctx ends.

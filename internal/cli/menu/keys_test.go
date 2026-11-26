@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // TestKeyRows: one row per credential, absent ones say how to fix, and allOK tracks a missing credential.

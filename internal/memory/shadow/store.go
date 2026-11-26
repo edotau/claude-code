@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/sqlite"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/sqlite"
 )
 
 // sqlBankStore is the bank seam over the shadow db: one row per entry; a Version is the row's counter, never reused.

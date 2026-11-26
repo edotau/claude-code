@@ -11,7 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
 )
 
 func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {

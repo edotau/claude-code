@@ -24,6 +24,6 @@ Collection: `rules/standards/worktree-git.md` → Worktrees.
 ## Registry coordination is policy
 
 Give shared registries to the orchestrator and return proposed entries with exact file/anchor/text. Common hot
-files include `internal/settings/hookspec.go`, the hook handler map, provider defaults and `rules/harness/hooks.md`.
+files include `internal/platform/settings/hookspec.go`, the hook handler map, provider defaults and `rules/harness/hooks.md`.
 This ownership split is **prose**, not a registry-specific hook refusal. New file writers have package-owned rows
-in `internal/schemas/testdata/writers/<pkg>.txt`; do not recreate a central writer-registry bottleneck.
+in `internal/platform/schemas/testdata/writers/<pkg>.txt`; do not recreate a central writer-registry bottleneck.

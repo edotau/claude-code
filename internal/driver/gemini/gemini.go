@@ -1,0 +1,1044 @@
+package gemini
+
+import (
+	"bufio"
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/routing/serving"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
+)
+
+type geminiEngine struct{ agent.BaseEngine }
+
+var (
+	_ agent.HeadlessDriver = geminiEngine{}
+	_ agent.Authenticator  = geminiEngine{}
+)
+
+func (geminiEngine) Attach(prompt string, paths []string, tools bool) (string, error) {
+	if tools {
+		return agent.AttachSuffix(prompt, paths), nil
+	}
+	return agent.AttachInline(prompt, paths)
+}
+
+func (geminiEngine) Before(req agent.RunOptions, t providers.Target) providers.Target {
+	t.Model, _ = agyModelEffort(req, t)
+	return t
+}
+
+func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	areq := newAgyRequest(p, req)
+	res := p.Result
+	res.Model = areq.Model
+	res.Emulated = append(res.Emulated, p.Emulated...)
+	if err := agyCheckGateway(p.Target.Provider, areq.Model, areq.Env); err != nil {
+		res.NotStarted = true
+		return res, retry.Fatal("gemini", err)
+	}
+	out, err := runAgy(ctx, areq, sink)
+	err = classifyAgyError(ctx, areq.Model, err)
+	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
+	if out.SessionID != "" {
+		res.SessionID = out.SessionID
+	}
+	return res, err
+}
+
+func (geminiEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+	if h != nil {
+		if err := agyLoginGoogleTools(p, model, h.GoogleTools); err != nil {
+			return nil, nil, err
+		}
+	}
+	return geminiLogin(model, h)
+}
+
+// Wire serves only a Databricks row: Serves refuses agy every other non-login row.
+func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
+	if agent.IsDirect(ctx) { // direct skips the router that swaps the Databricks token
+		return nil, nil, fmt.Errorf("gemini: --direct has no Databricks route for agy (profile %s needs the router's token swap)", r.Provider.Name)
+	}
+	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: router fixes agy's Databricks requests
+}
+
+func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
+	present, perr := geminiLoginProbe()
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "gemini: agy login marker unreadable, Google-login fallback dropped: %v\n", perr)
+	}
+	if p, ok := reg.LoginProfile("google", e.Name()); ok && present {
+		// the GEMINI_MODEL pin beats the registry's bare slot id
+		t := agent.PinnedTarget(ctx, e.Name(), providers.Target{Provider: p, Model: p.Models[models.Opus]})
+		return t, "gemini (Google login via agy)", true
+	}
+	return providers.Target{}, "", false
+}
+
+// AuthStatus is agy's cached Google login from disk: AuthNone when absent, Err when unreadable.
+func (geminiEngine) AuthStatus() providers.AuthState {
+	ok, err := geminiLoginProbe()
+	if !ok {
+		return providers.AuthState{Method: providers.AuthNone, Err: err}
+	}
+	return providers.AuthState{Present: true, Source: "Google login (agy)", Method: providers.AuthCLI}
+}
+
+// Plan is empty: agy reports no plan.
+func (geminiEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
+	return providers.Subscription{}
+}
+
+// FollowsPin keeps agy on its Google login unless GEMINI_PROFILE names the session's Databricks row.
+func (geminiEngine) FollowsPin(p *providers.Provider) bool {
+	if !agent.GeminiGatewayRow(p) {
+		return true
+	}
+	rec, err := agentconfig.Settings(agentid.Gemini)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
+	}
+	return rec.Route.Profile == p.Name
+}
+
+// NoRoute refuses a Databricks row that no GEMINI_PROFILE pin selected: never silently.
+func (geminiEngine) NoRoute(_ context.Context, _ *providers.Registry, t providers.Target) error {
+	if agent.GeminiGatewayRow(t.Provider) {
+		return errors.New("gemini: agy needs a Google login (run `agy` and sign in; it has no auth subcommand) or a GEMINI_PROFILE pin")
+	}
+	return nil
+}
+
+func (geminiEngine) Verify(context.Context) (providers.AuthVerdict, string) {
+	ok, err := geminiLoginProbe()
+	switch {
+	case ok:
+		return providers.VerdictOK, "agy login present"
+	case err != nil:
+		return providers.VerdictTransient, "agy login marker unreadable: " + err.Error()
+	}
+	return providers.VerdictNeedsLogin, ""
+}
+
+func (geminiEngine) Render(_ context.Context, _ *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	reportGemini(sel, out)
+	gd, err := renderGeminiSettings(home, o, out)
+	if err != nil {
+		return gd, err
+	}
+	hd, err := renderGeminiHooks(home, o, out)
+	return gd || hd, err
+}
+
+func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
+	home, err := agentconfig.HomeOr(home)
+	if err != nil {
+		return nil, err
+	}
+	return []agentconfig.LabelPath{
+		{Label: "gemini-settings", Path: agySettingsPath(home)},
+		{Label: "gemini-hooks", Path: agyHooksPath(home)},
+	}, nil
+}
+
+func (geminiEngine) RouteDetail(context.Context) (string, bool) { return geminiRouteDetail(), true }
+
+func (geminiEngine) NewLive() agent.LiveBackend { return &agyLive{} }
+
+// agyDefaultModel runs agy when the caller names no model: the standard-tier pick, enough for headless dispatches.
+const agyDefaultModel = "gemini-4-hydrogen"
+
+// agyGatewayArg is model's Databricks name and --model; a non-Gemini id lacking databricks- runs the pin or default.
+func agyGatewayArg(model string) (base, arg string, err error) {
+	if agyForeign(model) {
+		return model, model, nil
+	}
+	base, effort, ok := agyGatewayBase(model)
+	if !ok {
+		if geminiNamed(model) {
+			return "", "", fmt.Errorf("gemini: %q is not a catalogued Gemini model; pass a catalogued id with --model", model)
+		}
+		rec, err := agentconfig.Settings(agentid.Gemini)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gemini: agent settings unreadable, pins ignored: %v\n", err)
+		}
+		if base, effort, ok = agyGatewayBase(rec.Model); !ok {
+			if geminiNamed(rec.Model) {
+				return "", "", fmt.Errorf("gemini: the GEMINI_MODEL pin %q is not a catalogued Gemini model; fix or clear the pin", rec.Model)
+			}
+			base, effort, _ = agyGatewayBase(agyDefaultModel) // a non-Gemini pin must not leave base empty
+		}
+	}
+	if effort == "" {
+		return base, base, nil
+	}
+	return base, base + "-" + effort, nil
+}
+
+// agyForeign reports a non-Gemini Databricks endpoint id, which agy runs over the openai chat/completions wire.
+func agyForeign(id string) bool {
+	return strings.HasPrefix(id, models.DatabricksPrefix) && !geminiNamed(id)
+}
+
+// geminiNamed reports an id that claims to be a Gemini model (a Databricks Claude slot never does).
+func geminiNamed(id string) bool { return strings.Contains(strings.ToLower(id), "gemini") }
+
+// agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to the Databricks endpoint name.
+func agyGatewayBase(id string) (base, effort string, ok bool) {
+	if before, suffix, ok := agentid.SplitNativeEffort(id); ok {
+		if b, _, ok := agyGatewayBase(before); ok {
+			return b, suffix, true
+		}
+	}
+	canonical, _, ok := models.Resolve(id)
+	if !ok || models.FamilyKind(canonical) != models.FamilyGemini {
+		return "", "", false
+	}
+	return models.Wire("databricks-serving", canonical), "", true // agy lists it as written: the name shows Databricks
+}
+
+// geminiGateway runs agy on the router's /p/<profile>/gemini route; agy holds only a profile-scoped session token.
+func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *agent.Headless) ([]string, []string, error) {
+	base, arg, err := agyGatewayArg(model)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := agyCheckGateway(p, base, nil); err != nil {
+		return nil, nil, err
+	}
+	hdr, err := agyGatewayHeader(p, base, h)
+	if err != nil {
+		return nil, nil, err
+	}
+	unit, err := agent.RunUnit(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gemini: %w", err)
+	}
+	ep, err := agent.EndpointURL(agent.WithScopedProxy(ctx, "gemini"), p, unit, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("gemini: %w", err)
+	}
+	if !ep.Routed {
+		return nil, nil, fmt.Errorf("gemini: profile %s needs the router's token swap; its endpoint is not the proxy", p.Name)
+	}
+	route, wireProto, list, lite := providers.ProtocolOpenAI, "openai", base, base // Gemini ids stay off the openai wire
+	if !agyForeign(base) {
+		route, wireProto = providers.ProtocolGemini, "genai"
+		list, lite = agyGatewayModels(p, base, time.Now())
+	}
+	env := proc.Values{
+		"AGY_LLM_GATEWAY_URL":     ep.Base + "/" + route,
+		"AGY_LLM_GATEWAY_API_KEY": ep.Key, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": wireProto, "AGY_LLM_GATEWAY_MODELS": list,
+		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
+		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,
+		// a caller's own gateway headers, CA bundle or proxy must not reach the loopback router
+		"AGY_LLM_GATEWAY_HEADERS": hdr, "AGY_LLM_GATEWAY_CA_CERT": "", "AGY_LLM_GATEWAY_PROXY_URL": "",
+	}
+	if h != nil {
+		return env.Env(), nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
+	}
+	argv := []string{"--model", base} // the gateway advertises only the base id
+	if effort := agyArgEffort(base, arg); effort != "" {
+		argv = append(argv, "--effort", effort)
+	}
+	return env.Env(), argv, nil
+}
+
+// agyCheckGateway checks the rewritten endpoint and agy's advertised menu without refreshing the served cache.
+func agyCheckGateway(p *providers.Provider, model string, env []string) error {
+	if agent.GeminiGatewayRow(p) {
+		if f := agent.FreshModelFinding("gemini", p, model, time.Now()); f != nil {
+			return &agent.PreflightError{Finding: *f}
+		}
+	}
+	menu, ok := proc.ValuesFromEnv(env)["AGY_LLM_GATEWAY_MODELS"]
+	if !ok {
+		return nil
+	}
+	available := strings.Split(menu, ",")
+	for i, id := range available {
+		available[i] = strings.TrimSpace(id)
+		if available[i] == model {
+			return nil
+		}
+	}
+	return &agent.PreflightError{Finding: agent.Finding{
+		Check: "model-menu", Model: model, Served: available,
+		Detail: fmt.Sprintf("agy gateway menu does not include %q; available: %s", model, menu),
+	}}
+}
+
+// agyFlashLite is the model agy's flash-lite tier runs when the profile serves it.
+const agyFlashLite = "databricks-gemini-3-1-flash-lite"
+
+// agyServedGemini lists the READY Gemini endpoint names in p's fresh cached listing; nil when cold. A var for tests.
+var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
+	s, ok := serving.Fresh(p.Name, now)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, m := range s.Models {
+		base, _, ok := agyGatewayBase(m.ID)
+		if ok && m.IsReady() && !slices.Contains(out, base) {
+			out = append(out, base)
+		}
+	}
+	return out
+}
+
+// agyGatewayModels is agy's advertised list (base first, then every other served Gemini model) and flash-lite tier.
+func agyGatewayModels(p *providers.Provider, base string, now time.Time) (list, lite string) {
+	served := agyServedGemini(p, now)
+	others := slices.DeleteFunc(slices.Clone(served), func(m string) bool { return m == base })
+	lite = base
+	if slices.Contains(served, agyFlashLite) {
+		lite = agyFlashLite
+	}
+	return strings.Join(append([]string{base}, others...), ","), lite
+}
+
+// agyRequest is one headless agy run
+type agyRequest struct {
+	Prompt, Model, Cwd, SessionID string
+	Effort                        string // a gateway pin's effort suffix; a --effort in SettingsArgv wins
+	Tools                         bool
+	DebugFile                     string        // --log-file
+	PrintTimeout                  time.Duration // --print-timeout; 0 omits it (live sessions)
+	OutputSchema                  string        // --json-schema
+	SettingsArgv                  []string      // RenderSettings' --effort and --settings fragment, inserted before -p=
+	Env, KeepEnv                  []string
+}
+
+// agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
+func agyArgv(r agyRequest) []string {
+	argv := []string{"--model", r.Model}
+	_, _, effortSuffixed := agentid.SplitNativeEffort(r.Model)
+	// agy refuses --effort beside an effort-suffixed id; a --effort in SettingsArgv (flag or record) beats the pin suffix
+	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed && !slices.Contains(r.SettingsArgv, "--effort") {
+		argv = append(argv, "--effort", r.Effort)
+	}
+	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh
+		argv = append(argv, "--conversation", r.SessionID)
+	}
+	argv = append(argv, "--input-format", "stream-json", "--output-format", "stream-json")
+	if r.OutputSchema != "" {
+		argv = append(argv, "--json-schema", r.OutputSchema)
+	}
+	if r.Tools {
+		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside workspace
+		for _, d := range agent.WritableRoots(r.Cwd) {
+			argv = append(argv, "--add-dir", d)
+		}
+	}
+	if r.DebugFile != "" {
+		argv = append(argv, "--log-file", r.DebugFile)
+	}
+	if r.PrintTimeout > 0 {
+		argv = append(argv, "--print-timeout", fmt.Sprintf("%ds", int(r.PrintTimeout.Seconds())))
+	}
+	return append(append(argv, r.SettingsArgv...), "-p=")
+}
+
+// ensureAgyPackDir creates the pack dir for a tools run: agy fails every command when an --add-dir is missing.
+func ensureAgyPackDir(r agyRequest) error {
+	if !r.Tools {
+		return nil
+	}
+	if err := os.MkdirAll(paths.PackDir(), 0o700); err != nil {
+		return fmt.Errorf("agy: create pack dir: %w", err)
+	}
+	return nil
+}
+
+const (
+	agyPrintMargin  = 15 * time.Second // agy gives up this long before the harness deadline, so its own error is recorded
+	agyPrintFloor   = 10 * time.Second // never ask agy for less than this
+	agyPrintCeiling = 12 * time.Minute // no deadline: above the longest healthy silent run seen (587 s)
+)
+
+// agyPrintTimeout is the run's remaining time minus the margin (floored), or the ceiling when ctx has no deadline.
+func agyPrintTimeout(ctx context.Context) time.Duration {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return agyPrintCeiling
+	}
+	return max(time.Until(dl)-agyPrintMargin, agyPrintFloor)
+}
+
+// headlessAgy adds what only a headless dispatch passes: the print timeout and agy's own log beside the record.
+func headlessAgy(ctx context.Context, id string, r agyRequest) agyRequest {
+	r.PrintTimeout = agyPrintTimeout(ctx)
+	if r.DebugFile == "" && id != "" {
+		r.DebugFile = agent.AgyLogPath(id)
+	}
+	return r
+}
+
+func agyStdin(r agyRequest) (string, error) {
+	content := r.Prompt
+	if !r.Tools {
+		content = assets.AgyToolLessPreamble() + content
+	} else { // agy's shell runs in its sorted-first workspace dir, never the run's cwd
+		dir := r.Cwd
+		if dir == "" {
+			dir, _ = os.Getwd()
+		}
+		content = "Run every shell command in " + dir + " (cd there first).\n\n" + content
+	}
+	line, err := json.Marshal(map[string]any{"event": "user", "message": map[string]any{"content": content}})
+	if err != nil {
+		return "", fmt.Errorf("agy: encode stdin: %w", err)
+	}
+	return string(line) + "\n", nil
+}
+
+func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, error) {
+	bin, err := paths.AgentBin("agy")
+	if err != nil {
+		return wire.Result{}, fmt.Errorf("gemini: %w", err)
+	}
+	stdin, err := agyStdin(r)
+	if err != nil {
+		return wire.Result{}, err
+	}
+	r = headlessAgy(ctx, agent.DispatchIDOf(ctx), r)
+	if err := ensureAgyPackDir(r); err != nil {
+		return wire.Result{}, err
+	}
+	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
+	if err := bindAgyChild(cmd); err != nil {
+		return wire.Result{}, err
+	}
+	idle := agent.NewIdleTimeout("gemini", agent.IdleLimitFor("gemini"), nil)
+	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
+		return parseAgyEvents(bufio.NewReader(&beatReader{r: br, idle: idle}), &idleSink{Sink: sink, idle: idle}, false, wire.PickLog(logs))
+	}
+	start := time.Now()
+	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{Idle: idle})
+	err = agyMissingResultErr(err, r.DebugFile, tail.String())
+	return res, agyPrintTimeoutErr(err, r, tail.String(), time.Since(start), res.Answer != "")
+}
+
+// beatReader restarts the idle window on every byte agy writes.
+type beatReader struct {
+	r    io.Reader
+	idle *agent.IdleTimeout
+}
+
+func (b *beatReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if n > 0 {
+		b.idle.Beat("stdout")
+	}
+	return n, err
+}
+
+// idleSink holds the idle window off while a tool step runs (agy is silent then) and marks first output.
+type idleSink struct {
+	wire.Sink
+	idle *agent.IdleTimeout
+}
+
+func (s *idleSink) Emit(ev wire.Event) error {
+	s.idle.Spoke()
+	if ev.Type == wire.EventProgress {
+		s.idle.Pause()
+	}
+	return s.Sink.Emit(ev)
+}
+
+// agyTimeoutError is agy's own print timer firing; it reads as a harness deadline so the run records a deadline cutoff.
+type agyTimeoutError struct{ after time.Duration }
+
+func (e *agyTimeoutError) Error() string        { return "agy: print timeout after " + e.after.String() }
+func (e *agyTimeoutError) Is(target error) bool { return target == context.DeadlineExceeded }
+
+const agyLogTailBytes = 8 << 10
+
+// agyPrintTimedOut: stderr's print_timeout reason, else the log's timeout line, else (log unreadable) elapsed >= limit.
+func agyPrintTimedOut(stderr, logPath string, took, limit time.Duration) bool {
+	if strings.Contains(stderr, `"reason":"print_timeout"`) {
+		return true
+	}
+	if tail, err := readTail(logPath, agyLogTailBytes); err == nil {
+		return strings.Contains(tail, "Print mode: print timeout after")
+	}
+	return limit > 0 && took >= limit
+}
+
+// readTail is the last n bytes of the file at path.
+func readTail(path string, n int64) (string, error) {
+	if path == "" {
+		return "", os.ErrNotExist
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, min(n, st.Size()))
+	if _, err := f.ReadAt(buf, st.Size()-int64(len(buf))); err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// agyPrintTimeoutErr turns a partial, empty or result-less end that agy's print timer caused into a deadline cutoff.
+func agyPrintTimeoutErr(err error, r agyRequest, stderr string, took time.Duration, answered bool) error {
+	if err == nil || agent.CutoffOf(err) != "" {
+		return err
+	}
+	missing, msg := errors.Is(err, errAgyMissingResult), err.Error()
+	if !missing && !strings.Contains(msg, "partial result") && !strings.Contains(msg, "empty answer") {
+		return err
+	}
+	if !agyPrintTimedOut(stderr, r.DebugFile, took, r.PrintTimeout) {
+		return err
+	}
+	streamed := !strings.Contains(msg, "empty answer") // only a deadline after output is partial
+	if missing {
+		streamed = answered
+	}
+	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: streamed, Budget: retry.BudgetDeadline, Err: &agyTimeoutError{after: r.PrintTimeout}}
+}
+
+func agyModelLimit(text string) bool {
+	low := strings.ToLower(text)
+	return strings.Contains(low, "usage limit reached") || strings.Contains(low, "individual quota reached")
+}
+
+// agyResetAfter is when the model's limit ends: the error's retry hint, else the 0% limit in /usage; zero if unknown.
+func agyResetAfter(ctx context.Context, model string, e *retry.Error) time.Time {
+	now := quotaNow()
+	if e.RetryAfter > 0 {
+		return now.Add(e.RetryAfter)
+	}
+	rows, err := Quotas(ctx)
+	if err != nil {
+		return time.Time{}
+	}
+	return statusFor(rows, model, now).HeldUntil
+}
+
+// classifyAgyError names the held model (Terminal when its reset is past the retry budget) or the sign-in flow.
+func classifyAgyError(ctx context.Context, model string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, done := errors.AsType[*retry.Error](err); done {
+		return err
+	}
+	e := retry.Classify("gemini", err, false)
+	if e.Kind == retry.KindQuota && agyModelLimit(err.Error()) {
+		e.Kind = retry.KindRateLimit // agy's limits are per model, not the account's
+	}
+	detail := err.Error()
+	if _, rest, ok := strings.Cut(detail, `"short_error":"`); ok {
+		detail, _, _ = strings.Cut(rest, `"`)
+	}
+	switch e.Kind {
+	case retry.KindRateLimit:
+		held := "held"
+		if reset := agyResetAfter(ctx, model, e); reset.Sub(quotaNow()) > retry.DefaultMaxDelay {
+			e.Terminal = true
+			held = "held until " + reset.Local().Format("2006-01-02 15:04")
+		}
+		e.Err = fmt.Errorf("agy: %s is rate limited (%s); that model's limit is %s, try gemini-4-hydrogen-medium", model, detail, held)
+	case retry.KindAuth:
+		e.Err = fmt.Errorf("agy: not signed in or the token expired (%s); run `agy` and sign in with Google again", detail)
+	}
+	return e
+}
+
+// agyToolStep is the step_type of a tool execution, seen live as `tool` with states active then DONE.
+const agyToolStep = "tool"
+
+type agyEvent struct {
+	Event      string `json:"event"`
+	ConvID     string `json:"conversation_id"` // init event only
+	StepUpdate struct {
+		StepType  string `json:"step_type"`
+		State     string `json:"state"`
+		TextDelta string `json:"text_delta"`
+		ToolName  string `json:"tool_name"`
+		Usage     struct {
+			InputTokens     int `json:"input_tokens"`
+			OutputTokens    int `json:"output_tokens"`
+			ThinkingTokens  int `json:"thinking_tokens"`
+			CacheReadTokens int `json:"cache_read_tokens"`
+		} `json:"usage"` // one model call's own tokens, on its agent_response step
+		ToolInfo struct {
+			Parameters json.RawMessage `json:"parameters"`
+			Error      struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"tool_info"`
+	} `json:"step_update"`
+	Result struct {
+		ConversationID string          `json:"conversation_id"`
+		Status         string          `json:"status"`
+		Response       string          `json:"response"`
+		Structured     json.RawMessage `json:"structured_output"`
+		Error          string          `json:"error"`
+		Usage          struct {
+			InputTokens     int     `json:"input_tokens"`
+			OutputTokens    int     `json:"output_tokens"`
+			ThinkingTokens  int     `json:"thinking_tokens"`
+			CacheReadTokens int     `json:"cache_read_tokens"`
+			CostUSD         float64 `json:"cost_usd"` // not reported by agy today; read if it ever is
+		} `json:"usage"`
+		DeniedActions []struct {
+			Action      string `json:"action"`
+			DisplayName string `json:"display_name"`
+		} `json:"denied_actions"`
+	} `json:"result"`
+}
+
+// parseAgyEvents reads agy stream-json; once stops at the first result, keeping buffered lines for the next turn.
+func parseAgyEvents(br *bufio.Reader, sink wire.Sink, once bool, lg wire.StreamLog) (res wire.Result, _ error) {
+	t := &agyTurn{sink: sink, lg: lg, once: once, res: &res}
+	onBad := func(err error) { t.flush(); _ = wire.EmitError(lg, sink, err.Error()) } // the decode error aborts
+	tr, err := wire.DecodeEvents(br, lg, "decode agy stream-json", true, onBad, func(ev agyEvent, _ *wire.TransportTracker) (bool, error) {
+		return t.handle(ev)
+	})
+	res.Transport = tr
+	if err != nil {
+		if t.pending.Len() > 0 { // a decode error already flushed; a sink error did not
+			t.flush()
+		}
+		res.Answer = cmp.Or(t.ans.String(), strings.TrimSpace(t.response))
+		return res, err
+	}
+	if !t.sawResult {
+		t.flush()
+		res.Answer = t.ans.String()
+		return res, errAgyMissingResult
+	}
+	return finishAgyTurn(res, sink, &t.ans, t.response, t.flush, t.openStep, t.deniedTools(), once)
+}
+
+type agyTurn struct {
+	sink      wire.Sink
+	lg        wire.StreamLog
+	once      bool
+	res       *wire.Result
+	refused   []string // the hook tool names of steps agy refused for want of a grant
+	actions   []string // denied_actions names from the result event
+	ans       wire.Answer
+	pending   strings.Builder
+	response  string
+	sawResult bool
+	lastStep  string // the last step type/state logged, so repeated updates stay one line
+	openStep  string // the last non-response step still running (a backgrounded command), else ""
+	toolOpen  bool   // a tool step is running, so one tool_use is emitted per step, not per update
+	sofar     wire.Usage
+}
+
+func (t *agyTurn) flush() {
+	t.lg.Emit("assistant", t.pending.String())
+	t.pending.Reset()
+}
+
+func (t *agyTurn) handle(ev agyEvent) (done bool, _ error) {
+	switch ev.Event {
+	case "init":
+		t.res.SessionID = ev.ConvID
+	case "step_update":
+		return false, t.step(ev)
+	case "result":
+		return t.result(ev)
+	}
+	return false, nil
+}
+
+func (t *agyTurn) step(ev agyEvent) error {
+	noteAgyStep(ev, &t.lastStep, &t.openStep, t.lg)
+	if tool, ok := agyRefusedTool(ev); ok {
+		t.refused = append(t.refused, tool)
+	}
+	u := ev.StepUpdate.Usage
+	t.sofar.InputTokens += u.InputTokens
+	t.sofar.OutputTokens += u.OutputTokens + u.ThinkingTokens
+	t.sofar.CacheReadTokens += u.CacheReadTokens
+	if err := emitAgyToolStart(ev, &t.toolOpen, t.sofar, t.sink); err != nil {
+		return err
+	}
+	if ev.StepUpdate.StepType != "agent_response" || ev.StepUpdate.TextDelta == "" {
+		return nil
+	}
+	t.pending.WriteString(ev.StepUpdate.TextDelta)
+	return t.ans.Emit(t.sink, ev.StepUpdate.TextDelta, false)
+}
+
+func (t *agyTurn) result(ev agyEvent) (bool, error) {
+	t.sawResult = true
+	t.response = ev.Result.Response
+	t.flush()
+	t.actions = agyDeniedActions(ev)
+	err := applyAgyResult(t.res, ev)
+	if err != nil {
+		_ = wire.EmitError(t.lg, t.sink, err.Error()) // the agy error returned below aborts
+		if t.once {
+			err = wire.NewResultError(err) // the result was consumed: the turn failed, the stream is at a boundary
+		}
+		return false, err
+	}
+	t.lg.Emit("result", cmp.Or(t.response, t.ans.String()))
+	return t.once, nil
+}
+
+// deniedTools names every tool a refusal hit this turn: the refused steps' tools, then the result's denied actions.
+func (t *agyTurn) deniedTools() []string {
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(t.refused, t.actions))))
+}
+
+// agyRefusedTool is the hook tool name of a step agy refused for want of a grant.
+func agyRefusedTool(ev agyEvent) (string, bool) {
+	u := ev.StepUpdate
+	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
+		return "", false
+	}
+	i := slices.IndexFunc(agyToolOrder, func(t struct{ agy, claude string }) bool { return t.agy == u.ToolName })
+	if i < 0 {
+		return "", false
+	}
+	return agyToolOrder[i].claude, true
+}
+
+// agyDeniedActions is the display name (else action) of each action agy reports denied.
+func agyDeniedActions(ev agyEvent) []string {
+	names := make([]string, len(ev.Result.DeniedActions))
+	for i, d := range ev.Result.DeniedActions {
+		names[i] = cmp.Or(d.DisplayName, d.Action)
+	}
+	return names
+}
+
+// emitAgyToolStart marks progress once per tool step, then emits the step's tool_use and tool_result.
+func emitAgyToolStart(ev agyEvent, toolOpen *bool, sofar wire.Usage, sink wire.Sink) error {
+	if ev.StepUpdate.StepType != agyToolStep {
+		return nil
+	}
+	ended := agyStepEnded(ev.StepUpdate.State)
+	wasOpen := *toolOpen
+	*toolOpen = !ended
+	if !ended && !wasOpen {
+		e := wire.Event{Type: wire.EventProgress, Agent: "gemini", Tool: &wire.ToolRef{Name: ev.StepUpdate.ToolName}}
+		if sofar != (wire.Usage{}) { // the dispatch record's live token count; the result event replaces it
+			e.Usage = &sofar
+		}
+		if err := sink.Emit(e); err != nil {
+			return err
+		}
+	}
+	return emitAgyToolCall(ev, wasOpen, ended, sink)
+}
+
+// emitAgyToolCall emits the named tool's tool_use on its first update and its tool_result when the step ends.
+func emitAgyToolCall(ev agyEvent, wasOpen, ended bool, sink wire.Sink) error {
+	u := ev.StepUpdate
+	if u.ToolName == "" || (wasOpen && !ended) {
+		return nil
+	}
+	if !wasOpen {
+		use := wire.ToolEvent(u.ToolName, "")
+		use.Agent, use.Text = "gemini", agyArgSummary(u.ToolInfo.Parameters)
+		if err := sink.Emit(use); err != nil {
+			return err
+		}
+	}
+	if !ended {
+		return nil
+	}
+	msg := u.ToolInfo.Error.Message
+	return sink.Emit(wire.Event{Type: wire.EventToolResult, Agent: "gemini", Tool: &wire.ToolRef{Name: u.ToolName},
+		Status: agyToolStatus(u.State, msg), Text: wire.FirstLine(msg)})
+}
+
+// agyToolStatus is a finished tool step's result status: completed, error, or denied for a refusal.
+func agyToolStatus(state, msg string) string {
+	if state != "ERROR" && msg == "" {
+		return "completed"
+	}
+	if lm := strings.ToLower(msg); strings.Contains(lm, "denied") || strings.Contains(lm, "deny rule") {
+		return "denied"
+	}
+	return "error"
+}
+
+// agyArgSummary is the tool call's primary argument (command, path, pattern), else its compact parameters, on one line.
+func agyArgSummary(raw json.RawMessage) string {
+	var a map[string]any
+	if json.Unmarshal(raw, &a) != nil || len(a) == 0 {
+		return ""
+	}
+	for _, want := range []string{"commandline", "command", "path", "absolutepath", "pattern", "query", "url"} {
+		for k, v := range a {
+			if s, ok := v.(string); ok && s != "" && strings.EqualFold(strings.ReplaceAll(k, "_", ""), want) {
+				return wire.Summary(s)
+			}
+		}
+	}
+	return wire.Summary(string(raw))
+}
+
+// noteAgyStep tracks the unfinished non-response step and logs each new step type/state once.
+func noteAgyStep(ev agyEvent, lastStep, openStep *string, lg wire.StreamLog) {
+	if t, st := ev.StepUpdate.StepType, ev.StepUpdate.State; t != "agent_response" && t != "user_input" && st != "" {
+		if !agyStepEnded(st) {
+			*openStep = t
+		} else if *openStep == t {
+			*openStep = ""
+		}
+		if key := t + "/" + st; key != *lastStep {
+			*lastStep = key
+			lg.Emit("step", t+" "+strings.ToLower(st))
+		}
+	}
+}
+
+// agyStepEnded: DONE and ERROR both end a step; a tool call a hook refused ends in ERROR, not unfinished.
+func agyStepEnded(state string) bool { return state == "DONE" || state == "ERROR" }
+
+func finishAgyTurn(res wire.Result, sink wire.Sink, ans *wire.Answer, response string, flush func(), openStep string, denied []string, once bool) (wire.Result, error) {
+	flush()
+	var emitErr error
+	if ans.Empty() && response != "" {
+		emitErr = ans.Emit(sink, response, false)
+	}
+	res.Answer = ans.String()
+	if emitErr != nil {
+		return res, emitErr
+	}
+	if !once && res.Answer == "" && len(res.Structured) == 0 && len(denied) > 0 {
+		hint := "agy: no output because tool(s) were denied: " + strings.Join(denied, ", ") + "; rerun with --tools"
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Err: errors.New(hint)}
+	}
+	if !once && ((res.Answer == "" && len(res.Structured) == 0) || openStep != "") {
+		why := "empty answer"
+		if openStep != "" {
+			why = "turn ended with an unfinished " + openStep + " step"
+		}
+		return res, &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: " + why)}
+	}
+	return res, nil
+}
+
+func applyAgyResult(res *wire.Result, ev agyEvent) error {
+	out := ev.Result
+	if out.ConversationID != "" {
+		res.SessionID = out.ConversationID
+	}
+	res.Usage = wire.Usage{
+		InputTokens:     out.Usage.InputTokens,
+		OutputTokens:    out.Usage.OutputTokens + out.Usage.ThinkingTokens,
+		CacheReadTokens: out.Usage.CacheReadTokens,
+		CostUSD:         out.Usage.CostUSD,
+	}
+	if len(out.Structured) > 0 && string(out.Structured) != "null" {
+		res.Structured = out.Structured
+	}
+	if names := agyDeniedActions(ev); len(names) > 0 {
+		fmt.Fprintf(os.Stderr, "agy: denied %s\n", strings.Join(names, ", "))
+	}
+	if out.Status != "SUCCESS" {
+		err := errors.New(cmp.Or(out.Error, "agy run "+cmp.Or(out.Status, "failed")))
+		if strings.Contains(out.Error, "exceeded the output token limit") { // agy's STOP_REASON_MAX_TOKENS text
+			return retry.WithBudget(err, retry.BudgetOutput)
+		}
+		return err
+	}
+	return nil
+}
+
+// --- gemini: no auth-type setting to render; guard denies and hooks render separately.
+
+func reportGemini(sel providers.Selection, out io.Writer) {
+	if sel.Provider.Auth.Method() == providers.AuthCLI {
+		fmt.Fprintln(out, "gemini: skipped: session provider is passthrough, not keyed")
+		return
+	}
+	fmt.Fprintln(out, "gemini: no auth setting to render; agy has no settings-auth equivalent (launch-time env/login only)")
+}
+
+// geminiRouteDetail reports agy's own GEMINI_MODEL pin; unset means agy's own default (agyDefaultModel).
+func geminiRouteDetail() string {
+	model, source := providers.GeminiModel()
+	return fmt.Sprintf("model=%s source=%s", cmp.Or(model, "(default)"), source)
+}
+
+// agyModelEffort is the --model agy runs for req on t and a Databricks row's pinned effort ("" elsewhere).
+func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort string) {
+	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else hydrogen
+		t.Model = agyDefaultModel
+	}
+	ctx := context.Background() // Before carries no ctx; the run's values ride req
+	if req.Values != nil {
+		ctx = proc.WithValues(ctx, req.Values)
+	}
+	gt := t
+	if req.Model == "" {
+		gt = agent.PinnedTarget(ctx, "gemini", t)
+		if router.PinMisfit(t.Provider, gt.Model, time.Now()) {
+			gt = t // a pin this Databricks row does not serve (a Google id): the route's own default runs
+		}
+	}
+	if agyForeign(gt.Model) && req.CellModel {
+		gt.Model = "" // a ladder cell's row slot (a Claude id) is not agy's pick: the pin or default runs
+	}
+	if !agent.GeminiGatewayRow(t.Provider) {
+		return gt.Model, ""
+	}
+	base, arg, err := agyGatewayArg(gt.Model) // gateway agy lists only the base id; the effort rides --effort
+	if err != nil {
+		return gt.Model, "" // geminiGateway refuses it before the launch
+	}
+	return base, agyArgEffort(base, arg)
+}
+
+// agyArgEffort is the effort suffix agyGatewayArg appended to base in arg ("" when none).
+func agyArgEffort(base, arg string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(arg, base), "-")
+}
+
+// newAgyRequest is the agy run for req: only the resolved credential env carries over; agyArgv builds the argv.
+func newAgyRequest(p agent.CLIPrep, req agent.RunOptions) agyRequest {
+	model, effort := agyModelEffort(req, p.Target)
+	prompt := p.Prompt
+	if req.Tools && p.Target.Provider != nil {
+		prompt = agent.WebViaCLI + "\n\n" + prompt
+	}
+	return agyRequest{
+		Prompt: prompt, Model: model, Effort: effort, Cwd: req.WorkDir, Tools: req.Tools,
+		DebugFile: req.DebugFile, Env: p.Env, KeepEnv: req.KeepEnv, SessionID: req.SessionID, OutputSchema: req.OutputSchema,
+		SettingsArgv: p.Argv,
+	}
+}
+
+// agyLive holds `agy --input-format stream-json`: one conversation, one NDJSON line per turn.
+type agyLive struct {
+	tools   bool
+	cwd     string // every turn's shell dir
+	intro   string // emulated system prompts, owed to the first turn only
+	resumed bool   // a --session conversation: agy's cumulative usage already holds its history
+	prev    wire.Usage
+}
+
+func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
+	ctx = agent.DirectCtx(ctx, req)
+	id := agent.DispatchIDOf(ctx)
+	agent.TakeChosenProxy(id)                       // a stale label from an earlier attempt must not reach this one
+	defer agent.TakeChosenProxy(id)                 // no entry is left behind once the command is built
+	req.Prompt = cmp.Or(req.Prompt, "live session") // prepare wants a prompt; the turns carry the real ones
+	p, err := agent.PrepareCLI(ctx, "gemini", req)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	areq := newAgyRequest(p, req)
+	if err := agyCheckGateway(p.Target.Provider, areq.Model, areq.Env); err != nil {
+		return nil, nil, "", retry.Fatal("gemini", err)
+	}
+	bin, err := paths.AgentBin("agy")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("gemini: %w", err)
+	}
+	if areq.Tools && p.Target.Provider != nil {
+		b.intro += agent.WebViaCLI + "\n\n"
+	}
+	b.tools, b.cwd, b.resumed = areq.Tools, areq.Cwd, req.SessionID != ""
+	if req.SystemPrompt != "" { // agy has no system-prompt flag: the one-shot path prepends it, so does the first turn
+		b.intro += agent.Preamble(req.SystemPrompt)
+	}
+	if req.AppendSystemPrompt != "" {
+		b.intro += agent.Preamble(req.AppendSystemPrompt)
+	}
+	if err := ensureAgyPackDir(areq); err != nil {
+		return nil, nil, "", err
+	}
+	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(areq), areq.Env, areq.Cwd, "", areq.KeepEnv, true)
+	if err := bindAgyChild(cmd); err != nil {
+		return nil, nil, "", err
+	}
+	return cmd, tail, p.Result.Provider, nil
+}
+
+func (b *agyLive) WriteTurn(w io.Writer, prompt string) error {
+	prompt, b.intro = b.intro+prompt, ""
+	line, err := agyStdin(agyRequest{Prompt: prompt, Tools: b.tools, Cwd: b.cwd})
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, line)
+	return err
+}
+
+// Parse subtracts the usage already reported: agy's result usage is cumulative over the conversation.
+func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
+	res, err := parseAgyEvents(dec, sink, true, lg)
+	if err != nil && !agent.IsResultError(err) {
+		return res, err
+	}
+	total := res.Usage
+	if b.resumed { // the history behind a --session is unknown: this turn reports no usage, later ones their delta
+		b.resumed, b.prev, res.Usage = false, total, wire.Usage{}
+		return res, err
+	}
+	res.Usage = wire.Usage{InputTokens: max(total.InputTokens-b.prev.InputTokens, 0), OutputTokens: max(total.OutputTokens-b.prev.OutputTokens, 0),
+		CacheReadTokens: max(total.CacheReadTokens-b.prev.CacheReadTokens, 0), CostUSD: max(total.CostUSD-b.prev.CostUSD, 0)}
+	b.prev = total
+	return res, err
+}
+
+func init() {
+	agent.Register(agent.Agent{Row: row, Driver: geminiEngine{agent.NewBaseEngine("gemini")}})
+}
+
+// row is gemini's roster entry: binary, dialects, capabilities, events and launch hints.
+var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
+	PromptVia: agent.PromptStdin,
+	Carry:     true,
+	// agy print mode drops a single message's text past ~100–200 KB (probe 2026-11-05: found at 100 KB, lost at 200 KB)
+	PromptMaxBytes: 100 * 1024,
+	// agy print mode cannot carry a large message but reads a 300 KB file with tools (probe 2026-11-05, ZEBRA-290)
+	PackVia: agent.PackFile,
+	Binary:  "agy",
+	Flags: []string{"--model", "--effort", "--conversation", "--input-format", "--output-format", "--json-schema",
+		"--dangerously-skip-permissions", "--add-dir", "--log-file", "--settings", "--print-timeout"},
+	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
+		Tools: agent.Native, Autonomous: agent.None, DebugFile: agent.Native, Direct: agent.Native, Env: agent.Native,
+		SystemPrompt: agent.Emulated, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Native, Persona: agent.Emulated},
+	Events: []string{wire.EventStart, wire.EventText, wire.EventProgress, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError}, Cost: true,
+	ResumeFormat: "agy --conversation %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
+	ConfigureHint: "sign in with `agy` (Google login)", DisplayName: "antigravity", LoginArgv: []string{"agy"},
+	Extras: map[string][]string{extraUseGuardRules: {"true", "false"}},
+}}
+
+// extraUseGuardRules gates the guard denies in agy's settings and --settings; only "false" turns them off.
+const extraUseGuardRules = "useGuardRules"

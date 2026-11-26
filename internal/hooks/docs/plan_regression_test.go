@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 func TestMirrorConcurrentFirstWriteUsesOneDestination(t *testing.T) {

@@ -10,11 +10,11 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/rtkwrap"
-	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/shell"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 func rtkOut(t *testing.T, in string) (cmd string, emitted bool) {

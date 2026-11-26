@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Bridge, removal condition: delete this file once sessions.json holds no "sessions" entry, or at the next release.

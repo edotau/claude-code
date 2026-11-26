@@ -1,0 +1,289 @@
+package catalog
+
+import (
+	"path"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/routing/models"
+)
+
+// The shipped ranks parse, every fact is ordinal 1..5, every pattern is valid and the tiers climb.
+func TestRanksData(t *testing.T) {
+	r := loadRanks()
+	if f, s, d := r.Tiers["fast"], r.Tiers["standard"], r.Tiers["deep"]; f < 1 || f >= s || s >= d {
+		t.Errorf("tiers = %v, want fast < standard < deep, all set", r.Tiers)
+	}
+	for _, f := range r.Families {
+		if _, err := path.Match(f.Match, "x"); err != nil {
+			t.Errorf("%s: %v", f.Match, err)
+		}
+		for _, v := range []int{f.Capability, f.Speed, f.Cost} {
+			if v < 1 || v > 5 {
+				t.Errorf("%s: %+v has a fact outside 1..5", f.Match, f)
+			}
+		}
+	}
+}
+
+// An unknown local stage or tier is refused.
+func TestLocalRule(t *testing.T) {
+	tiers := loadRanks().Tiers
+	err := localRule{Stage: "all", MaxPrompt: 1}.validate(tiers)
+	if err == nil || !strings.Contains(err.Error(), "off, shadow, last") {
+		t.Errorf("unknown stage err = %v, want the allowed values named", err)
+	}
+	if err := (localRule{Stage: "last", Tiers: []string{"huge"}, MaxPrompt: 1}).validate(tiers); err == nil {
+		t.Error("unknown tier accepted")
+	}
+}
+
+// A pattern every id of which an earlier pattern already matches never ranks anything (first match wins).
+func TestRanksNoShadowedPattern(t *testing.T) {
+	fam := loadRanks().Families
+	for j, b := range fam {
+		text := strings.ReplaceAll(b.Match, "*", "\x00") // only a star of the earlier pattern can consume b's star
+		for _, a := range fam[:j] {
+			if ok, _ := path.Match(a.Match, text); ok {
+				t.Errorf("%s is shadowed by the earlier %s", b.Match, a.Match)
+			}
+		}
+	}
+}
+
+// A dated or prefixed id inherits its family's rank; an id no family matches is unknown.
+func TestRankOfFamily(t *testing.T) {
+	tbl := rankTable{Families: []Rank{{Match: "*big-1*", Capability: 5, Cost: 4}}}
+	tbl.Families[0].Known = true
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	base := RankOf("big-1")
+	for _, id := range []string{"big-1-20261201", "databricks-big-1"} {
+		if got := RankOf(id); !got.Known || got.Match != base.Match {
+			t.Errorf("RankOf(%s) = %+v, want %s's family", id, got, base.Match)
+		}
+	}
+	if RankOf("zz-unranked-1").Known {
+		t.Error("an unmatched id is known")
+	}
+}
+
+// stubRanks swaps the table for one whose facts the rules alone decide.
+func stubRanks(t *testing.T) {
+	t.Helper()
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	tbl := rankTable{Tiers: map[string]int{"fast": 1, "standard": 3, "deep": 5}, Families: []Rank{
+		{Match: "big*", Capability: 5, Speed: 1, Cost: 5},
+		{Match: "mid-a*", Capability: 3, Speed: 3, Cost: 3},
+		{Match: "mid-b*", Capability: 3, Speed: 3, Cost: 2},
+		{Match: "quick*", Capability: 1, Speed: 5, Cost: 2},
+		{Match: "tiny*", Capability: 1, Speed: 4, Cost: 1},
+		{Match: "twin*", Capability: 3, Speed: 3, Cost: 3},
+	}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	loadRanks = func() rankTable { return tbl }
+}
+
+// saveShadowFit writes a fresh table whose failing cells would reorder every stub family once live.
+func saveShadowFit(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	f := Fit{Schema: fitSchema, Created: time.Now()}
+	for _, a := range []string{models.Haiku, models.Sonnet, models.Opus} {
+		for _, m := range []string{"big*", "mid-a*", "mid-b*", "quick*", "tiny*", "twin*"} {
+			f.Cells = append(f.Cells, FitCell{Alias: a, Agent: "claude", Match: m, B: 9, At: time.Now()})
+		}
+	}
+	if err := SaveFit(f); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func cands(ids ...string) []Candidate {
+	out := make([]Candidate, len(ids))
+	for i, id := range ids {
+		out[i] = Candidate{Model: id}
+	}
+	return out
+}
+
+func TestRotationPool(t *testing.T) {
+	tbl := rankTable{Rotation: map[string]rotationRule{
+		"fast": {Min: 1, MaxCost: 2}, "standard": {Min: 3, MaxCost: 4}, "deep": {Min: 5, MaxCost: 5},
+	}, Families: []Rank{
+		{Match: "nano*", Capability: 1, Cost: 5}, {Match: "luna*", Capability: 1, Cost: 1},
+		{Match: "midm*", Capability: 3, Cost: 3}, {Match: "topm*", Capability: 5, Cost: 4},
+	}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	in := []Candidate{
+		{Model: "nano-1"}, {Model: "luna-1"},
+		{Model: "midm-1"}, {Model: "topm-1"},
+		{Model: "fake-model-a", Tools: "yes"}, {Model: "fake-model-b"},
+		{Model: "luna-2", Tools: "no"},
+	}
+	for _, tc := range []struct {
+		name, tier string
+		tools      bool
+		want       []string
+	}{
+		{"fast", "fast", false, []string{"luna-1", "fake-model-a", "fake-model-b", "luna-2"}},
+		{"fast with tools", "fast", true, []string{"luna-1", "fake-model-a"}},
+		{"standard", "standard", false, []string{"midm-1", "topm-1"}},
+		{"deep", "deep", false, []string{"topm-1"}},
+		{"unknown tier", "unknown", false, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RotationPool(in, tc.tier, tc.tools); !slices.Equal(got, tc.want) {
+				t.Errorf("RotationPool = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A row marked rotate false leaves every rotation pool in both spellings yet stays ranked and pickable when typed.
+func TestRotationPoolOutOfRotation(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	off := false
+	tbl := rankTable{Tiers: map[string]int{"standard": 4, "deep": 5}, Rotation: map[string]rotationRule{
+		"standard": {Min: 4, MaxCost: 5}, "deep": {Min: 5, MaxCost: 5},
+	}, Families: []Rank{{Match: "old-5-5*", Capability: 5, Cost: 4, Rotate: &off}, {Match: "new-6-1*", Capability: 5, Cost: 4}}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	for _, id := range []string{"databricks-old-5-5", "old-5.5"} {
+		for _, tier := range []string{"standard", "deep"} {
+			if got := RotationPool(cands(id, "new-6-1"), tier, false); !slices.Equal(got, []string{"new-6-1"}) {
+				t.Errorf("RotationPool(%s, %s) = %v, want only new-6-1", id, tier, got)
+			}
+			if c := Choose(cands(id), "claude", tier, false); !RankOf(id).Known || len(c.Ranked) != 1 {
+				t.Errorf("typed %s at %s: known %v, ranked %+v; want it ranked and picked", id, tier, RankOf(id).Known, c.Ranked)
+			}
+		}
+	}
+}
+
+// Choose: at or above the tier, cheapest then fastest; fast is fastest then cheapest; ties by data order then name.
+func TestChoose(t *testing.T) {
+	stubRanks(t)
+	noTools := Candidate{Model: "mid-b", Tools: "no"}
+	for _, tc := range []struct {
+		name, tier string
+		in         []Candidate
+		tools      bool
+		want       string
+		stepped    bool
+	}{
+		{"standard prefers cost", "standard", cands("big", "mid-a", "mid-b", "quick"), false, "mid-b", false},
+		{"deep only at or above", "deep", cands("mid-a", "big", "mid-b"), false, "big", false},
+		{"fast prefers speed", "fast", cands("tiny", "quick", "mid-b"), false, "quick", false},
+		{"tie by data order", "standard", cands("twin", "mid-a"), false, "mid-a", false},
+		{"tie by name", "standard", cands("mid-a-y", "mid-a-x"), false, "mid-a-x", false},
+		{"step down", "deep", cands("quick", "mid-a"), false, "mid-a", true},
+		{"tools drop a refusing probe", "standard", []Candidate{noTools, {Model: "mid-a"}}, true, "mid-a", false},
+		{"no tools keeps it", "standard", []Candidate{noTools, {Model: "mid-a"}}, false, "mid-b", false},
+		{"unknown never deep", "deep", cands("zz"), false, "", false},
+		{"unknown never standard", "standard", cands("zz"), false, "", false},
+		{"unknown fast after known", "fast", cands("zz", "tiny"), false, "tiny", false},
+		{"unknown fast needs a tool probe", "fast", cands("zz"), true, "", false},
+		{"unknown fast with a tool probe", "fast", []Candidate{{Model: "zz", Tools: "yes"}}, true, "zz", false},
+	} {
+		c := Choose(tc.in, "claude", tc.tier, tc.tools)
+		got := ""
+		if len(c.Ranked) > 0 {
+			got = c.Ranked[0].Model
+		}
+		saveShadowFit(t)
+		sh := Choose(tc.in, "claude", tc.tier, tc.tools)
+		if !slices.EqualFunc(sh.Ranked, c.Ranked, func(a, b Ranked) bool { return a.Model == b.Model }) {
+			t.Errorf("%s: shadow fit changed the order %v -> %v", tc.name, c.Ranked, sh.Ranked)
+		}
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		if got != tc.want || c.Stepped != tc.stepped {
+			t.Errorf("%s: picked %q stepped %v, want %q stepped %v", tc.name, got, c.Stepped, tc.want, tc.stepped)
+		}
+	}
+}
+
+// The literal-prefix fast path of RankOf agrees with path.Match on every family, slash tails included.
+func TestRankOfMatchesPathMatch(t *testing.T) {
+	tab := loadRanks()
+	for _, f := range tab.Families {
+		stem := strings.ReplaceAll(strings.ReplaceAll(f.Match, "*", "x"), "?", "y")
+		for _, id := range []string{stem, stem + "-1", stem + "/a", "x/" + stem, strings.TrimSuffix(stem, "x")} {
+			var want Rank
+			for _, r := range tab.Families {
+				if ok, _ := path.Match(r.Match, ID(id)); ok {
+					want = r
+					break
+				}
+			}
+			if got := RankOf(id); got.Match != want.Match {
+				t.Errorf("RankOf(%q).Match = %q, want %q", id, got.Match, want.Match)
+			}
+		}
+	}
+}
+
+func BenchmarkRankOf(b *testing.B) {
+	ids := []string{"claude-opus-5-5-20261001", "databricks-gpt-5-5", "gemini-3-8-flash-lite", "no-such-model"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		RankOf(ids[i%len(ids)])
+	}
+}
+
+func BenchmarkChoose(b *testing.B) {
+	cands := []Candidate{
+		{"claude-opus-5-5", "yes"}, {"claude-sonnet-5-5", "yes"}, {"claude-haiku-5-5", ""},
+		{"databricks-gpt-5-5", "no"}, {"gemini-3-8-flash", "yes"}, {"no-such-model", "yes"},
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		Choose(cands, "claude", "standard", true)
+	}
+}
+
+func TestRankOfDottedSpelling(t *testing.T) {
+	tbl := rankTable{Families: []Rank{{Match: "grok-4-7*", Capability: 4}}}
+	tbl.Families[0].Known = true
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	if dot, dash := RankOf("grok-4.7"), RankOf("grok-4-7"); dot.Capability != dash.Capability || dash.Capability == 0 {
+		t.Errorf("grok-4.7 ranks capability %d, grok-4-7 %d; want the same spelling-independent rank", dot.Capability, dash.Capability)
+	}
+}
+
+// A tier's defer rule marks only the pool's models at or above defer_cost; a tier without one marks none.
+func TestDeferTurns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tbl := rankTable{Rotation: map[string]rotationRule{"standard": {Min: 4, MaxCost: 5, DeferCost: 5, DeferTurns: 3}, "deep": {Min: 5, MaxCost: 5}},
+		Families: []Rank{{Match: "cheap-*", Capability: 4, Cost: 3}, {Match: "dear-*", Capability: 5, Cost: 5}}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	pool := []string{"dear-1", "cheap-a", "fake-unranked"}
+	if got := DeferTurns(pool, "standard"); len(got) != 1 || got["dear-1"] != 3 {
+		t.Errorf("standard = %v, want only dear-1: 3", got)
+	}
+	if got := DeferTurns(pool, "deep"); got != nil {
+		t.Errorf("deep = %v, want nil", got)
+	}
+}

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 func TestModelBudgetDropOrder(t *testing.T) {

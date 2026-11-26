@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // A hard-quota 429 demotes within the provider and skips the denied model on subsequent requests.

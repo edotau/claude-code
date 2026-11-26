@@ -1,0 +1,792 @@
+package providers
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/platform/vault"
+)
+
+// ErrPassthrough means the provider forwards the client's own auth; there is no credential to mint.
+var ErrPassthrough = errors.New("provider uses passthrough auth")
+
+type cached struct {
+	value string
+	until time.Time
+	// zero: unservable past until; else a sealed token served stale until here (expiry minus expirySkew)
+	hard time.Time
+}
+
+// cacheState is a cached token's age: missing or expired, fresh, or stale (valid but due for refresh).
+type cacheState int
+
+const (
+	cacheMiss cacheState = iota
+	cacheFresh
+	cacheStale
+)
+
+// credNow is the credential cache's clock; a var so tests step time without sleeping.
+var credNow = time.Now
+
+var cmdCache sync.Map
+
+// Credential resolves a cached command token first, then env → vault → file → command; sealed types mint.
+func Credential(ctx context.Context, p *Provider) (string, error) {
+	switch p.Auth.Type {
+	case AuthNone:
+		return "", nil
+	case AuthCLI:
+		return "", ErrPassthrough
+	}
+	if sealedAuth(p.Auth.Type) {
+		return authCredential(ctx, p, false)
+	}
+	if v, ok := cacheGet(&cmdCache, p.Name); ok && p.Auth.Command != "" {
+		return v, nil
+	}
+	v, vaultErr := vaultCredential(ctx, p)
+	if v != "" {
+		return v, nil
+	}
+	fileVal, fileErr := fileCredential(p)
+	if fileVal != "" {
+		return fileVal, nil
+	}
+	if p.Auth.Command != "" {
+		return commandCredential(ctx, p, false)
+	}
+	if fileErr != nil {
+		return "", fileErr
+	}
+	if vaultErr != nil {
+		return "", fmt.Errorf("%s: no credential (vault: %v)", p.Name, vaultErr)
+	}
+	return "", fmt.Errorf("%s: no credential (set %s with `claude-code vault set`%s)", p.Name, keyHint(p), hint(p))
+}
+
+type credOverrideKey struct{}
+
+// credOverride is one in-memory candidate for a key name; an empty value means "unset", never "fall back".
+type credOverride struct{ name, value string }
+
+// WithCredentialOverride makes Credential read value for the key name ahead of env and vault, for ctx's calls only.
+func WithCredentialOverride(ctx context.Context, name, value string) context.Context {
+	return context.WithValue(ctx, credOverrideKey{}, credOverride{name, value})
+}
+
+// overrideFor returns ctx's override value for name and whether one applies.
+func overrideFor(ctx context.Context, name string) (string, bool) {
+	o, ok := ctx.Value(credOverrideKey{}).(credOverride)
+	if !ok || o.name != name {
+		return "", false
+	}
+	return o.value, true
+}
+
+// vaultCredential returns the first non-empty effective secret among the key names, plus the first vault error seen.
+func vaultCredential(ctx context.Context, p *Provider) (string, error) {
+	var vaultErr error
+	for _, n := range keyNames(p) {
+		if v, ok := overrideFor(ctx, n); ok {
+			if v != "" {
+				return v, vaultErr
+			}
+			continue
+		}
+		v, _, err := vault.EffectiveSecret(n)
+		vaultErr = cmp.Or(vaultErr, err)
+		if err == nil && v != "" {
+			return v, vaultErr
+		}
+	}
+	return "", vaultErr
+}
+
+// fileCredential returns the trimmed contents of auth.file, "" when unset, missing or blank; other read errors surface.
+func fileCredential(p *Provider) (string, error) {
+	if p.Auth.File == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(paths.ExpandHome(p.Auth.File))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%s: auth.file: %w", p.Name, err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// keyNames are the vault/env names a key row's credential may sit under: its new name, then auth.env (old/agent name).
+func keyNames(p *Provider) []string {
+	var out []string
+	if n := keySecretName(p); n != "" {
+		out = append(out, n)
+	}
+	if p.Auth.Env != "" {
+		out = append(out, p.Auth.Env)
+	}
+	return out
+}
+
+// Refresh drops a cached command credential and re-runs it; used after an upstream 401.
+func Refresh(ctx context.Context, p *Provider) (string, error) {
+	if sealedAuth(p.Auth.Type) {
+		return authCredential(ctx, p, true)
+	}
+	if p.Auth.Command == "" {
+		return Credential(ctx, p)
+	}
+	return commandCredential(ctx, p, true)
+}
+
+type rejectedKey struct{}
+
+// RefreshRejected is Refresh after upstream refused rejected: a newer token a peer already minted is adopted instead.
+func RefreshRejected(ctx context.Context, p *Provider, rejected string) (string, error) {
+	return Refresh(context.WithValue(ctx, rejectedKey{}, rejected), p)
+}
+
+// flight is one in-progress command mint for a provider; followers wait on done and share val/err.
+type flight struct {
+	done     chan struct{}
+	force    bool
+	val      string
+	err      error
+	panicked any
+	// callers still waiting, guarded by the group's mu; the last to leave runs cancel
+	waiters int
+	// ends the mint's context (it never starts an exchange after); nil on a background flight
+	cancel context.CancelFunc
+}
+
+// errMintAborted is what followers see when the leader's mint panics before it returns.
+var errMintAborted = errors.New("credential mint aborted")
+
+// flightHook is a test seam: called with true when a mint leader starts, false when a follower starts waiting.
+var flightHook = func(bool) {}
+
+// flightGroup is single-flight per provider name; cached short-circuits a non-forced call before it joins a flight.
+type flightGroup struct {
+	mu      sync.Mutex
+	flights map[string]*flight
+	cached  func(name string) (string, cacheState)
+	// name -> start of its last background refresh, spaced by refreshCooldown
+	tried map[string]time.Time
+}
+
+var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, cacheState) {
+	return cacheLookup(&cmdCache, name)
+}}
+
+// cacheGet returns the fresh value cached under name.
+func cacheGet(m *sync.Map, name string) (string, bool) {
+	v, st := cacheLookup(m, name)
+	return v, st == cacheFresh
+}
+
+// cacheLookup is the value cached under name and its state; past hard (or past until with no hard) it is a miss.
+func cacheLookup(m *sync.Map, name string) (string, cacheState) {
+	c, ok := m.Load(name)
+	if !ok {
+		return "", cacheMiss
+	}
+	e, now := c.(cached), credNow()
+	switch {
+	case !e.hard.IsZero() && !now.Before(e.hard):
+		return "", cacheMiss
+	case now.Before(e.until):
+		return e.value, cacheFresh
+	case now.Before(e.hard):
+		return e.value, cacheStale
+	}
+	return "", cacheMiss
+}
+
+const (
+	// maxStaleWindow caps how long before expiry a sealed token turns stale and is refreshed early.
+	maxStaleWindow = 20 * time.Minute
+	// expirySkew caps the last margin before expiry a stale token is served; past it callers block on a refresh.
+	expirySkew = time.Minute
+	// refreshCooldown spaces background refreshes per profile so a failing token endpoint sees no storm.
+	refreshCooldown = time.Minute
+	// backgroundRefreshTimeout bounds a background refresh's wait before its exchange; a sent exchange runs on.
+	backgroundRefreshTimeout = time.Minute
+)
+
+// stopWait bounds a wait for in-flight exchanges: a sent exchange (exchangeBound) plus its seal and a margin.
+var stopWait = exchangeBound + sealTimeout + 5*time.Second
+
+// exchanges counts u2m exchanges from send to seal; closed refuses new ones once the process is shutting down.
+var exchanges struct {
+	sync.Mutex
+	n      int
+	closed bool
+	idle   chan struct{}
+}
+
+// errShuttingDown refuses an exchange that would start after its process began to stop.
+var errShuttingDown = errors.New("shutting down: no new token exchange starts")
+
+// exchangeStart admits one exchange unless admission is closed.
+func exchangeStart() error {
+	exchanges.Lock()
+	defer exchanges.Unlock()
+	if exchanges.closed {
+		return errShuttingDown
+	}
+	if exchanges.n == 0 {
+		exchanges.idle = make(chan struct{})
+	}
+	exchanges.n++
+	return nil
+}
+
+func exchangeDone() {
+	exchanges.Lock()
+	defer exchanges.Unlock()
+	if exchanges.n--; exchanges.n == 0 {
+		close(exchanges.idle)
+	}
+}
+
+// FinishExchanges closes admission and waits up to stopWait for in-flight exchanges to seal; false when it gave up.
+func FinishExchanges() bool {
+	exchanges.Lock()
+	exchanges.closed = true
+	idle := exchanges.idle
+	if exchanges.n == 0 {
+		idle = nil
+	}
+	exchanges.Unlock()
+	if idle == nil {
+		return true
+	}
+	select {
+	case <-idle:
+		return true
+	case <-time.After(stopWait):
+		fmt.Fprintf(os.Stderr, "providers: a token exchange is still running after %v; exiting\n", stopWait)
+		return false
+	}
+}
+
+// openExchanges re-admits exchanges; BackgroundRefresh starts a new serving life.
+func openExchanges() {
+	exchanges.Lock()
+	exchanges.closed = false
+	exchanges.Unlock()
+}
+
+// bgBase is set only in a long-lived process (the proxy): a stale token is served while one refresh runs behind it.
+var bgBase atomic.Pointer[context.Context]
+
+// BackgroundRefresh enables stale-while-refresh until stop; stop refuses new exchanges and waits for sent ones.
+func BackgroundRefresh(ctx context.Context) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	ref := &ctx
+	openExchanges()
+	bgBase.Store(ref)
+	return func() {
+		cancel()
+		bgBase.CompareAndSwap(ref, nil)
+		FinishExchanges()
+	}
+}
+
+// backgroundContext is the live BackgroundRefresh context; nil in a short-lived process, which refreshes in line.
+func backgroundContext() context.Context {
+	if ref := bgBase.Load(); ref != nil && (*ref).Err() == nil {
+		return *ref
+	}
+	return nil
+}
+
+// served is the cached value a non-forced call may return now; a stale one also starts a background refresh.
+func (g *flightGroup) served(ctx context.Context, name string, mint func(context.Context) (string, error)) (string, bool) {
+	v, st := g.cached(name)
+	if st == cacheFresh {
+		return v, true
+	}
+	base := backgroundContext()
+	if st != cacheStale || base == nil {
+		return "", false
+	}
+	g.refreshBehind(base, ctx, name, mint)
+	return v, true
+}
+
+// refreshBehind starts one background flight for name unless one runs or the cool-down holds; callers hold g.mu.
+func (g *flightGroup) refreshBehind(base, ctx context.Context, name string, mint func(context.Context) (string, error)) {
+	now := credNow()
+	if _, inflight := g.flights[name]; inflight || now.Before(g.tried[name].Add(refreshCooldown)) {
+		return
+	}
+	f := &flight{done: make(chan struct{}), err: errMintAborted}
+	g.flights[name] = f
+	// the request's values (identity) carry over; its cancellation must not, the base's must
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundRefreshTimeout)
+	stop := context.AfterFunc(base, cancel)
+	go g.runMint(name, f, func() {
+		defer func() { stop(); cancel(); g.cooled(name) }()
+		f.val, f.err = mint(mctx)
+		if f.err != nil {
+			fmt.Fprintf(os.Stderr, "%s: background token refresh failed (%s); serving the cached token until it expires\n",
+				name, Verdict(f.err))
+		}
+	})
+}
+
+// cooled starts name's refresh cool-down when an attempt finishes, so a slow failure cannot be retried at once.
+func (g *flightGroup) cooled(name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.tried == nil {
+		g.tried = map[string]time.Time{}
+	}
+	g.tried[name] = credNow()
+}
+
+// mintOnce is the one mint coordinator: per provider, single-flight; a forced call never joins a non-forced flight.
+func mintOnce(ctx context.Context, p *Provider, force bool, mint func(context.Context) (string, error)) (string, error) {
+	return cmdFlights.do(ctx, p.Name, force, mint)
+}
+
+func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func(context.Context) (string, error)) (string, error) {
+	for {
+		g.mu.Lock()
+		if !force {
+			if v, ok := g.served(ctx, name, mint); ok {
+				g.mu.Unlock()
+				return v, nil
+			}
+		} else if v, ok := g.adoptable(ctx, name); ok {
+			g.mu.Unlock()
+			return v, nil
+		}
+		f, inflight := g.flights[name]
+		if !inflight {
+			// the mint outlives any one caller, but not all of them: see leave
+			mctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+			f = &flight{done: make(chan struct{}), force: force, err: errMintAborted, waiters: 1, cancel: cancel}
+			g.flights[name] = f
+			g.mu.Unlock()
+			flightHook(true)
+			go g.runMint(name, f, func() { defer cancel(); f.val, f.err = mint(mctx) })
+			return g.awaitFlight(ctx, name, f)
+		}
+		f.waiters++
+		g.mu.Unlock()
+		flightHook(false)
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			g.leave(name, f)
+			return "", ctx.Err()
+		}
+		if f.force || !force {
+			return f.val, f.err
+		}
+	}
+}
+
+// adoptable is the fresh cached token of a mint that finished after ctx's rejected one; callers hold g.mu.
+func (g *flightGroup) adoptable(ctx context.Context, name string) (string, bool) {
+	rejected, _ := ctx.Value(rejectedKey{}).(string)
+	if rejected == "" {
+		return "", false
+	}
+	v, st := g.cached(name)
+	return v, st == cacheFresh && v != "" && v != rejected
+}
+
+// runMint runs one flight's mint, then retires the flight and wakes its waiters, even if the leader gave up.
+func (g *flightGroup) runMint(name string, f *flight, mint func()) {
+	defer func() {
+		// re-raised in the leader's caller by awaitFlight
+		f.panicked = recover()
+		g.mu.Lock()
+		if g.flights[name] == f {
+			delete(g.flights, name)
+		}
+		g.mu.Unlock()
+		close(f.done)
+	}()
+	mint()
+}
+
+// awaitFlight waits for f's mint; a caller whose ctx ends stops waiting while the mint continues for followers.
+func (g *flightGroup) awaitFlight(ctx context.Context, name string, f *flight) (string, error) {
+	select {
+	case <-f.done:
+		if f.panicked != nil {
+			panic(f.panicked)
+		}
+		return f.val, f.err
+	case <-ctx.Done():
+		g.leave(name, f)
+		return "", ctx.Err()
+	}
+}
+
+// leave drops a waiter whose ctx ended; when none remain the mint is cancelled and a new caller starts afresh.
+func (g *flightGroup) leave(name string, f *flight) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if f.waiters--; f.waiters > 0 || f.cancel == nil {
+		return
+	}
+	f.cancel()
+	if g.flights[name] == f {
+		delete(g.flights, name)
+	}
+}
+
+func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
+	// an auth command runs to the end even when every caller left, as before: its result is cached for the next one
+	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
+		return mintCommand(context.WithoutCancel(ctx), p, force)
+	})
+}
+
+func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
+	cmd := p.Auth.Command
+	if force && p.Auth.RefreshCommand != "" {
+		cmd = p.Auth.RefreshCommand
+	}
+	v, err := runAuthCommand(ctx, p, cmd)
+	if err != nil {
+		return "", err
+	}
+	if rotateNearExpiry(p, cmd, v) {
+		if v, err = runAuthCommand(ctx, p, p.Auth.RefreshCommand); err != nil {
+			return "", err
+		}
+	}
+	if err := finishCredential(p, v, time.Time{}); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// rotateNearExpiry reports whether v came from the primary command, is near expiry and a refresh command exists.
+func rotateNearExpiry(p *Provider, cmd, v string) bool {
+	exp, ok := JWTExp(v)
+	return ok && p.Auth.RefreshCommand != "" && cmd != p.Auth.RefreshCommand &&
+		time.Until(time.Unix(exp, 0)) < expiryMargin
+}
+
+// finishCredential is the shared tail of every mint: issuer check, expiry record, cache until min(ttl, exp-10m).
+func finishCredential(p *Provider, v string, exp time.Time) error {
+	return cacheCredential(p, &cmdCache, p.Name, expiryMethod(p.Auth.Method()), v, exp)
+}
+
+// cacheCredential checks the issuer, records the expiry under record and caches v in cache until min(ttl, exp-10m).
+func cacheCredential(p *Provider, cache *sync.Map, record, method, v string, exp time.Time) error {
+	if err := checkIssuer(p, v); err != nil {
+		return err
+	}
+	recordTokenExpiry(record, v, method)
+	ttl := time.Duration(p.Auth.TTL) * time.Second
+	if ttl <= 0 {
+		ttl = 5 * time.Minute
+	}
+	now := credNow()
+	var issued time.Time
+	if !exp.IsZero() {
+		// an expiry from the token endpoint means the token was minted just now
+		issued = now
+	} else if e, ok := JWTExp(v); ok {
+		exp = time.Unix(e, 0)
+	}
+	cache.Store(p.Name, cacheEntry(p, v, now.Add(ttl), exp, issued))
+	return nil
+}
+
+// cacheEntry is v fresh until until or its refresh point; a sealed type's token may then be served stale until hard.
+func cacheEntry(p *Provider, v string, until, exp, issued time.Time) cached {
+	if exp.IsZero() {
+		return cached{value: v, until: until}
+	}
+	if !sealedAuth(p.Auth.Type) {
+		return cached{value: v, until: minTime(until, exp.Add(-expiryMargin))}
+	}
+	window, skew := tokenMargins(v, exp, issued)
+	return cached{value: v, until: minTime(until, exp.Add(-window)), hard: exp.Add(-skew)}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
+// staleWindow is min(lifetime/2, 20m), lifetime from issued else the JWT iat; unknown keeps the old 10m margin.
+func staleWindow(v string, exp, issued time.Time) time.Duration {
+	var claims struct {
+		Iat *float64 `json:"iat"`
+	}
+	if issued.IsZero() && textutil.JWTClaims(v, &claims) && claims.Iat != nil && *claims.Iat > 0 && *claims.Iat < maxJWTExp {
+		issued = time.Unix(int64(*claims.Iat), 0)
+	}
+	if issued.IsZero() {
+		return expiryMargin
+	}
+	if !exp.After(issued) {
+		return 0
+	}
+	return min(exp.Sub(issued)/2, maxStaleWindow)
+}
+
+// tokenMargins is v's stale window and serve skew; the skew stays under the window so a short life still caches.
+func tokenMargins(v string, exp, issued time.Time) (window, skew time.Duration) {
+	window = staleWindow(v, exp, issued)
+	return window, min(expirySkew, window/2)
+}
+
+// freshMargin asks jwtValidPast for the token's own stale window, so a peer's stale token is never adopted.
+const freshMargin time.Duration = -1
+
+// jwtValidPast returns v when its JWT exp is still more than margin away.
+func jwtValidPast(v string, margin time.Duration) (string, bool) {
+	e, ok := JWTExp(v)
+	if !ok {
+		return "", false
+	}
+	exp := time.Unix(e, 0)
+	if margin == freshMargin {
+		margin = staleWindow(v, exp, time.Time{})
+	}
+	if !exp.Add(-margin).After(credNow()) {
+		return "", false
+	}
+	return v, true
+}
+
+// staleServe rides out a transient mint failure on old: fresh for one minute, then stale until its expiry skew.
+func staleServe(p *Provider, cache *sync.Map, what, old string, err error) (string, bool) {
+	if old == "" {
+		return "", false
+	}
+	fmt.Fprintf(os.Stderr, "%s: %s failed (%s); using the cached token until it expires\n", p.Name, what, Verdict(err))
+	entry := cached{value: old, until: credNow().Add(time.Minute)}
+	if e, ok := JWTExp(old); ok {
+		exp := time.Unix(e, 0)
+		_, skew := tokenMargins(old, exp, time.Time{})
+		entry.hard = exp.Add(-skew)
+	}
+	cache.Store(p.Name, entry)
+	return old, true
+}
+
+// expiryMargin is how close to exp a command token is refreshed, and how early its cache entry ends.
+const expiryMargin = 10 * time.Minute
+
+// authCommandTimeout bounds one auth command; a var so tests can shorten it.
+var authCommandTimeout = 30 * time.Second
+
+// authDrainLimit bounds draining after the group is killed; a child that escaped the group (setsid) can't hang us.
+var authDrainLimit = 5 * time.Second
+
+// runAuthCommand runs one auth shell command and returns its trimmed output; errors never carry the value.
+func runAuthCommand(ctx context.Context, p *Provider, cmd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, authCommandTimeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, "sh", "-c", cmd)
+	// orphaned pipeline children must not hold stdout open past the timeout
+	c.WaitDelay = 5 * time.Second
+	// the timeout, and the command's end, kill everything it started
+	out, err := outputInGroup(c)
+	if err != nil {
+		return "", authCommandError(ctx, p, err)
+	}
+	v := strings.TrimSpace(string(out))
+	// `jq -r .access_token` prints null when the upstream call failed
+	if v == "" || v == "null" {
+		return "", fmt.Errorf("%s: auth command printed nothing", p.Name)
+	}
+	if strings.ContainsFunc(v, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return "", fmt.Errorf("%s: auth command printed more than one bare token", p.Name)
+	}
+	return v, nil
+}
+
+// capBuffer keeps the first max bytes of a helper's output (the last max with tail) and records any drop.
+type capBuffer struct {
+	// named, not embedded: an embedded Buffer's ReadFrom would let io.Copy bypass the cap
+	buf  bytes.Buffer
+	max  int
+	tail bool
+	over bool
+}
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if c.tail {
+		c.buf.Write(p)
+		if extra := c.buf.Len() - c.max; extra > 0 {
+			c.over = true
+			kept := append([]byte(nil), c.buf.Bytes()[extra:]...)
+			c.buf.Reset()
+			c.buf.Write(kept)
+		}
+		return n, nil
+	}
+	room := c.max - c.buf.Len()
+	if len(p) > room {
+		c.over = true
+		p = p[:max(room, 0)]
+	}
+	c.buf.Write(p)
+	return n, nil
+}
+
+func (c *capBuffer) Bytes() []byte { return c.buf.Bytes() }
+
+// networkMarkers in a failed auth command's stderr mean the issuer was unreachable, not that the login expired.
+var networkMarkers = []string{"timed out", "timeout", "connection refused", "connection reset", "no such host",
+	"could not resolve", "temporary failure", "unavailable", "dns", "proxy", "tls", "certificate"}
+
+// authCommandError classifies a failed auth command (cli|network|auth) and carries its redacted stderr.
+func authCommandError(ctx context.Context, p *Provider, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s: auth command failed (network: timed out): %w", p.Name, err)
+	}
+	var ee *exec.ExitError
+	detail := ""
+	if errors.As(err, &ee) {
+		detail = redactDetail(string(ee.Stderr))
+	}
+	kind := commandFailureKind(ee, detail)
+	if detail != "" {
+		return fmt.Errorf("%s: auth command failed (%s): %w: %s", p.Name, kind, err, detail)
+	}
+	return fmt.Errorf("%s: auth command failed (%s): %w", p.Name, kind, err)
+}
+
+// upstreamStatusRE in a failed auth command's stderr is the issuer's own 429 or 5xx, which a login cannot fix.
+var upstreamStatusRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(?:429|5\d\d)\b|internal server error|bad gateway|too many requests`)
+})
+
+// commandFailureKind is authCommandError's class: cli, network, upstream, else auth.
+func commandFailureKind(ee *exec.ExitError, detail string) string {
+	low := strings.ToLower(detail)
+	switch {
+	case ee != nil && ee.ExitCode() == 127:
+		return "cli: command not found"
+	case slices.ContainsFunc(networkMarkers, func(m string) bool { return strings.Contains(low, m) }):
+		return "network: check the connection or VPN"
+	case upstreamStatusRE().MatchString(detail):
+		return "upstream: the issuer failed; retry later"
+	}
+	return "auth: log in again for this provider"
+}
+
+// keyedSecretRE is a credential key, its separator (JSON, key=value, header, space) and its value of any length.
+var keyedSecretRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("(?i)(\\b(?:access_token|refresh_token|id_token|client_secret|api_key|" +
+		"password|secret|token|authorization|bearer)\\b[\"']?(?:\\s*[:=]\\s*|\\s+)[\"']?(?:(?:bearer|basic)\\s+)?)" +
+		"[^\\s\"'`,;{}\\[\\]()&]+")
+})
+
+// jwtRE is a JWT of any length; textutil.RedactSecrets covers the prefixed key families.
+var jwtRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\beyJ[^\s"'` + "`" + `,;{}\[\]()&]*`) })
+
+// redactDetail is stderr's last non-empty line, ≤160 chars, with credential-shaped words masked.
+func redactDetail(stderr string) string {
+	lines := strings.FieldsFunc(stderr, func(r rune) bool { return r == '\n' || r == '\r' })
+	if len(lines) == 0 {
+		return ""
+	}
+	line := keyedSecretRE().ReplaceAllString(textutil.RedactSecrets(lines[len(lines)-1]), "${1}REDACTED")
+	line = jwtRE().ReplaceAllString(line, "REDACTED")
+	return textutil.CapRunes(strings.Join(strings.Fields(line), " "), 160, "…")
+}
+
+// CredentialPresent checks configured credential sources without decrypting or running commands.
+func CredentialPresent(p *Provider) bool {
+	switch p.Auth.Type {
+	case AuthNone, AuthCLI:
+		return true
+	}
+	if sealedAuth(p.Auth.Type) {
+		return sealedPresent(p)
+	}
+	if p.Auth.Command != "" {
+		return true
+	}
+	if slices.ContainsFunc(keyNames(p), func(n string) bool { return HasSecret(n) != "" }) {
+		return true
+	}
+	v, _ := fileCredential(p)
+	return v != ""
+}
+
+// sealedPresent reports a stored credential authCredential would mint from (user secret, or the SP's per identity).
+func sealedPresent(p *Provider) bool {
+	mode, _ := ResolveIdentity(p.Identity, "")
+	if p.Auth.Type == AuthOAuth && mode == IdentitySP {
+		return SPPresent(p)
+	}
+	if HasSecret(AuthSecretName(p)) != "" {
+		return true
+	}
+	return p.Auth.Type == AuthOAuth && mode == IdentityAuto && SPPresent(p)
+}
+
+// SPPresent reports a paired service principal: its spClientId and a stored M2M secret.
+func SPPresent(p *Provider) bool {
+	present, _ := spPresence(p)
+	return present
+}
+
+// spPresence is SPPresent with the vault read error kept: on an error present is false but unknown.
+func spPresence(p *Provider) (present bool, err error) {
+	if p.Auth.SPClientID == "" {
+		return false, nil
+	}
+	source, err := vault.HasSecretErr(SecretName(p.Provider, p.Name, AuthM2M))
+	return source != "", err
+}
+
+// keyHint is the name a key row's credential is set under: its vault name, else auth.env, else the placeholder.
+func keyHint(p *Provider) string {
+	if ns := keyNames(p); len(ns) > 0 {
+		return ns[0]
+	}
+	return "auth.env"
+}
+
+func hint(p *Provider) string {
+	if p.Auth.File != "" {
+		return ", or " + p.Auth.File
+	}
+	return ""
+}
+
+// CredentialNames are the env/vault names p's credential may be read from, the sealed (oauth/m2m/pat) name included.
+func CredentialNames(p *Provider) []string {
+	out := keyNames(p)
+	if n := AuthSecretName(p); n != "" {
+		out = append(out, n)
+	}
+	return out
+}

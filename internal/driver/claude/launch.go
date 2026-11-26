@@ -1,0 +1,940 @@
+package claude
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
+)
+
+// Seams for tests.
+var (
+	findClaude = ClaudeBinary
+	selfBinary = paths.SelfBinary
+)
+
+const defaultAnthropicBase = "https://api.anthropic.com"
+
+const oauthKey = "CLAUDE_CODE_OAUTH_TOKEN"
+
+// dropLaunchOwned is launch.env minus the names the launch wipes and resolves itself, so it never redirects the route.
+func dropLaunchOwned(env []string) []string {
+	return slices.DeleteFunc(env, func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return k == oauthKey || slices.Contains(providers.WipeKeys, k)
+	})
+}
+
+func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agent.Plan, error) {
+	if reg, rerr := providers.Load(); rerr == nil {
+		var err error
+		if ctx, err = agent.ApplyLaunchOverlay(ctx, reg, &o, true); err != nil {
+			return agent.Plan{}, err
+		}
+	}
+	reg, sel, err := agent.SessionSelection(o, true)
+	if err != nil {
+		return agent.Plan{}, err
+	}
+	bin, self, err := claudeLaunchBinaries(o)
+	if err != nil {
+		return agent.Plan{}, err
+	}
+	p := sel.Provider
+	passthrough := p.Auth.Method() == providers.AuthCLI
+	if err := refuseProvider(sel); err != nil {
+		return agent.Plan{}, err
+	}
+	if err := acceptLaunchModel(p, o.Model); err != nil {
+		return agent.Plan{}, err
+	}
+	plan, err := newClaudePlan(bin, o, sel, passthrough)
+	if err != nil {
+		return agent.Plan{}, err
+	}
+	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
+	proxied := useRouter(ctx, reg, sel, args)
+	helper, overlayPath, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
+	if err != nil {
+		return agent.Plan{}, err
+	}
+	warnLostRemoteControl(&plan, proxied, passthrough, args)
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, sel); err != nil {
+		return agent.Plan{}, err
+	}
+	if err := renderIfInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
+		return agent.Plan{}, err
+	}
+	plan.Argv = append(plan.Argv, args...)
+	plan.Keep = o.KeepEnv
+	dropHeadlessEntrypoint(&plan, args)
+	keepShellEndpoint(ctx, &plan, o)
+	injectVaultKey(ctx, &plan)
+	return plan, mergeUserSettings(&plan)
+}
+
+// dropHeadlessEntrypoint: an inherited IDE entrypoint would make claude record a headless run as interactive.
+func dropHeadlessEntrypoint(plan *agent.Plan, args []string) {
+	if agent.IsHeadless(args) {
+		plan.Unset = append(plan.Unset, "CLAUDE_CODE_ENTRYPOINT")
+	}
+}
+
+// warnLostRemoteControl notes a proxied interactive login session: only it had Remote Control to lose.
+func warnLostRemoteControl(plan *agent.Plan, proxied, passthrough bool, args []string) {
+	if proxied && passthrough && !agent.IsHeadless(args) {
+		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
+	}
+}
+
+// renderIfInteractive skips a headless launch, which renders in claudeCmd, where the request is known.
+func renderIfInteractive(ctx context.Context, plan *agent.Plan, target providers.Target, args []string) error {
+	if agent.IsHeadless(args) {
+		return nil
+	}
+	return renderInteractive(ctx, plan, target, args)
+}
+
+// injectVaultKey hands the session its master key in env so its hooks skip the keyring; an unresolved key adds nothing.
+func injectVaultKey(ctx context.Context, plan *agent.Plan) {
+	const name = "HARNESS_VAULT_KEY"
+	if proc.Value(ctx, name) != "" || plan.Set[name] != "" {
+		return
+	}
+	if k, _, err := vault.MasterKey(); err == nil {
+		plan.Set[name] = k.Raw()
+	}
+}
+
+// newClaudePlan is the plan before routing: the wiped keys, the model and thinking knobs, and the session profile.
+func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, passthrough bool) (agent.Plan, error) {
+	p := sel.Provider
+	plan := agent.Plan{Binary: bin, Set: map[string]string{}, Unset: append([]string(nil), providers.WipeKeys...)}
+	if !passthrough {
+		plan.Unset = append(plan.Unset, oauthKey)
+	}
+	if configDirEnvIsDefault() {
+		plan.Unset = append(plan.Unset, proc.EnvClaudeConfigDir)
+	}
+	setModelAliasEnv(&plan, sel)
+	if err := setMainModel(&plan, sel, p, agent.MainAlias(o)); err != nil {
+		return agent.Plan{}, err
+	}
+	set1MOff(&plan, sel, p)
+	plan.Set[providers.EnvSessionProfile] = p.Name
+	return plan, nil
+}
+
+// acceptLaunchModel refuses a --model the session profile does not accept, as a usage error.
+func acceptLaunchModel(p *providers.Provider, model string) error {
+	if model == "" {
+		return nil
+	}
+	_, err := agent.AcceptModel(agentid.Claude, p, model, time.Now())
+	switch ue, ok := errors.AsType[*agent.UnacceptedError](err); {
+	case ok && ue.Kind == agent.UnacceptedPrefixed:
+		return &agent.UsageError{Msg: ue.Reason(), Err: err} // the prefix refusal already names the model
+	case ok:
+		return &agent.UsageError{Msg: "--model " + model + ": " + ue.Reason()}
+	}
+	return err
+}
+
+func refuseProvider(sel providers.Selection) error {
+	if p := sel.Provider; p.Auth.Login != "" {
+		return fmt.Errorf("profile %s is the %s sign-in and cannot back Claude Code; use claude-code %s --profile %s", p.Name, p.Auth.Login, p.Auth.Login, p.Name)
+	}
+	return nil
+}
+
+// renderInteractive adds the record's effort (unless args type one) and launch.env/launch.args; route keys win.
+func renderInteractive(ctx context.Context, plan *agent.Plan, t providers.Target, args []string) error {
+	st, err := agent.ResolveSettings(agentid.Claude, agent.RunOptions{}, t, false)
+	if st.Agent == "" { // not even the built-in settings resolved
+		return fmt.Errorf("claude settings: %w", err)
+	}
+	if err != nil { // a refused stored record falls back to the built-in settings; the launch says so
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("claude stored agent settings not applied: %v; built-in defaults used", err))
+	}
+	if typesEffort(args) {
+		st.Effort = ""
+	}
+	env, argv, _, _, err := claudeAgent.RenderSettings(ctx, st, nil, nil) // the cleanup is the base's no-op
+	if err != nil {
+		return err
+	}
+	for _, kv := range dropLaunchOwned(env) {
+		k, v, _ := strings.Cut(kv, "=")
+		if _, set := plan.Set[k]; !set {
+			plan.Set[k] = v
+		}
+	}
+	plan.Argv = append(plan.Argv, argv...)
+	return nil
+}
+
+// typesEffort reports a --effort flag in args before any "--", where the prompt starts.
+func typesEffort(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "--effort" || strings.HasPrefix(a, "--effort=") {
+			return true
+		}
+	}
+	return false
+}
+
+// keepShellEndpoint lets a fresh shell ANTHROPIC_MODEL or ANTHROPIC_BASE_URL win over the vault resolution.
+func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOptions) {
+	if o.Resumed {
+		return // a resumed session keeps its saved launch overlay, never the opening terminal's env
+	}
+	keep := []string{proc.EnvAnthropicBaseURL}
+	if o.Model == "" && proc.Value(ctx, providers.EnvSessionProfile) == "" { // a parent session's own model is not the user's
+		keep = append(keep, "ANTHROPIC_MODEL")
+	}
+	if o.Dispatch && (o.Asked || o.Route.Endpoint != "") { // a dispatch unit owns the endpoint; caller base never overrides
+		keepShellKeys(ctx, plan, keep[1:], false)
+		return
+	}
+	own := plan.Set[proc.EnvAnthropicBaseURL]
+	if own == "" {
+		own = defaultAnthropicBase // an unset plan base means the default route
+	}
+	base := proxy.UntaggedBase(strings.TrimSpace(proc.Value(ctx, proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
+	inherited := inheritedBase(ctx, base, own)
+	if base != "" && !inherited && !sameEndpoint(base, own) {
+		plan.ForeignBase = true
+		dropHarnessCredential(plan)
+	}
+	keepShellKeys(ctx, plan, keep, inherited)
+}
+
+func keepShellKeys(ctx context.Context, plan *agent.Plan, keys []string, inherited bool) {
+	for _, k := range keys {
+		if strings.TrimSpace(proc.Value(ctx, k)) == "" || (k == proc.EnvAnthropicBaseURL && inherited) {
+			continue
+		}
+		delete(plan.Set, k)
+		plan.Unset = slices.DeleteFunc(plan.Unset, func(u string) bool { return u == k })
+		plan.Keep = append(slices.Clone(plan.Keep), k)
+	}
+}
+
+// sessionProxyBase reports raw is the proxy base this harness session was launched on (/p/<CLAUDE_PROFILE>).
+func sessionProxyBase(ctx context.Context, raw string) bool {
+	u, err := url.Parse(raw)
+	sp := providers.SessionProfileContext(ctx)
+	if err != nil || sp == "" || strings.TrimRight(u.Path, "/") != "/p/"+sp {
+		return false
+	}
+	st, err := readProxyState() // a /p/<profile> base on another port is the user's own override, not this session's
+	return err == nil && st.Port != 0 && u.Port() == strconv.Itoa(st.Port)
+}
+
+// inheritedBase: the shell base is this session's (proxy, /p/<profile>, direct route); a hop drops it, keeps its login.
+func inheritedBase(ctx context.Context, base, own string) bool {
+	if isProxySessionBase(base) && (isProxySessionBase(own) && sameHostPort(base, own) || sessionProxyBase(ctx, base) || scopedProxyBase(base)) {
+		return true
+	}
+	return sessionRouteBase(ctx, base)
+}
+
+// sessionRouteBase reports raw is the session profile's own Anthropic route: a direct, unproxied Databricks session.
+func sessionRouteBase(ctx context.Context, raw string) bool {
+	sp := providers.SessionProfileContext(ctx)
+	if raw == "" || sp == "" {
+		return false
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return false
+	}
+	p, err := reg.Get(sp)
+	if err != nil {
+		return false
+	}
+	route, ok := p.Route(providers.ProtocolAnthropic)
+	return ok && sameEndpoint(raw, route)
+}
+
+// scopedProxyBase reports raw is on a registered scoped-proxy port, so a nested launch keeps its credential.
+func scopedProxyBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scopes, _ := listScopes()
+	return slices.ContainsFunc(scopes, func(sc proxy.Scope) bool { return sc.Port != 0 && u.Port() == strconv.Itoa(sc.Port) && scopeAlive(sc) })
+}
+
+// scopeAlive: the recorded pid must still be the proxy (same start time) and its port must accept a connection.
+func scopeAlive(sc proxy.Scope) bool {
+	start, err := proc.StartTime(sc.PID)
+	if err != nil || start != sc.Start {
+		return false
+	}
+	d := net.Dialer{Timeout: 200 * time.Millisecond}
+	c, err := d.DialContext(context.Background(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(sc.Port)))
+	if err != nil {
+		return false
+	}
+	return c.Close() == nil
+}
+
+// listScopes is the scope records; tests swap it so no real state is read.
+var listScopes = proxy.ListScopes
+
+// readProxyState is the live proxy's state; tests swap it so no real daemon is read.
+var readProxyState = proxy.ReadState
+
+// isProxySessionBase reports whether raw is a loopback proxy session base (http://127.0.0.1:<port>/p/<profile>).
+func isProxySessionBase(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.HasPrefix(u.Path, "/p/") {
+		return false
+	}
+	return textutil.IsLoopbackHost(u.Hostname())
+}
+
+// sameHostPort reports whether a and b name the same host:port, so a loopback proxy on another port is not ours.
+func sameHostPort(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	return errA == nil && errB == nil && strings.EqualFold(ua.Host, ub.Host)
+}
+
+// sameEndpoint compares two base URLs by scheme, host and path, ignoring case in the host and a trailing slash.
+func sameEndpoint(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host) &&
+		strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
+}
+
+// launchDoc is the plan's --settings layer and its file path ("" when inline); nil when the plan has none.
+func launchDoc(plan agent.Plan) (map[string]any, string, error) {
+	if len(plan.Argv) < 2 || plan.Argv[0] != "--settings" {
+		return nil, "", nil
+	}
+	v, raw := plan.Argv[1], []byte(plan.Argv[1])
+	path := ""
+	if len(plan.Files) > 0 && plan.Files[0].Path == v {
+		path, raw = v, plan.Files[0].Data
+	}
+	doc := map[string]any{}
+	return doc, path, json.Unmarshal(raw, &doc)
+}
+
+// putLaunchDoc stores doc as the overlay file at path, or inline in the --settings value when path is "".
+func putLaunchDoc(plan *agent.Plan, path string, doc map[string]any) error {
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings overlay: %w", err)
+	}
+	plan.Argv = slices.Clone(plan.Argv)
+	if path == "" {
+		plan.Files, plan.Argv[1] = nil, string(data)
+		return nil
+	}
+	path = hashedOverlayPath(path, data)
+	plan.Argv[1] = path
+	plan.Files = []agent.LaunchFile{{Path: path, Data: data}}
+	return nil
+}
+
+// dropKeyHelper removes the apiKeyHelper and its TTL var; the rest of the --settings layer stays.
+func dropKeyHelper(plan *agent.Plan) {
+	delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
+	doc, path, err := launchDoc(*plan)
+	if doc == nil {
+		return
+	}
+	if err == nil {
+		delete(doc, "apiKeyHelper")
+		err = putLaunchDoc(plan, path, doc)
+	}
+	if err != nil { // never ship a helper we meant to drop: lose the whole layer instead
+		plan.Argv, plan.Files = slices.Clone(plan.Argv[2:]), nil
+	}
+}
+
+// mergeUserSettings folds each --settings the user typed into the launch's one layer (a second flag replaces it).
+func mergeUserSettings(plan *agent.Plan) error {
+	doc, _, err := launchDoc(*plan)
+	if err != nil || doc == nil {
+		return err
+	}
+	var rest []string
+	found, argv := false, plan.Argv[2:]
+	for i := 0; i < len(argv); i++ {
+		v, ok := strings.CutPrefix(argv[i], "--settings=")
+		switch {
+		case argv[i] == "--":
+			rest, i = append(rest, argv[i:]...), len(argv)
+			continue
+		case argv[i] == "--settings" && i+1 < len(argv):
+			v, ok, i = argv[i+1], true, i+1
+		}
+		if !ok {
+			rest = append(rest, argv[i])
+			continue
+		}
+		user, err := readSettings(v)
+		if err != nil {
+			return fmt.Errorf("%s: %w", settingsLabel(v), err)
+		}
+		doc, found = mergeDoc(doc, user), true
+	}
+	if !found {
+		return nil
+	}
+	plan.Argv = append([]string{"--settings", ""}, rest...)
+	return putNormalized(plan, doc)
+}
+
+// mergeDoc lays user over base; autoMode and permissions lists append and env keys union, like Claude Code's own merge.
+func mergeDoc(base, user map[string]any) map[string]any {
+	out := maps.Clone(base)
+	for k, v := range user {
+		b, bok := out[k].(map[string]any)
+		u, uok := v.(map[string]any)
+		if (k != "autoMode" && k != "permissions" && k != "env") || !bok || !uok {
+			out[k] = v
+			continue
+		}
+		if k == "env" {
+			m := maps.Clone(b)
+			maps.Copy(m, u)
+			out[k] = m
+			continue
+		}
+		m := maps.Clone(b)
+		for lk, lv := range u {
+			m[lk] = appendNew(m[lk], lv)
+		}
+		out[k] = m
+	}
+	return out
+}
+
+// appendNew appends ul's entries missing from bl when both are lists, else returns ul.
+func appendNew(bl, ul any) any {
+	b, ok1 := bl.([]any)
+	u, ok2 := ul.([]any)
+	if !ok1 || !ok2 {
+		return ul
+	}
+	out := slices.Clone(b)
+	for _, x := range u {
+		if !slices.Contains(out, x) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
+func dropHarnessCredential(plan *agent.Plan) {
+	dropKeyHelper(plan)
+	for _, k := range []string{proc.EnvAnthropicCustomHeaders, oauthKey} {
+		delete(plan.Set, k)
+	}
+	if !slices.Contains(plan.Keep, oauthKey) { // an inherited token must leave the child env too, not only the plan
+		plan.Unset = append(plan.Unset, oauthKey)
+	}
+	plan.Warnings = append(plan.Warnings, "shell ANTHROPIC_BASE_URL kept: the profile credential is withheld; export HARNESS_KEEP_ENV=<name> to pass your own")
+}
+
+// configDirEnvIsDefault: an explicit CLAUDE_CONFIG_DIR=~/.claude makes claude write a stray ~/.claude/.claude.json.
+func configDirEnvIsDefault() bool {
+	return strings.TrimSpace(os.Getenv(proc.EnvClaudeConfigDir)) != "" && paths.ConfigDirIsDefault()
+}
+
+// servedAliases is each served alias with its client id, in alias order (Databricks adds Fable via aliasClientID).
+func servedAliases(sel providers.Selection) [][2]string {
+	var out [][2]string
+	for _, alias := range models.AliasNames {
+		if m := aliasClientID(sel, alias); m != "" {
+			out = append(out, [2]string{alias, m})
+		}
+	}
+	return out
+}
+
+// aliasClientID is alias's id; Databricks' Fable is the canonical id the proxy retargets to Anthropic.
+func aliasClientID(sel providers.Selection, alias string) string {
+	if alias == models.Fable && sel.Provider.SpellingRule() == "databricks-serving" {
+		if m := sel.ClientModel(alias); models.FamilyOf(m) == models.Fable {
+			return m
+		}
+		id, _ := models.Alias(models.Fable)
+		return id
+	}
+	return sel.ClientModel(alias)
+}
+
+// setModelAliasEnv stamps ANTHROPIC_DEFAULT_<SLOT>_MODEL per served alias; an unserved one stays unmapped.
+func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
+	for _, a := range servedAliases(sel) {
+		plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(a[0])+"_MODEL"] = a[1]
+	}
+	setAutoModeModel(plan, sel)
+}
+
+// setAutoModeModel pins the auto-mode classifier to the profile's Sonnet, else Haiku, never above.
+func setAutoModeModel(plan *agent.Plan, sel providers.Selection) {
+	const key = "CLAUDE_CODE_AUTO_MODE_MODEL"
+	m := models.ClassifierModel(sel.ClientModel(models.Sonnet))
+	if m == "" && !defaultClassifierServed(sel.Provider) { // else the default Sonnet 5 answers (the proxy swaps it on Databricks)
+		m = models.ClassifierModel(sel.ClientModel(models.Haiku))
+	}
+	if m == "" {
+		plan.Unset = append(plan.Unset, key) // an inherited parent's pin must not leak in
+		return
+	}
+	plan.Set[key] = m
+}
+
+// modelPicker is the /model lineup: exactly the served aliases, replacing Claude Code's built-in rows.
+func modelPicker(sel providers.Selection) map[string]any {
+	var rows []map[string]string
+	for _, a := range servedAliases(sel) {
+		label := strings.ToUpper(a[0][:1]) + a[0][1:]
+		if a[0] == models.Fable && sel.Provider.SpellingRule() == "databricks-serving" {
+			label += " (Anthropic)"
+		}
+		rows = append(rows, map[string]string{"model": a[1], "label": label})
+	}
+	return map[string]any{"options": rows, "replaceBuiltInOptions": true}
+}
+
+func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) {
+	if p.Serves1M() {
+		return
+	}
+	for _, t := range sel.Aliases {
+		if t.ContextTokens >= models.ContextWindow1M {
+			return
+		}
+	}
+	plan.Set["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
+}
+
+// setMainModel sets ANTHROPIC_MODEL from alias's model (a settings.json /model never leaks in) and the thinking knobs.
+func setMainModel(plan *agent.Plan, sel providers.Selection, p *providers.Provider, alias string) error {
+	opus := aliasClientID(sel, alias)
+	if opus == "" {
+		return fmt.Errorf("profile %s has no %s model; pin one with claude-code models --pin %s=<id>", p.Name, alias, alias)
+	}
+	plan.Set["ANTHROPIC_MODEL"] = opus
+	if maxTok, disable := models.ThinkingKnobs(opus); maxTok != "" {
+		plan.Set["MAX_THINKING_TOKENS"] = maxTok
+		if disable != "" {
+			plan.Set["CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING"] = disable
+		}
+	}
+	return nil
+}
+
+// defaultClassifierServed: Anthropic's route serves the default classifier, and the Databricks proxy swaps it.
+func defaultClassifierServed(p *providers.Provider) bool {
+	route, ok := p.Route(providers.ProtocolAnthropic)
+	return ok && route == defaultAnthropicBase || p.SpellingRule() == "databricks-serving"
+}
+
+func sessionProviders(sel providers.Selection) []*providers.Provider {
+	out := []*providers.Provider{sel.Provider}
+	for _, t := range sel.Aliases {
+		out = append(out, t.Provider)
+	}
+	return out
+}
+
+// useRouter: the unit's proxy endpoint, else the row's need (an empty endpoint keeps the row's default).
+func useRouter(ctx context.Context, reg *providers.Registry, sel providers.Selection, args []string) bool {
+	if unit, err := agent.RunUnit(ctx); err == nil && unit.Endpoint == agent.EndpointProxy {
+		return true
+	}
+	return sel.NeedsRouter(reg) || armedHop(ctx, sel.Provider, args)
+}
+
+// armedHop: a headless launch on the armed profile uses /p/<p> even when NeedsRouter would leave it direct.
+func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
+	arm := router.ArmProfileContext(ctx)
+	return arm != "" && p.Name == arm && agent.IsHeadless(args)
+}
+
+// configureRouting wires the router URL/headers when proxied, else the provider's route, and returns the apiKeyHelper.
+func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
+	for _, t := range sel.Aliases {
+		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
+			return "", "", err
+		}
+	}
+	if proxied {
+		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
+	}
+	helper = textutil.QuoteSH(helperBin(self)) + " resolve --secret --profile " + textutil.QuoteSH(p.Name)
+	name := "overlay-" + p.Name
+	if id := providers.IdentityFrom(ctx); id != "" {
+		helper += " --as " + textutil.QuoteSH(id)
+		if slices.Contains(overlayIdentities, id) { // one file per identity: a concurrent launch must not swap helpers
+			name += "-as-" + id
+		}
+	}
+	if unit, uerr := agent.RunUnit(ctx); uerr == nil && unit.Endpoint != "" {
+		ep, eerr := agent.EndpointURL(ctx, p, unit, providers.ProtocolAnthropic)
+		if eerr != nil {
+			return "", "", eerr
+		}
+		if ep.Base != "" && ep.Base != defaultAnthropicBase {
+			plan.Set[proc.EnvAnthropicBaseURL] = ep.Base
+		}
+	} else if route, ok := p.Route(providers.ProtocolAnthropic); ok && route != defaultAnthropicBase {
+		plan.Set[proc.EnvAnthropicBaseURL] = route
+	}
+	if h := providers.HeaderLines(p.Headers); h != "" {
+		plan.Set[proc.EnvAnthropicCustomHeaders] = h
+	}
+	if !providers.CredentialPresent(p) {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("%s: no credential found yet (%s); the apiKeyHelper will fail until one is set", p.Name, p.Auth.Env))
+	}
+	return helper, filepath.Join(paths.StateDir(), name+".json"), nil
+}
+
+// overlayIdentities are the --as values safe to put in an overlay file name; any other value fails at resolve.
+var overlayIdentities = []string{
+	providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP, providers.IdentityHeadless,
+}
+
+func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {
+	if err := refuseCLIAliases(sel, passthrough); err != nil {
+		return "", "", err
+	}
+	base, err := agent.EnsureRouter(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("proxy: %w", err)
+	}
+	plan.Set[proc.EnvAnthropicBaseURL] = proxy.SessionBase(base, p.Name)
+	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
+	if id := providers.IdentityFrom(ctx); id != "" {
+		hdrs = append(hdrs, proxy.IdentityHeader+": "+id)
+	}
+	tok, err := proxyToken(ctx, base, sel)
+	if err != nil {
+		return "", "", err
+	}
+	plan.Set[ProxyKeyEnv] = tok
+	if passthrough { // Authorization holds the login, so the token rides the client header
+		hdrs = append(hdrs, proxy.ClientHeader+": "+tok)
+	}
+	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
+	return textutil.QuoteSH(helperBin(self)) + " resolve --secret --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+}
+
+// refuseCLIAliases refuses an alias on a cli login unless the session profile is a cli-login one too.
+func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
+	for _, t := range sel.Aliases {
+		if t.Provider.Auth.Method() == providers.AuthCLI && !passthrough {
+			return fmt.Errorf("model on %s: its cli login needs a cli-login session profile — claude-code switch %s, or pick a key profile", t.Provider.Name, t.Provider.Name)
+		}
+	}
+	return nil
+}
+
+// ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`
+const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
+
+// proxyToken is this process's session token on routerBase for the session profile and its alias profiles.
+func proxyToken(ctx context.Context, routerBase string, sel providers.Selection) (string, error) {
+	if fp := agent.AutoFailoverProvider(ctx); fp != "" {
+		tok, err := agent.SessionTokenWithFailover(ctx, routerBase, fp, sel.Provider.Name)
+		if err != nil {
+			return "", fmt.Errorf("proxy: session token for profile %s: %w", sel.Provider.Name, err)
+		}
+		return tok, nil
+	}
+	var aliases []string
+	for _, t := range sel.Aliases {
+		aliases = append(aliases, t.Provider.Name)
+	}
+	scope, err := agent.TokenScope(ctx, sel.Provider.Name, aliases...)
+	if err != nil {
+		return "", fmt.Errorf("proxy: %w", err)
+	}
+	tok, err := agent.SessionToken(ctx, routerBase, scope...)
+	if err != nil {
+		return "", fmt.Errorf("proxy: session token for profiles %s: %w", strings.Join(scope, ","), err)
+	}
+	return tok, nil
+}
+
+func claudeLaunchBinaries(o agent.LaunchOptions) (string, string, error) {
+	bin := o.Binary
+	if bin == "" {
+		var err error
+		if bin, err = findClaude(); err != nil {
+			return "", "", err
+		}
+	}
+	self, err := selfBinary()
+	return bin, self, err
+}
+
+// applyOverlay sets the passthrough OAuth handling or the apiKeyHelper, and writes the launch's one --settings layer.
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, sel providers.Selection) error {
+	p := sel.Provider
+	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
+	for k, v := range providerEnv(ctx, p.Env) {
+		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
+			plan.Set[k] = v
+		}
+	}
+	doc, err := settings.LaunchSettings(p.Preset == providers.PresetDatabricks)
+	if err != nil {
+		return err
+	}
+	if passthrough { // no apiKeyHelper: Claude Code disables subscription OAuth whenever one is set
+		passthroughOAuth(ctx, plan, args)
+	} else {
+		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
+		doc["apiKeyHelper"] = helper
+	}
+	doc["modelPicker"] = modelPicker(sel)
+	if ms := launchModelSettings(sel, p); len(ms) > 0 {
+		doc["modelSettings"] = ms
+	}
+	plan.Argv = []string{"--settings", path}
+	return putLaunchDoc(plan, path, doc)
+}
+
+// launchModelSettings keys models.ModelSettings by the exact Claude ids sent; Claude Code's match skips Databricks ids.
+func launchModelSettings(sel providers.Selection, p *providers.Provider) map[string]models.ModelSetting {
+	out := map[string]models.ModelSetting{}
+	for _, ms := range models.ModelSettings {
+		for _, alias := range ms.Models {
+			id := aliasClientID(sel, alias)
+			if !strings.Contains(id, "claude") {
+				continue // unserved, or another vendor's model: modelSettings applies to Claude models only
+			}
+			out[id] = ms
+		}
+	}
+	return out
+}
+
+// passthroughOAuth: Remote Control refuses the setup-token interactively; headless prefers the long-lived token.
+func passthroughOAuth(ctx context.Context, plan *agent.Plan, args []string) {
+	if !agent.IsHeadless(args) {
+		plan.Unset = append(plan.Unset, oauthKey)
+	} else if proc.Value(ctx, oauthKey) == "" {
+		if tok := providers.HeadlessOAuthToken(); tok != "" {
+			plan.Set[oauthKey] = tok
+		}
+	}
+}
+
+// providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.
+func providerEnv(ctx context.Context, env map[string]string) map[string]string {
+	if len(env) == 0 {
+		return nil
+	}
+	custom := providers.CustomEnv()
+	out := map[string]string{}
+	for k, v := range env {
+		if _, ok := custom[k]; ok || proc.Value(ctx, k) != "" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// ClaudeBinary finds native claude, never bin/claude (the launcher): PATH outside BinDir, else the newest install.
+func ClaudeBinary() (string, error) {
+	bin, err := paths.NativeClaude()
+	if err == nil || os.Getenv(paths.AgentBinDirEnv) != "" {
+		return bin, err // the override is hermetic: never fall back to the real install
+	}
+	if bin := newestInstalledClaude(); bin != "" {
+		return bin, nil
+	}
+	return "", errors.New("claude: not found on PATH outside " + paths.BinDir() +
+		" or in ~/.local/share/claude/versions (claude-code install --tools=claude)")
+}
+
+func newestInstalledClaude() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".local", "share", "claude", "versions")
+	entries, _ := os.ReadDir(dir)
+	self, _ := paths.SelfBinary()
+	best, newest := "", "0"
+	for _, e := range entries {
+		cand := filepath.Join(dir, e.Name())
+		fi, err := os.Stat(cand)
+		if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+			continue
+		}
+		if real, _ := filepath.EvalSymlinks(cand); real == self {
+			continue
+		}
+		if c, ok := textutil.CompareVersions(newest, e.Name()); ok && c < 0 { // a non-numeric folder name is skipped
+			best, newest = cand, e.Name()
+		}
+	}
+	return best
+}
+
+// helperBin prefers the installed binary: the overlay file is shared, so a scratch build must never be baked in.
+func helperBin(self string) string {
+	if bin := filepath.Join(paths.BinDir(), "claude-code"); paths.IsFile(bin) {
+		return bin
+	}
+	return self
+}
+
+// Launch launches Claude Code with alias as the main-loop model ("" = opus) and returns the exit code.
+func Launch(alias string, args []string) int {
+	as, args, err := providers.TakeAs(args)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	opts, rest, err := agent.ParseLaunchArgs(args, true)
+	if err != nil {
+		return helptext.FailUsage("%v", err)
+	}
+	if bareHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
+		bin, err := ClaudeBinary()
+		if err != nil {
+			return helptext.Fail("%v", err)
+		}
+		return helptext.WrappedDocs(bin)
+	}
+	opts.Alias = alias
+	plan, err := sessionPlan(as, &opts, rest)
+	return agent.RunPlan("claude", plan, opts, err)
+}
+
+// bareHelp is a lone help flag; `claude mcp --help` still goes to claude so the subcommand's help is kept.
+func bareHelp(rest []string) bool { return len(rest) == 1 && helptext.WantsHelp(rest) }
+
+// LaunchScience is `anthropic science`: only a leading --print-env; every other flag is claude-science's own.
+func LaunchScience(args []string) int {
+	var opts agent.LaunchOptions
+	if len(args) > 0 && args[0] == "--print-env" {
+		opts.PrintEnv, args = true, args[1:]
+	}
+	plan, err := scienceEnv(args)
+	return agent.RunPlan("claude-science", plan, opts, err)
+}
+
+// LaunchAnthropic is first-party Claude Code with a login, OAuth token or API key; vaultSet stores a missing secret.
+func LaunchAnthropic(args []string, vaultSet func(name string) int) int {
+	if err := helptext.RemovedFlagHint(args); err != nil {
+		return helptext.Fail("%v", err)
+	}
+	o, rest, err := parseAnthropicArgs(args)
+	if launchUsage(err) {
+		return helptext.FailUsage("%v", err)
+	}
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	if o.Provider != "" { // a named profile launches like `claude --profile P`, on that profile's credential
+		return Launch("", args)
+	}
+	secret := ""
+	if o.Mode != authLogin {
+		if secret, err = anthropicSecret(o, vaultSet); err != nil {
+			return helptext.Fail("%v", err)
+		}
+	}
+	plan, err := anthropicPlan(context.Background(), o, rest, secret)
+	return agent.RunPlan("claude", plan, o.LaunchOptions, err)
+}
+
+// codemodeSettings is the --settings arg that turns the row's vendor code mode on; the var rides settings env only.
+func codemodeSettings(mode string) ([]string, error) {
+	row := agentid.Routing(agentid.Claude).CodeMode
+	if agent.CodemodeEnv(agentid.Claude, mode) == nil {
+		return nil, nil
+	}
+	doc, err := json.Marshal(map[string]any{"env": map[string]string{row.Var: "on"}})
+	return []string{"--settings", string(doc)}, err
+}
+
+// checkCodemodeRoute refuses code mode off the Anthropic API: profile p (nil if unresolved) and the launch base URL.
+func checkCodemodeRoute(p *providers.Provider, launchBase string) error {
+	direct := p != nil && p.Protocol == providers.ProtocolAnthropic && onAnthropicAPI(p.BaseURL)
+	if !direct || !onAnthropicAPI(launchBase) {
+		return errors.New("code mode is only on the Anthropic API, not through a cloud provider or a gateway")
+	}
+	return nil
+}
+
+// onAnthropicAPI: the default endpoint (empty) or an api.anthropic.com URL.
+func onAnthropicAPI(base string) bool {
+	if strings.TrimSpace(base) == "" {
+		return true
+	}
+	u, err := url.Parse(base)
+	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Hostname(), "api.anthropic.com")
+}
+
+// collapsedPrefix starts the plan warning that names what Normalize dropped from the merged settings.
+const collapsedPrefix = "settings collapsed: "
+
+// normalizeDoc collapses duplicate list entries and hooks in doc, appending one warning naming what it dropped.
+func normalizeDoc(doc map[string]any, warnings *[]string) (map[string]any, error) {
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	out, changed, err := settings.Normalize(data)
+	if err != nil || len(changed) == 0 {
+		return doc, err
+	}
+	*warnings = append(*warnings, collapsedPrefix+strings.Join(changed, "; "))
+	norm := map[string]any{}
+	return norm, json.Unmarshal(out, &norm)
+}
+
+// putNormalized writes the normalized doc as the plan's launch layer.
+func putNormalized(plan *agent.Plan, doc map[string]any) error {
+	doc, err := normalizeDoc(doc, &plan.Warnings)
+	if err != nil {
+		return err
+	}
+	return putLaunchDoc(plan, "", doc) // inline: a per-launch doc must not rewrite the profile's shared file
+}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // Version is an opaque per-entry token issued by the store; callers pass it back untouched and never parse it.

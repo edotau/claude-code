@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // Options is the ask --waves library contract.

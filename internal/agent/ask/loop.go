@@ -19,11 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 var loopPlanSchema = wire.SchemaFor[loopPlan]()

@@ -18,10 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // A running claude dispatch hides the session it spawned (by session id or cwd+start+prompt); an unrelated one stays.

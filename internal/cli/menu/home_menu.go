@@ -10,15 +10,15 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // pickMenu is the home page's sectioned picker seam; tests replace it.

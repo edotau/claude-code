@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // row is one selectable row: Name, then State and Check in aligned columns, and what picking it does with the dialog.

@@ -16,10 +16,10 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 type segMode uint8

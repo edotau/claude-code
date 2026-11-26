@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // Given a background spawn that fails (the test binary is never relaunched), Then the saved record leaves running.

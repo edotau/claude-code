@@ -12,9 +12,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
 )
 
 // handbackFiles caps the files a take-over line names.

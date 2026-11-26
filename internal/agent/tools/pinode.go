@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // PiNodeBinDir is the bin dir of the Node Pi runs on: "" when the PATH node serves, else the newest nvm or mise one.

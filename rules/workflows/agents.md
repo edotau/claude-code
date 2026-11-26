@@ -68,7 +68,7 @@ Owner-only (`disable-model-invocation: true`); each launcher names its dispatch 
   haiku/sonnet/opus; Plan inherits; relay types use haiku. Raise a call with Agent `model`.
   File `inherit` means session model with no hook pin; call `model:inherit` is unset. List only needed tools.
 - Frontmatter includes effort, maxTurns, isolation:worktree, background, memory; check unknowns with `claude --debug`.
-- Register a CLI in `internal/agentid/agentid.go` and its vendor `agent.Register` row; subagent types live in agents.
+- Register a CLI in `internal/routing/agentid/agentid.go` and its vendor `agent.Register` row; subagent types live in agents.
   Prose instructs, hooks enforce; dispatch-stop reports a running background job without holding the leaf.
   Shapes/enforcers: `skills/subagent-workflows/references/patterns.md`.
 - Use adaptive thinking, never manual budgets. Cache stable large prefixes with `cache_control`; keep per-call text out.

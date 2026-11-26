@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // TestHistorySnapshotFailureDoesNotReportUnchanged: a failed snapshot exits 1 and prints nothing on stdout.

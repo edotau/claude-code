@@ -10,7 +10,7 @@ import (
 	"io"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 type action int

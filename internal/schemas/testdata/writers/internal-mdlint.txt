@@ -1,1 +1,0 @@
-internal/mdlint/parity.go:convertRules	unversioned: text: mdsmith markdownlint converter scratch dir with the rules file, removed after the run

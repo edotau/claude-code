@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 )
 
 func reportMerge(label, dest string, result mergeResult) {

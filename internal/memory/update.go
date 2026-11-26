@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // currentStateFiles are the bank files an older session must never touch.

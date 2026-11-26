@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // testHookBudget is the headroom the suite adds to every hook's budget; only expiry tests shrink it.

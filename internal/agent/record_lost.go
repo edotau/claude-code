@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // LostError opens the error text of a dispatch whose process vanished.

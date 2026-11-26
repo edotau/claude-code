@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/sqlite"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/sqlite"
 )
 
 // shadowFixture is the test store: imported files, then the skipped ones.

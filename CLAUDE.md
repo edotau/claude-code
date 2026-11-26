@@ -16,7 +16,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | Path | Holds |
 | --- | --- |
 | `cmd/claude-code/`, `internal/` | The binary, stdlib-first; `internal/cli` is the command table and dispatcher, logic lives in each area's package (`rules/harness/go.md` → Layout) |
-| `internal/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
+| `internal/platform/settings/hookspec.go` · `internal/hooks/` | Hook declarations (the one authoring surface) · their handlers |
 | `internal/assets/providers/defaults.json` | Built-in providers; the vault's provider overlay replaces them by name |
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls`, edited in `configure`), sealed secrets (`vault set\|get`) |
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |

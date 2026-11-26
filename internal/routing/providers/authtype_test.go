@@ -1,0 +1,1343 @@
+package providers
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"testing/synctest"
+	"time"
+
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/databricks/oauth"
+)
+
+func TestAuthMethodPerType(t *testing.T) {
+	for _, typ := range []string{AuthOAuth, AuthM2M, AuthPAT, AuthKey, AuthCLI, AuthNone} {
+		t.Run(typ, func(t *testing.T) { checkAuthType(t, typ) })
+	}
+	t.Run("unset", func(t *testing.T) {
+		if (Auth{}).Method() != "" {
+			t.Error("an unset Auth must report an empty method")
+		}
+	})
+	t.Run("explicit header", func(t *testing.T) {
+		if got := (Auth{Type: AuthKey, Header: HeaderXAPIKey}).HeaderStyle(); got != HeaderXAPIKey {
+			t.Errorf("explicit header = %q", got)
+		}
+	})
+}
+
+func checkAuthType(t *testing.T, typ string) {
+	t.Helper()
+	a := Auth{Type: typ}
+	if a.Method() != typ {
+		t.Errorf("Method() for %q = %q", typ, a.Method())
+	}
+	wantSealed := slices.Contains([]string{AuthOAuth, AuthM2M, AuthPAT}, typ)
+	if a.Sealed() != wantSealed {
+		t.Errorf("Sealed() for %q = %v, want %v", typ, a.Sealed(), wantSealed)
+	}
+	wantHeader := ""
+	if wantSealed || typ == AuthKey {
+		wantHeader = HeaderBearer
+	}
+	if a.HeaderStyle() != wantHeader {
+		t.Errorf("HeaderStyle() for %q = %q, want %q", typ, a.HeaderStyle(), wantHeader)
+	}
+}
+
+func TestOverlayParseRules(t *testing.T) {
+	row := func(auth string) string {
+		return `{"providers":{"anthropic":{"x":{"protocol":"anthropic","base_url":"https://x.example","auth":` + auth + `}}}}`
+	}
+	for _, typ := range []string{"bearer", "u2m", "oauth-m2m", "api-key", "passthrough"} {
+		if _, err := parseOverlay(t, row(`{"type":"`+typ+`"}`)); err == nil || !strings.Contains(err.Error(), "unknown") {
+			t.Errorf("retired auth type %q: err = %v, want an unknown-type error", typ, err)
+		}
+	}
+	flat := `{"providers":{"gw":{"protocol":"anthropic","base_url":"https://gw.example","auth":{"type":"none"}}}}`
+	if _, err := parseOverlay(t, flat); err == nil || !strings.Contains(err.Error(), `unknown provider "gw"`) {
+		t.Errorf("flat row: err = %v, want it refused as an unknown provider", err)
+	}
+	reg, err := parseOverlay(t, strings.Replace(row(`{"type":"none"}`), `}}}}`, `,"one_m":true}}}}`, 1))
+	if err != nil {
+		t.Fatalf("one_m must not break loading: %v", err)
+	}
+	if p := reg.Providers["x"]; p == nil || p.Auth.Method() != AuthNone {
+		t.Errorf("row x = %+v", p)
+	}
+}
+
+func TestLegacyPinNamesAreNotRead(t *testing.T) {
+	reg := load(t)
+	writeProviderPins(t, map[string]string{"HARNESS_PROVIDER": "dev", "HARNESS_MODEL": "legacy-model", "COPILOT_GITHUB_USER": "someone"})
+	sel, err := Select(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Provider.Name == "dev" {
+		t.Error("legacy HARNESS_PROVIDER pin selected a profile")
+	}
+	for alias, tg := range sel.Aliases {
+		if tg.Model == "legacy-model" {
+			t.Errorf("alias %s took the legacy HARNESS_MODEL pin", alias)
+		}
+	}
+	if got, _ := CopilotLogin(reg); got == "someone" {
+		t.Error("legacy COPILOT_GITHUB_USER pin was read as a login")
+	}
+}
+
+func kindRow(kind, clientID, _ string) *Provider {
+	if kind == "" {
+		kind = AuthKey
+	}
+	return &Provider{Name: "dbx-test", Provider: GroupDatabricks, Protocol: ProtocolAnthropic, BaseURL: "https://example.cloud.databricks.com/serving-endpoints/anthropic",
+		Auth: Auth{Type: kind, ClientID: clientID}}
+}
+
+func TestValidateAuthType(t *testing.T) {
+	cases := []struct{ name, kind, clientID, acct, ws, want string }{
+		{"none", "", "", "", "", ""},
+		{"u2m", AuthOAuth, "", "", "", ""},
+		{"m2m ok", AuthM2M, "sp-client", "", "", ""},
+		{"m2m no client", AuthM2M, "", "", "", "needs auth.clientId"},
+		{"stray clientId", AuthPAT, "cid", "", "", "needs auth.type m2m"},
+		{"ids ok", "", "", "1234abcd-0000-ffff", "1234567890", ""},
+		{"short account", "", "", "short", "", "auth.accountId"},
+		{"non-hex account", "", "", "zzzzzzzzzz", "", "auth.accountId"},
+		{"non-numeric workspace", "", "", "", "12ab", "auth.workspaceId"},
+	}
+	for _, id := range []string{"a\nb", "a\rb", "a[b", "a=b"} {
+		cases = append(cases, struct{ name, kind, clientID, acct, ws, want string }{"inject " + id, AuthM2M, id, "", "", "auth.clientId must not contain"})
+	}
+	for _, c := range cases {
+		p := kindRow(c.kind, c.clientID, "")
+		p.Auth.AccountID, p.Auth.WorkspaceID = c.acct, c.ws
+		errs := strings.Join(validateAuthType("x", p), ";")
+		if c.want == "" && errs != "" || c.want != "" && !strings.Contains(errs, c.want) {
+			t.Errorf("%s: errs %q, want %q", c.name, errs, c.want)
+		}
+	}
+}
+
+func TestKindSecretName(t *testing.T) {
+	p := kindRow(AuthOAuth, "", AuthKey)
+	p.Name = "dbx-dev.1"
+	if got := AuthSecretName(p); got != "DATABRICKS_DBX_DEV_1_OAUTH" {
+		t.Errorf("got %q", got)
+	}
+	if AuthSecretName(kindRow("", "", AuthKey)) != "" {
+		t.Error("kindless row has a sealed name")
+	}
+}
+
+func TestPATCredentialAndPresence(t *testing.T) {
+	// sealing needs the vault master key; Linux CI has no keyring
+	vaulttest.Use(t)
+	p := kindRow(AuthPAT, "", AuthKey)
+	if CredentialPresent(p) {
+		t.Fatal("present before sealing")
+	}
+	if err := vault.Store(AuthSecretName(p), "qZjncnokckpa"); err != nil {
+		t.Fatal(err)
+	}
+	if !CredentialPresent(p) {
+		t.Error("absent after sealing")
+	}
+	got, err := Credential(context.Background(), p)
+	if err != nil || got != "qZjncnokckpa" {
+		t.Errorf("Credential = %q, %v", got, err)
+	}
+}
+
+func TestKindChangeRefusedWithoutForce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	row := map[string]any{"auth": map[string]any{"type": "pat"}}
+	if err := SetProviderFields("openai", row); err != nil {
+		t.Fatal(err)
+	}
+	row["auth"] = map[string]any{"type": "oauth"}
+	err := SetProviderFields("openai", row)
+	if err == nil || !strings.Contains(err.Error(), "refused without force") {
+		t.Fatalf("kind change err = %v", err)
+	}
+	if err := SetProviderFields("openai", map[string]any{"base_url": "https://a.example/v1"}); err != nil {
+		t.Errorf("same-kind write refused: %v", err)
+	}
+}
+
+func TestCredentialNamesIncludeSealedSecret(t *testing.T) {
+	for _, kind := range []string{AuthPAT, AuthM2M, AuthOAuth} {
+		p := kindRow(kind, "", AuthKey)
+		want := AuthSecretName(p)
+		if want == "" || !slices.Contains(CredentialNames(p), want) {
+			t.Errorf("%s: CredentialNames = %v, want it to include %q", kind, CredentialNames(p), want)
+		}
+	}
+}
+
+func TestValidIDShape(t *testing.T) {
+	for id, want := range map[string]bool{"my-sp_1": true, "": false, "bad name": false, "a/b": false} {
+		if ValidID(id) != want {
+			t.Errorf("ValidID(%q) = %v, want %v", id, !want, want)
+		}
+	}
+}
+
+func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
+	p := kindRow(AuthOAuth, "", "")
+	p.Name = "dbx"
+	got := authHint(p, "DBX_TOKEN")
+	for _, want := range []string{"claude-code --remote <host> databricks login --profile dbx", "claude-code configure", "Set up"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("OAuth hint %q lacks %q", got, want)
+		}
+	}
+	if key := authHint(kindRow(AuthKey, "", ""), "DBX_TOKEN"); !strings.Contains(key, "vault set") || strings.Contains(key, "databricks login") {
+		t.Errorf("key-auth hint = %q, want the vault set route only", key)
+	}
+}
+
+func mintErr(t *testing.T, kind string, status int, body map[string]any) error {
+	t.Helper()
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return status, body })
+	p := mintRow(t, fmt.Sprintf("verdict-%s-%d", kind, status), kind, "sp-client", srv.URL)
+	sealFor(t, p, "sealed-secret")
+	_, err := Credential(context.Background(), p)
+	if err == nil {
+		t.Fatalf("status %d: mint unexpectedly succeeded", status)
+	}
+	return err
+}
+
+func TestVerdictFromRealMintErrors(t *testing.T) {
+	defer func(d time.Duration) { oauth.RetryBackoff = d }(oauth.RetryBackoff)
+	oauth.RetryBackoff = time.Millisecond
+	cases := []struct {
+		name   string
+		kind   string
+		status int
+		body   map[string]any
+		want   AuthVerdict
+	}{
+		{"u2m invalid_grant needs login", AuthOAuth, 400, map[string]any{"error": "invalid_grant"}, VerdictNeedsLogin},
+		{"m2m invalid_client needs login", AuthM2M, 400, map[string]any{"error": "invalid_client"}, VerdictNeedsLogin},
+		{"u2m bare 401 is rejected", AuthOAuth, 401, map[string]any{}, VerdictRejected},
+		{"u2m bare 403 is transient", AuthOAuth, 403, map[string]any{}, VerdictTransient},
+		{"u2m 503 is transient", AuthOAuth, 503, map[string]any{}, VerdictTransient},
+		{"u2m 429 is transient", AuthOAuth, 429, map[string]any{"error": "rate_limited"}, VerdictTransient},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := Verdict(mintErr(t, c.kind, c.status, c.body))
+			if v != c.want {
+				t.Fatalf("Verdict = %q, want %q", v, c.want)
+			}
+			if v.Condemns() != (c.want != VerdictTransient) {
+				t.Fatalf("Condemns() = %v for %q", v.Condemns(), v)
+			}
+		})
+	}
+}
+
+func TestVerdictU2MWithoutSealedTokenNeedsLogin(t *testing.T) {
+	p := mintRow(t, "verdict-u2m-empty", AuthOAuth, "", "https://example.cloud.databricks.com")
+	_, err := Credential(context.Background(), p)
+	if got := Verdict(err); got != VerdictNeedsLogin || !got.Condemns() {
+		t.Fatalf("Verdict(%v) = %q, want needs_login", err, got)
+	}
+	if got := Verdict(fmt.Errorf("wrapped: %w", err)); got != VerdictNeedsLogin {
+		t.Fatalf("a wrapped login error lost its verdict: %q", got)
+	}
+}
+
+func TestVerdictTransientNeverCondemns(t *testing.T) {
+	for name, err := range map[string]error{
+		"deadline exceeded":     context.DeadlineExceeded,
+		"wrapped deadline":      fmt.Errorf("mint: %w", context.DeadlineExceeded),
+		"canceled":              context.Canceled,
+		"transport":             &url.Error{Op: "Post", URL: "https://x", Err: errors.New("connection refused")},
+		"plain":                 errors.New("boom"),
+		"auth.command failed":   errors.New("exit status 1"),
+		"vault read":            errors.New("vault: locked"),
+		"scheme refused (http)": errors.New("oauth: host uses scheme http"),
+	} {
+		if v := Verdict(err); v != VerdictTransient || v.Condemns() {
+			t.Errorf("%s: Verdict = %q (condemns %v), want transient/false", name, v, v.Condemns())
+		}
+	}
+	if v := Verdict(nil); v != VerdictOK || v.Condemns() || AuthVerdict("").Condemns() {
+		t.Errorf("nil: %q condemns %v, or an empty verdict condemns", v, v.Condemns())
+	}
+}
+
+func TestIsInvalidTokenResponse(t *testing.T) {
+	invalid := []byte(`{"message":"Invalid Token"}`)
+	dbx := &Provider{Name: "dbx", Preset: PresetDatabricks}
+	sealed := &Provider{Name: "sealed", Auth: Auth{Type: AuthOAuth}}
+	plain := &Provider{Name: "plain", Auth: Auth{Type: AuthKey, Env: "K"}}
+	cases := []struct {
+		name   string
+		p      *Provider
+		status int
+		body   []byte
+		want   bool
+	}{
+		{"databricks preset 400", dbx, 400, invalid, true},
+		{"sealed-auth row 400", sealed, 400, invalid, true},
+		{"non-databricks provider", plain, 400, invalid, false},
+		{"nil provider", nil, 400, invalid, false},
+		{"401 is not the gateway shape", dbx, 401, invalid, false},
+		{"500", dbx, 500, invalid, false},
+		{"other 400 body", dbx, 400, []byte(`{"message":"bad request"}`), false},
+		{"empty body", dbx, 400, nil, false},
+	}
+	for _, c := range cases {
+		if got := IsInvalidTokenResponse(c.p, c.status, c.body); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func spHarness(t *testing.T, identity string) (p *Provider, m2mCalls, refreshCalls *int, note *bytes.Buffer) {
+	t.Helper()
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) { return 401, map[string]any{} })
+	p = mintRow(t, "sp-"+strings.ReplaceAll(t.Name(), "/", "-"), AuthOAuth, "", srv.URL)
+	p.Identity, p.Auth.SPClientID = identity, "sp-client"
+	spCache.Delete(p.Name)
+	t.Cleanup(func() { spCache.Delete(p.Name) })
+	if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
+		t.Fatal(err)
+	}
+	m2mCalls, refreshCalls, note = new(int), new(int), &bytes.Buffer{}
+	origR, origM, origN := refreshU2M, mintM2M, spNoteOut
+	refreshU2M = func(ctx context.Context, host, rt string) (oauth.Token, error) {
+		*refreshCalls++
+		return oauth.RefreshU2M(ctx, srv.URL, rt)
+	}
+	mintM2M = func(_ context.Context, _, id, secret string) (oauth.Token, error) {
+		*m2mCalls++
+		if id != "sp-client" || secret != "sp-secret" {
+			t.Errorf("MintM2M got %q/%q", id, secret)
+		}
+		return oauth.Token{Access: "sp-token"}, nil
+	}
+	spNoteOut = note
+	t.Cleanup(func() { refreshU2M, mintM2M, spNoteOut = origR, origM, origN })
+	return p, m2mCalls, refreshCalls, note
+}
+
+func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
+	p, m2m, _, note := spHarness(t, "")
+	got, err := Credential(context.Background(), p)
+	if err != nil || got != "sp-token" || *m2m != 1 {
+		t.Fatalf("Credential = %q, %v (m2m %d)", got, err, *m2m)
+	}
+	n := note.String()
+	if !strings.Contains(n, p.Name+": on the service principal; your own login is not signed in (to sign in: "+SignInHint(p.Name)+")") ||
+		strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 2 {
+		t.Errorf("note = %q", n)
+	}
+}
+
+func TestSPMintRecordsExpiryAsM2M(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentitySP)
+	stubMintM2M(t, jwtExpIn(time.Hour, ""))
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	exp, method, ok := TokenExpiryMethodFor(p.Name, IdentityAuto)
+	if !ok || method != AuthM2M || time.Until(exp) < 50*time.Minute {
+		t.Fatalf("record = %v, %q, %v; want ~1h, m2m", exp, method, ok)
+	}
+}
+
+// sp_mint rows are written only by a real mint: a sealed hit and a failed exchange add none.
+func TestSPMintAuditRowOnlyOnRealMint(t *testing.T) {
+	p := mintRow(t, "sp-audit-mint", AuthOAuth, "", "http://127.0.0.1:1")
+	p.Auth.SPClientID = "sp-audit-client"
+	spCache.Delete(p.Name)
+	t.Cleanup(func() { spCache.Delete(p.Name) })
+	name := SecretName(p.Provider, p.Name, AuthM2M)
+	if err := vault.Store(name, "qz7vN2wLx9Rb4kTm"); err != nil {
+		t.Fatal(err)
+	}
+	refuse := stubSPExchange(t)
+	ctx := context.Background()
+	_, _, err := mintSP(ctx, p, false, expiryMargin)
+	if rows := spMintRows(t); err != nil || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" || rows[0].Detail != p.Name {
+		t.Fatalf("real mint: err %v, sp_mint rows %+v; want one naming %s_ACCESS and %s", err, rows, name, p.Name)
+	}
+	if _, _, err := mintSP(ctx, p, false, expiryMargin); err != nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("sealed cache hit: err %v; want no new sp_mint row", err)
+	}
+	*refuse = errors.New("exchange refused")
+	if _, _, err := mintSP(ctx, p, true, expiryMargin); err == nil || len(spMintRows(t)) != 1 {
+		t.Fatalf("failed exchange: err %v; want an error and no new sp_mint row", err)
+	}
+}
+
+// Two independent calls that miss the shared seal must serialize and serve the winner's mint.
+func TestM2MTokenConcurrentMintOnce(t *testing.T) {
+	p := mintRow(t, "m2m-concurrent-mint", AuthM2M, "client", "http://127.0.0.1:1")
+	name := AuthSecretName(p)
+	tok := jwtExpIn(time.Hour, "")
+	first, waited, unlock, calls := concurrentM2MStub(t, tok)
+	runConcurrentM2M(t, p, name, tok, first, waited, unlock)
+	if rows := spMintRows(t); calls.Load() != 1 || len(rows) != 1 || rows[0].Resource != name+"_ACCESS" {
+		t.Errorf("exchanges = %d, sp_mint rows = %+v; want one of each", calls.Load(), rows)
+	}
+}
+
+func concurrentM2MStub(t *testing.T, tok string) (first, waited chan struct{}, unlock func(), calls *atomic.Int32) {
+	first, release, waited := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+	var once sync.Once
+	unlock = func() { once.Do(func() { close(release) }) }
+	calls = new(atomic.Int32)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if calls.Add(1) == 1 {
+			close(first)
+			<-release
+		}
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	hook := func() {
+		select {
+		case waited <- struct{}{}:
+		default:
+		}
+	}
+	lockWaitHook.Store(&hook)
+	t.Cleanup(func() { lockWaitHook.Store(nil) })
+	return first, waited, unlock, calls
+}
+
+func runConcurrentM2M(t *testing.T, p *Provider, name, tok string, first, waited chan struct{}, unlock func()) {
+	t.Helper()
+	type result struct {
+		tok oauth.Token
+		err error
+	}
+	results := make(chan result, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	started := 0
+	defer func() {
+		cancel()
+		unlock()
+		for range started {
+			select {
+			case <-results:
+			case <-time.After(5 * time.Second):
+				t.Error("mint worker did not exit after cancellation")
+			}
+		}
+	}()
+	call := func() { v, err := m2mToken(ctx, p, name, "host", "client", "secret", false); results <- result{v, err} }
+	started++
+	go call()
+	waitM2MSignal(t, first, "first exchange did not start")
+	started++
+	go call()
+	waitM2MSignal(t, waited, "second mint did not wait for the refresh lock")
+	unlock()
+	for range 2 {
+		select {
+		case r := <-results:
+			started--
+			if r.err != nil || r.tok.Access != tok {
+				t.Errorf("mint result: err %v, winner token = %v", r.err, r.tok.Access == tok)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("mint never returned")
+		}
+	}
+}
+
+func waitM2MSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+// stubSPExchange serves a fresh token from mintM2M until the returned error is set, then fails every exchange.
+func stubSPExchange(t *testing.T) *error {
+	t.Helper()
+	refuse := new(error)
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		if *refuse != nil {
+			return oauth.Token{}, *refuse
+		}
+		return oauth.Token{Access: jwtExpIn(time.Hour, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	return refuse
+}
+
+func spMintRows(t *testing.T) []audit.Event {
+	t.Helper()
+	evs, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []audit.Event
+	for _, e := range evs {
+		if e.Action == audit.SPMint {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestTransientSPMintFallsBackToSealedAccess(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name  string
+		left  time.Duration
+		force bool
+		want  bool
+	}{{"stale-ok", 5 * time.Minute, false, true}, {"force", 5 * time.Minute, true, false}, {"short", 30 * time.Second, false, false}} {
+		p, _, _, _ := spHarness(t, IdentitySP)
+		old := jwtExpIn(c.left, "")
+		bind := clientBind(AuthHost(p), "sp-client", "sp-secret")
+		b, _ := json.Marshal(clientAccess{Access: old, Bind: bind})
+		if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M)+"_ACCESS", string(b)); err != nil {
+			t.Fatal(err)
+		}
+		orig := mintM2M
+		mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+			return oauth.Token{}, errors.New("connection refused")
+		}
+		got, _, err := mintSP(ctx, p, c.force, expiryMargin)
+		mintM2M = orig
+		if served := err == nil && got == old; served != c.want {
+			t.Errorf("%s: served the sealed token = %v (err %v), want %v", c.name, served, err, c.want)
+		}
+	}
+}
+
+func TestIdentityExplicitModes(t *testing.T) {
+	for _, c := range []struct {
+		identity, wantTok, wantErr string
+		wantM2M                    int
+	}{{IdentityUser, "", "databricks login", 0}, {IdentitySP, "sp-token", "", 1}} {
+		t.Run(c.identity, func(t *testing.T) {
+			p, m2m, refresh, _ := spHarness(t, c.identity)
+			got, err := Credential(context.Background(), p)
+			if c.wantErr == "" && err != nil || c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) ||
+				got != c.wantTok || *m2m != c.wantM2M || c.wantErr == "" && *refresh != 0 {
+				t.Fatalf("got %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
+			}
+		})
+	}
+}
+
+func TestIdentityHeadlessUsesSPOnAutoRowOnly(t *testing.T) {
+	headless := WithIdentity(context.Background(), IdentityHeadless)
+	p, m2m, refresh, _ := spHarness(t, IdentityAuto)
+	if got, err := Credential(headless, p); err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
+		t.Fatalf("headless on an auto row = %q, %v (m2m %d, refresh %d); want the SP, no user refresh", got, err, *m2m, *refresh)
+	}
+	u, m2m, _, _ := spHarness(t, IdentityUser)
+	if _, err := Credential(headless, u); err == nil || *m2m != 0 {
+		t.Fatalf("headless on a user row minted the SP: %v (m2m %d)", err, *m2m)
+	}
+	if got := headlessAs(IdentityHeadless); got != "" {
+		t.Errorf("unpaired row headless = %q; want no override", got)
+	}
+}
+
+func TestIdentityFlagBeatsProfile(t *testing.T) {
+	if got, err := ResolveIdentity(IdentityUser, IdentitySP); err != nil || got != IdentitySP {
+		t.Fatalf("flag sp over profile user = %q, %v", got, err)
+	}
+	p, m2m, refresh, _ := spHarness(t, IdentityUser)
+	if got, err := Credential(WithIdentity(context.Background(), IdentitySP), p); err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
+		t.Fatalf("--as sp on a user row = %q, %v (m2m %d)", got, err, *m2m)
+	}
+	if _, err := ResolveIdentity("", "bogus"); err == nil {
+		t.Error("bogus --as accepted")
+	}
+	if got, _ := ResolveIdentity("", ""); got != IdentityAuto {
+		t.Errorf("default = %q", got)
+	}
+}
+
+func TestUnpairedRowJSONOmitsIdentity(t *testing.T) {
+	b, err := Provider{Name: "plain", Auth: Auth{Type: AuthOAuth}}.MarshalJSON()
+	if err != nil || strings.Contains(string(b), "identity") || strings.Contains(string(b), "spClientId") {
+		t.Fatalf("%s, %v", b, err)
+	}
+}
+
+func TestIdentitySPCacheCannotAuthenticateUser(t *testing.T) {
+	p, m2m, refresh, _ := spHarness(t, IdentitySP)
+	if _, err := Credential(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Credential(WithIdentity(context.Background(), IdentityUser), p); err == nil {
+		t.Fatal("user-only request accepted the cached SP credential")
+	}
+	other := *p
+	other.Name += ".sp"
+	if _, err := Credential(WithIdentity(context.Background(), IdentityUser), &other); err == nil {
+		t.Fatal("another profile accepted the cached SP credential")
+	}
+	if *m2m != 1 || *refresh != 1 {
+		t.Fatalf("m2m=%d refresh=%d; want one independent request per identity", *m2m, *refresh)
+	}
+}
+
+func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentityAuto)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	finish := func() { once.Do(func() { close(release) }) }
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		close(entered)
+		<-release
+		return oauth.Token{Access: "sp-token"}, nil
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Credential(context.Background(), p); done <- err }()
+	t.Cleanup(func() { finish(); <-done })
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("auto request never reached SP mint")
+	}
+	setFlightHook(t, func(bool) { finish() })
+	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), 10*time.Second)
+	defer cancel()
+	got, err := Credential(ctx, p)
+	if err == nil || got == "sp-token" || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("user-only request = %q, %v; want its own refresh failure, not the auto fallback flight", got, err)
+	}
+}
+
+func TestIdentityAutoWithoutUserLoginSkipsRefresh(t *testing.T) {
+	p, m2m, refresh, _ := spHarness(t, "")
+	if err := vault.Delete(AuthSecretName(p)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Credential(context.Background(), p)
+	if err != nil || got != "sp-token" || *m2m != 1 || *refresh != 0 {
+		t.Fatalf("Credential = %q, %v (m2m %d, refresh %d)", got, err, *m2m, *refresh)
+	}
+}
+
+func TestSPNoteOnlyOnMint(t *testing.T) {
+	p, m2m, _, out := spHarness(t, IdentitySP)
+	tok := jwtExpIn(time.Hour, "")
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		*m2m++
+		return oauth.Token{Access: tok}, nil
+	}
+	var mu sync.Mutex
+	var notes []string
+	ctx := WithNotes(context.Background(), func(s string) { mu.Lock(); notes = append(notes, s); mu.Unlock() })
+	if v, err := Credential(ctx, p); err != nil || v != tok {
+		t.Fatalf("first Credential = %v", err)
+	}
+	spCache.Delete(p.Name)
+	if v, err := Credential(ctx, p); err != nil || v != tok {
+		t.Fatalf("second Credential = %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if *m2m != 1 || len(notes) != 1 || !strings.Contains(notes[0], "using the service principal sp-client") || out.Len() != 0 {
+		t.Fatalf("m2m = %d, notes = %q, stderr note = %q", *m2m, notes, out.String())
+	}
+}
+
+type idCreds struct{ sp, user, rejected bool }
+
+func identityRow(t *testing.T, name, identity string, c idCreds) *Provider {
+	t.Helper()
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+		return http.StatusUnauthorized, map[string]any{"error": "invalid_client"}
+	})
+	p := mintRow(t, name, AuthOAuth, "", srv.URL)
+	p.Identity, p.Auth.SPClientID = identity, "sp-client"
+	t.Cleanup(func() { spCache.Delete(p.Name); spSkip.Delete(p.Name) })
+	if c.user {
+		if err := writeOAuth(p, oauthValue{Refresh: "user-refresh"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.sp {
+		if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M), "sp-secret"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	origR, origM := refreshU2M, mintM2M
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) { return oauth.Token{Access: "user"}, nil }
+	mintM2M = func(ctx context.Context, _, id, secret string) (oauth.Token, error) {
+		if c.rejected {
+			return oauth.MintM2M(ctx, srv.URL, id, secret)
+		}
+		return oauth.Token{Access: "sp"}, nil
+	}
+	t.Cleanup(func() { refreshU2M, mintM2M = origR, origM })
+	return p
+}
+
+func resolveCell(t *testing.T, ctx context.Context, name, identity string, c idCreds) string {
+	t.Helper()
+	p := identityRow(t, name, identity, c)
+	var notes strings.Builder
+	got, err := Credential(WithNotes(ctx, func(s string) {
+		notes.WriteString(s)
+		notes.WriteByte('\n')
+	}), p)
+	if err != nil {
+		got = ""
+	}
+	if strings.Contains(notes.String(), "sp-secret") {
+		t.Errorf("%s: a note leaked the secret: %q", name, notes.String())
+	}
+	if strings.Contains(notes.String(), "falling back to your own login") {
+		got += " fb"
+	}
+	return got
+}
+
+func TestIdentityResolutionTable(t *testing.T) {
+	modes := []struct{ name, identity, as string }{
+		{"auto", IdentityAuto, ""}, {"sp", IdentitySP, ""}, {"user", IdentityUser, ""},
+		{"as-sp", IdentityUser, IdentitySP}, {"as-user", IdentitySP, IdentityUser},
+	}
+	creds := map[string]idCreds{"sp-only": {sp: true}, "user-only": {user: true}, "both": {sp: true, user: true},
+		"neither": {}, "both-rejected": {sp: true, user: true, rejected: true}}
+	want := map[string]map[string][5]string{
+		"dispatch": {"sp-only": {"sp", "sp", "", "sp", ""}, "user-only": {"user fb", "", "user", "", "user"},
+			"both": {"sp", "sp", "user", "sp", "user"}, "neither": {" fb", "", "", "", ""},
+			"both-rejected": {"user fb", "", "user", "", "user"}},
+		"interactive": {"sp-only": {"sp", "sp", "", "sp", ""}, "user-only": {"user", "", "user", "", "user"},
+			"both": {"user", "sp", "user", "sp", "user"}, "neither": {"", "", "", "", ""},
+			"both-rejected": {"user", "", "user", "", "user"}},
+	}
+	n := 0
+	for path, rows := range want {
+		for cname, cells := range rows {
+			for i, m := range modes {
+				n++
+				as := m.as
+				if path == "dispatch" {
+					as = cmp.Or(as, IdentityHeadless)
+				}
+				got := resolveCell(t, WithIdentity(context.Background(), as), fmt.Sprintf("idrow-%d", n), m.identity, creds[cname])
+				if got != cells[i] {
+					t.Errorf("%s %s × %s = %q, want %q", path, cname, m.name, got, cells[i])
+				}
+			}
+		}
+	}
+}
+
+const dbxHost = "https://example.cloud.databricks.com"
+
+func patRow(host string) string {
+	return `{"preset":"databricks","host":"` + host + `","auth":{"type":"pat"}}`
+}
+
+func TestValidateSealedSecretNameCollision(t *testing.T) {
+	for second, collides := range map[string]bool{"a_b": true, "c_d": false} {
+		doc := `{"providers":{"databricks":{"a-b":` + patRow(dbxHost) + `,"` + second + `":` + patRow(dbxHost) + `}}}`
+		err := Validate([]byte(doc))
+		if collides != (err != nil) || collides && (!strings.Contains(err.Error(), "a-b") || !strings.Contains(err.Error(), second)) {
+			t.Errorf("%s: Validate = %v, want collision %v naming both rows", second, err, collides)
+		}
+	}
+}
+
+func m2mBaseRow(base string) string {
+	return `{"protocol":"anthropic","base_url":"` + base + `/serving-endpoints/anthropic",` +
+		`"auth":{"type":"m2m","clientId":"sp-client"}}`
+}
+
+func TestValidateSealedHostScheme(t *testing.T) {
+	for doc, ok := range map[string]bool{
+		`{"m2m-http":` + m2mBaseRow("http://example.cloud.databricks.com") + `}`: false,
+		`{"pat-http":` + patRow("http://example.cloud.databricks.com") + `}`:     false,
+		`{"m2m-ok":` + m2mBaseRow(dbxHost) + `}`:                                 true,
+		`{"m2m-ok":` + m2mBaseRow("http://127.0.0.1:8080") + `}`:                 true,
+		`{"m2m-ok":` + m2mBaseRow("http://localhost:9") + `}`:                    true,
+	} {
+		if err := Validate([]byte(`{"providers":{"databricks":` + doc + `}}`)); ok != (err == nil) {
+			t.Errorf("Validate(%s) = %v, want accepted %v", doc, err, ok)
+		}
+	}
+}
+
+func TestAuthHostRejectsPlainHTTPNonLoopback(t *testing.T) {
+	p := &Provider{Name: "x", BaseURL: "http://example.cloud.databricks.com/serving-endpoints/anthropic",
+		Auth: Auth{Type: AuthM2M, ClientID: "c"}}
+	if h := AuthHost(p); h != "" {
+		t.Errorf("AuthHost = %q, want empty for plain http non-loopback", h)
+	}
+}
+
+func TestHTTPSealedRowMint(t *testing.T) {
+	srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+		return 200, map[string]any{"access_token": "loop-minted", "expires_in": 3600}
+	})
+	for _, c := range []struct{ name, host, want string }{
+		{"kind-loop-http", srv.URL, "loop-minted"}, {"kind-nonloop-http", "http://example.cloud.databricks.com", ""},
+	} {
+		p := mintRow(t, c.name, AuthM2M, "sp-client", c.host)
+		if err := vault.Store(AuthSecretName(p), "sp-secret"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Credential(context.Background(), p)
+		if got != c.want || (err == nil) != (c.want != "") || err != nil && strings.Contains(err.Error(), "sp-secret") {
+			t.Errorf("%s: Credential = %q, %v", c.name, got, err)
+		}
+	}
+}
+
+func clientRow(t *testing.T, sp bool) (*Provider, string) {
+	if sp {
+		p, _, _, _ := spHarness(t, IdentitySP)
+		return p, SecretName(GroupDatabricks, p.Name, AuthM2M)
+	}
+	p := mintRow(t, "m2m-share", AuthM2M, "client", "https://h.example.com")
+	if err := vault.Store(AuthSecretName(p), "secret"); err != nil {
+		t.Fatal(err)
+	}
+	return p, AuthSecretName(p)
+}
+
+func TestClientTokenSharedAcrossProcesses(t *testing.T) {
+	for _, sp := range []bool{false, true} {
+		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) { checkClientTokenSharing(t, sp) })
+	}
+}
+
+func checkClientTokenSharing(t *testing.T, sp bool) {
+	p, secretName := clientRow(t, sp)
+	calls, orig := 0, mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	newProcess := func() { cmdCache.Delete(p.Name); spCache.Delete(p.Name) }
+	ctx := context.Background()
+	first, err := Credential(ctx, p)
+	newProcess()
+	again, err2 := Credential(ctx, p)
+	if err != nil || err2 != nil || again != first || calls != 1 {
+		t.Fatalf("second process: same=%t calls=%d errs=%v,%v; want the sealed token reused", again == first, calls, err, err2)
+	}
+	if err := vault.Store(secretName, "rotated"); err != nil {
+		t.Fatal(err)
+	}
+	newProcess()
+	if rotated, err := Credential(ctx, p); err != nil || rotated == first || calls != 2 {
+		t.Fatalf("after secret rotation: reused=%t calls=%d err=%v; want a fresh mint", rotated == first, calls, err)
+	}
+	if _, err := Refresh(ctx, p); err != nil || calls != 3 {
+		t.Fatalf("Refresh: calls=%d err=%v; want a forced mint", calls, err)
+	}
+}
+
+func TestM2MWrongIssuerTokenNotSealed(t *testing.T) {
+	p, secretName := clientRow(t, false)
+	p.Preset, p.Host = PresetDatabricks, "https://h.example.com"
+	stubMintM2M(t, jwtExpIn(time.Hour, "https://other.example.org/oidc"))
+	_, err := m2mToken(context.Background(), p, secretName, "h.example.com", "client", "secret", true)
+	if _, ok := errors.AsType[*HostMismatchError](err); !ok {
+		t.Fatalf("m2mToken err = %v; want HostMismatchError", err)
+	}
+	if vaultHas(t, secretName+"_ACCESS") {
+		t.Fatal("wrong-issuer token was sealed in the vault")
+	}
+}
+
+func stubMintM2M(t *testing.T, tok string) {
+	t.Helper()
+	orig := mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+}
+
+func vaultHas(t *testing.T, name string) bool {
+	t.Helper()
+	_, found, err := vault.ReadSecret(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestM2MTokenCachedUnderProfileName(t *testing.T) {
+	for _, sp := range []bool{false, true} {
+		t.Run(fmt.Sprint("sp=", sp), func(t *testing.T) {
+			p, secretName := clientRow(t, sp)
+			stubMintM2M(t, jwtExpIn(time.Hour, ""))
+			if _, err := Refresh(context.Background(), p); err != nil {
+				t.Fatal(err)
+			}
+			if !vaultHas(t, secretName+"_ACCESS") {
+				t.Fatalf("no token cache at %s_ACCESS", secretName)
+			}
+		})
+	}
+}
+
+func TestForcedU2MMintAdoptedByOtherProcess(t *testing.T) {
+	p := mintRow(t, "u2m-adopt", AuthOAuth, "", "https://h.example.com")
+	if err := writeOAuth(p, oauthValue{Refresh: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	calls, orig := 0, refreshU2M
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, ""), Refresh: "rt"}, nil
+	}
+	t.Cleanup(func() { refreshU2M = orig })
+	t.Cleanup(func() { cmdCache.Delete(p.Name) })
+	ctx := context.Background()
+	forced, err := Refresh(ctx, p)
+	if err != nil || calls != 1 {
+		t.Fatalf("forced mint: calls=%d err=%v", calls, err)
+	}
+	cmdCache.Store(p.Name, cached{value: "b-old-token", until: time.Now().Add(-time.Second)})
+	got, err := Credential(ctx, p)
+	if err != nil || got != forced || calls != 1 {
+		t.Fatalf("process B: adopted=%t calls=%d err=%v; want A's sealed token with no mint", got == forced, calls, err)
+	}
+}
+
+func TestM2MForcedMintLeavesOtherRowSlot(t *testing.T) {
+	p, nameA := clientRow(t, false)
+	nameB := nameA + "_OTHER"
+	calls, orig := 0, mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		calls++
+		return oauth.Token{Access: jwtExpIn(time.Hour+time.Duration(calls)*time.Second, "")}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	ctx := context.Background()
+	a1, errA := m2mToken(ctx, p, nameA, "h.example.com", "client", "secret", true)
+	b1, errB := m2mToken(ctx, p, nameB, "h.example.com", "client", "secret", true)
+	a2, errA2 := m2mToken(ctx, p, nameA, "h.example.com", "client", "secret", true)
+	bAgain, errB2 := m2mToken(ctx, p, nameB, "h.example.com", "client", "secret", false)
+	if errA != nil || errB != nil || errA2 != nil || errB2 != nil {
+		t.Fatalf("errs = %v %v %v %v", errA, errB, errA2, errB2)
+	}
+	if a1 == b1 || a2 == a1 || bAgain != b1 || calls != 3 {
+		t.Fatalf("row B reused=%t rowA rotated=%t calls=%d; want B's own sealed token and 3 mints", bAgain == b1, a2 != a1, calls)
+	}
+}
+
+// rotRig is a u2m row whose token endpoint rotates the refresh token on every call and runs onCall(n) before call n.
+type rotRig struct {
+	p      *Provider
+	mu     sync.Mutex
+	sent   []string
+	onCall func(n int)
+}
+
+func newRotRig(t *testing.T, name string) *rotRig {
+	t.Helper()
+	r := &rotRig{}
+	if origDelay := sealRetryDelay; origDelay == time.Second {
+		sealRetryDelay = time.Millisecond
+		t.Cleanup(func() { sealRetryDelay = origDelay })
+	}
+	srv := oidcServer(t, func(_ *http.Request, f url.Values) (int, map[string]any) {
+		r.mu.Lock()
+		r.sent = append(r.sent, f.Get("refresh_token"))
+		n := len(r.sent)
+		r.mu.Unlock()
+		if r.onCall != nil {
+			r.onCall(n)
+		}
+		return http.StatusOK, map[string]any{"access_token": jwtExpIn(time.Hour+time.Duration(n)*time.Second, "https://x"),
+			"expires_in": 3600, "refresh_token": fmt.Sprintf("refresh-%d", n+1)}
+	})
+	r.p = mintRow(t, name, AuthOAuth, "", srv.URL)
+	t.Cleanup(func() { cmdCache.Delete(name); unsealedRefresh.Delete(name) })
+	putOAuth(t, r.p, oauthValue{Refresh: "refresh-1"})
+	return r
+}
+
+func (r *rotRig) refreshesSent() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.sent...)
+}
+
+// needReadOnlyVault skips a test that makes the vault file read-only where that is not enforced.
+func needReadOnlyVault(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only vault file is only enforced for a non-root unix user")
+	}
+}
+
+// breakWrites makes the vault file read-only so a seal fails while reads work; it reports with t.Error.
+func breakWrites(t *testing.T) (restore func()) {
+	path := vault.Path()
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Error(err)
+	}
+	restore = func() { _ = os.Chmod(path, 0o600) }
+	t.Cleanup(restore)
+	return restore
+}
+
+func sealFailures(t *testing.T) []audit.Event {
+	t.Helper()
+	evs, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []audit.Event
+	for _, e := range evs {
+		if e.Action == audit.SealFailed {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func TestSealedStampWrittenAndOldRecordStillReads(t *testing.T) {
+	p := mintRow(t, "stamp-row", AuthOAuth, "", "http://127.0.0.1:1")
+	if err := vault.Store(AuthSecretName(p), `{"refresh":"old-r","access":"old-a"}`); err != nil {
+		t.Fatal(err)
+	}
+	if ov, err := readOAuth(p); err != nil || ov.Refresh != "old-r" || ov.Access != "old-a" || ov.Sealed != 0 {
+		t.Fatalf("record without a stamp = %+v, %v; want it read with Sealed 0", ov, err)
+	}
+	before := time.Now().UnixNano()
+	putOAuth(t, p, oauthValue{Refresh: "new-r"})
+	if ov, _ := readOAuth(p); ov.Sealed < before || ov.Sealed > time.Now().UnixNano() {
+		t.Fatalf("Sealed = %d after a write at %d; want the write's unix nanos", ov.Sealed, before)
+	}
+}
+
+// A rotated refresh whose seal fails leaves an audit trace (name and kind, never a value) and is retried next mint.
+func TestFailedRotatedSealIsAuditedAndRetriedOnNextMint(t *testing.T) {
+	needReadOnlyVault(t)
+	r := newRotRig(t, "seal-audit")
+	restore := breakWritesOnFirstCall(t, r)
+	ctx := context.Background()
+	if _, err := Refresh(ctx, r.p); !errors.Is(err, errRotationUnsaved) {
+		t.Fatalf("first mint = %v; want the unsaved-rotation error", err)
+	}
+	assertRefreshSealAudited(t, r)
+	restore()
+	if _, err := Refresh(ctx, r.p); err != nil {
+		t.Fatalf("second mint = %v", err)
+	}
+	if got := r.refreshesSent(); len(got) != 2 || got[1] != "refresh-2" {
+		t.Fatalf("refresh tokens sent = %q; want the carried refresh-2 retried on the next mint", got)
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-3" {
+		t.Fatalf("sealed refresh = %q; want refresh-3 sealed by the retry", ov.Refresh)
+	}
+}
+
+// breakWritesOnFirstCall makes the vault read-only from the rig's first token call; the returned func repairs it.
+func breakWritesOnFirstCall(t *testing.T, r *rotRig) (restore func()) {
+	t.Helper()
+	repair := func() {}
+	r.onCall = func(n int) {
+		if n == 1 {
+			repair = breakWrites(t)
+		}
+	}
+	return func() { repair() }
+}
+
+// assertRefreshSealAudited checks the one refresh seal_failed event and that the audit log holds no token value.
+func assertRefreshSealAudited(t *testing.T, r *rotRig) {
+	t.Helper()
+	evs := sealFailures(t)
+	if len(evs) != 1 || evs[0].Resource != AuthSecretName(r.p) || evs[0].Detail != "refresh" {
+		t.Fatalf("seal_failed events = %+v; want one naming %s with kind refresh", evs, AuthSecretName(r.p))
+	}
+	raw, _ := os.ReadFile(filepath.Join(paths.StateDir(), "audit.jsonl"))
+	if strings.Contains(string(raw), "refresh-") {
+		t.Fatalf("audit line carries a token value: %s", raw)
+	}
+}
+
+// The access-token seal failing (u2m) is audited by secret name and kind.
+func TestFailedAccessSealIsAudited(t *testing.T) {
+	needReadOnlyVault(t)
+	r := newRotRig(t, "seal-access")
+	r.onCall = func(int) { breakWrites(t) }
+	srvRefresh := refreshU2M
+	refreshU2M = func(ctx context.Context, host, rt string) (oauth.Token, error) {
+		tok, err := srvRefresh(ctx, host, rt)
+		tok.Refresh = ""
+		return tok, err
+	}
+	t.Cleanup(func() { refreshU2M = srvRefresh })
+	if _, err := Refresh(context.Background(), r.p); err != nil {
+		t.Fatal(err)
+	}
+	evs := sealFailures(t)
+	if len(evs) != 1 || evs[0].Resource != AuthSecretName(r.p) || evs[0].Detail != "access" {
+		t.Fatalf("seal_failed events = %+v; want one naming %s with kind access", evs, AuthSecretName(r.p))
+	}
+}
+
+// A carried (unsealed) rotated refresh must not be replayed over a login another process sealed since.
+func TestCarriedRefreshYieldsToNewerLogin(t *testing.T) {
+	needReadOnlyVault(t)
+	r := newRotRig(t, "carry-newer")
+	restore := func() {}
+	r.onCall = func(n int) {
+		if n == 1 {
+			restore = breakWrites(t)
+		}
+	}
+	ctx := context.Background()
+	if _, err := Refresh(ctx, r.p); !errors.Is(err, errRotationUnsaved) {
+		t.Fatal(err)
+	}
+	if _, ok := unsealedRefresh.Load(r.p.Name); !ok {
+		t.Fatal("precondition: the failed seal must leave a carried refresh")
+	}
+	restore()
+	putOAuth(t, r.p, oauthValue{Refresh: "login-refresh"})
+	if _, err := Refresh(ctx, r.p); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.refreshesSent(); got[1] != "login-refresh" {
+		t.Fatalf("refresh tokens sent = %q; want the newer login's token, not the carried refresh-2", got)
+	}
+	if _, ok := unsealedRefresh.Load(r.p.Name); ok {
+		t.Error("the stale carry survived a newer sealed record")
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-3" {
+		t.Errorf("sealed refresh = %q; want the login chain's rotation refresh-3", ov.Refresh)
+	}
+}
+
+// A rotation that lands after another process sealed a newer login must not overwrite that login.
+func TestStaleRotationNeverOverwritesNewerLogin(t *testing.T) {
+	r := newRotRig(t, "stale-rotation")
+	r.onCall = func(int) {
+		if err := writeOAuth(r.p, oauthValue{Refresh: "login-refresh"}); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := Refresh(context.Background(), r.p); err != nil {
+		t.Fatal(err)
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "login-refresh" || ov.Access != "" {
+		t.Fatalf("sealed record = refresh %q, access set %t; want the newer login untouched", ov.Refresh, ov.Access != "")
+	}
+	if _, ok := unsealedRefresh.Load(r.p.Name); ok {
+		t.Error("a superseded rotation must not be carried")
+	}
+}
+
+// End to end: a rotated refresh survives a failed seal and is used next; a later newer login wins over a later carry.
+func TestRotatedRefreshSurvivesAndNewerLoginWins(t *testing.T) {
+	needReadOnlyVault(t)
+	r := newRotRig(t, "e2e-rotation")
+	restore := func() {}
+	r.onCall = func(n int) {
+		if n == 1 || n == 3 {
+			restore = breakWrites(t)
+		}
+	}
+	ctx := context.Background()
+	for i := range 3 {
+		// mints 1 and 3 hit the broken vault and report the unsaved rotation
+		_, err := Refresh(ctx, r.p)
+		checkUnsaved(t, err, i != 1)
+		restore()
+		if len(r.refreshesSent()) == 2 {
+			if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-3" {
+				t.Fatalf("after the retry sealed refresh = %q; want refresh-3", ov.Refresh)
+			}
+		}
+	}
+	putOAuth(t, r.p, oauthValue{Refresh: "login-refresh"})
+	if _, err := Refresh(ctx, r.p); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"refresh-1", "refresh-2", "refresh-3", "login-refresh"}
+	if got := r.refreshesSent(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("refresh tokens sent = %q; want %q", got, want)
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-5" {
+		t.Fatalf("sealed refresh = %q; want the login chain's refresh-5", ov.Refresh)
+	}
+}
+
+// countingM2M replaces the SP mint with one that returns tok and counts its calls.
+func countingM2M(t *testing.T, tok string) *int {
+	t.Helper()
+	n, orig := new(int), mintM2M
+	mintM2M = func(context.Context, string, string, string) (oauth.Token, error) {
+		*n++
+		return oauth.Token{Access: tok}, nil
+	}
+	t.Cleanup(func() { mintM2M = orig })
+	return n
+}
+
+// holdRefreshLock holds p's refresh lock until the returned func is called.
+func holdRefreshLock(t *testing.T, p *Provider) (release func()) {
+	t.Helper()
+	held, done, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = withRefreshLock(p, func() error { close(held); <-stop; return nil })
+	}()
+	select {
+	case <-held:
+	case <-time.After(5 * time.Second):
+		t.Fatal("could not take the refresh lock")
+	}
+	var once sync.Once
+	release = func() { once.Do(func() { close(stop); <-done }) }
+	t.Cleanup(release)
+	return release
+}
+
+// An SP mint that waited on the lock serves the token the winner sealed instead of minting again.
+func TestSPMintFollowerServesWinnersToken(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentitySP)
+	synctest.Test(t, func(t *testing.T) { checkSPMintFollower(t, p) })
+}
+
+func checkSPMintFollower(t *testing.T, p *Provider) {
+	mints := countingM2M(t, jwtExpIn(time.Hour, ""))
+	release := holdRefreshLock(t, p)
+	type result struct {
+		v   string
+		err error
+	}
+	done := make(chan result, 1)
+	go func() { v, _, err := mintSP(context.Background(), p, false, expiryMargin); done <- result{v, err} }()
+	synctest.Wait()
+	select {
+	case <-done:
+		t.Fatal("mintSP returned before the refresh lock was released")
+	default:
+	}
+	winner := jwtExpIn(time.Hour, "")
+	b, _ := json.Marshal(clientAccess{Access: winner, Bind: clientBind(AuthHost(p), "sp-client", "sp-secret")})
+	if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M)+"_ACCESS", string(b)); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	select {
+	case r := <-done:
+		if r.err != nil || r.v != winner || *mints != 0 {
+			t.Fatalf("mintSP = %q, %v (mints %d); want the winner's sealed token with no mint", r.v, r.err, *mints)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("mintSP never returned")
+	}
+}
+
+// A lock timeout never fails an SP mint: it proceeds unlocked.
+func TestSPMintLockTimeoutMintsUnlocked(t *testing.T) {
+	p, _, _, _ := spHarness(t, IdentitySP)
+	synctest.Test(t, func(t *testing.T) { checkSPMintLockTimeout(t, p) })
+}
+
+func checkSPMintLockTimeout(t *testing.T, p *Provider) {
+	tok := jwtExpIn(time.Hour, "")
+	mints := countingM2M(t, tok)
+	holdRefreshLock(t, p)
+	defer func(d time.Duration) { refreshLockWait = d }(refreshLockWait)
+	refreshLockWait = 50 * time.Millisecond
+	got, _, err := mintSP(context.Background(), p, false, expiryMargin)
+	if err != nil || got != tok || *mints != 1 {
+		t.Fatalf("mintSP under a held lock = %q, %v (mints %d); want one unlocked mint", got, err, *mints)
+	}
+}
+
+// A read that times out on the vault lock is retried once.
+func TestReadOAuthRetriesOneVaultLockTimeout(t *testing.T) {
+	synctest.Test(t, checkReadOAuthRetry)
+}
+
+func checkReadOAuthRetry(t *testing.T) {
+	p := mintRow(t, "read-retry", AuthOAuth, "", "http://127.0.0.1:1")
+	putOAuth(t, p, oauthValue{Refresh: "refresh-1"})
+	defer vault.SetReadLockTimeoutForTest(300 * time.Millisecond)()
+	held, release := make(chan struct{}), make(chan struct{})
+	writer := make(chan error, 1)
+	go func() {
+		writer <- vault.Update(func(*vault.Tx) error { close(held); <-release; return nil })
+	}()
+	<-held
+	time.AfterFunc(450*time.Millisecond, func() { close(release) })
+	ov, err := readOAuth(p)
+	if err != nil || ov.Refresh != "refresh-1" {
+		t.Fatalf("readOAuth = %+v, %v; want the retry to read once the writer is done", ov, err)
+	}
+	if err := <-writer; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A caller whose context ends right after the token endpoint answered still gets the rotated refresh token sealed.
+func TestRotatedSealSurvivesCallerCancel(t *testing.T) {
+	needReadOnlyVault(t)
+	synctest.Test(t, checkRotatedSealAfterCancel)
+}
+
+func checkRotatedSealAfterCancel(t *testing.T) {
+	defer func(d time.Duration) { sealRetryDelay = d }(sealRetryDelay)
+	sealRetryDelay = 40 * time.Millisecond
+	p := mintRow(t, "seal-cancel", AuthOAuth, "", "http://127.0.0.1:1")
+	putOAuth(t, p, oauthValue{Refresh: "refresh-1"})
+	t.Cleanup(func() { unsealedRefresh.Delete(p.Name) })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	orig := refreshU2M
+	t.Cleanup(func() { refreshU2M = orig })
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
+		repair := breakWrites(t)
+		time.AfterFunc(10*time.Millisecond, repair)
+		cancel()
+		return oauth.Token{Refresh: "refresh-2", Access: jwtExpIn(time.Hour, "https://x")}, nil
+	}
+	// the cancelled caller stops waiting; the sent exchange still runs to its seal
+	_, _, _ = lockedUserMint(ctx, p, true, expiryMargin)
+	awaitExchanges(t)
+	if ov, _ := readOAuth(p); ov.Refresh != "refresh-2" {
+		t.Fatalf("sealed refresh = %q; want refresh-2 sealed despite the cancelled caller", ov.Refresh)
+	}
+}

@@ -1,0 +1,1 @@
+internal/routing/agentconfig/project/sync.go:writeScratch	projections

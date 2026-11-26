@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.

@@ -8,10 +8,10 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
 )
 
 // engineOf is the agent that ran res: its last hop's, else the result's own.

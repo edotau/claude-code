@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/mdlint"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // xword is a fixed-width filler token so first-line/continuation capacity is hand-computable.

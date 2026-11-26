@@ -10,15 +10,15 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/copilotauth"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/driver/copilotauth"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // --native opencode leads on opencode's own config, ahead of (and instead of) the hub cell.

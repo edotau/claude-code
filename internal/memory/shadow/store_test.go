@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // openStoreEnv builds the shadow db from a fixture bank under a temp config dir and returns the bank dir.

@@ -1,5 +1,0 @@
-internal/catalog/catalog.go:SaveCheckCache	opencode-models-check
-internal/catalog/fit.go:SaveFit	route-fit
-internal/catalog/picker.go:ClaimEvery	unversioned: marker: detached refresh attempt stamp
-internal/catalog/picker.go:SpawnDiscover	unversioned: foreign: /dev/null opened for a detached refresh
-internal/catalog/prices.go:SavePrices	model-prices

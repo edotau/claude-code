@@ -1,0 +1,398 @@
+package codex
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/route"
+)
+
+func TestCodexOwnModelSkipsMultilineValues(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("CODEX_HOME", dir)
+	raw := "notes = \"\"\"\nmodel = \"fake\"\n\"\"\"\nlist = [\n  \"a\",\n]\nmodel = \"real\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := codexOwnModel(); got != "real" {
+		t.Errorf("got %q, want real", got)
+	}
+}
+
+// Each record extra reaches config.toml; a leftover legacy codex-settings overlay is ignored.
+func TestCodexConfigFromRecordExtras(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "codex-settings", `{"model_reasoning_effort":"medium","model_verbosity":"high"}`)
+	putCodexRecord(t, vault.AgentRecord{Effort: "max", Extras: map[string]string{
+		extraApprovalPolicy: "on-request", extraSandboxMode: "workspace-write", extraVerbosity: "low"}})
+	keys, err := codexPermissionKeys("", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := LoadCodexPreferences()
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := patchCodexSettings("", prefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`approval_policy = "on-request"`, `sandbox_mode = "workspace-write"`} {
+		if !strings.Contains(keys, want) {
+			t.Errorf("managed keys %q lack %s", keys, want)
+		}
+	}
+	for _, want := range []string{`model_verbosity = "low"`, `model_reasoning_effort = "xhigh"`} {
+		if !strings.Contains(block, want) {
+			t.Errorf("settings block %q lacks %s", block, want)
+		}
+	}
+	putCodexRecord(t, vault.AgentRecord{})
+	if prefs, err = LoadCodexPreferences(); err != nil || len(prefs) != 0 {
+		t.Errorf("empty-record preferences = %v (%v), want none (legacy overlay ignored)", prefs, err)
+	}
+}
+
+// A preferences save lands in the codex record; an untouched max effort stays max.
+func TestUpdateCodexPreferencesWritesRecord(t *testing.T) {
+	vaulttest.Use(t)
+	putCodexRecord(t, vault.AgentRecord{Effort: "max", Route: route.Route{Profile: "chatgpt"},
+		Extras: map[string]string{extraVerbosity: "high"}})
+	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string { return p }); err != nil {
+		t.Fatal(err)
+	}
+	rec := vault.GetAgentRecord("codex")
+	if rec.Effort != "max" || rec.Route.Profile != "chatgpt" || rec.Extras[extraVerbosity] != "high" {
+		t.Errorf("record after save = %+v, want effort max, profile kept, verbosity high", rec)
+	}
+	if err := UpdateCodexPreferences(func(p map[string]string) map[string]string {
+		delete(p, codexEffortKey)
+		p[extraVerbosity] = "low"
+		return p
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rec = vault.GetAgentRecord("codex"); rec.Effort != "" || rec.Extras[extraVerbosity] != "low" {
+		t.Errorf("record after edit = %+v, want effort cleared and verbosity low", rec)
+	}
+}
+
+func TestConfigHistoryIsEncryptedBoundedAndSurvivesRotation(t *testing.T) {
+	dir, _ := vaulttest.UseKeyring(t)
+	path := filepath.Join(dir, "native", "config.toml")
+	other := filepath.Join(dir, "other", "config.toml")
+	fixture := []byte("private-config-fixture-68b19d\nforeign = 'preserve exactly'\n")
+	seedCodexConfigHistory(t, path, other, fixture)
+	assertCodexConfigHistoryEncrypted(t, dir, fixture)
+	oldKid, newKid, err := vault.RotateKey(false)
+	if err != nil || oldKid == newKid {
+		t.Fatalf("rotation did not change the key: %v", err)
+	}
+	assertCodexRotatedContents(t, path, fixture)
+	assertCodexRotatedMetadata(t, newKid)
+	consumeCodexHistoryVersions(t, path)
+	if _, found, err := LatestCodexBackup(path); err != nil || found {
+		t.Fatalf("more than five snapshots retained: found=%v, err=%v", found, err)
+	}
+	assertCodexHistoryOtherAndBaseline(t, path, other, fixture)
+}
+
+func seedCodexConfigHistory(t *testing.T, path, other string, fixture []byte) {
+	t.Helper()
+	if err := saveCodexBaseline(path, fixture); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 7 {
+		if err := CodexBackup(path, fmt.Appendf(nil, "version %d", i), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CodexBackup(other, fixture, false); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Secret(t, "API_KEY", "credential-fixture")
+}
+
+func assertCodexConfigHistoryEncrypted(t *testing.T, dir string, fixture []byte) {
+	t.Helper()
+	pairs, err := vault.ExportPairs(nil)
+	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
+		t.Fatalf("credential export includes unexpected entries: %v, %v", pairs, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "state", "vault.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, clear := range [][]byte{fixture, []byte(base64.StdEncoding.EncodeToString(fixture)), []byte("private-config-fixture-68b19d")} {
+		if bytes.Contains(raw, clear) {
+			t.Fatal("vault contains plaintext config contents")
+		}
+	}
+}
+
+func assertCodexRotatedContents(t *testing.T, path string, fixture []byte) {
+	t.Helper()
+	baseline, err := loadCodexBaseline(path)
+	if err != nil || !bytes.Equal(baseline, fixture) {
+		t.Fatalf("baseline did not survive rotation: %v", err)
+	}
+	pairs, err := vault.ExportPairs(nil)
+	if err != nil || !reflect.DeepEqual(pairs, []vault.Pair{{Name: "API_KEY", Value: "credential-fixture"}}) {
+		t.Fatalf("credential did not survive rotation: %v", err)
+	}
+}
+
+func assertCodexRotatedMetadata(t *testing.T, newKid string) {
+	t.Helper()
+	if err := vault.View(func(tx *vault.Tx) error {
+		for _, name := range tx.Names(vault.SettingsBackups) {
+			r, found, err := tx.RecordIn(vault.SettingsBackups, name)
+			if err != nil || !found || r.Kid != newKid || r.Prefix != "" {
+				t.Errorf("backup metadata after rotation: found=%v, kid=%q, prefix=%q, err=%v", found, r.Kid, r.Prefix, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func consumeCodexHistoryVersions(t *testing.T, path string) {
+	t.Helper()
+	for i := 6; i >= 2; i-- {
+		b, found, err := LatestCodexBackup(path)
+		if err != nil || !found || string(b.Data) != fmt.Sprintf("version %d", i) || !b.Existed || b.Path != path {
+			t.Fatalf("latest backup %d: found=%v, data=%q, err=%v", i, found, b.Data, err)
+		}
+		if err := consumeCodexBackup(b.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertCodexHistoryOtherAndBaseline(t *testing.T, path, other string, fixture []byte) {
+	t.Helper()
+	b, found, err := LatestCodexBackup(other)
+	if err != nil || !found || !bytes.Equal(b.Data, fixture) || b.Existed || b.Path != other {
+		t.Fatalf("other path snapshot changed: found=%v, err=%v", found, err)
+	}
+	baseline, err := loadCodexBaseline(path)
+	if err != nil || !bytes.Equal(baseline, fixture) {
+		t.Fatalf("snapshot consumption changed baseline: %v", err)
+	}
+}
+
+func TestCredentialAndConfigCiphertextCannotBeExchanged(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := CodexBackup(path, []byte("original native config"), true); err != nil {
+		t.Fatal(err)
+	}
+	b, found, err := LatestCodexBackup(path)
+	if err != nil || !found {
+		t.Fatalf("backup missing: %v", err)
+	}
+	vaulttest.Secret(t, b.Name, "credential using identical record name")
+	if err := vault.Update(func(tx *vault.Tx) error {
+		credential, _, err := tx.Record(b.Name)
+		if err != nil {
+			return err
+		}
+		backup, _, err := tx.RecordIn(vault.SettingsBackups, b.Name)
+		if err != nil {
+			return err
+		}
+		if err := tx.PutRecord(b.Name, backup); err != nil {
+			return err
+		}
+		return tx.PutRecordIn(vault.SettingsBackups, b.Name, credential)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := vault.ReadSecret(b.Name); err == nil {
+		t.Fatal("credential collection decrypted settings ciphertext")
+	}
+	if _, _, err := vault.ReadSettingsBackup(b.Name); err == nil {
+		t.Fatal("settings collection decrypted credential ciphertext")
+	}
+}
+
+// mergeCodexTrust must not mistake a "["-led line inside an open array for a table header
+func TestMergeCodexTrustBracketInArrayNotHeader(t *testing.T) {
+	raw := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"old\"\n"
+	entries := map[string]string{"K": "abc123"}
+	got := mergeCodexTrust(raw, entries)
+	want := "[hooks.state.\"K\"]\nextra = [\n  [1, 2],\n]\ntrusted_hash = \"abc123\"\n"
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
+	}
+	if strings.Count(got, "trusted_hash") != 1 {
+		t.Errorf("want exactly one trusted_hash line, got:\n%q", got)
+	}
+}
+
+// A real table header after a "["-led array element still gets its own hash: depth resets once the array closes.
+func TestMergeCodexTrustHeaderAfterArrayStillMatches(t *testing.T) {
+	raw := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\n"
+	entries := map[string]string{"K2": "def456"}
+	got := mergeCodexTrust(raw, entries)
+	want := "extra = [\n  [1, 2],\n]\n[hooks.state.\"K2\"]\nother = 1\ntrusted_hash = \"def456\"\n"
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestMergeCodexTrustPreservesUnownedText(t *testing.T) {
+	raw := `note = """
+[hooks.state."active"]
+trusted_hash = "inside string"
+"""
+[hooks.state.'active'] # keep table comment
+  'trusted_hash' = 'old' # keep hash comment
+other = 1
+[hooks.state."missing"]
+other = 2
+[foreign]
+trusted_hash = "unowned"`
+	want := `note = """
+[hooks.state."active"]
+trusted_hash = "inside string"
+"""
+[hooks.state.'active'] # keep table comment
+  'trusted_hash' = "new" # keep hash comment
+other = 1
+[hooks.state."missing"]
+other = 2
+trusted_hash = "added"
+[foreign]
+trusted_hash = "unowned"
+
+[hooks.state."a"]
+trusted_hash = "first"
+
+[hooks.state."z"]
+trusted_hash = "last"
+`
+	entries := map[string]string{"active": "new", "missing": "added", "z": "last", "a": "first"}
+	got := mergeCodexTrust(raw, entries)
+	if got != want {
+		t.Fatalf("mergeCodexTrust:\n%s\nwant:\n%s", got, want)
+	}
+	if again := mergeCodexTrust(got, entries); again != got {
+		t.Fatalf("merge is not idempotent:\n%s", again)
+	}
+	if len(entries) != 4 {
+		t.Fatal("merge mutated input entries")
+	}
+}
+
+// One effort vocabulary: every surface takes the canonical names and refuses anything else alike; render spells native.
+func TestEffortOneVocabulary(t *testing.T) {
+	want := "want one of " + strings.Join(agentid.EffortNames(), ", ")
+	for _, name := range agentid.All() {
+		for _, e := range append(agentid.EffortNames(), "turbo") {
+			canonical := slices.Contains(agentid.EffortNames(), e)
+			for surface, err := range surfaces(name, e) {
+				w := effortWant(surface, want)
+				if canonical != (err == nil) || err != nil && !strings.Contains(err.Error(), w) {
+					t.Errorf("%s %s: %q = %v, want accepted=%v with %q", name, surface, e, err, canonical, w)
+				}
+			}
+		}
+	}
+	for e, native := range map[string]string{"minimal": "minimal", "low": "low", "xhigh": "xhigh", "max": "xhigh"} {
+		out, err := patchCodexSettings("", map[string]string{codexEffortKey: e})
+		if want := codexEffortKey + " = " + strconv.Quote(native); err != nil || !strings.Contains(out, want) {
+			t.Errorf("render %s = %q (%v), want %s", e, out, err, want)
+		}
+	}
+}
+
+// effortWant is the refusal text a surface gives: record and overlay share route.OneOf's wording.
+func effortWant(surface, perAgent string) string {
+	if surface == "record" || surface == "overlay" {
+		return "is not one of " + strings.Join(agentid.EffortNames(), "|")
+	}
+	return perAgent
+}
+
+// surfaces runs effort e through the record, overlay, ValidEffort and codex page checks.
+func surfaces(name, e string) map[string]error {
+	_, overlayErr := agentconfig.LoadOverlayContext(context.Background(), `{"effort":"`+e+`"}`, nil)
+	out := map[string]error{
+		"ValidEffort": agentid.ValidEffort(name, e),
+		"record":      agent.ValidateRecord(name, vault.AgentRecord{Effort: e}),
+		"overlay":     overlayErr,
+	}
+	if name == agentid.Codex {
+		out["page"] = validateCodexOverlay(map[string]string{codexEffortKey: e})
+	}
+	return out
+}
+
+func TestConfigRoutePreferenceRoundTrip(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", routeRows)
+	set := func(v string) error {
+		return UpdateCodexPreferences(func(p map[string]string) map[string]string {
+			if v == "" {
+				delete(p, extraConfigRoute)
+			} else {
+				p[extraConfigRoute] = v
+			}
+			return p
+		})
+	}
+	if err := set("qa"); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := LoadCodexPreferences()
+	if err != nil || prefs[extraConfigRoute] != "qa" || vault.GetAgentRecord("codex").Extras[extraConfigRoute] != "qa" {
+		t.Fatalf("saved route: prefs %v, err %v", prefs, err)
+	}
+	if out, err := patchCodexSettings("", prefs); err != nil || strings.Contains(out, extraConfigRoute) {
+		t.Fatalf("config_route is record-only, but config.toml got %q (err %v)", out, err)
+	}
+	assertRouteRefusedAndUnset(t, set)
+}
+
+func assertRouteRefusedAndUnset(t *testing.T, set func(string) error) {
+	t.Helper()
+	if err := set("nosuch"); err == nil || !strings.Contains(err.Error(), "want one of session, databricks, dev, qa") {
+		t.Fatalf("bad route err = %v, want the valid values named", err)
+	}
+	if got := vault.GetAgentRecord("codex").Extras[extraConfigRoute]; got != "qa" {
+		t.Fatalf("a refused value changed the record to %q", got)
+	}
+	if err := set(""); err != nil || vault.GetAgentRecord("codex").Extras[extraConfigRoute] != "" {
+		t.Fatalf("unset left the route: %v", err)
+	}
+}
+
+func TestConfigRouteName(t *testing.T) {
+	for in, want := range map[string]string{"session": "session", "databricks": "databricks", "qa": "qa",
+		`{"provider":"databricks","profile":"qa"}`: "qa", `{"provider":"databricks"}`: "databricks"} {
+		if got, err := configRouteName(in); err != nil || got != want {
+			t.Errorf("configRouteName(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := configRouteName(`{"provider":"github"}`); err == nil {
+		t.Error("non-databricks object accepted")
+	}
+}

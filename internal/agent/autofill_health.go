@@ -3,7 +3,7 @@ package agent
 import (
 	"time"
 
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
 )
 
 func init() {

@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // newID returns prefix plus a random suffix; tests replace it for stable goldens.

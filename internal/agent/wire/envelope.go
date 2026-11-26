@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 // EnvelopeSchema versions the `ask --format json` envelope.

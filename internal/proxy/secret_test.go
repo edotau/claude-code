@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 )
 
 func TestClientSecretConcurrentFirstInitYieldsOneValue(t *testing.T) {

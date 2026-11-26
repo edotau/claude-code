@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/proxyteam"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 )
 
 func TestEnsureTeamStartsOnceThenFinds(t *testing.T) {

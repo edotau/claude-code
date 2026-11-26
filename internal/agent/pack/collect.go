@@ -16,8 +16,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // Collection defaults: the limit is the total byte budget; DefaultMaxFiles is a safety cap --max-files overrides.

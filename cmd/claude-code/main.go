@@ -7,11 +7,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/cli"
 	_ "github.com/edotau/claude-code/internal/memory/shadow"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/vault"
 	_ "github.com/edotau/claude-code/internal/proxy/phase"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func main() {

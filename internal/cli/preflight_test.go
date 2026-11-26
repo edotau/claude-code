@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 )
 
 func TestPreflightProfileWithoutLiveFails(t *testing.T) {

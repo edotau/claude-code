@@ -17,11 +17,11 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // Save files an approved ExitPlanMode plan as <config>/plans/[<repo>/]<date>-<title>.md, reusing a mirrored dest.

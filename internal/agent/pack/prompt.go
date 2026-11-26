@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // Spec is what to inline around a task: tracked files under Dirs and Files globs, plus the HEAD diff when Diff is set.

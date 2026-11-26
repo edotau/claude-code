@@ -15,9 +15,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // The batch commit: capture native revisions, apply with preimage checks, roll back on a write error, commit

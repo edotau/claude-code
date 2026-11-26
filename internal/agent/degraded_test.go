@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // A retry hint or an appended path leaves the attempt key alone; another plan task or text changes it.

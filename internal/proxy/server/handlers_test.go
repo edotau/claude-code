@@ -14,9 +14,9 @@ import (
 	"testing/iotest"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func TestAuthHintByAuthType(t *testing.T) {

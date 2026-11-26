@@ -3,7 +3,7 @@ package inspect
 import (
 	"testing"
 
-	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/dev/contract"
 )
 
 func TestViewContractTerms(t *testing.T) {

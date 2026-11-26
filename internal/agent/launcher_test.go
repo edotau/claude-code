@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // headless is the only launch that carries the setup-token: -p and --print, in any position.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/platform/parallel"
 )
 
 // scoped reports whether spec has no sibling in its wave, so it cannot have written another package's files.

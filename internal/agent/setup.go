@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // Check is one named check line; State: ok | fail | warn.

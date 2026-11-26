@@ -15,12 +15,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/dev/tokenledger"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
-	"github.com/edotau/claude-code/internal/tokenledger"
+	"github.com/edotau/claude-code/internal/routing/catalog"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // teeReadCloser lets a response body be read through a tee without losing its own Close.

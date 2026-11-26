@@ -11,11 +11,11 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/permission"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // isAskLessEdit marks a non-Bash tool on an agent with no ask path (every non-Claude agent's edit tools).

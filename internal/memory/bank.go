@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // layoutFile stamps the store root with layoutFlat, the one-bank layout.

@@ -5,7 +5,7 @@ package proxy
 import (
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 var alive = proc.Alive

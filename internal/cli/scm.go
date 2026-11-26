@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/scm"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/scm"
 )
 
 var page = helptext.Page{

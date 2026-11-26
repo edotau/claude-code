@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 func TestAgentInputOpencodeExportFails(t *testing.T) {

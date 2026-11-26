@@ -18,8 +18,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // searchBanks ranks root's local, home and archive banks plus native topics; top k (0 = all).

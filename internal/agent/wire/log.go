@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // logLineCap bounds one buffered log line; a longer run is redacted and written as its own chunk.

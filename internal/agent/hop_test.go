@@ -8,8 +8,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // A policy refusal on native codex moves to a later Gemini hop, never to a hop of its own family or past a typed model.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // extensionHome is a claude home with the extension source; it skips where symlinks need privileges (Windows).

@@ -4,10 +4,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/preflight"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // refreshServed re-lists a stale in-use served listing detached when served routing is on; never from an update child.

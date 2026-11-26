@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 const rsClean = "package fx\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"

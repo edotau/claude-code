@@ -11,11 +11,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // suppressPatterns is the one typed table of markers (case-insensitive); each is a regexp, never a literal marker.

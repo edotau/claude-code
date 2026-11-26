@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/driver/opencode"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 
-	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
 )
 
 // ocFake stubs every opencode page seam: no real opencode, terminal or keyring is touched.

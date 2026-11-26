@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // RememberTypes maps --type to its file; a feedback-<class> type maps to feedbackDir, a note of its own.

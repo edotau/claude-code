@@ -17,11 +17,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/proxyteam"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 type (

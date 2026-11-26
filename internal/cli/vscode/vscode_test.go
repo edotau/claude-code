@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // hermeticVSCode isolates CLAUDE_CONFIG_DIR so backups never touch the real state dir.

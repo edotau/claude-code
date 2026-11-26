@@ -10,10 +10,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // strikeToken names one task by plan slug and exact id, "strikes: <slug> <id> (<reason>)", so words never strike.

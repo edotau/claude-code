@@ -1,0 +1,106 @@
+package opencode
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+)
+
+func init() {
+	agent.Register(agent.Agent{Row: row, Driver: opencodeEngine{agent.NewBaseEngine("opencode")},
+		Hub: &agent.Hub{Start: HubStart, Dispatch: newHubDispatch,
+			OwnPlan: func(id string) bool { return OpencodeCredID(id) == "opencode" }},
+		Redactors: map[string]func(string) string{"OPENCODE_CONFIG_CONTENT": redactConfig}})
+}
+
+// row is opencode's roster entry: binary, dialects, capabilities, events and launch hints.
+var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
+	Flags:       []string{"--format", "--dir", "--session", "--title", "--variant", "--auto", "--agent", "--print-logs", "--log-level"},
+	HelpArgv:    []string{"run", "--help"},
+	Carry:       true,
+	ScopedProxy: true,
+	Binary:      "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
+	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
+		providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+	MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route",
+	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
+		Tools: agent.Native, Autonomous: agent.Native, Direct: agent.Native, Env: agent.Native,
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},
+	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
+	ResumeFormat: "opencode run --session %s", ModelsArgv: []string{"models"}, ReadNeedsTools: true,
+	PromptVia: agent.PromptArgv, OwnLoginProfile: OwnLogin, PinIDs: providers.RouteOpencodeSubIDs, DirFlag: true, Hub: true, LoginArgv: []string{"opencode", "auth", "login"},
+	ConfigureHint: "run `opencode auth login` and pick opencode Go or GitHub Copilot",
+	CatalogUsage:  "model menu: list|add|remove|import|reset|check|sync",
+	CatalogHint:   "Serving-only discovery: claude-code opencode catalog sync --profile P",
+}}
+
+// describeOpenCodeRoute: 1) opencode's own login (Go plan); 2) opencode's GitHub Copilot login; 3) none.
+func describeOpenCodeRoute(reg *providers.Registry) agent.RouteInfo {
+	if OpencodeOwnLoginPresent() {
+		return agent.RouteInfo{Agent: "opencode", Route: agent.RouteOwnLogin, Provider: "opencode-go",
+			Reason: "opencode's own opencode login (Go plan; OPENCODE_API_KEY from the vault when no stored login)", OK: true}
+	}
+	if OpencodeCopilotLoginPresent() {
+		if p, ok := reg.LoginProfile("github", "copilot"); ok {
+			if main, _, mok := opencodeCopilotModelIDs(reg); mok {
+				return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name, Model: main,
+					Reason: "opencode's own GitHub Copilot login (opencode auth login)", OK: true}
+			}
+			return agent.RouteInfo{Agent: "opencode", Route: agent.RouteCopilotLogin, Provider: p.Name,
+				Reason: "opencode's own GitHub Copilot login, but no sonnet/haiku model configured for github-copilot"}
+		}
+	}
+	return agent.RouteInfo{Agent: "opencode", Route: agent.RouteNone, Reason: "no route for opencode: " + row.CLI.ConfigureHint}
+}
+
+// opencodeRouteDetail reports configure restore routes, files and login booleans, never credentials.
+func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel providers.Selection, selErr error) string {
+	own := OpencodeOwnLoginPresent()
+	opencodeLogin := own || OpencodeCopilotLoginPresent()
+	copilotCLILogin := agent.SchemaFor("copilot").LoginPresent()
+	// a pinned profile is what a launch uses, as cli.go does
+	pin, err := agent.PinnedProfile(ctx, "opencode")
+	switch {
+	case err != nil:
+		selErr = err
+	case pin != "":
+		sel, selErr = providers.Select(reg, pin)
+	// opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
+	case own:
+		return fmt.Sprintf("provider=opencode-go dispatch=%s opencode_login=true copilot_cli_login=%v", agent.RouteOwnLogin, copilotCLILogin)
+	}
+	if selErr != nil {
+		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, selErr)
+	}
+	target, _, err := agent.SchemaFor("opencode").ResolveTarget(ctx, agent.RunOptions{}, reg, sel, pin != "")
+	if err != nil || target.Provider == nil {
+		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
+	}
+	// the overlay, not opencode's own config
+	file := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
+	if target.Provider.Provider != "github" {
+		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
+	}
+	mainID, smallID, ok := opencodeCopilotModelIDs(reg)
+	if !ok {
+		return fmt.Sprintf("provider=%s file=%s (no sonnet/haiku model configured) opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
+	}
+	// opus/sonnet/haiku here are github-copilot's own table (configure github), separate from COPILOT_MODEL.
+	opusID := target.Provider.Models[models.Opus]
+	return fmt.Sprintf("provider=%s model=github-copilot/%s small_model=github-copilot/%s opus/sonnet/haiku=%s/%s/%s file=%s opencode_login=%v copilot_cli_login=%v",
+		target.Provider.Name, mainID, smallID, opusID, mainID, smallID, file, opencodeLogin, copilotCLILogin)
+}
+
+// errText is err's message, or "" for nil.
+func errText(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return ""
+}

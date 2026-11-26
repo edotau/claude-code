@@ -16,15 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/googletools"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/driver/googletools"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 func okMsg(w http.ResponseWriter, r *http.Request, _ int) {

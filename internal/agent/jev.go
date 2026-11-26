@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/router/jev"
+	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
 // JevShadow is what Open-Jev would pick for a dispatch's brief beside TaskTier's keyword pick; it routes nothing.

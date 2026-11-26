@@ -18,11 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/rtkwrap"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/shell"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing

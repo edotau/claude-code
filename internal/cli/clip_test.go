@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/clipboard"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // stubXclip fakes xclip over a file clipboard: -o prints it, -i replaces it with stdin.

@@ -1,0 +1,33 @@
+internal/dev/worktree/audit.go:WriteAuditSnapshot	unversioned: json: post-land audit rows the auditq worker publishes from its table for hooks to read
+internal/dev/worktree/audit.go:claimAuditReport	unversioned: empty marker: exclusive create says the audit result was reported
+internal/dev/worktree/audit.go:ensureWorker	unversioned: empty flock file probed for a draining worker, and an empty restart stamp whose mtime spaces respawns
+internal/dev/worktree/commit.go:undoAdd	unversioned: git index: saved bytes renamed over it from a held index.lock, git's own protocol
+internal/dev/worktree/failures.go:DoneFailure	unversioned: empty marker: a failure's fix is finished
+internal/dev/worktree/failures.go:FailuresSinceWithin	unversioned: text: a session failure-log cursor: the last Seq it saw
+internal/dev/worktree/failures.go:NotePrompt	unversioned: text: a session's last user-prompt unix time, the owner-present stamp
+internal/dev/worktree/failures.go:appendFailure	unversioned: json: one broadcast failure record the next-Seq counter beside failures.jsonl
+internal/dev/worktree/failures.go:appendRaw	unversioned: json: one broadcast failure record appended to failures.jsonl
+internal/dev/worktree/failures.go:claimFailure	unversioned: text: the session slug that holds a failure, published by hard link
+internal/dev/worktree/failures.go:trimFailures	unversioned: json: failures.jsonl cut to its newest records
+internal/dev/worktree/failures.go:writeOffer	unversioned: json: a failure's fix-now deliveries: sessions, last time, fallback sent
+internal/dev/worktree/land.go:acquire	unversioned: text: the land-lock holder pid and who, beside the land lock
+internal/dev/worktree/land.go:editQueueWithin	land-queue
+internal/dev/worktree/land.go:withLandRun	unversioned: text: the land-lease owner file (pid and lane) beside the lease lock
+internal/dev/worktree/landbatch.go:DrainQueue	unversioned: text: the drainer lease holder pid and who, beside the drain lease
+internal/dev/worktree/landmerge.go:writeMerges	unversioned: text: the merged landed files written into the live tree
+internal/dev/worktree/landmerge.go:writeSides	unversioned: text: a landed file three-way merged with the live edit, conflict markers kept
+internal/dev/worktree/landstats.go:recordAttempt	land-attempts
+internal/dev/worktree/landstats.go:trimAttempts	land-attempts
+internal/dev/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close
+internal/dev/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree ledger log line and task fill
+internal/dev/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger open
+internal/dev/worktree/resolve.go:SaveOperation	worktree-land-op
+internal/dev/worktree/resolve.go:WithLandLease	unversioned: text: lease holder pid and who, attribution for a waiting land
+internal/dev/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
+internal/dev/worktree/sessions.go:Append	notices
+internal/dev/worktree/sessions.go:DrainErr	notices
+internal/dev/worktree/sessions.go:capInbox	notices
+internal/dev/worktree/venvoverlay.go:copyScript	unversioned: text: console script copied into a lane venv
+internal/dev/worktree/venvoverlay.go:inheritSystemSitePackages	unversioned: text: pyvenv.cfg of a lane venv
+internal/dev/worktree/venvoverlay.go:makeSyntheticParents	unversioned: text: __init__.py of a synthetic package in a lane venv
+internal/dev/worktree/venvoverlay.go:writeOverlayPth	unversioned: text: .pth files of a lane venv

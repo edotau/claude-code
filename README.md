@@ -56,7 +56,7 @@ Every verb takes `-h`; `claude-code -h` lists the menu.
 | Path | Holds |
 | --- | --- |
 | `cmd/claude-code/`, `internal/` | The binary; `internal/cli` is the command table, logic lives in each package |
-| `internal/settings/hookspec.go`, `internal/hooks/` | Hook declarations and their handlers |
+| `internal/platform/settings/hookspec.go`, `internal/hooks/` | Hook declarations and their handlers |
 | `agents/`, `commands/`, `workflows/` | Subagents, slash commands, Workflow scripts |
 | `rules/`, `skills/` | Standards and gotchas Claude loads; on-demand how-to references |
 | `state/vault.db` | The encrypted vault (untracked): secrets, pins, provider and agent overlays |
@@ -121,7 +121,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
 
 - **One Go binary, standard library first, no CLI framework**: a framework or per-tool scripts would add install
   steps and dependencies; the command table in `internal/cli` is small enough to read.
-- **Hooks declared once in `internal/settings/hookspec.go`**: each agent CLI would otherwise get its own hand-kept
+- **Hooks declared once in `internal/platform/settings/hookspec.go`**: each agent CLI would otherwise get its own hand-kept
   hook set; one table is rendered per agent; what each agent enforces is in `hooks.md`.
 - **Guard logic is compiled in**: only the hook wiring and the protected-path list sit in `settings.json`, which a
   dispatched agent may not write, so it cannot edit its own limits away.
@@ -140,7 +140,7 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
   the main session fixes and any agent can lint.
 - **Gates fix what is deterministic where a fix cannot stall the run, and block only when code cannot decide**: a
   rewrite stalls auto mode, so there the rtk hook blocks with the form to run instead.
-- **Tests check behavior through seams and do no DNS lookups** (`internal/nonet`): live calls make tests slow,
+- **Tests check behavior through seams and do no DNS lookups** (`internal/platform/nonet`): live calls make tests slow,
   flaky and dependent on credentials.
 - **CI is off; `make audit` is the gate before a push**: it runs the same checks locally at no cost.
 

@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/routing/catalog"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 
-	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/driver/copilot"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // pickModel's alias rows (alias · use · current model id), claude's list and an account's, fit 80 columns unclipped.

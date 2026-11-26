@@ -29,7 +29,7 @@ Use the directory basename (`agent-<id>`), not the branch (`worktree-agent-<id>`
 
 `create` and native `EnterWorktree` share environment seeding: Python overlays redirect editable imports to lane
 source, falling back to symlinks. `.env` is copied only to an absent, ignored destination. Existing and resumed
-worktrees are not reseeded. Implementation: `internal/worktree/{seed,venvoverlay}.go`.
+worktrees are not reseeded. Implementation: `internal/dev/worktree/{seed,venvoverlay}.go`.
 
 ## The lane protocol
 
@@ -46,7 +46,7 @@ Sign-off: `rules/standards/testing-guidelines.md` → Several worktrees: collaps
 
 `land` pins the primary branch and both heads, rebases in the collector and verifies the rebased tree. `--target`
 requires the primary checkout's current branch. A preview neither runs verification nor proves landing will pass.
-`--verify` overrides gate detection; detection details are in `internal/worktree/gate.go`.
+`--verify` overrides gate detection; detection details are in `internal/dev/worktree/gate.go`.
 
 - Rebase conflict: resolve in the collector and retry; `--resolve-agent <agent>` delegates resolution,
   `--resume` reattaches to it.
@@ -62,7 +62,7 @@ Native `worktree-remove` uses safe branch deletion; it does not have `clean`'s l
 
 ### Hook enforcement vs. policy
 
-Hooks cover their registered tools and events, not every filesystem write; see `internal/settings/hookspec.go`.
+Hooks cover their registered tools and events, not every filesystem write; see `internal/platform/settings/hookspec.go`.
 Claim notices: [shared-checkout.md](references/shared-checkout.md). Dispatch and receipt checks:
 `skills/subagent-workflows/references/hook-details.md`. Policy remains in the Git rule.
 

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/sqlite"
+	"github.com/edotau/claude-code/internal/platform/sqlite"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )

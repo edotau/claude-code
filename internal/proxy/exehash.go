@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // ExeHash is the sha256 of this process's executable (or path when given), "" when it cannot be read.

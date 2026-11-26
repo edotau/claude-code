@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // initRepo creates a git repo at t.TempDir() with one commit on main;

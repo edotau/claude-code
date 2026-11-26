@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/routing/catalog"
 
-	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/routing/databricks/serving"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // noteUnserved drops the endpoint a Databricks 400 (deprecated) or 403 (gateway-only) names, off the request path.

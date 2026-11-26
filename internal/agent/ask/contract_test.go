@@ -12,9 +12,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // openSaved opens and saves contract d-1 for f.

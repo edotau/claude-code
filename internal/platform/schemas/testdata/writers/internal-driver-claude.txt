@@ -1,0 +1,2 @@
+internal/driver/claude/sessionfacts.go:pruneFacts	unversioned: marker: daily sweep stamp for the session launch records
+internal/driver/claude/sessionfacts.go:writeLaunchOverlay	unversioned: per-session launch overlay (unit, model, caps, fence) a resume replays

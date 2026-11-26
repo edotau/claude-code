@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // keybindingsGOOS picks defaultKeybindingsDest's platform branch; tests swap it to run every branch on any host.

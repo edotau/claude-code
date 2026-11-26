@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // FingerprintAbsent is the fixed fingerprint of a file that does not exist.

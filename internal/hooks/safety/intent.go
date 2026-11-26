@@ -11,8 +11,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/permission"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // ownerRoute ends every deny: the owner's deliberate path past the hook.

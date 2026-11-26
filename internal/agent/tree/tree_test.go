@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	_ "github.com/edotau/claude-code/internal/claude" // the vendors register their roster rows from their own init
-	_ "github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	_ "github.com/edotau/claude-code/internal/driver/claude" // the vendors register their roster rows from their own init
+	_ "github.com/edotau/claude-code/internal/driver/codex"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 const (

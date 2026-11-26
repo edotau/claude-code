@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // dashFooter is the key hint under the dashboard's rows.

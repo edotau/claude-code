@@ -1,0 +1,315 @@
+// Package remote runs agents in tmux sessions on another host over ssh: argv building, dispatch, list and attach.
+package remote
+
+import (
+	"cmp"
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/remote/egress"
+	"github.com/edotau/claude-code/internal/routing/databricks/oauth"
+)
+
+// BinEnv names the remote claude-code binary; else "claude-code" on the remote PATH.
+const BinEnv = "HARNESS_REMOTE_BIN"
+
+// LoginPathDirs are `make install`'s login PATH dirs under $HOME, which a non-login shell lacks.
+var LoginPathDirs = []string{".claude/bin", ".local/bin", ".local/go/bin", "go/bin"}
+
+// PathPrefix exports LoginPathDirs first: ssh's non-login shell lacks them, so claude-code and auth commands fail.
+var PathPrefix = `export PATH="$HOME/` + strings.Join(LoginPathDirs, `:$HOME/`) + `:$PATH";`
+
+// Bin picks the remote binary: HARNESS_REMOTE_BIN, then "claude-code".
+func Bin() string { return cmp.Or(os.Getenv(BinEnv), "claude-code") }
+
+// HomePath rewrites a path under the local home to ~/…: the remote's home differs (/Users/x vs /home/x).
+func HomePath(p string) string {
+	c := filepath.Clean(p)
+	if s := paths.ShortHome(c); s != c {
+		return s
+	}
+	return p
+}
+
+// encodeScript wraps script as `sh -c` with a base64 body, so sh, bash and fish parse it identically.
+func encodeScript(script string) string {
+	return `sh -c 'eval "$(printf %s ` + base64.StdEncoding.EncodeToString([]byte(script)) + ` | base64 -d)"'`
+}
+
+// reuseEnv set to 0 or off turns off ssh connection reuse (ControlMaster) for every remote call.
+const reuseEnv = "HARNESS_SSH_REUSE"
+
+// controlPathMax keeps dir/%C (40 hex) plus ssh's 17-byte temp suffix under macOS's 104-byte socket path limit.
+const controlPathMax = 104 - 1 - 40 - 17
+
+// controlDir is where reused ssh master sockets live, "" when none is usable; tests swap it.
+var controlDir = defaultControlDir
+
+// defaultControlDir picks the first short-enough private dir under the user's home: harness ssh dir, then ~/.ssh/cc.
+func defaultControlDir() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+	for _, dir := range []string{egress.SSHDir(), filepath.Join(home, ".ssh", "cc")} {
+		if len(dir) <= controlPathMax && ensurePrivateDir(dir) {
+			return dir
+		}
+	}
+	return ""
+}
+
+func ensurePrivateDir(dir string) bool {
+	if fi, err := os.Lstat(dir); err == nil {
+		return fi.Mode()&os.ModeSymlink == 0 && fi.IsDir() && (fi.Mode().Perm() == 0o700 || os.Chmod(dir, 0o700) == nil)
+	}
+	return os.MkdirAll(dir, 0o700) == nil && os.Chmod(dir, 0o700) == nil
+}
+
+// reuseOpts multiplexes ssh calls to one host over a master kept 10 minutes; nil when opted out or no dir.
+func reuseOpts() []string {
+	if v := strings.ToLower(os.Getenv(reuseEnv)); v == "0" || v == "off" {
+		return nil
+	}
+	dir := controlDir()
+	if dir == "" {
+		return nil
+	}
+	return []string{"-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
+		"-o", "ControlPath=" + filepath.Join(dir, "%C")}
+}
+
+// sshArgv runs script on host: keepalive, reuse, batch forbids prompts, tty allocates one, "--" ends ssh options.
+func sshArgv(host string, tty, batch bool, script string) ([]string, error) {
+	if err := textutil.ValidHost(host); err != nil {
+		return nil, err
+	}
+	argv := append([]string{"ssh", "-o", "ServerAliveInterval=15"}, reuseOpts()...)
+	if batch {
+		argv = append(argv, "-o", "BatchMode=yes")
+	}
+	if tty {
+		argv = append(argv, "-t")
+	}
+	return append(argv, "--", host, encodeScript(script)), nil
+}
+
+// StreamArgs is the argv for running script on host with stdin left free for the caller; ssh may never prompt.
+func StreamArgs(host, script string) ([]string, error) { return sshArgv(host, false, true, script) }
+
+// Seams: tests swap the process runner and the terminal check.
+var (
+	runCommand = func(c *exec.Cmd) error { return c.Run() }
+	stdinTTY   = func() bool { return proc.IsTerminal(os.Stdin) }
+)
+
+// Run is `claude-code --host <host> <verb …>`: the verb runs on host over ssh; a login's callback port is forwarded.
+func Run(args []string) int {
+	host, rest, err := SplitHost(Flag, args)
+	if err != nil {
+		return helptext.FailUsage("%v", err)
+	}
+	if host, err = ResolveAuto(host); err != nil {
+		return helptext.FailUsage("%s %v", Flag, err)
+	}
+	rest, port := loginForward(rest)
+	argv, err := hostArgv(host, rest, stdinTTY())
+	if err != nil {
+		return helptext.FailUsage("--host: %v", err)
+	}
+	if port > 0 {
+		argv = withForward(argv, port)
+		fmt.Fprintf(os.Stderr, "forwarding localhost:%d to %s in case the sign-in needs a browser; open any URL below on this machine\n", port, host)
+	}
+	cmd := exec.CommandContext(context.Background(), "ssh", argv[1:]...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err = runCommand(cmd)
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+		return exit.ExitCode()
+	}
+	if err != nil {
+		return helptext.Fail("--host: %v", err)
+	}
+	return 0
+}
+
+// Flag is the global flag that runs a verb on another machine over ssh.
+const Flag = "--host"
+
+// SplitHost takes `<flag> H` or `<flag>=H` off the front; the rest is the verb and its args.
+func SplitHost(flag string, args []string) (string, []string, error) {
+	if len(args) == 0 || args[0] == flag && len(args) == 1 {
+		return "", nil, fmt.Errorf("%s needs a host and a command: claude-code %s <host> <command> [args]", flag, flag)
+	}
+	host, rest := "", args[1:]
+	if h, ok := strings.CutPrefix(args[0], flag+"="); ok {
+		host = h
+	} else if args[0] == flag {
+		host, rest = args[1], args[2:]
+	}
+	if err := textutil.ValidHost(host); err != nil {
+		return "", nil, fmt.Errorf("%s: %w", flag, err)
+	}
+	if len(rest) == 0 {
+		return "", nil, fmt.Errorf("%s %s needs a command: claude-code %s %s <command> [args]", flag, host, flag, host)
+	}
+	return host, rest, nil
+}
+
+// hostArgv is the ssh argv: -t for an interactive caller, then the encoded script running the verb.
+func hostArgv(host string, args []string, tty bool) ([]string, error) {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = textutil.ShellQuote(a)
+	}
+	env := ""
+	if isLogin(args) {
+		env = oauth.ViaHostEnv + "=" + textutil.ShellQuote(host) + " "
+	}
+	script := PathPrefix + " " + env + "exec " + textutil.QuotePath(HomePath(Bin())) + " " + strings.Join(quoted, " ")
+	return sshArgv(host, tty, false, script)
+}
+
+// isLogin reports a remote `databricks login`, the one verb --host forwards a port or opens a browser for.
+func isLogin(args []string) bool {
+	return len(args) > 1 && args[0] == "databricks" && args[1] == "login"
+}
+
+// flagValues maps each flag in args to its =value or the next argument; presence is all a bool flag needs.
+func flagValues(args []string) map[string]string {
+	flags := map[string]string{}
+	for i, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		k, v, ok := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !ok && i+1 < len(args) {
+			v = args[i+1]
+		}
+		flags[k] = v
+	}
+	return flags
+}
+
+// boolFlagOn reports whether the last of the named bool flags in args is on: bare, or =value that parses true.
+func boolFlagOn(args []string, names ...string) bool {
+	on := false
+	for _, a := range args {
+		k, v, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if !strings.HasPrefix(a, "-") || !slices.Contains(names, k) {
+			continue
+		}
+		b, err := strconv.ParseBool(v)
+		on = !hasVal || err != nil || b
+	}
+	return on
+}
+
+// freeLocalPort is the first port from first to last free on this machine's loopback, else first; tests swap it.
+var freeLocalPort = func(first, last int) int {
+	for p := first; p <= last; p++ {
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err == nil {
+			_ = l.Close()
+			return p
+		}
+	}
+	return first
+}
+
+// HostBrowser, on a --host `databricks login`, opens the browser on the host instead of forwarding; never sent on.
+const HostBrowser = "--host-browser"
+
+// loginForward pins a remote `databricks login` to an exact --port with --no-browser; port 0 means no forward.
+func loginForward(args []string) ([]string, int) {
+	if !isLogin(args) {
+		return args, 0
+	}
+	if i := slices.Index(args, HostBrowser); i >= 0 {
+		return slices.Delete(slices.Clone(args), i, i+1), 0
+	}
+	flags := flagValues(args[2:])
+	if flags["as"] == "sp" || boolFlagOn(args[2:], "dry-run", "h", "help") {
+		return args, 0
+	}
+	port, out := oauth.DefaultPort, slices.Clone(args)
+	if v, ok := flags["port"]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 65535 {
+			return args, 0 // the remote verb reports the bad port
+		}
+		port = n
+	} else {
+		port = freeLocalPort(port, port+oauth.PortSpan)
+		out = append(out, "--port", strconv.Itoa(port))
+	}
+	if _, ok := flags["no-browser"]; !ok {
+		out = append(out, "--no-browser")
+	}
+	return out, port
+}
+
+// withForward adds a local forward of port on a connection of its own: ssh keeps the first value of each option.
+func withForward(argv []string, port int) []string {
+	p := strconv.Itoa(port)
+	return withTunnel(argv, "-L", p+":localhost:"+p)
+}
+
+// withTunnel adds one -L or -R forward on a connection of its own that fails when the forward cannot be made.
+func withTunnel(argv []string, flag, spec string) []string {
+	return slices.Insert(slices.Clone(argv), 1, append(egress.OwnConn(), flag, spec)...)
+}
+
+// tailnetHosts lists the other tailnet machines' DNS names; tests swap it.
+var tailnetHosts = func() []string { names, _ := peerNames(time.Second, false); return names }
+
+// Complete completes after --host or egressFlag: host names, then local's words; bash splits <flag>=<host> at the =.
+func Complete(words []string, egressFlag string, local func([]string) []string) []string {
+	if len(words) == 0 || words[0] != Flag && words[0] != egressFlag {
+		return local(words)
+	}
+	skip := 2
+	if len(words) > 1 && words[1] == "=" {
+		skip = 3
+	}
+	if len(words) <= skip {
+		return hostCandidates(words[len(words)-1])
+	}
+	rest := words[skip:]
+	out := local(rest)
+	if words[0] == Flag && wantsHostBrowser(rest) {
+		out = append(out, HostBrowser)
+	}
+	return out
+}
+
+// hostCandidates lists the tailnet host names that start with prefix.
+func hostCandidates(prefix string) []string {
+	var out []string
+	for _, h := range tailnetHosts() {
+		if strings.HasPrefix(h, prefix) && h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// wantsHostBrowser reports whether the word being typed in a login's args is a prefix of --host-browser.
+func wantsHostBrowser(rest []string) bool {
+	cur := rest[len(rest)-1]
+	return isLogin(rest) && len(rest) > 2 && strings.HasPrefix(cur, "-") && strings.HasPrefix(HostBrowser, cur)
+}

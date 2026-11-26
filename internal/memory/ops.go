@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
 )
 
 const (

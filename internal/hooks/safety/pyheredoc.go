@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // pyScript is one plain Python stdin heredoc: its body is lines[from:to], the closing delimiter at lines[to].

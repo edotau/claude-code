@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // fileFinding is one finding with what identifies it across versions of a file: kind, function name and value.

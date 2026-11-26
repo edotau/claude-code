@@ -1,0 +1,619 @@
+package worktree
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+)
+
+// landFixtureWrite writes content to file in dir and commits it with msg to build divergent history.
+func landFixtureWrite(t *testing.T, dir, file, content, msg string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	landFixtureRun(t, dir, "add", file)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+// landFixtureRename renames oldName to newName and commits.
+func landFixtureRename(t *testing.T, dir, oldName, newName, msg string) {
+	t.Helper()
+	landFixtureRun(t, dir, "mv", oldName, newName)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+// landFixtureRemove deletes file and commits the deletion.
+func landFixtureRemove(t *testing.T, dir, file, msg string) {
+	t.Helper()
+	landFixtureRun(t, dir, "rm", "-q", file)
+	landFixtureRun(t, dir, "commit", "-q", "-m", msg)
+}
+
+func landFixtureRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv(
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+var fixtureSeq atomic.Int64
+
+var fixture struct {
+	once sync.Once
+	dir  string
+	base string
+	err  error
+}
+
+// buildFixtureTemplate builds, once, a main repo with the base commit and its "feature" worktree via the live Create.
+func buildFixtureTemplate(t *testing.T) {
+	fixture.once.Do(func() {
+		dir, err := os.MkdirTemp("", "wt-fixture-")
+		if err != nil {
+			fixture.err = err
+			return
+		}
+		fixture.dir = paths.Canon(dir)
+		main := hosttest.RepoAt(t, filepath.Join(fixture.dir, "repo"))
+		landFixtureWrite(t, main, "f.txt", "base\n", "base")
+		fixture.base = headOf(main)
+		_, fixture.err = Create(&Repo{Main: main, Root: filepath.Join(fixture.dir, "worktrees", "repo")}, "feature", CreateOptions{})
+	})
+	if fixture.err != nil {
+		t.Fatalf("fixture template: %v", fixture.err)
+	}
+}
+
+func fixtureCopy(t *testing.T, src, dst string) {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cp", "-a", src+"/.", dst).CombinedOutput(); err != nil {
+		t.Fatalf("copy %s to %s: %v %s", src, dst, err, out)
+	}
+}
+
+// preflightFixtureSetup returns an isolated main repo plus a "feature" worktree, copied from a template built once.
+func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
+	t.Helper()
+	hosttest.SkipOnWindows(t, "cp -a template copy")
+	buildFixtureTemplate(t)
+	base := paths.Canon(t.TempDir())
+	name := fmt.Sprintf("repo%d", fixtureSeq.Add(1)) // unique: the ledger file name derives from the main's base name
+	main = filepath.Join(base, name)
+	repo = &Repo{Main: main, Root: filepath.Join(base, "worktrees", name)}
+	wt = filepath.Join(repo.Root, "feature")
+	fixtureCopy(t, filepath.Join(fixture.dir, "repo"), main)
+	fixtureCopy(t, filepath.Join(fixture.dir, "worktrees", "repo", "feature"), wt)
+	// the two absolute links a copy carries point at the template; rewrite them to this copy
+	adminDir := filepath.Join(main, ".git", "worktrees", "feature")
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+adminDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(filepath.Join(wt, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info := ledgerInfo{Path: wt, Branch: "worktree-feature", Base: fixture.base, BaseRef: "HEAD"}
+	if err := openLedger(main, "feature", info); err != nil {
+		t.Fatalf("open ledger: %v", err)
+	}
+	return repo, main, wt
+}
+
+// landFixtureAssertMainUntouched checks main's HEAD and index are unchanged and no MERGE_HEAD exists there.
+func landFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
+	t.Helper()
+	if got := headOf(main); got != wantHEAD {
+		t.Fatalf("main HEAD = %s, want %s (main must stay untouched before promotion)", got, wantHEAD)
+	}
+	stCmd := exec.Command("git", "-C", main, "status", "--porcelain")
+	stCmd.Env = gitEnv()
+	out, err := stCmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("main checkout has uncommitted changes: %q", out)
+	}
+	gitDir, _, err := gitDirsOf(context.Background(), main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "MERGE_HEAD")); err == nil {
+		t.Fatal("MERGE_HEAD exists in the main checkout after a predicted conflict")
+	}
+}
+
+func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	plan := &LandPlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
+	stop, err := screenCheckouts(context.Background(), repo, plan, "release")
+	if err != nil || !stop {
+		t.Fatalf("target mismatch must stop before inspecting the nonexistent worktree: stop=%v err=%v", stop, err)
+	}
+	if plan.TargetRef != "main" || len(plan.Issues) != 1 {
+		t.Fatalf("branch screen did not preserve target and issue: %+v", plan)
+	}
+	issue := plan.Issues[0]
+	if issue.Code != issueTargetMismatch || !strings.Contains(issue.Detail, `requested target was "release"`) {
+		t.Fatalf("issue = %+v, want requested-target mismatch", issue)
+	}
+	if plan.TargetOID != "" || plan.SourceOID != "" {
+		t.Fatalf("mismatched target must not pin OIDs: %+v", plan)
+	}
+}
+
+func TestPreflightFastForward(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none", plan.Issues)
+	}
+	if plan.TargetRef != "main" {
+		t.Fatalf("TargetRef = %q, want main", plan.TargetRef)
+	}
+	if plan.TargetOID != headOf(main) || plan.SourceOID != headOf(wt) {
+		t.Fatalf("OIDs not pinned to live HEADs: plan=%+v", plan)
+	}
+}
+
+func TestPreflightDivergentCleanMerge(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
+	landFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none (non-overlapping changes)", plan.Issues)
+	}
+}
+
+func TestPreflightTextConflict(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
+	mainHEAD := headOf(main)
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
+		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
+	}
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
+		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
+	}
+	landFixtureAssertMainUntouched(t, main, mainHEAD)
+}
+
+func TestPreflightBinaryConflict(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "f.txt", "\x00\x01binA", "feature binary")
+	landFixtureWrite(t, main, "f.txt", "\x00\x01binB", "main binary")
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
+		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
+	}
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
+		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
+	}
+}
+
+func TestPreflightDeleteConflict(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "f.txt", "feature modify\n", "feature modifies f")
+	landFixtureRemove(t, main, "f.txt", "main deletes f")
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
+		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
+	}
+	if !slices.Contains(plan.Issues[0].Paths, "f.txt") {
+		t.Fatalf("conflict paths = %v, want f.txt", plan.Issues[0].Paths)
+	}
+}
+
+func TestPreflightRenameConflict(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	// Rename/rename to two different names conflicts in merge-tree, unlike a rename plus a non-conflicting edit.
+	landFixtureRename(t, wt, "f.txt", "g.txt", "feature renames to g")
+	landFixtureRename(t, main, "f.txt", "h.txt", "main renames to h")
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != IssueConflict {
+		t.Fatalf("Issues = %v, want one IssueConflict", plan.Issues)
+	}
+	if len(plan.Issues[0].Paths) == 0 {
+		t.Fatal("rename/rename conflict reported no paths")
+	}
+}
+
+func TestPreflightDirtyTargetNonOverlapping(t *testing.T) {
+	for _, name := range []string{"f.txt", "dirty\nfile.txt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo, main, wt := preflightFixtureSetup(t)
+			landFixtureWrite(t, main, "f.txt", "main edit\n", "main edits f")
+			landFixtureWrite(t, wt, "g.txt", "feature\n", "feature adds g")
+			if err := os.WriteFile(filepath.Join(main, name), []byte("uncommitted"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := Preflight(context.Background(), repo, "feature", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Issues) != 0 || plan.TargetOID != headOf(main) || plan.SourceOID != headOf(wt) {
+				t.Fatalf("non-overlapping dirty target blocked or OIDs not pinned: %+v", plan)
+			}
+		})
+	}
+}
+
+func TestPreflightDirtyTargetRename(t *testing.T) {
+	for _, name := range []string{"f.txt", "renamed\nfile.txt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			repo, main, wt := preflightFixtureSetup(t)
+			landFixtureWrite(t, wt, name, "feature\n", "feature edits path")
+			landFixtureRun(t, main, "mv", "f.txt", "renamed\nfile.txt")
+			plan, err := Preflight(context.Background(), repo, "feature", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Issues) != 0 {
+				t.Fatalf("Issues = %v, want none: a dirty live path never blocks the plan", plan.Issues)
+			}
+		})
+	}
+}
+
+func TestPreflightPromotedRenameOverlapsOldPath(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureRename(t, wt, "f.txt", "renamed.txt", "feature renames f")
+	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none: a dirty live path never blocks the plan", plan.Issues)
+	}
+}
+
+// Regression: with status.showUntrackedFiles=no an untracked lane file still never blocks a land.
+func TestPreflightDirtyWorktreeWithShowUntrackedFilesOff(t *testing.T) {
+	t.Parallel()
+	repo, _, wt := preflightFixtureSetup(t)
+	landFixtureRun(t, wt, "config", "status.showUntrackedFiles", "no")
+	if err := os.WriteFile(filepath.Join(wt, "untracked.txt"), []byte("new file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 0 {
+		t.Fatalf("Issues = %v, want none: an untracked file never blocks a land", plan.Issues)
+	}
+}
+
+func TestPreflightDetachedTarget(t *testing.T) {
+	t.Parallel()
+	repo, main, _ := preflightFixtureSetup(t)
+	head := headOf(main)
+	landFixtureRun(t, main, "checkout", "-q", head)
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueDetachedTarget {
+		t.Fatalf("Issues = %v, want one IssueDetachedTarget", plan.Issues)
+	}
+}
+
+func TestPreflightTargetMismatch(t *testing.T) {
+	t.Parallel()
+	repo, _, _ := preflightFixtureSetup(t)
+
+	plan, err := Preflight(context.Background(), repo, "feature", "some-other-branch")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueTargetMismatch {
+		t.Fatalf("Issues = %v, want one IssueTargetMismatch", plan.Issues)
+	}
+}
+
+func TestPreflightInProgressOperation(t *testing.T) {
+	t.Parallel()
+	repo, main, _ := preflightFixtureSetup(t)
+	if err := os.WriteFile(filepath.Join(main, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitDir, _, err := gitDirsOf(context.Background(), main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "MERGE_HEAD"), []byte(headOf(main)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueInProgress {
+		t.Fatalf("Issues = %v, want one IssueInProgress", plan.Issues)
+	}
+}
+
+func TestPreflightUnrelatedHistories(t *testing.T) {
+	t.Parallel()
+	repo, main, wt := preflightFixtureSetup(t)
+	landFixtureRun(t, wt, "checkout", "-q", "--orphan", "orphan-base")
+	landFixtureRun(t, wt, "commit", "-q", "--allow-empty", "-m", "orphan root")
+	_ = main
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueUnrelatedHistories {
+		t.Fatalf("Issues = %v, want one IssueUnrelatedHistories", plan.Issues)
+	}
+}
+
+// Regression: a non-NotExist stat failure (permission denied) must propagate, never read as no operation in progress.
+func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("permission checks don't apply when running as root")
+	}
+	_, _, wt := preflightFixtureSetup(t)
+	gitDir, _, err := gitDirsOf(context.Background(), wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(gitDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gitDir, 0o755) })
+
+	if _, _, err := inProgressOp(context.Background(), wt, ""); err == nil {
+		t.Fatal("inProgressOp: want a propagated error for a permission-denied stat, got nil")
+	}
+}
+
+func TestPreflightMissingWorktree(t *testing.T) {
+	t.Parallel()
+	repo, _, _ := preflightFixtureSetup(t)
+	if _, err := Preflight(context.Background(), repo, "does-not-exist", ""); err == nil {
+		t.Fatal("want error for a nonexistent worktree")
+	}
+}
+
+// A fake runGit reporting merge-tree's absence (git < 2.38, exit outside {0,1}) must block Preflight.
+func TestSimulateMergeUnsupportedGit(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	repo, _, wt := preflightFixtureSetup(t)
+	landFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
+
+	orig := runGit
+	runGit = func(ctx context.Context, dir string, extraEnv []string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "merge-tree" {
+			return nil, &exec.ExitError{ProcessState: landFixtureFakeExitState(129)}
+		}
+		return orig(ctx, dir, extraEnv, args...)
+	}
+	defer func() { runGit = orig }()
+
+	plan, err := Preflight(context.Background(), repo, "feature", "")
+	if err != nil {
+		t.Fatalf("Preflight: %v", err)
+	}
+	if len(plan.Issues) != 1 || plan.Issues[0].Code != issueCapability {
+		t.Fatalf("Issues = %v, want one IssueCapability", plan.Issues)
+	}
+}
+
+// landFixtureFakeExitState runs a trivial subprocess to get a real *os.ProcessState, which exec.ExitError requires.
+func landFixtureFakeExitState(code int) *os.ProcessState {
+	cmd := exec.Command("sh", "-c", "exit "+strconv.Itoa(code))
+	_ = cmd.Run()
+	return cmd.ProcessState
+}
+
+func TestPlanOrResolveConflictProceedsToRebase(t *testing.T) {
+	repo := conflictedOwnedWorktree(t, "owner-S")
+	req := laneRequest("feat", io.Discard)
+	for _, dry := range []bool{true, false} {
+		plan, err := PlanOrResolve(t.Context(), repo, req, dry)
+		if err != nil || plan == nil || !onlyConflictIssue(plan.Issues) {
+			t.Fatalf("plan = %+v, %v; want predicted conflict for rebase", plan, err)
+		}
+	}
+	got, err := DrainErr("owner-S")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("planning wrote notices: %+v %v", got, err)
+	}
+}
+
+// conflictedOwnedWorktree is a repo whose worktree "feat", opened by session, conflicts with main on f.txt.
+func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
+	t.Helper()
+	home := paths.Canon(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
+	main := gitRepo(t)
+	landFixtureWrite(t, main, "f.txt", "base\n", "base")
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := Create(repo, "feat", CreateOptions{Session: session, Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	landFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
+	landFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
+	return repo
+}
+
+// A live process other than the caller inside the lane refuses the merge; the caller's own process does not.
+func TestPreflightRefusesLaneInUseByAnotherProcess(t *testing.T) {
+	repo := conflictedOwnedWorktree(t, "owner-S")
+	for _, tc := range []struct {
+		pid  int
+		busy bool
+	}{{os.Getpid(), false}, {os.Getpid() + 100000, true}} {
+		stubProcesses(t, func(string) ([]Proc, error) { return []Proc{{PID: tc.pid, Comm: "vim"}}, nil })
+		plan, err := Preflight(t.Context(), repo, "feat", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		inUse := slices.ContainsFunc(plan.Issues, func(iss Issue) bool { return strings.Contains(iss.Detail, "lane in use by pid") })
+		if inUse != tc.busy {
+			t.Fatalf("pid %d: issues %+v, want lane-in-use %v", tc.pid, plan.Issues, tc.busy)
+		}
+	}
+}
+
+func TestRequireBranchPreservesGitFailures(t *testing.T) {
+	repo := testRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"cancelled", ctx, context.Canceled},
+		{"git-missing", context.Background(), exec.ErrNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "git-missing" {
+				t.Setenv("PATH", t.TempDir())
+			}
+			_, err := requireBranch(tc.ctx, repo.Main)
+			if !errors.Is(err, tc.want) || errors.Is(err, errDetachedHead) {
+				t.Fatalf("git infrastructure failure misreported as detached HEAD: %v; want %v", err, tc.want)
+			}
+			plan := &LandPlan{}
+			stop, err := screenTargetBranch(tc.ctx, repo, plan, "main")
+			if !errors.Is(err, tc.want) || stop || len(plan.Issues) != 0 {
+				t.Fatalf("target screening hid infrastructure failure: stop=%v issues=%v err=%v", stop, plan.Issues, err)
+			}
+		})
+	}
+}
+
+func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
+	orig := gitWaitDelay
+	gitWaitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { gitWaitDelay = orig })
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	expired := filepath.Join(t.TempDir(), "expired")
+	regressionFakeGit(t, fmt.Sprintf("(/bin/sleep 30 & echo $! > %q; wait; touch %q) &\nwait\n", pidFile, expired))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// cancel only once the fake git has recorded its child, so the pid file always exists
+	go func() {
+		for ; ; time.Sleep(10 * time.Millisecond) {
+			if data, err := os.ReadFile(pidFile); err == nil && strings.HasSuffix(string(data), "\n") {
+				break
+			}
+		}
+		cancel()
+	}()
+	_, err := runGit(ctx, t.TempDir(), nil, "status")
+	_, expiredErr := os.Stat(expired)
+	regressionKillChild(t, pidFile)
+	if err == nil || ctx.Err() == nil {
+		t.Fatalf("git call must fail after cancellation: err=%v ctx=%v", err, ctx.Err())
+	}
+	if expiredErr == nil {
+		t.Fatal("cancelled git waited for the child holding its output pipes to exit")
+	}
+}
+
+func regressionFakeGit(t *testing.T, body string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\n"+body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func regressionKillChild(t *testing.T, pidFile string) {
+	t.Helper()
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		t.Error(err)
+	}
+}

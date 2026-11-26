@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/catalog"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func replyOf(status int, body string) *http.Response {

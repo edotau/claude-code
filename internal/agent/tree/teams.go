@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/proxyteam"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 )
 
 // teamRowWidth is the most columns a team-view row takes, piped or not.

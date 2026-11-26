@@ -15,8 +15,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
 )
 
 // The exported aliases let the shadow package implement VectorStore without renaming the memory types.

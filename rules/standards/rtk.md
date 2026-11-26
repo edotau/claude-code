@@ -19,7 +19,7 @@ Write the prefix yourself; vetoed commands and code-mode runs stay bare.
 - **Code search:** tracked files first with `git grep -n` or `rtk rg -n`; symbols with `claude-code agents find`.
   Reserve `rtk grep -rn` for ignored/untracked paths: it walks every file.
 - **Program code:** program-parsed output stays bare in Go `exec`, Makefiles, hooks, CI and scripts.
-  Model-read output in Go uses `rtkwrap.ForModel` (`internal/rtkwrap/form.go`), never hard-coded `rtk`;
+  Model-read output in Go uses `rtkwrap.ForModel` (`internal/platform/rtkwrap/form.go`), never hard-coded `rtk`;
   it falls back to bare commands in code mode, without rtk or on a veto.
 - **Code mode, the one exception:** `CODEMODE=off|on|only` comes from a launcher, `--codemode` or the vault;
   the agent's vendor variable also counts. Dispatch precedence: typed `--codemode` > vault `CODEMODE` > off

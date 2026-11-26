@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 type stepResult struct {

@@ -17,9 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // rootAnchors are the stems of the markdown files tooling requires at the repo root (README.md, README.markdown).

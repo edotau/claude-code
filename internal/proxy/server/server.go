@@ -15,14 +15,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/audit"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 const (

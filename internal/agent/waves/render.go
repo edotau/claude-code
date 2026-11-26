@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 func render(out io.Writer, s State, jsonMode bool) error {

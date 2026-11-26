@@ -7,9 +7,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // contractStore is the part of the contract store the close-term recording needs.

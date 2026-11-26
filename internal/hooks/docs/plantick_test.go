@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a commit result.

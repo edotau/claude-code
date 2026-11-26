@@ -1,8 +1,8 @@
 ---
 paths:
-  - "internal/network/**"
-  - "internal/clipboard/**"
-  - "internal/setup/**"
+  - "internal/remote/network/**"
+  - "internal/platform/clipboard/**"
+  - "internal/dev/setup/**"
 ---
 # Network, Web, MCP, Cleanup
 

@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/driver/opencode"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // Seams for the opencode page; tests replace them so no real opencode or terminal is touched.

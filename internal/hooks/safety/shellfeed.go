@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 var shellNames = sync.OnceValue(func() map[string]bool { return shell.GuardSet("shell_names") })

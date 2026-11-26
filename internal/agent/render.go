@@ -11,11 +11,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // DefaultAgents is every agent generate renders when agentconfig.RenderOptions.Agents is empty.

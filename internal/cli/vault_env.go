@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // vaultEnvSet writes one env value and prints the one-line change.

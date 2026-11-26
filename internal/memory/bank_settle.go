@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.

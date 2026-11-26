@@ -15,11 +15,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/googletools"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/driver/googletools"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // scopeKey carries the profiles a session or client token is confined to; absent for the router secret.

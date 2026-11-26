@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // planChain fails closed on invalid planning inputs, resolves once, then records only admitted hops.

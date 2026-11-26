@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/tree"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // dashboardPage is `agents dashboard -h`.

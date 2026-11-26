@@ -1,0 +1,468 @@
+package opencode
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/agenttest"
+
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
+)
+
+func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
+	set := func(c map[string]any) { c["k"] = "v" }
+	bad := []string{"A=1", opencodeConfigEnv + "={nope"}
+	if _, err := mutateOpencodeConfigEnv(append([]string(nil), bad...), false, set); err == nil {
+		t.Error("strict: an unreadable block must be an error")
+	}
+	got, err := mutateOpencodeConfigEnv(append([]string(nil), bad...), true, set)
+	if err != nil || got[1] != opencodeConfigEnv+`={"k":"v"}` || len(got) != 2 {
+		t.Errorf("lenient = %v, %v; want the block replaced in place", got, err)
+	}
+	got, _ = mutateOpencodeConfigEnv([]string{"A=1", opencodeConfigEnv + `={"m":1}`}, false, set)
+	if got[1] != opencodeConfigEnv+`={"k":"v","m":1}` {
+		t.Errorf("merge = %v", got)
+	}
+	if got, _ = mutateOpencodeConfigEnv(nil, false, set); len(got) != 1 || got[0] != opencodeConfigEnv+`={"k":"v"}` {
+		t.Errorf("absent = %v, want one appended entry", got)
+	}
+}
+
+// With a login only for openai, an opencode-go cell falls to the OPENCODE_API_KEY vault key, else errors.
+func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) {
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	t.Setenv(opencodeAPIKeyEnv, "")
+	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
+	if l := listOpencodeLogins(); len(l) != 1 || l[0] != "openai" {
+		t.Fatalf("precondition: logins = %v, want only openai", l)
+	}
+	env, err := opencodeCredential("opencode-go")
+	if err == nil {
+		t.Fatalf("env = %d, want an error: the openai login must not cover an opencode-go cell", len(env))
+	}
+	if !strings.Contains(err.Error(), opencodeAPIKeyEnv) {
+		t.Errorf("err = %v, want it to name %s", err, opencodeAPIKeyEnv)
+	}
+}
+
+// The same opencode-go cell resolves once the OPENCODE_API_KEY vault key exists, still with no "opencode" login stored.
+func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	writeAuthJSON(t, data, `{"openai":{"type":"oauth"}}`)
+	t.Setenv(opencodeAPIKeyEnv, "test-key")
+	env, err := opencodeCredential("opencode-go")
+	if err != nil {
+		t.Fatalf("err = %v, want the vault/env key to resolve it", err)
+	}
+	if len(env) != 1 || env[0] != opencodeAPIKeyEnv+"=test-key" {
+		t.Errorf("env = %d, want [%s=test-key]", len(env), opencodeAPIKeyEnv)
+	}
+}
+
+func copilotOnlyOverlayRegistry(t *testing.T) *providers.Registry {
+	t.Helper()
+	data, _ := isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"copilot":{"protocol":"openai",`+
+		`"base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"},`+
+		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"mai-code-1.1-flash"}}}}}`)
+	if OpencodeOwnLoginPresent() || !OpencodeCopilotLoginPresent() {
+		t.Fatal("fixture must be copilot-only")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
+// A copilot-only opencode launch renders github-copilot/<id> models, never an opencode-go id.
+func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
+	reg := copilotOnlyOverlayRegistry(t)
+	main, small, ok := opencodeCopilotModelIDs(reg)
+	if !ok {
+		t.Fatal("no copilot model ids")
+	}
+	_, body, _, _, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("model ids", func(t *testing.T) {
+		if doc["model"] != "github-copilot/"+main || doc["small_model"] != "github-copilot/"+small {
+			t.Errorf("model=%v small_model=%v, want github-copilot/%s and github-copilot/%s", doc["model"], doc["small_model"], main, small)
+		}
+	})
+}
+
+// The overlay's model/small_model are the table's opencode cells, and a vault route override reaches only its own cell.
+func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
+	// the host's copilot-only login would swap in github-copilot/ ids
+	isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	render := func() map[string]any {
+		_, body, _, _, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(body, &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc
+	}
+	tb, err := router.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sonnet, _ := tb.Cell("opencode", "sonnet")
+	haiku, _ := tb.Cell("opencode", "haiku")
+	if doc := render(); doc["model"] != sonnet.Model || doc["small_model"] != haiku.Model {
+		t.Errorf("overlay = %v/%v, want the table's %q/%q", doc["model"], doc["small_model"], sonnet.Model, haiku.Model)
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/overridden-model"}}}}}`)
+	if doc := render(); doc["model"] != "github-copilot/overridden-model" || doc["small_model"] != haiku.Model {
+		t.Errorf("overridden overlay = %v/%v, want github-copilot/overridden-model and unchanged %q", doc["model"], doc["small_model"], haiku.Model)
+	}
+}
+
+// TestOpencodeOverlayModelsCorruptProviderOverlay: a provider overlay providers.Load rejects falls back to the table.
+func TestOpencodeOverlayModelsCorruptProviderOverlay(t *testing.T) {
+	data, _ := isolateOpencodeRouteEnv(t)
+	vaulttest.Use(t)
+	if err := os.MkdirAll(filepath.Join(data, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "opencode", "auth.json"), []byte(`{"github-copilot":{"type":"oauth"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{not json`)
+	if _, err := providers.Load(); err == nil {
+		t.Fatal("fixture must make providers.Load fail")
+	}
+	if OpencodeOwnLoginPresent() || !OpencodeCopilotLoginPresent() {
+		t.Fatal("fixture must be copilot-only")
+	}
+	wantMain, wantSmall, wantOK := router.OpencodeTableModels()
+	main, small, ok := opencodeOverlayModels()
+	if main != wantMain || small != wantSmall || ok != wantOK {
+		t.Errorf("got %q %q %v, want table %q %q %v", main, small, ok, wantMain, wantSmall, wantOK)
+	}
+}
+
+// Text already parsed survives a later typed-decode failure.
+func TestParseOpenCodeEventsDecodeErrorKeepsText(t *testing.T) {
+	stream := `{"type":"text","sessionID":"s-1","part":{"text":"hi"}}
+{"type":123}`
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil, nil, nil)
+	if err == nil || res.Answer != "hi" || res.SessionID != "s-1" {
+		t.Fatalf("res = %+v, err = %v; want the decode error with text and session kept", res, err)
+	}
+}
+
+// TestOpencodeLaunchEnvIncludesVaultCredential pins the interactive own-login route's vault-only credential.
+func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
+	fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "test-vault-only")
+	t.Setenv(opencodeAPIKeyEnv, "")
+	env := (opencodeEngine{}).LaunchEnv()
+	if !slices.Contains(env, opencodeAPIKeyEnv+"=test-vault-only") {
+		t.Fatalf("LaunchEnv lacks the vault credential: %d", len(env))
+	}
+}
+
+// No login and no key stays quiet; an unreadable login store and a failed overlay write each print one notice line.
+func TestOpencodeLaunchEnvReportsErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name, version string
+		listErr       error
+		want          []string
+	}{
+		{"missing credential is silent", "1.19.3", nil, []string{"opencode.json"}},
+		{"unreadable login store is reported", "2.0.0", errors.New("store locked"), []string{"could not be read", "opencode.json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeOpencode(t, tc.version, "", tc.listErr)
+			vaulttest.Use(t)
+			t.Setenv(opencodeAPIKeyEnv, "")
+			if err := os.MkdirAll(filepath.Join(paths.StateDir(), "opencode", "opencode.json"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			var notice strings.Builder
+			orig := agent.NoticeOut
+			agent.NoticeOut = &notice
+			t.Cleanup(func() { agent.NoticeOut = orig })
+			(opencodeEngine{}).LaunchEnv()
+			lines := strings.Split(strings.TrimSpace(notice.String()), "\n")
+			if len(lines) != len(tc.want) {
+				t.Fatalf("notices = %q, want %d line(s) naming %v", notice.String(), len(tc.want), tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.Contains(lines[i], w) {
+					t.Errorf("notice %d = %q, want it to name %q", i, lines[i], w)
+				}
+			}
+		})
+	}
+}
+
+// A vault key added behind the memo stays unseen until InvalidateOpencodeAuth forces a fresh probe.
+func TestOpencodeOwnLoginMemoKeepsUntilInvalidate(t *testing.T) {
+	fakeOpencode(t, "1.19.3", "", nil)
+	vaulttest.Use(t)
+	t.Setenv(opencodeAPIKeyEnv, "")
+	InvalidateOpencodeAuth()
+	if OpencodeOwnLoginPresent() {
+		t.Fatal("precondition: no login and no key must read as absent")
+	}
+	vaulttest.Secret(t, opencodeAPIKeyEnv, "placeholder")
+	if OpencodeOwnLoginPresent() {
+		t.Error("a second call within the keep re-probed the vault; want the remembered answer")
+	}
+	InvalidateOpencodeAuth()
+	if !OpencodeOwnLoginPresent() {
+		t.Error("after InvalidateOpencodeAuth the stale answer was kept; want a fresh probe that finds the key")
+	}
+}
+
+// TestOpencodeToolsOffPinsPermission pins the env override an inherited OPENCODE_PERMISSION=allow would otherwise win.
+func TestOpencodeToolsOffPinsPermission(t *testing.T) {
+	t.Setenv(opencodePermissionEnv, `"allow"`)
+	p := &providers.Provider{Name: "keyed"}
+	h := &agent.Headless{Prompt: "Run pwd", Tools: false}
+	env, _, err := opencode(p, providers.ProtocolOpenAI, "https://example.test/v1", "m", "secret", false, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(env, opencodePermissionEnv+`="deny"`) {
+		t.Fatalf("tools-off env lacks the deny pin: %d", len(env))
+	}
+}
+
+// TestOpencodeChildMarksHostedRuns: a hook host adds the hosted marker; none (memory child) leaves env and argv alone.
+func TestOpencodeChildMarksHostedRuns(t *testing.T) {
+	bin, argv, dir := "/bin/echo", []string{"run", "hi"}, t.TempDir()
+	req := agent.RunOptions{WorkDir: dir}
+	cmd, _, host, err := opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
+	if err != nil || host == nil {
+		t.Fatalf("opencodeChild = host %v, err %v; want a safety-gate host", host, err)
+	}
+	if !slices.Contains(cmd.Env, hostedEnv+"=1") || cmd.Dir != dir {
+		// never print cmd.Env: it holds tokens
+		t.Errorf("hosted child dir %q, want the hosted marker in its env and WorkDir", cmd.Dir)
+	}
+	t.Setenv(memory.UpdateChildEnv, "1")
+	cmd, _, host, err = opencodeChild(context.Background(), "opencode", bin, []string{"A=1"}, argv, "hi", req)
+	if err != nil || host != nil || slices.Contains(cmd.Env, hostedEnv+"=1") || !slices.Equal(cmd.Args[1:], argv) {
+		t.Errorf("memory child: host %v err %v args %v; want no host, no marker, argv as given", host, err, cmd.Args)
+	}
+}
+
+// isolateOpencodeRouteEnv clears every credential and login surface DescribeRoute reads.
+func isolateOpencodeRouteEnv(t *testing.T) (dataHome, cfgHome string) {
+	t.Helper()
+	dataHome, cfgHome = t.TempDir(), t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// no real `gh`: CopilotLoginPresent's shell-out dispatch can't fire by accident
+	t.Setenv("PATH", t.TempDir())
+	// no real copilot config.json: copilotStoredLogin reads nothing
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	// no real gh hosts.yml: GHActiveAccount reads nothing
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	for _, k := range []string{"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	return dataHome, cfgHome
+}
+
+// opencodeCopilotModelIDs swaps an "auto" alias for the provider's OpencodeFallback; a concrete id passes through.
+func TestOpencodeCopilotModelIDsSwapsAutoForFallback(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, k := range []string{"HARNESS_MODEL", "HARNESS_SONNET_MODEL", "HARNESS_HAIKU_MODEL"} {
+		t.Setenv(k, "")
+	}
+	overlay := `{"providers":{"github":{"copilot":{"protocol":"openai","base_url":"https://api.githubcopilot.com",` +
+		`"auth":{"type":"cli","login":"copilot"},` +
+		`"models":{"opus":"gpt-6.1-sol","sonnet":"claude-sonnet-5.5","haiku":"auto"},` +
+		`"opencode_fallback":"mai-code-1.1-flash"}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, small, ok := opencodeCopilotModelIDs(reg)
+	if !ok {
+		t.Fatal("opencodeCopilotModelIDs: ok = false")
+	}
+	if main != "claude-sonnet-5.5" {
+		t.Errorf("main = %q, want the registry's own sonnet id unchanged", main)
+	}
+	if small != "mai-code-1.1-flash" {
+		t.Errorf("small = %q, want the haiku alias's \"auto\" swapped for OpencodeFallback", small)
+	}
+}
+
+// A pin resolving the haiku alias to a real id passes through though the registry's haiku default is "auto".
+func TestOpencodeCopilotModelIDsLeavesNonAutoPinUnchanged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "claude-haiku-4.5")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, small, ok := opencodeCopilotModelIDs(reg)
+	if !ok {
+		t.Fatal("opencodeCopilotModelIDs: ok = false")
+	}
+	if small != "claude-haiku-4.5" {
+		t.Errorf("small = %q, want the pinned id unchanged (not swapped for OpencodeFallback)", small)
+	}
+}
+
+func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
+	menu := []providers.OpencodeModel{{ID: "glm-5-2", Label: "GLM 5.2"}}
+	db := regressionDatabricksProfile(t, "databricks-test", menu)
+	blocked := filepath.Join(paths.StateDir(), "opencode")
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []*providers.Provider{{Name: "generic", Provider: "github"}, db} {
+		t.Run(p.Name, func(t *testing.T) {
+			env, argv, err := opencode(p, providers.ProtocolOpenAI, "https://workspace.example.test", agentconfig.MenuWire(p, "glm-5-2"), "", false, nil)
+			if err == nil || !strings.Contains(err.Error(), "opencode plugin:") {
+				t.Fatalf("interactive launch must report plugin write failure: env=%d argv=%v err=%v", len(env), argv, err)
+			}
+			if env != nil || argv != nil {
+				t.Fatalf("failed launch returned usable config: env=%d argv=%v", len(env), argv)
+			}
+		})
+	}
+}
+
+// An own-login launch never forwards a raw --model: with no profile serving it, the launch is refused with no argv.
+func TestOwnLoginLaunchRefusesUnservedModelFlag(t *testing.T) {
+	const model = "opencode-go/kimi-k3.1-pro"
+	cases := []struct{ name, auth, profile string }{
+		{"pre-route", `{"opencode":{"type":"api"}}`, ""},
+		{"configure", `{"github-copilot":{"type":"oauth"}}`, "copilot"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agenttest.LaunchHermetic(t)
+			pathstest.FakeVendor(t, "opencode", "")
+			dir := filepath.Join(os.Getenv("XDG_DATA_HOME"), "opencode")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(tc.auth), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{
+				Model: model, Provider: tc.profile, PrintEnv: true,
+			}, nil)
+			if err == nil || !strings.HasPrefix(err.Error(), "--model "+model+": ") || len(plan.Argv) != 0 {
+				t.Errorf("err = %v, argv = %v; want a refusal naming --model %s and no argv", err, plan.Argv, model)
+			}
+		})
+	}
+}
+
+func TestPlainPlanAppliesVendorLaunchSpec(t *testing.T) {
+	agenttest.LaunchHermetic(t)
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	fake := pathstest.FakeVendor(t, "opencode", "")
+
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, `{"opencode":{"launch":{"env":["X_TEST=1"],"args":["--flag"]}}}`)
+	// A sign-in subcommand takes the plain plan, the only launch that skips routing.
+	plan, err := agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth", "arg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
+	}
+	if plan.Set["X_TEST"] != "1" {
+		t.Errorf("Set[X_TEST] = %q, want 1", plan.Set["X_TEST"])
+	}
+	wantArgv := []string{"--flag", "auth", "arg"}
+	if !slices.Equal(plan.Argv, wantArgv) {
+		t.Errorf("Argv = %v, want %v (spec args prepended)", plan.Argv, wantArgv)
+	}
+
+	// No overlay: the built-in default still applies.
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "")
+	plan, err = agent.LaunchPlan(t.Context(), "opencode", agent.LaunchOptions{}, []string{"auth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Binary != fake {
+		t.Errorf("Binary = %q, want %q", plan.Binary, fake)
+	}
+	if v, ok := plan.Set["OPENCODE_DISABLE_CLAUDE_CODE_SKILLS"]; ok {
+		t.Errorf("Set[OPENCODE_DISABLE_CLAUDE_CODE_SKILLS] = %q, want unset (opencode loads ~/.claude/skills)", v)
+	}
+	if !slices.Equal(plan.Argv, []string{"auth"}) {
+		t.Errorf("Argv = %v, want [auth] (opencode's default carries no Launch.Args)", plan.Argv)
+	}
+}
+
+// TestMain runs in the hermetic host (hosttest): a dispatched leaf's own HARNESS_* environment never reaches a test.
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
+	for _, session := range []string{"", "s1"} {
+		h := agent.Headless{Prompt: "prompt", WorkDir: t.TempDir(), SessionID: session,
+			Effort: "high", Autonomous: true, Attach: []string{"file"}}
+		argv := opencodeArgv("model", h)
+		_, argv = opencodeSystemPrompt(nil, argv, "system")
+		if got := row.CLI.Undeclared(argv); len(got) > 0 {
+			t.Errorf("opencode passes %v, not in its row's Flags", got)
+		}
+	}
+}
+
+// A stored profile-prefixed pin is ignored: the table's id reaches the copilot config, never the prefixed one.
+func TestAliasModelIDIgnoresPrefixedPin(t *testing.T) {
+	reg := copilotOnlyOverlayRegistry(t)
+	p, _ := reg.LoginProfile("github", "copilot")
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Aliases: map[string]string{"sonnet": p.Name + ":claude-opus-5-5"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := aliasModelID(reg, p, "sonnet"); got != "claude-sonnet-5.5" {
+		t.Errorf("aliasModelID = %q; want the table's claude-sonnet-5.5", got)
+	}
+}

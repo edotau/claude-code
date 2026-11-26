@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/routing/models"
 )
 
 type messagesRequest struct {

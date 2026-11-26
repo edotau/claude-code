@@ -13,11 +13,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/clipboard"
-	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/platform/clipboard"
+	"github.com/edotau/claude-code/internal/remote/network/browser"
+	"github.com/edotau/claude-code/internal/routing/agentid"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // action installs or updates one tool; w gets progress lines, dryRun prints without changing anything.

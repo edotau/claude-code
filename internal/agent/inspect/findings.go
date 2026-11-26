@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/mdlint"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // Finding is one row: `path:line: tool/rule: message`; path, line and rule are left out when the tool gave none.

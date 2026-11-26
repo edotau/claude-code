@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // updateTitlePrefix is the background-update system prompt, never a real user ask.

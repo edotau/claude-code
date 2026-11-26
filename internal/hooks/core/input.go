@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentid"
 )
 
 // Exit codes per the Claude Code hook contract.

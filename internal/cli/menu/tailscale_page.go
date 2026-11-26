@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/tailscale"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/remote/tailscale"
 )
 
 // Seams for the page's tailscale side effects; tests swap them.

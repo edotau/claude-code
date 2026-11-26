@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/copilotauth"
-	"github.com/edotau/claude-code/internal/github"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/dev/github"
+	"github.com/edotau/claude-code/internal/driver/copilotauth"
+	"github.com/edotau/claude-code/internal/driver/opencode"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // printRoute prints one agent.DescribeRoute result as a line under 80 columns.

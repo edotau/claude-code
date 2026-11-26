@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 
-	"github.com/edotau/claude-code/internal/ui/statusline"
-	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/cli/ui/statusline"
+	"github.com/edotau/claude-code/internal/cli/ui/theme"
 )
 
 // hermeticTheme isolates the statusline config dir from the live ~/.claude.

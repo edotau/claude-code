@@ -13,13 +13,13 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/memory/memtest"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/redact"
 )
 
 // noModules stands in for the root module table: every call passes the modules.

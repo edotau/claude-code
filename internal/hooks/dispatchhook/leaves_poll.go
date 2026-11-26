@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // pollCall is one Bash `agents result` call in a relay transcript and what its tool result showed.

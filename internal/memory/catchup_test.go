@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // The dry run lists a quiet interactive session with uncovered edits, skips a headless one and writes no count file.

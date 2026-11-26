@@ -17,13 +17,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
-	"github.com/edotau/claude-code/internal/mdlint"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
+	"github.com/edotau/claude-code/internal/dev/review/source"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // Gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test, quality, docs; --gates adds yaml, shell.

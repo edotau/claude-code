@@ -12,16 +12,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/remote/network/remote"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // EnvMode picks the deny scrub a child's inherited env goes through.

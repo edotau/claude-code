@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/platform/vault"
 
-	_ "github.com/edotau/claude-code/internal/nonet"
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
 )
 
 const fakeSecret = "ccfake-0123456789abcdef0123456789abcdef"

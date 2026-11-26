@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/routing/models"
 )
 
 // A reply-style ask carries no review-loop rule; a code-writing brief keeps it.

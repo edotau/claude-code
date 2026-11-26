@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
 )
 
 // errSchema marks an answer that is not JSON satisfying the requested schema; the envelope kind is "schema".

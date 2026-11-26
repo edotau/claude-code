@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/cli/ui/theme"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // lockWait bounds the wait for a sibling invocation; past the budget the merge errors rather than hang.

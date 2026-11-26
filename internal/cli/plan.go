@@ -13,15 +13,15 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/waves"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/review/planlint"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/docs"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/review/planlint"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 var planPage = helptext.Page{

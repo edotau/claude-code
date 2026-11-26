@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func TestCanOneShotHTTP(t *testing.T) {

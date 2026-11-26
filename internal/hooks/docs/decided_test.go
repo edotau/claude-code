@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // A recorded DECISION with a strike token strikes that exact task once, citing it; words alone strike nothing.

@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // loginVerifyTimeout bounds the one token-endpoint call made after a login secret is written.

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // GrepExit (PostToolUseFailure Bash) notes that exit 1 from a last-stage grep means no match; it never blocks.

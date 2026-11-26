@@ -1,8 +1,8 @@
 ---
 paths:
   - "internal/cli/**"
-  - "internal/ui/**"
-  - "internal/setup/**"
+  - "internal/cli/ui/**"
+  - "internal/dev/setup/**"
   - "mods/**"
 ---
 # Command Reference

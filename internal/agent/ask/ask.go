@@ -15,20 +15,20 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/remote/network/remote"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 
 	// Vendor CLIs register their roster rows from package init; claude links via review.go, pi via flags.go.
-	_ "github.com/edotau/claude-code/internal/codex"
-	_ "github.com/edotau/claude-code/internal/copilot"
-	_ "github.com/edotau/claude-code/internal/gemini"
-	_ "github.com/edotau/claude-code/internal/opencode"
+	_ "github.com/edotau/claude-code/internal/driver/codex"
+	_ "github.com/edotau/claude-code/internal/driver/copilot"
+	_ "github.com/edotau/claude-code/internal/driver/gemini"
+	_ "github.com/edotau/claude-code/internal/driver/opencode"
 )
 
 // askPage is `ask -h`; the task is the trailing args, or stdin when absent or "-".

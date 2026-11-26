@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // idRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed contentRef.

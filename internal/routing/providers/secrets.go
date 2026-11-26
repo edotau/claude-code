@@ -1,0 +1,124 @@
+package providers
+
+import (
+	"slices"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/platform/vault"
+)
+
+// RouterSecretName is the vault record of the loopback router's client secret.
+const RouterSecretName = "CLAUDE_CODE_ROUTER_SECRET"
+
+// InternalSecretName reports whether a vault name belongs to the harness itself and may never be handed to a child.
+func InternalSecretName(name string) bool {
+	return name == RouterSecretName || strings.HasPrefix(strings.ToUpper(name), "HARNESS_")
+}
+
+// loginSecrets are the agent logins a launch hands only to its own agent (OPENCODE_API_KEY included).
+var loginSecrets = []string{OAuthTokenEnv, CopilotTokenEnv, "OPENCODE_API_KEY"}
+
+// routeSecret reports a route credential: an agent login, a profile's auth env or any-method secret, any *_OAUTH/*_M2M.
+func (r *Registry) routeSecret(name string) bool {
+	hasSuffix := func(m string) bool { return strings.HasSuffix(name, "_"+strings.ToUpper(m)) }
+	if slices.Contains(loginSecrets, name) || slices.ContainsFunc([]string{AuthOAuth, AuthM2M, AuthM2M + "_ACCESS"}, hasSuffix) {
+		return true
+	}
+	for _, p := range r.Providers {
+		if p == nil {
+			continue
+		}
+		if p.Auth.Env == name {
+			return true
+		}
+		for m, f := range authTable {
+			// a SecretName always ends _<METHOD>, so the cheap suffix test skips its regex work
+			if f.Token && hasSuffix(m) && SecretName(p.Provider, p.Name, m) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// RouteSecretGuard is Registry.routeSecret over one lazy Load; an unreadable registry refuses every name (fail closed).
+func RouteSecretGuard() func(string) bool {
+	var reg *Registry
+	var err error
+	return func(name string) bool {
+		if reg == nil && err == nil {
+			reg, err = Load()
+		}
+		return err != nil || reg.routeSecret(name)
+	}
+}
+
+// SecretNames unions every env var the harness reads (provider auth.env, setup-token) with the `vault set` names index.
+func SecretNames() []string {
+	var out []string
+	if reg, err := Load(); err == nil {
+		for _, n := range reg.Names() {
+			if env := reg.Providers[n].Auth.Env; env != "" {
+				out = append(out, env)
+			}
+		}
+	}
+	out = append(out, OAuthTokenEnv)
+	out = append(out, vault.Names()...)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// SecretRef marks a custom env value held in the vault under the variable's own name.
+const SecretRef = "@secret"
+
+// SecretRefName is the vault name a value references: "@secret" means key itself, "@secret:<NAME>" names it.
+func SecretRefName(key, v string) (string, bool) {
+	if v == SecretRef {
+		return key, true
+	}
+	name, ok := strings.CutPrefix(v, SecretRef+":")
+	return name, ok && name != ""
+}
+
+// CustomEnv is the raw vault env bucket (values unresolved); a read error yields an empty table.
+func CustomEnv() map[string]string {
+	m := map[string]string{}
+	_ = vault.View(func(tx *vault.Tx) error { m = tx.All(vault.Env); return nil })
+	return m
+}
+
+// ResolveCustomEnv resolves secret refs through get and returns env-bucket read errors.
+func ResolveCustomEnv(get func(string) (string, bool)) (vals map[string]string, missing []string, err error) {
+	vals = map[string]string{}
+	var raw map[string]string
+	err = vault.View(func(tx *vault.Tx) error { raw = tx.All(vault.Env); return nil })
+	if err != nil {
+		return vals, nil, err
+	}
+	route := RouteSecretGuard()
+	for k, v := range raw {
+		name, ok := SecretRefName(k, v)
+		if !ok {
+			vals[k] = v
+			continue
+		}
+		// a ref must not alias past the scrub, its own name included
+		if InternalSecretName(name) || route(name) {
+			missing = append(missing, k)
+			continue
+		}
+		if s, ok := get(name); ok {
+			vals[k] = s
+		} else {
+			missing = append(missing, k)
+		}
+	}
+	slices.Sort(missing)
+	return vals, missing, nil
+}
+
+// SetCustomEnv writes (raw != "") or deletes (raw == "") name in the vault env bucket, raw and unquoted.
+func SetCustomEnv(name, raw string) error {
+	return vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Env, name, raw) })
+}

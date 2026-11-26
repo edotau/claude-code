@@ -14,16 +14,16 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/tui"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaultdoc"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	_ "github.com/edotau/claude-code/internal/driver/claude"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // runKeysCheck drives the read-only (--check/piped) keys report; !allOK maps to rc 1.

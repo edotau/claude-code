@@ -1,0 +1,1012 @@
+// Package source scores source files: code-quality and complexity checks plus simplify candidates, stdlib only.
+package source
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/platform/textutil"
+)
+
+// qualityThresholds mirrors quality_core.THRESHOLDS.
+var qualityThresholds = map[string]int{
+	"long_function_lines": 50,
+	"too_many_parameters": 5,
+	"high_complexity":     10,
+	"god_class_methods":   20,
+	"max_imports":         15,
+}
+
+// jsFunctionPattern captures declarations and assigned arrows, including typed consts and bare parameters.
+const jsFunctionPattern = `function\s+(\w+)\s*(?:<(?:[^<>]|<[^<>]*>)*>)?\s*\(([^)]*)\)|(?:const|let|var)\s+(\w+)\s*(?::[^=;\n]+)?=\s*(?:async\s+)?(?:\(([^)]*)\)|(\w+))\s*=>`
+
+// Regexes compile lazily (sync.OnceValue): this binary runs once per hook/tool invocation.
+var functionPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
+	return map[string]*regexp.Regexp{
+		"python":     regexp.MustCompile(`def\s+(\w+)\s*\(([^)]*)\)`),
+		"typescript": regexp.MustCompile(jsFunctionPattern),
+		"javascript": regexp.MustCompile(jsFunctionPattern),
+		"swift":      regexp.MustCompile(`func\s+(\w+)\s*\(([^)]*)\)`),
+		"kotlin":     regexp.MustCompile(`fun\s+(\w+)\s*\(([^)]*)\)`),
+	}
+})
+
+var classPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
+	return map[string]*regexp.Regexp{
+		"python":     regexp.MustCompile(`(?m)^\s*class\s+(\w+)`),
+		"typescript": regexp.MustCompile(`class\s+(\w+)`),
+		"javascript": regexp.MustCompile(`class\s+(\w+)`),
+		"go":         regexp.MustCompile(`type\s+(\w+)(?:\s*\[(?:[^\[\]]|\[[^\[\]]*\])*\])?\s+struct`),
+		"swift":      regexp.MustCompile(`class\s+(\w+)`),
+		"kotlin":     regexp.MustCompile(`class\s+(\w+)`),
+	}
+})
+
+var methodPatterns = sync.OnceValue(func() map[string]*regexp.Regexp {
+	return map[string]*regexp.Regexp{
+		"python":     regexp.MustCompile(`def\s+\w+\s*\(`),
+		"typescript": regexp.MustCompile(`(?:public|private|protected)?\s*\w+\s*\([^)]*\)\s*[:{]`),
+		"javascript": regexp.MustCompile(`\w+\s*\([^)]*\)\s*\{`),
+		"swift":      regexp.MustCompile(`func\s+\w+`),
+		"kotlin":     regexp.MustCompile(`fun\s+\w+`),
+	}
+})
+
+var cyclomaticKeywords = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\bif\b|\belif\b|\bfor\b|\bwhile\b|\bcase\b|\bcatch\b|\bexcept\b|\band\b|\bor\b|\|\||&&`)
+})
+var solidTypeCheck = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`isinstance\(|type\(.*\)\s*==|typeof\s+\w+\s*===`)
+})
+var solidNotImpl = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)raise\s+notimplementederror|not\s+implemented`)
+})
+var solidImports = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:import|from)\s+`)
+})
+var commentedCodePattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^\s*[#/]+\s*(if|for|while|def|function|class|const|let|var)\s.*[{:;(]\s*$`)
+})
+var constDefinition = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\s*(?:const\s+\w+(?:\s+\w+)?|[A-Z][A-Z0-9_]*(?:\s*:[^=]+)?)\s*=[^=]`)
+})
+
+// DetectLanguage mirrors quality_core.detect_language.
+func DetectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	for _, lang := range languageOrder {
+		if slices.Contains(Extensions[lang], ext) {
+			return lang
+		}
+	}
+	return ""
+}
+
+// textLines is the number of newline-separated lines in text (an empty text has one).
+func textLines(text string) int { return strings.Count(text, "\n") + 1 }
+
+// countLines mirrors quality_core.count_lines.
+func countLines(content string) LineMetrics {
+	lines := strings.Split(content, "\n")
+	blank, comment := 0, 0
+	prefixes := []string{"#", "//", "/*", "'''", `"""`}
+	for _, line := range lines {
+		s := strings.TrimSpace(line)
+		if s == "" {
+			blank++
+			continue
+		}
+		for _, p := range prefixes {
+			if strings.HasPrefix(s, p) {
+				comment++
+				break
+			}
+		}
+	}
+	total := len(lines)
+	return LineMetrics{Total: total, Code: total - blank - comment, Blank: blank, Comment: comment}
+}
+
+// calcCyclomaticComplexity mirrors quality_core.calculate_cyclomatic_complexity.
+func calcCyclomaticComplexity(content string) int {
+	return 1 + len(cyclomaticKeywords().FindAllString(content, -1))
+}
+
+// functionNameParams reads paired names and parameters, with a final bare-parameter capture for JS arrows.
+func functionNameParams(groups []string) (string, string) {
+	for i := 0; i+1 < len(groups); i += 2 {
+		if groups[i] != "" {
+			params := groups[i+1]
+			if i == 2 && len(groups) > 4 && groups[4] != "" {
+				params = groups[4]
+			}
+			return groups[i], params
+		}
+	}
+	return "anonymous", ""
+}
+
+// findFunctions ports quality_core.find_functions; Go source that does not parse is an error, not a regex fallback.
+func findFunctions(content, language string) ([]FunctionInfo, error) {
+	if language == "go" {
+		return goFunctions(content)
+	}
+	pattern, ok := functionPatterns()[language]
+	if !ok {
+		pattern = functionPatterns()["python"]
+	}
+	scan := content
+	if language == "typescript" || language == "javascript" {
+		scan = jsCode(content)
+	}
+	var out []FunctionInfo
+	for _, loc := range pattern.FindAllStringSubmatchIndex(scan, -1) {
+		name, paramsStr := functionNameParams(submatchStrings(content, loc, pattern))
+		params := splitParams(paramsStr)
+		matchEnd := loc[1]
+		var body string
+		if language == "typescript" || language == "javascript" {
+			body = content[matchEnd : matchEnd+len(jsFunctionBody(scan, matchEnd))]
+		} else {
+			body = functionBody(content, matchEnd, pattern)
+		}
+		out = append(out, FunctionInfo{
+			Name:       name,
+			Parameters: len(params),
+			Lines:      textLines(body),
+			Complexity: calcCyclomaticComplexity(body),
+		})
+	}
+	return out, nil
+}
+
+// goFunctions lists the declared funcs of Go source via go/ast, so comments and strings never yield phantoms.
+func goFunctions(content string) ([]FunctionInfo, error) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", content, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, fmt.Errorf("go syntax error: %w", err)
+	}
+	var out []FunctionInfo
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		bodyStart := fset.Position(fn.Type.Params.Closing).Offset + 1
+		body := content[bodyStart:fset.Position(fn.End()).Offset]
+		cyclo := 1 // a bodiless declaration branches nowhere
+		if fn.Body != nil {
+			cyclo = goCyclomatic(fn.Body)
+		}
+		out = append(out, FunctionInfo{
+			Name:       fn.Name.Name,
+			Parameters: goParamCount(fn.Type.Params),
+			Lines:      textLines(body),
+			Complexity: cyclo,
+		})
+	}
+	return out, nil
+}
+
+// goParamCount counts parameters: one per name, one for each unnamed type.
+func goParamCount(params *ast.FieldList) int {
+	n := 0
+	for _, f := range params.List {
+		n += max(1, len(f.Names))
+	}
+	return n
+}
+
+// submatchStrings returns capture groups 1..n as strings ("" when a group did not participate).
+func submatchStrings(content string, loc []int, pattern *regexp.Regexp) []string {
+	n := pattern.NumSubexp()
+	out := make([]string, n)
+	for i := 1; i <= n; i++ {
+		s, e := loc[2*i], loc[2*i+1]
+		if s >= 0 && e >= 0 {
+			out[i-1] = content[s:e]
+		}
+	}
+	return out
+}
+
+// splitParams splits on commas outside brackets and quotes, dropping blank parts.
+func splitParams(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		if quote != 0 {
+			i, quote = skipQuoted(s, i, quote)
+			continue
+		}
+		switch c := s[i]; c {
+		case '"', '\'':
+			quote = c
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth = max(depth-1, 0)
+		case ',':
+			if depth == 0 {
+				out, start = appendParam(out, s[start:i]), i+1
+			}
+		}
+	}
+	return appendParam(out, s[start:])
+}
+
+// skipQuoted advances past an escape or closes the quote at s[i].
+func skipQuoted(s string, i int, quote byte) (int, byte) {
+	switch s[i] {
+	case '\\':
+		return i + 1, quote
+	case quote:
+		return i, 0
+	}
+	return i, quote
+}
+
+func appendParam(out []string, p string) []string {
+	if p = strings.TrimSpace(p); p != "" {
+		return append(out, p)
+	}
+	return out
+}
+
+// functionBody spans from matchEnd to the next match of pattern, or to the end of content when there is none.
+func functionBody(content string, matchEnd int, pattern *regexp.Regexp) string {
+	remaining := content[matchEnd:]
+	if loc := pattern.FindStringIndex(remaining); loc != nil {
+		return remaining[:loc[0]]
+	}
+	return remaining
+}
+
+// classBody is the text a class match owns: Python ends it by indent, other languages at the next class match.
+func classBody(content string, m []int, pattern *regexp.Regexp, language string) string {
+	if language == "python" {
+		return pythonClassBody(content, m[2], m[3])
+	}
+	return functionBody(content, m[1], pattern)
+}
+
+// pythonClassBody returns the lines after the class header that are blank or indented deeper than it.
+func pythonClassBody(content string, nameStart, nameEnd int) string {
+	lineStart := strings.LastIndex(content[:nameStart], "\n") + 1
+	indent := leadingWidth(content[lineStart:])
+	headerEnd := pythonHeaderEnd(content, nameEnd)
+	if headerEnd < 0 {
+		return ""
+	}
+	_, after, ok := strings.Cut(content[headerEnd:], "\n")
+	if !ok {
+		return ""
+	}
+	lines := strings.Split(after, "\n")
+	n := 0
+	for n < len(lines) && (blankOrComment(lines[n]) || leadingWidth(lines[n]) > indent) {
+		n++
+	}
+	return strings.Join(lines[:n], "\n")
+}
+
+// blankOrComment reports a line that must not end a Python class body (a column-0 comment is not dedent).
+func blankOrComment(line string) bool {
+	s := strings.TrimSpace(line)
+	return s == "" || strings.HasPrefix(s, "#")
+}
+
+// pythonHeaderEnd returns the offset just past the ':' closing a class header (parens may span lines), or -1.
+func pythonHeaderEnd(content string, from int) int {
+	depth := 0
+	for i := from; i < len(content); i++ {
+		switch content[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '#', '\'', '"':
+			end, _ := pyLiteralEnd(content, i)
+			i = end - 1
+		case ':':
+			if depth == 0 {
+				return i + 1
+			}
+		case '\n':
+			if depth == 0 {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+// pythonMethodCount counts method defs in a class body, skipping the bodies of nested classes.
+func pythonMethodCount(body string, methodPattern *regexp.Regexp) int {
+	count, nestedIndent := 0, -1
+	for line := range strings.SplitSeq(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "#") {
+			w := leadingWidth(line)
+			if nestedIndent >= 0 && w <= nestedIndent {
+				nestedIndent = -1
+			}
+			if nestedIndent < 0 && pythonNestedClass().MatchString(line) {
+				nestedIndent = w
+				continue
+			}
+		}
+		if nestedIndent < 0 {
+			count += len(methodPattern.FindAllString(line, -1))
+		}
+	}
+	return count
+}
+
+var pythonNestedClass = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^\s*class\s+\w+`)
+})
+
+var goReceiverPattern = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^func\s+\(\s*(?:\w+\s+)?\*?(\w+)(?:\[[^\]]*\])?\s*\)`)
+})
+
+// goMethodCounts tallies `func (r *?Name[...]) ` receivers by type name across content (methods live outside the type).
+func goMethodCounts(content string) map[string]int {
+	counts := map[string]int{}
+	for _, m := range lineStartMatches(content, goReceiverPattern(), "func") {
+		counts[m[1]]++
+	}
+	return counts
+}
+
+// lineStartMatches is FindAllStringSubmatch of a (?m)^ pattern: anchored tries only at line starts with a prefix.
+func lineStartMatches(content string, anchored *regexp.Regexp, prefixes ...string) [][]string {
+	var out [][]string
+	end := 0 // like FindAll, a match never starts inside the previous one
+	for p := 0; p < len(content); {
+		if p >= end && textutil.HasAnyPrefix(content[p:], prefixes...) {
+			if m := anchored.FindStringSubmatch(content[p:]); m != nil {
+				out, end = append(out, m), p+len(m[0])
+			}
+		}
+		nl := strings.IndexByte(content[p:], '\n')
+		if nl < 0 {
+			break
+		}
+		p += nl + 1
+	}
+	return out
+}
+
+// findClasses ports quality_core.find_classes.
+func findClasses(content, language string) []ClassInfo {
+	pattern, ok := classPatterns()[language]
+	if !ok {
+		pattern = classPatterns()["python"]
+	}
+	methodPattern, ok := methodPatterns()[language]
+	if !ok {
+		methodPattern = methodPatterns()["python"]
+	}
+	var goMethods map[string]int
+	if language == "go" {
+		goMethods = goMethodCounts(content)
+	}
+	var out []ClassInfo
+	for _, m := range pattern.FindAllStringSubmatchIndex(content, -1) {
+		name := content[m[2]:m[3]]
+		body := classBody(content, m, pattern, language)
+		var methods int
+		switch language {
+		case "go":
+			methods = goMethods[name]
+		case "python":
+			methods = pythonMethodCount(body, methodPattern)
+		default:
+			methods = len(methodPattern.FindAllString(body, -1))
+		}
+		out = append(out, ClassInfo{
+			Name:    name,
+			Methods: methods,
+			Lines:   textLines(body),
+		})
+	}
+	return out
+}
+
+// magicNumberOnLine ports `\b(?<![.\"\'])\d{3,}\b(?!\.\d)` by hand (RE2 lacks lookaround); none on a const line.
+func magicNumberOnLine(line string) (string, bool) {
+	for start := 0; start < len(line); start++ { // each maximal run of 3+ ASCII digits, as `\d{3,}` finds them
+		end := start
+		for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+			end++
+		}
+		if end-start >= 3 && magicNumberBounded(line, start, end) {
+			return line[start:end], !constDefinition().MatchString(line)
+		}
+		start = end
+	}
+	return "", false
+}
+
+// magicNumberBounded applies the lookbehind/lookahead of the magic-number regex to the digits at line[start:end].
+func magicNumberBounded(line string, start, end int) bool {
+	if start > 0 {
+		prev := line[start-1]
+		if isWordByte(prev) || prev == '.' || prev == '"' || prev == '\'' {
+			return false
+		}
+	}
+	return end >= len(line) || !digitsContinue(line, end)
+}
+
+// digitsContinue reports a word byte, or a ".<digit>" fraction, right after the digits ending at end.
+func digitsContinue(line string, end int) bool {
+	next := line[end]
+	if isWordByte(next) {
+		return true
+	}
+	return next == '.' && end+1 < len(line) && line[end+1] >= '0' && line[end+1] <= '9'
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// checkCodeSmells ports quality_core.check_code_smells.
+func checkCodeSmells(content, lang string, functions []FunctionInfo, classes []ClassInfo) []Smell {
+	var smells []Smell
+	for _, f := range functions {
+		smells = append(smells, functionSmells(f)...)
+	}
+	for _, c := range classes {
+		if c.Methods > qualityThresholds["god_class_methods"] {
+			smells = append(smells, Smell{Type: "god_class", Severity: "high",
+				Message:  fmt.Sprintf("Class '%s' has %d methods (max: %d)", c.Name, c.Methods, qualityThresholds["god_class_methods"]),
+				Location: c.Name})
+		}
+	}
+	smells = append(smells, lineSmells(content)...)
+	return append(smells, commentSmells(content, lang)...)
+}
+
+// lineSmells flags magic numbers (outside comments and imports) and commented-out code, line by line.
+func lineSmells(content string) []Smell {
+	var smells []Smell
+	closer := ""
+	for i, line := range strings.Split(content, "\n") {
+		lineNo := i + 1
+		trimmed := strings.TrimSpace(line)
+		var prose bool
+		prose, closer = proseLine(trimmed, closer)
+		skip := prose || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") ||
+			isKeywordLine(trimmed, "import") || isKeywordLine(trimmed, "from")
+		if !skip {
+			if m, ok := magicNumberOnLine(line); ok {
+				smells = append(smells, Smell{Type: "magic_number", Severity: "low",
+					Message: fmt.Sprintf("Magic number %s should be a named constant", m), Location: fmt.Sprintf("line %d", lineNo)})
+			}
+		}
+		if strings.ContainsAny(line, "#/") && commentedCodePattern().MatchString(line) {
+			smells = append(smells, Smell{Type: "commented_code", Severity: "low",
+				Message: "Commented-out code should be removed", Location: fmt.Sprintf("line %d", lineNo)})
+		}
+	}
+	return smells
+}
+
+// proseLine reports whether a line is inside a docstring or block comment, and the closer still open after it.
+func proseLine(trimmed, closer string) (bool, string) {
+	if closer != "" {
+		if strings.Contains(trimmed, closer) {
+			return true, ""
+		}
+		return true, closer
+	}
+	for _, d := range [...]string{`"""`, `'''`} {
+		if rest, ok := strings.CutPrefix(strings.TrimLeft(trimmed, "rRbBuUfF"), d); ok {
+			if strings.Contains(rest, d) {
+				return true, ""
+			}
+			return true, d
+		}
+	}
+	if rest, ok := strings.CutPrefix(trimmed, "/*"); ok {
+		if strings.Contains(rest, "*/") {
+			return true, ""
+		}
+		return true, "*/"
+	}
+	return false, ""
+}
+
+// isKeywordLine reports whether line starts with kw as a whole word.
+func isKeywordLine(line, kw string) bool {
+	rest, ok := strings.CutPrefix(line, kw)
+	return ok && (rest == "" || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '(' || rest[0] == '*')
+}
+
+// functionSmells is the per-function slice of check_code_smells (kept separate to stay under 50 lines).
+func functionSmells(f FunctionInfo) []Smell {
+	var out []Smell
+	if f.Lines > qualityThresholds["long_function_lines"] {
+		out = append(out, Smell{Type: "long_function", Severity: "medium",
+			Message:  fmt.Sprintf("Function '%s' has %d lines (max: %d)", f.Name, f.Lines, qualityThresholds["long_function_lines"]),
+			Location: f.Name})
+	}
+	if f.Parameters > qualityThresholds["too_many_parameters"] {
+		out = append(out, Smell{Type: "too_many_parameters", Severity: "low",
+			Message:  fmt.Sprintf("Function '%s' has %d parameters (max: %d)", f.Name, f.Parameters, qualityThresholds["too_many_parameters"]),
+			Location: f.Name})
+	}
+	if f.Complexity > qualityThresholds["high_complexity"] {
+		severity := "medium"
+		if f.Complexity > 20 {
+			severity = "high"
+		}
+		out = append(out, Smell{Type: "high_complexity", Severity: severity,
+			Message:  fmt.Sprintf("Function '%s' has complexity %d (max: %d)", f.Name, f.Complexity, qualityThresholds["high_complexity"]),
+			Location: f.Name})
+	}
+	return out
+}
+
+// checkSolidViolations ports quality_core.check_solid_violations.
+func checkSolidViolations(content string) []SolidViolation {
+	var out []SolidViolation
+	if n := matchCountFrom(content, solidTypeCheck(), "isinstance(", "type(", "typeof"); n > 2 {
+		out = append(out, SolidViolation{Principle: "OCP", Name: "Open/Closed Principle", Severity: "medium",
+			Message: fmt.Sprintf("Found %d type checks - consider using polymorphism", n)})
+	}
+	notImpl := 0
+	if strings.Contains(strings.ToLower(content), "implemented") { // in every match; its letters fold only by ASCII case
+		notImpl = len(solidNotImpl().FindAllString(content, -1))
+	}
+	if n := notImpl; n > 0 {
+		out = append(out, SolidViolation{Principle: "LSP/ISP", Name: "Liskov/Interface Segregation", Severity: "low",
+			Message: fmt.Sprintf("Found %d unimplemented methods - may indicate oversized interface", n)})
+	}
+	if n := len(lineStartMatches(content, solidImports(), "import", "from")); n > qualityThresholds["max_imports"] {
+		out = append(out, SolidViolation{Principle: "DIP", Name: "Dependency Inversion Principle", Severity: "low",
+			Message: fmt.Sprintf("File has %d imports - consider dependency injection", n)})
+	}
+	return out
+}
+
+// matchCountFrom is len(re.FindAllString(content, -1)) for a context-free re whose every match starts with a lit.
+func matchCountFrom(content string, re *regexp.Regexp, lits ...string) int {
+	first := -1
+	for _, lit := range lits {
+		if i := strings.Index(content, lit); i >= 0 && (first < 0 || i < first) {
+			first = i
+		}
+	}
+	if first < 0 {
+		return 0
+	}
+	return len(re.FindAllString(content[first:], -1))
+}
+
+// calculateQualityScore ports quality_core.calculate_quality_score.
+func calculateQualityScore(lm LineMetrics, functions []FunctionInfo, smells []Smell, violations []SolidViolation) int {
+	score := 100
+	smellPenalty := map[string]int{"high": 10, "medium": 5, "low": 2}
+	violationPenalty := map[string]int{"high": 8, "medium": 4, "low": 2}
+	for _, s := range smells {
+		score -= smellPenalty[s.Severity]
+	}
+	for _, v := range violations {
+		score -= violationPenalty[v.Severity]
+	}
+	score += commentRatioBonus(lm) + shortFunctionBonus(functions)
+	return min(max(score, 0), 100)
+}
+
+func commentRatioBonus(lm LineMetrics) int {
+	if lm.Total == 0 {
+		return 0
+	}
+	if ratio := float64(lm.Comment) / float64(lm.Total); ratio >= 0.1 && ratio <= 0.3 {
+		return 5
+	}
+	return 0
+}
+
+func shortFunctionBonus(functions []FunctionInfo) int {
+	if len(functions) == 0 {
+		return 0
+	}
+	total := 0
+	for _, f := range functions {
+		total += f.Lines
+	}
+	if float64(total)/float64(len(functions)) < 30 {
+		return 5
+	}
+	return 0
+}
+
+// getGrade ports quality_core.get_grade.
+func getGrade(score int) string {
+	switch {
+	case score >= 90:
+		return "A"
+	case score >= 80:
+		return "B"
+	case score >= 70:
+		return "C"
+	case score >= 60:
+		return "D"
+	default:
+		return "F"
+	}
+}
+
+// Round1 matches Python's round(x, 1) (round-half-to-even at that digit, negligible in practice here).
+func Round1(f float64) float64 {
+	v, _ := strconv.ParseFloat(strconv.FormatFloat(f, 'f', 1, 64), 64)
+	return v
+}
+
+// qualityOf is the analysis behind RunQuality / analyze_file; the language is detected from the extension.
+func qualityOf(path string) (QualityReport, error) {
+	lang := DetectLanguage(path)
+	if lang == "" {
+		return QualityReport{}, fmt.Errorf("unsupported file type: %s", filepath.Ext(path))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return QualityReport{}, fmt.Errorf("could not read file: %s: %w", path, err)
+	}
+	r, err := QualityContent(path, string(data), lang)
+	if err != nil {
+		return QualityReport{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return r, nil
+}
+
+// QualityContent is Quality over already-read content; lang must be set.
+func QualityContent(path, content, lang string) (QualityReport, error) {
+	lineMetrics := countLines(content)
+	functions, err := findFunctions(content, lang)
+	if err != nil {
+		return QualityReport{}, err
+	}
+	classes := findClasses(content, lang)
+	smells := checkCodeSmells(content, lang, functions, classes)
+	violations := checkSolidViolations(content)
+	score := calculateQualityScore(lineMetrics, functions, smells, violations)
+
+	avgComplexity := PyFloat(0)
+	if len(functions) > 0 {
+		total := 0
+		for _, f := range functions {
+			total += f.Complexity
+		}
+		avgComplexity = PyFloat(Round1(float64(total) / float64(len(functions))))
+	}
+
+	return QualityReport{
+		File:     path,
+		Language: lang,
+		Metrics: Metrics{
+			Lines:         lineMetrics,
+			Functions:     len(functions),
+			Classes:       len(classes),
+			AvgComplexity: avgComplexity,
+		},
+		QualityScore:    score,
+		Grade:           getGrade(score),
+		Smells:          NonNil(smells),
+		SolidViolations: NonNil(violations),
+		FunctionDetails: capSlice(functions, 10),
+		ClassDetails:    capSlice(classes, 10),
+	}, nil
+}
+
+// NonNil keeps the JSON output "[]" instead of "null" for empty slices.
+func NonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
+// capSlice is NonNil plus truncation to n entries.
+func capSlice[T any](s []T, n int) []T {
+	return NonNil(s[:min(len(s), n)])
+}
+
+// PyFloat marshals like Python's json.dumps(float): always keeps a decimal point ("100.0", not "100").
+type PyFloat float64
+
+// MarshalJSON implements json.Marshaler.
+func (v PyFloat) MarshalJSON() ([]byte, error) { return []byte(FormatPyFloat(float64(v))), nil }
+
+// Extensions mirrors quality_core.LANGUAGE_EXTENSIONS; map order is random, so iterate languageOrder.
+var Extensions = map[string][]string{
+	"python":     {".py"},
+	"typescript": {".ts", ".tsx"},
+	"javascript": {".js", ".jsx", ".mjs"},
+	"go":         {".go"},
+	"swift":      {".swift"},
+	"kotlin":     {".kt", ".kts"},
+}
+
+// languageOrder fixes the iteration order quality_core's dict literal gives Python (insertion order).
+var languageOrder = []string{"python", "typescript", "javascript", "go", "swift", "kotlin"}
+
+// LineMetrics is quality_core.count_lines's return shape.
+type LineMetrics struct {
+	Total   int `json:"total"`
+	Code    int `json:"code"`
+	Blank   int `json:"blank"`
+	Comment int `json:"comment"`
+}
+
+// FunctionInfo is one entry from quality_core.find_functions.
+type FunctionInfo struct {
+	Name       string `json:"name"`
+	Parameters int    `json:"parameters"`
+	Lines      int    `json:"lines"`
+	Complexity int    `json:"complexity"`
+}
+
+// ClassInfo is one entry from quality_core.find_classes.
+type ClassInfo struct {
+	Name    string `json:"name"`
+	Methods int    `json:"methods"`
+	Lines   int    `json:"lines"`
+}
+
+// Smell is one entry from quality_core.check_code_smells.
+type Smell struct {
+	Type     string `json:"type"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+	Location string `json:"location"`
+}
+
+// SolidViolation is one entry from quality_core.check_solid_violations.
+type SolidViolation struct {
+	Principle string `json:"principle"`
+	Name      string `json:"name"`
+	Severity  string `json:"severity"`
+	Message   string `json:"message"`
+}
+
+// Metrics is the "metrics" object inside a QualityReport.
+type Metrics struct {
+	Lines         LineMetrics `json:"lines"`
+	Functions     int         `json:"functions"`
+	Classes       int         `json:"classes"`
+	AvgComplexity PyFloat     `json:"avg_complexity"`
+}
+
+// QualityReport is code_quality_checker.analyze_file's dict shape (field order = JSON key order).
+type QualityReport struct {
+	File            string           `json:"file"`
+	Language        string           `json:"language"`
+	Metrics         Metrics          `json:"metrics"`
+	QualityScore    int              `json:"quality_score"`
+	Grade           string           `json:"grade"`
+	Smells          []Smell          `json:"smells"`
+	SolidViolations []SolidViolation `json:"solid_violations"`
+	FunctionDetails []FunctionInfo   `json:"function_details"`
+	ClassDetails    []ClassInfo      `json:"class_details"`
+}
+
+// errorResult is the {"error": "..."} shape both scripts return on a per-file/dir failure.
+type errorResult struct {
+	Error string `json:"error"`
+}
+
+// directoryReport is code_quality_checker.analyze_directory's dict shape.
+type directoryReport struct {
+	Directory            string          `json:"directory"`
+	FilesAnalyzed        int             `json:"files_analyzed"`
+	AverageScore         PyFloat         `json:"average_score"`
+	OverallGrade         string          `json:"overall_grade"`
+	TotalCodeSmells      int             `json:"total_code_smells"`
+	TotalSolidViolations int             `json:"total_solid_violations"`
+	Files                []QualityReport `json:"files"`
+	FilesFailed          []string        `json:"files_failed,omitempty"`
+}
+
+const maxCommentLineChars = 120
+
+var commentDirectives = []string{"//go:", "//nolint", "//lint:", "// +build", "#!", "# -*-", "# noqa", "# type:",
+	"# pragma", "// eslint-", "// @ts-"}
+
+var pyTripleQuotes = []string{`"""`, "'''"}
+
+var commentTags = []string{"@param", "@returns", "@return", "@throws", "@example", "@type"}
+
+var commentExemptStarts = []string{"provenance", "audit", "gotcha", "note:", "warning:", "deprecated", "output:", "regression"}
+
+var commentSectionHeader = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)^(args|arguments|parameters|params|returns?|yields|raises|throws|usage|examples?|attributes):`)
+})
+
+// commentBlock is a run of comment lines; header marks one that starts before the file's first code line.
+type commentBlock struct {
+	start  int
+	lines  []string
+	header bool
+}
+
+// commentSmells flags stacked prose comment blocks and over-long comment lines (quality.md -> Comments).
+func commentSmells(content, lang string) []Smell {
+	var smells []Smell
+	for _, b := range scanCommentBlocks(content, lang) {
+		smells = append(smells, blockSmells(b, lang)...)
+	}
+	return smells
+}
+
+// commentScanner is the state of one scanCommentBlocks pass.
+type commentScanner struct {
+	blocks  []commentBlock
+	cur     *commentBlock
+	marker  string
+	lang    string
+	delim   string
+	sawCode bool
+}
+
+func (sc *commentScanner) flush() {
+	if sc.cur != nil {
+		sc.blocks = append(sc.blocks, *sc.cur)
+		sc.cur = nil
+	}
+}
+
+// scanLine consumes line i (0-based) of the source.
+func (sc *commentScanner) scanLine(i int, line string) {
+	t := strings.TrimSpace(line)
+	if sc.delim != "" {
+		sc.cur.lines = append(sc.cur.lines, line)
+		if strings.Contains(t, sc.delim) {
+			sc.delim = ""
+			sc.flush()
+		}
+		return
+	}
+	open := blockOpener(t, sc.lang)
+	switch {
+	case t == "":
+		sc.flush()
+	case strings.HasPrefix(t, sc.marker):
+		if sc.cur == nil {
+			sc.cur = &commentBlock{start: i + 1, header: !sc.sawCode}
+		}
+		sc.cur.lines = append(sc.cur.lines, line)
+	case open != "":
+		sc.flush()
+		sc.cur = &commentBlock{start: i + 1, header: !sc.sawCode, lines: []string{line}}
+		sc.delim = unclosedDelim(t, open)
+		if sc.delim == "" {
+			sc.flush()
+		}
+	default:
+		sc.flush()
+		sc.sawCode = true
+	}
+}
+
+// scanCommentBlocks splits the source into line-comment, /* */ and triple-quote blocks.
+func scanCommentBlocks(content, lang string) []commentBlock {
+	sc := &commentScanner{marker: "//", lang: lang}
+	if lang == "python" {
+		sc.marker = "#"
+	}
+	i := 0
+	for line := range strings.SplitSeq(content, "\n") {
+		sc.scanLine(i, line)
+		i++
+	}
+	sc.flush()
+	return sc.blocks
+}
+
+// blockOpener returns the closing delimiter for a line that opens a block comment or docstring, else "".
+func blockOpener(t, lang string) string {
+	if lang == "python" {
+		for _, q := range pyTripleQuotes {
+			if strings.HasPrefix(t, q) {
+				return q
+			}
+		}
+		return ""
+	}
+	if strings.HasPrefix(t, "/*") {
+		return "*/"
+	}
+	return ""
+}
+
+// unclosedDelim returns the closer when the opening line does not also close the block, else "".
+func unclosedDelim(t, closer string) string {
+	if strings.Contains(t[len(closer):], closer) {
+		return ""
+	}
+	return closer
+}
+
+// blockSmells evaluates one block: exemptions first, then line length, then the prose-line count.
+func blockSmells(b commentBlock, lang string) []Smell {
+	prose := proseLines(b, lang)
+	if b.header || (len(prose) > 0 && commentExempt(prose[0])) {
+		return nil
+	}
+	var out []Smell
+	for i, line := range b.lines {
+		if n := utf8.RuneCountInString(line); n > maxCommentLineChars {
+			out = append(out, Smell{Type: "long_comment_line", Severity: "low",
+				Message:  fmt.Sprintf("Comment line is %d chars (max: %d)", n, maxCommentLineChars),
+				Location: fmt.Sprintf("line %d", b.start+i)})
+		}
+	}
+	if len(prose) > 1 {
+		out = append(out, Smell{Type: "long_comment", Severity: "low",
+			Message:  fmt.Sprintf("Comment block has %d lines (max: 1)", len(prose)),
+			Location: fmt.Sprintf("line %d", b.start)})
+	}
+	return out
+}
+
+func commentExempt(first string) bool {
+	return textutil.HasAnyPrefix(strings.ToLower(first), commentExemptStarts...)
+}
+
+// proseLines returns the block's prose text, dropping blanks, directives, tags, underlines and section bodies.
+func proseLines(b commentBlock, lang string) []string {
+	var prose []string
+	for _, line := range b.lines {
+		t := strings.TrimSpace(line)
+		if textutil.HasAnyPrefix(t, commentDirectives...) {
+			continue
+		}
+		text := commentText(t, lang)
+		if commentSectionHeader().MatchString(text) {
+			break
+		}
+		if text == "" || strings.Trim(text, "-=") == "" || textutil.HasAnyPrefix(text, commentTags...) {
+			continue
+		}
+		prose = append(prose, text)
+	}
+	return prose
+}
+
+// commentText strips comment markers and delimiters from a trimmed comment line.
+func commentText(t, lang string) string {
+	if lang == "python" {
+		t = strings.TrimPrefix(t, "#")
+		for _, q := range pyTripleQuotes {
+			t = strings.ReplaceAll(t, q, "")
+		}
+		return strings.TrimSpace(t)
+	}
+	t = strings.TrimPrefix(t, "//")
+	t = strings.TrimPrefix(t, "/*")
+	t = strings.TrimSuffix(t, "*/")
+	t = strings.TrimPrefix(strings.TrimSpace(t), "*")
+	return strings.TrimSpace(t)
+}

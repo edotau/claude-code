@@ -1,0 +1,965 @@
+package usage
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/dev/tokenledger"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/driver/gemini"
+	"github.com/edotau/claude-code/internal/routing/providers"
+)
+
+func runUsage(args []string, claudeDir string, out, errw io.Writer) int {
+	return RunWithBudgets(args, claudeDir, out, errw, nil)
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// writeUsageFixture writes a project/session/subagents transcript tree, backdated for usageFilesWithinDays.
+func writeUsageFixture(t *testing.T, claudeDir, project, session string, age time.Duration, lines ...string) string {
+	t.Helper()
+	p := filepath.Join(claudeDir, "projects", project, session, "subagents", "agent-a.jsonl")
+	writeFile(t, p, strings.Join(lines, "\n"))
+	mtime := time.Now().Add(-age)
+	sessionDir := filepath.Join(claudeDir, "projects", project, session)
+	for _, path := range []string{p, filepath.Dir(p), sessionDir} {
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return p
+}
+
+// recentTS is an RFC3339 timestamp age before now, so a --days window keeps the record.
+func recentTS(age time.Duration) string {
+	return time.Now().Add(-age).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func usageRecordLine(model string, input, output int, ts string) string {
+	return `{"type":"assistant","timestamp":"` + ts + `","message":{"model":"` + model +
+		`","usage":{"input_tokens":` + strconv.Itoa(input) + `,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":` + strconv.Itoa(output) + `}}}`
+}
+
+func TestUsageCmdDaysScope(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "session-recent", time.Hour,
+		usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	writeUsageFixture(t, claudeDir, "-home-tester-repoB", "session-old", 30*24*time.Hour,
+		usageRecordLine("claude-opus-4-8", 9000, 900, "2026-06-01T00:00:00.000Z"))
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "claude-sonnet-5") {
+		t.Errorf("table missing recent model:\n%s", got)
+	}
+	if strings.Contains(got, "claude-opus-4-8") {
+		t.Errorf("table should NOT include the 30-day-old session outside --days 1:\n%s", got)
+	}
+}
+
+func TestUsageCmdSessionScope(t *testing.T) {
+	claudeDir := t.TempDir()
+	writeUsageFixture(t, claudeDir, "-home-tester-repoA", "target-session", time.Hour,
+		usageRecordLine("claude-sonnet-5", 50, 5, "2026-07-19T06:36:00.000Z"))
+	writeUsageFixture(t, claudeDir, "-home-tester-repoB", "other-session", time.Hour,
+		usageRecordLine("claude-opus-4-8", 999, 99, "2026-07-19T06:36:00.000Z"))
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--session", "target-session", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run = %d, want 0; stderr:\n%s", code, errw.String())
+	}
+
+	var agg transcript.UsageAggregate
+	if err := json.Unmarshal(out.Bytes(), &agg); err != nil {
+		t.Fatalf("--format json output not valid JSON: %v\n%s", err, out.String())
+	}
+	if _, ok := agg.Models["claude-sonnet-5"]; !ok {
+		t.Errorf("json output missing target session's model: %+v", agg.Models)
+	}
+	if _, ok := agg.Models["claude-opus-4-8"]; ok {
+		t.Errorf("json output must not include the other session's model: %+v", agg.Models)
+	}
+}
+
+// usageFilesForSession matches the id literally and rejects one holding a path separator.
+func TestUsageFilesForSessionLiteralID(t *testing.T) {
+	claudeDir := t.TempDir()
+	want := writeUsageFixture(t, claudeDir, "-p", "s[1]", time.Hour, "{}")
+	writeUsageFixture(t, claudeDir, "-p", "s1", time.Hour, "{}") // what an unescaped `s[1]` glob would match
+	got, err := usageFilesForSession(claudeDir, "s[1]")
+	if err != nil || !reflect.DeepEqual(got, []string{want}) {
+		t.Errorf("usageFilesForSession(s[1]) = %v, %v; want [%s]", got, err, want)
+	}
+	for _, id := range []string{"../s1", `a\b`} {
+		if _, err := usageFilesForSession(claudeDir, id); err == nil {
+			t.Errorf("usageFilesForSession(%q) = nil error, want a rejection", id)
+		}
+	}
+}
+
+func TestUsageCmdNoMatches(t *testing.T) {
+	claudeDir := t.TempDir()
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("Run on empty dir = %d, want 0", code)
+	}
+}
+
+// TestUsageShowBogusExitsTwo: an unrecognized --show value is a usage error, not a silent fallback.
+func TestUsageShowBogusExitsTwo(t *testing.T) {
+	claudeDir := t.TempDir()
+	var out, errw bytes.Buffer
+	code := runUsage([]string{"--show", "bogus"}, claudeDir, &out, &errw)
+	if code != 2 {
+		t.Fatalf("Run --show bogus = %d, want 2; stderr:\n%s", code, errw.String())
+	}
+	if !strings.Contains(errw.String(), "--show must be left, used, or total") {
+		t.Errorf("stderr missing the --show error, got:\n%s", errw.String())
+	}
+}
+
+// TestUsageShowModesRendering
+func TestUsageShowModesRendering(t *testing.T) {
+	isolateAgentStores(t)
+	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 25, Used: 1750, Limit: 7000, Resets: "2026-11-01"}}
+	orig := fetchQuotas
+	fetchQuotas = func() []quota { return stub }
+	t.Cleanup(func() { fetchQuotas = orig })
+	claudeDir := t.TempDir()
+
+	cases := []struct {
+		show string
+		want []string
+		not  []string
+	}{
+		{"left", []string{"LEFT", "75%", "5250 of 7000 credits left"}, []string{"USAGE"}},
+		{"used", []string{"USAGE", "25%", "1750 / 7000 credits"}, []string{"LEFT"}},
+		{"total", nil, []string{"PROVIDER QUOTAS"}},
+	}
+	for _, c := range cases {
+		var out, errw bytes.Buffer
+		if code := runUsage([]string{"--show", c.show}, claudeDir, &out, &errw); code != 0 {
+			t.Fatalf("Run --show %s = %d, want 0; stderr:\n%s", c.show, code, errw.String())
+		}
+		got := out.String()
+		for _, want := range c.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("--show %s missing %q:\n%s", c.show, want, got)
+			}
+		}
+		for _, notWant := range c.not {
+			if strings.Contains(got, notWant) {
+				t.Errorf("--show %s should not contain %q:\n%s", c.show, notWant, got)
+			}
+		}
+		if !strings.Contains(got, "API KEYS") {
+			t.Errorf("--show %s missing the API KEYS ledger section:\n%s", c.show, got)
+		}
+	}
+}
+
+// TestUsageShowTotalSkipsSubscriptionFetch
+func TestUsageShowTotalSkipsSubscriptionFetch(t *testing.T) {
+	called := false
+	orig := fetchQuotas
+	fetchQuotas = func() []quota { called = true; return nil }
+	t.Cleanup(func() { fetchQuotas = orig })
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--show", "total"}, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run --show total = %d; stderr:\n%s", code, errw.String())
+	}
+	if called {
+		t.Error("--show total must not fetch subscription quotas")
+	}
+	if strings.Contains(out.String(), "PROVIDER QUOTAS") {
+		t.Errorf("--show total must not print the subscription quota block:\n%s", out.String())
+	}
+}
+
+// TestUsageLedgerAggregationWindows
+func TestUsageLedgerAggregationWindows(t *testing.T) {
+	now := time.Now()
+	entries := []tokenledger.Entry{
+		{Ts: time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), Provider: "openai", Model: "gpt-5", Input: 100, Output: 10}, // local midnight: today at any hour (now-1h broke 00:00–01:00)
+		{Ts: now.Add(-20 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 50, Output: 5},                                               // within 30d, not today
+		{Ts: now.Add(-400 * 24 * time.Hour), Provider: "openai", Model: "gpt-5", Input: 9, Output: 1},                                               // all-time only
+	}
+	origRead, origQuotas := readLedger, fetchQuotas
+	readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--format", "json"}, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+	}
+	var doc struct {
+		API []ledgerAgg `json:"api"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out.String())
+	}
+	if len(doc.API) != 1 {
+		t.Fatalf("api rows = %d, want 1: %+v", len(doc.API), doc.API)
+	}
+	a := doc.API[0]
+	if a.Today != 110 {
+		t.Errorf("Today = %d, want 110 (only the 1h-old entry)", a.Today)
+	}
+	if a.Last30d != 165 {
+		t.Errorf("Last30d = %d, want 165 (1h + 20d entries)", a.Last30d)
+	}
+	if a.AllTime != 175 {
+		t.Errorf("AllTime = %d, want 175 (every entry)", a.AllTime)
+	}
+}
+
+// TestUsageLedgerEmptyPrintsStartedMessage
+func TestUsageLedgerEmptyPrintsStartedMessage(t *testing.T) {
+	origRead, origQuotas := readLedger, fetchQuotas
+	readLedger = func() ([]tokenledger.Entry, error) { return nil, nil }
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+
+	var out, errw bytes.Buffer
+	if code := runUsage(nil, t.TempDir(), &out, &errw); code != 0 {
+		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+	}
+	if !strings.Contains(out.String(), "no per-token calls recorded yet") {
+		t.Errorf("empty ledger missing the started message:\n%s", out.String())
+	}
+}
+
+// aggregateLedger groups per profile: platform in Provider, profile in Profile; legacy lines use Provider as profile.
+func TestAggregateLedgerByProfile(t *testing.T) {
+	now := time.Now()
+	got := aggregateLedger([]tokenledger.Entry{
+		{Ts: now, Provider: "databricks", Profile: "prod", Model: "m", Input: 10},
+		{Ts: now, Provider: "databricks", Profile: "qa", Model: "m", Input: 5},
+		{Ts: now, Provider: "openai", Model: "m", Input: 1},
+	}, now)
+	if len(got) != 3 || got[0].Profile != "prod" || got[1].Profile != "qa" || got[2].Profile != "openai" {
+		t.Fatalf("rows = %+v", got)
+	}
+	if l := rowLabel(got[0].Provider, got[0].Profile); l != "databricks·prod" {
+		t.Errorf("label = %q", l)
+	}
+	if l := rowLabel(got[2].Provider, got[2].Profile); l != "openai" {
+		t.Errorf("label = %q", l)
+	}
+}
+
+// TestScanUsageCountsOnlyTurnsInsideWindow
+func TestScanUsageCountsOnlyTurnsInsideWindow(t *testing.T) {
+	claudeDir := t.TempDir()
+	fresh := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour,
+		usageRecordLine("claude-sonnet-5", 5000, 0, recentTS(10*24*time.Hour)), // old turn in a freshly appended file
+		usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	stale := filepath.Join(filepath.Dir(fresh), "agent-old.jsonl") // old file inside the same, freshly touched, session
+	writeFile(t, stale, usageRecordLine("claude-opus-4-8", 7000, 0, recentTS(10*24*time.Hour)))
+	old := time.Now().Add(-10 * 24 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	scan, err := scanUsage(claudeDir, "", 7, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.files) != 1 {
+		t.Errorf("files = %v, want only the fresh transcript", scan.files)
+	}
+	if got := scan.agg.Models["claude-sonnet-5"]; got == nil || got.Total() != 110 {
+		t.Errorf("sonnet = %+v, want 110 tokens (the 10-day-old turn is outside the window)", got)
+	}
+	if _, ok := scan.agg.Models["claude-opus-4-8"]; ok {
+		t.Error("opus from the stale file leaked into the window")
+	}
+	if len(scan.daily) != 1 || scan.daily[0].Tokens != 110 || scan.daily[0].Turns != 1 {
+		t.Errorf("daily = %+v, want one bucket of 110 tokens, 1 turn (same set as the aggregate)", scan.daily)
+	}
+}
+
+// TestScanUsageServesSettledFilesFromCache
+func TestScanUsageServesSettledFilesFromCache(t *testing.T) {
+	claudeDir := t.TempDir()
+	p := writeUsageFixture(t, claudeDir, "-p", "s", time.Hour, usageRecordLine("claude-sonnet-5", 100, 10, recentTS(time.Hour)))
+	first, err := scanUsage(claudeDir, "", 1, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(transcript.SummaryCachePath()); err != nil {
+		t.Fatalf("scan wrote no turn cache: %v", err)
+	}
+	c := transcript.OpenSummaryCache(transcript.SummaryCachePath())
+	if _, err := c.Responses(p); err != nil {
+		t.Fatal(err)
+	}
+	if hits, misses := c.Stats(); hits != 1 || misses != 0 {
+		t.Fatalf("cache after one scan: %d hits, %d misses; want 1, 0", hits, misses)
+	}
+	again, err := scanUsage(claudeDir, "", 1, io.Discard)
+	if err != nil || !reflect.DeepEqual(again.agg, first.agg) {
+		t.Fatalf("cached scan = %+v, %v; want %+v", again.agg, err, first.agg)
+	}
+}
+
+// syncBuf is a mutex-guarded io.Writer; a bare bytes.Buffer would race while Run is still writing.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// waitUntil polls cond until true or the deadline, failing the test on timeout; no fixed sleep.
+func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for condition")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// assertSectionOrder checks MODEL, PROVIDER QUOTAS, API KEYS and AGENTS all appear, in that order.
+func assertSectionOrder(t *testing.T, s string) {
+	t.Helper()
+	idxModel := strings.Index(s, "MODEL")
+	idxQuotas := strings.Index(s, "PROVIDER QUOTAS")
+	idxKeys := strings.Index(s, "API KEYS")
+	idxAgents := strings.Index(s, "AGENTS (last")
+	if idxModel < 0 || idxQuotas < 0 || idxKeys < 0 || idxAgents < 0 {
+		t.Fatalf("missing a section; MODEL@%d QUOTAS@%d KEYS@%d AGENTS@%d:\n%s", idxModel, idxQuotas, idxKeys, idxAgents, s)
+	}
+	if idxModel >= idxQuotas || idxQuotas >= idxKeys || idxKeys >= idxAgents {
+		t.Fatalf("sections out of order: MODEL@%d QUOTAS@%d KEYS@%d AGENTS@%d:\n%s", idxModel, idxQuotas, idxKeys, idxAgents, s)
+	}
+}
+
+// TestUsageStreamsSectionsInOrder
+func TestUsageStreamsSectionsInOrder(t *testing.T) {
+	claudeDir := t.TempDir()
+	ts := time.Now().UTC().Format(time.RFC3339)
+	writeUsageFixture(t, claudeDir, "proj", "sess", time.Minute, usageRecordLine("claude-opus-5", 100, 20, ts))
+
+	release := make(chan struct{})
+	stub := []quota{{Provider: "github", Account: "me", Plan: "Pro", Window: "monthly", UsedPct: 100, Used: 7000, Limit: 7000}}
+	origQ := fetchQuotas
+	fetchQuotas = func() []quota {
+		<-release
+		return stub
+	}
+	t.Cleanup(func() { fetchQuotas = origQ })
+
+	var out, errw syncBuf
+	done := make(chan int, 1)
+	go func() { done <- runUsage([]string{"--days", "1"}, claudeDir, &out, &errw) }()
+
+	waitUntil(t, 2*time.Second, func() bool { return strings.Contains(out.String(), "MODEL") })
+	if strings.Contains(out.String(), "PROVIDER QUOTAS") {
+		t.Fatalf("PROVIDER QUOTAS printed before the blocked quota fetch released:\n%s", out.String())
+	}
+	if errw.String() != "" {
+		t.Fatalf("warnings printed before quotas were fetched: %q", errw.String())
+	}
+	close(release)
+
+	var code int
+	select {
+	case code = <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run never returned after releasing the quota fetch")
+	}
+	if code != 0 {
+		t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+	}
+
+	assertSectionOrder(t, out.String())
+	if !strings.Contains(errw.String(), "usage: github me at 100% (exceeded)") {
+		t.Errorf("warn trailer missing from errw:\n%s", errw.String())
+	}
+}
+
+// Disabled, the fetch never runs and yields nil; enabled, it runs and its rows come back with states set.
+func TestStartQuotaFetch(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		called := false
+		orig := fetchQuotas
+		fetchQuotas = func() []quota { called = true; return []quota{{Provider: "github", UsedPct: 30}} }
+		t.Cleanup(func() { fetchQuotas = orig })
+		got := <-startQuotaFetch(enabled)
+		if called != enabled {
+			t.Errorf("startQuotaFetch(%v) called fetchQuotas = %v", enabled, called)
+		}
+		if !enabled && got != nil {
+			t.Errorf("startQuotaFetch(false) result = %+v, want nil", got)
+		}
+		if enabled && (len(got) != 1 || got[0].LeftPct != 70 || got[0].State != "ok") {
+			t.Errorf("startQuotaFetch(true) result = %+v, want LeftPct=70 State=ok", got)
+		}
+	}
+}
+
+// TestUsageJSONFixtureRegression
+func TestUsageJSONFixtureRegression(t *testing.T) {
+	claudeDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // the vault must be scratch, never the real one
+	ts := time.Now().UTC().Format(time.RFC3339)
+	writeUsageFixture(t, claudeDir, "proj", "sess", time.Minute, usageRecordLine("claude-opus-5", 100, 20, ts))
+
+	origQ := fetchQuotas
+	fetchQuotas = func() []quota {
+		return []quota{{Provider: "github", Account: "me", Plan: "Pro+", Window: "monthly", UsedPct: 10, Used: 70, Limit: 700}}
+	}
+	t.Cleanup(func() { fetchQuotas = origQ })
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--days", "1", "--format", "json"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("exit %d; stderr:\n%s", code, errw.String())
+	}
+
+	// One valid document: Decode once, then confirm there is nothing else to decode.
+	dec := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	var doc map[string]json.RawMessage
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	if dec.More() {
+		t.Fatalf("more than one JSON value in the output:\n%s", out.String())
+	}
+
+	assertUsageJSONKeys(t, doc, out.String())
+	assertUsageJSONValues(t, doc)
+}
+
+// assertUsageJSONKeys: the pre-streaming key set is present and "api" is omitted for an empty ledger.
+func assertUsageJSONKeys(t *testing.T, doc map[string]json.RawMessage, raw string) {
+	t.Helper()
+	wantKeys := []string{"models", "peak_input_tokens_per_min", "providers", "billing", "agents", "window_days"}
+	for _, k := range wantKeys {
+		if _, ok := doc[k]; !ok {
+			t.Errorf("missing key %q in json doc:\n%s", k, raw)
+		}
+	}
+	if _, ok := doc["api"]; ok {
+		t.Errorf(`"api" key should be omitted (omitempty) when the ledger is empty:\n%s`, raw)
+	}
+}
+
+// assertUsageJSONValues: the fixture's model tokens, the one github provider row and the 1-day window survive.
+func assertUsageJSONValues(t *testing.T, doc map[string]json.RawMessage) {
+	t.Helper()
+	var models map[string]struct {
+		Input  int64 `json:"input_tokens"`
+		Output int64 `json:"output_tokens"`
+	}
+	if err := json.Unmarshal(doc["models"], &models); err != nil {
+		t.Fatalf("unmarshal models: %v", err)
+	}
+	m, ok := models["claude-opus-5"]
+	if !ok || m.Input != 100 || m.Output != 20 {
+		t.Errorf("models[claude-opus-5] = %+v, want input=100 output=20", m)
+	}
+
+	assertUsageJSONProviders(t, doc)
+}
+
+func assertUsageJSONProviders(t *testing.T, doc map[string]json.RawMessage) {
+	t.Helper()
+	var providers []quota
+	if err := json.Unmarshal(doc["providers"], &providers); err != nil {
+		t.Fatalf("unmarshal providers: %v", err)
+	}
+	if len(providers) != 1 || providers[0].Provider != "github" || providers[0].UsedPct != 10 {
+		t.Errorf("providers = %+v, want one github row at 10%%", providers)
+	}
+
+	var windowDays int
+	if err := json.Unmarshal(doc["window_days"], &windowDays); err != nil {
+		t.Fatalf("unmarshal window_days: %v", err)
+	}
+	if windowDays != 1 {
+		t.Errorf("window_days = %d, want 1", windowDays)
+	}
+}
+
+// TestUsageAgentsClaudeRowMatchesModelTotals guards the agentsCh goroutine's closure
+func TestUsageAgentsClaudeRowMatchesModelTotals(t *testing.T) {
+	claudeDir := t.TempDir()
+	ts := time.Now().UTC().Format(time.RFC3339)
+	writeUsageFixture(t, claudeDir, "proj", "sess", time.Minute, usageRecordLine("claude-opus-5", 100, 20, ts))
+
+	origQ := fetchQuotas
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { fetchQuotas = origQ })
+
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--days", "1"}, claudeDir, &out, &errw); code != 0 {
+		t.Fatalf("exit %d; stderr:\n%s", code, errw.String())
+	}
+	s := out.String()
+
+	modelLine := grepLine(t, s, "claude-opus-5")
+	fields := strings.Fields(modelLine)
+	modelTotal := fields[len(fields)-1] // TOTAL is the last column
+
+	agentsSection := s[strings.Index(s, "AGENTS (last"):]
+	claudeTotalLine := grepLine(t, agentsSection, "claude")
+	claudeFields := strings.Fields(claudeTotalLine)
+	// AGENT PROVIDER/MODEL(total) TOKENS TURNS SESSIONS COST -> TOKENS is 3rd field after "(total)".
+	claudeTokens := claudeFields[2]
+
+	if modelTotal != "120" || claudeTokens != "120" {
+		t.Fatalf("MODEL total=%q AGENTS claude tokens=%q, want both 120:\nMODEL line: %q\nAGENTS line: %q",
+			modelTotal, claudeTokens, modelLine, claudeTotalLine)
+	}
+}
+
+// grepLine returns the first line of s containing substr, failing the test if none matches.
+func grepLine(t *testing.T, s, substr string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(s, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	t.Fatalf("no line containing %q in:\n%s", substr, s)
+	return ""
+}
+
+// TestPrintQuotaWarnings: only warn/exceeded rows print to errw, in the documented format; ok rows are silent.
+func TestPrintQuotaWarnings(t *testing.T) {
+	qs := []quota{
+		{Provider: "github", Account: "me", UsedPct: 50, State: "ok"},
+		{Provider: "github", Account: "work", UsedPct: 85, State: "warn"},
+		{Provider: "openai", Account: "", UsedPct: 100, State: "exceeded"},
+	}
+	var errw bytes.Buffer
+	printQuotaWarnings(&errw, qs)
+	got := errw.String()
+	if strings.Contains(got, "me at 50%") {
+		t.Errorf("an ok row must not warn:\n%s", got)
+	}
+	for _, want := range []string{
+		"usage: github work at 85% (warn)\n",
+		"usage: openai - at 100% (exceeded)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// --context prints the per-source table in text and JSON.
+func TestUsageContextFlag(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	writeFile(t, filepath.Join(dir, "projects", "-p", "sess1.jsonl"),
+		`{"type":"user","message":{"content":"hello world"}}`+"\n"+
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"reply"}]}}`+"\n")
+	var out, errw bytes.Buffer
+	if code := runUsage([]string{"--context", "--session", "sess1"}, dir, &out, &errw); code != 0 {
+		t.Fatalf("exit %d: %s", code, errw.String())
+	}
+	for _, want := range []string{"session sess1", "bytes / 4", "user text", "assistant text", "LARGEST ENTRIES"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("text output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "hello world") {
+		t.Error("transcript text leaked into the table")
+	}
+	out.Reset()
+	if code := runUsage([]string{"--context", "--session", "sess1", "--format", "json"}, dir, &out, &errw); code != 0 || !strings.Contains(out.String(), `"total_bytes": 16`) {
+		t.Errorf("json: exit %d, out %s", code, out.String())
+	}
+}
+
+func BenchmarkUsageOffline(b *testing.B) {
+	dir := b.TempDir()
+	b.Setenv("HOME", dir)
+	b.Setenv("CLAUDE_CONFIG_DIR", dir)
+	b.Setenv("CODEX_HOME", filepath.Join(dir, ".codex"))
+	b.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	projects := filepath.Join(dir, "projects", "fixture")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	data := []byte(`{"type":"assistant","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","message":{"model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":20}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(projects, "session.jsonl"), data, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if code := runUsage([]string{"--providers=false"}, dir, io.Discard, io.Discard); code != 0 {
+			b.Fatal(code)
+		}
+	}
+}
+
+func BenchmarkNewestModTime(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 200 {
+		if err := os.WriteFile(filepath.Join(dir, strconv.Itoa(i)+".jsonl"), nil, 0600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for b.Loop() {
+		if _, err := newestModTime(dir); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// costReg builds a registry whose one Databricks profile holds the given prices (nil = none).
+func costReg(prices map[string]providers.Price) *providers.Registry {
+	p := &providers.Provider{Name: "qa", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks}
+	p.Options.Prices = prices
+	return &providers.Registry{Providers: map[string]*providers.Provider{"qa": p}}
+}
+
+func stubCost(t *testing.T, entries []tokenledger.Entry, reg *providers.Registry) {
+	t.Helper()
+	origRead, origQuotas, origReg := readLedger, fetchQuotas, loadCostRegistry
+	readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
+	fetchQuotas = func() []quota { return nil }
+	loadCostRegistry = func() (*providers.Registry, error) { return reg, nil }
+	t.Cleanup(func() { readLedger, fetchQuotas, loadCostRegistry = origRead, origQuotas, origReg })
+}
+
+func TestUsageCostFlagOffUnchanged(t *testing.T) {
+	now := time.Now()
+	stubCost(t, []tokenledger.Entry{{Ts: now, Profile: "qa", Model: "m", Input: 1000, Output: 100}}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
+	var off, on bytes.Buffer
+	if code := runUsage([]string{"--providers=false", "--days", "7"}, t.TempDir(), &off, io.Discard); code != 0 {
+		t.Fatalf("off = %d", code)
+	}
+	if code := runUsage([]string{"--providers=false", "--days", "7"}, t.TempDir(), &on, io.Discard); code != 0 {
+		t.Fatalf("again = %d", code)
+	}
+	if off.String() != on.String() {
+		t.Errorf("flag off not stable: first differs from second by %d bytes", len(off.String())-len(on.String()))
+	}
+	if strings.Contains(off.String(), "COST,") || strings.Contains(off.String(), costPriceHint) {
+		t.Errorf("flag off carries a cost section:\n%s", off.String())
+	}
+}
+
+func TestUsageCostWithPrices(t *testing.T) {
+	now := time.Now()
+	stubCost(t, []tokenledger.Entry{
+		{Ts: now, Profile: "qa", Model: "m", Input: 1_000_000, Output: 1000},
+		{Ts: now.Add(-40 * 24 * time.Hour), Profile: "qa", Model: "m", Input: 9_000_000}, // outside the window
+	}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
+	var out bytes.Buffer
+	if code := runUsage([]string{"--cost", "--providers=false", "--days", "7"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	got := out.String()
+	for _, want := range []string{"COST, last 7 days (est.)", "est.: local ledger tokens x your price table, not an invoice", "$3.02"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "9") && strings.Contains(got, "9000000") {
+		t.Errorf("entry outside the window was priced:\n%s", got)
+	}
+}
+
+func TestUsageCostNoPricesHints(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 5, CacheRead: 5}}, costReg(nil))
+	var out bytes.Buffer
+	if code := runUsage([]string{"--cost", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(out.String(), costPriceHint) || !strings.Contains(out.String(), "50%") {
+		t.Errorf("want the hint and the unpriced table with its cache-hit share:\n%s", out.String())
+	}
+}
+
+func TestUsageCostJSONUnpricedNull(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "unpriced", Input: 7, Output: 3}},
+		costReg(map[string]providers.Price{"other": {Input: 1}}))
+	var out bytes.Buffer
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Cost []struct {
+			Model  string   `json:"model"`
+			Input  int      `json:"input"`
+			USD    *float64 `json:"usd"`
+			Source string   `json:"source"`
+		} `json:"cost"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(doc.Cost) != 1 || doc.Cost[0].Model != "unpriced" || doc.Cost[0].Input != 7 || doc.Cost[0].USD != nil || doc.Cost[0].Source != "est." {
+		t.Errorf("cost = %+v, want one unpriced est. row with null usd", doc.Cost)
+	}
+	if strings.Contains(out.String(), "NaN") {
+		t.Errorf("JSON carries NaN:\n%s", out.String())
+	}
+}
+
+func TestUsageCostSessionIgnoresWindow(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	stubCost(t, []tokenledger.Entry{
+		{Ts: old, Profile: "qa", Model: "m", Session: "s1", Input: 1_000_000},
+		{Ts: time.Now(), Profile: "qa", Model: "m", Session: "s2", Input: 5_000_000},
+	}, costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	runUsage([]string{"--cost", "--providers=false", "--session", "s1"}, t.TempDir(), &out, io.Discard)
+	got := out.String()
+	if !strings.Contains(got, "COST, session s1 (est.)") || !strings.Contains(got, "$3.00") || strings.Contains(got, "$15.00") {
+		t.Errorf("want only session s1's old entry priced:\n%s", got)
+	}
+}
+
+func TestUsageCostJSONPartialTotal(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000},
+		{Ts: time.Now(), Profile: "qa", Model: "free", Input: 7}}, costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Totals []costTotalJSON `json:"cost_totals"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Totals) != 1 {
+		t.Fatalf("err %v totals %+v\n%s", err, doc.Totals, out.String())
+	}
+	if tot := doc.Totals[0]; tot.USD == nil || *tot.USD != 3 || tot.Unpriced != 1 || !tot.Partial {
+		t.Errorf("total = %+v, want 3 USD, partial, 1 unpriced", tot)
+	}
+}
+
+func TestUsageCostJSONTotalCacheHit(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000, CacheRead: 3_000_000}},
+		costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	if code := runUsage([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Totals []costTotalJSON `json:"cost_totals"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Totals) != 1 {
+		t.Fatalf("err %v totals %+v", err, doc.Totals)
+	}
+	if tot := doc.Totals[0]; tot.CacheHit == nil || *tot.CacheHit != 75 || tot.CacheHitSuspect {
+		t.Errorf("total cache hit = %+v, want 75%%", tot)
+	}
+}
+
+func BenchmarkSessionDirs(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 32 {
+		session := filepath.Join(dir, "projects", "project", strconv.Itoa(i))
+		if err := os.MkdirAll(session, 0700); err != nil {
+			b.Fatal(err)
+		}
+		for j := range 32 {
+			if err := os.WriteFile(filepath.Join(session, strconv.Itoa(j)), nil, 0600); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	for b.Loop() {
+		if _, err := usageSessionDirsWithinDays(dir, 1, io.Discard); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestUsageRunShowsSwapsOnlyWhenPresent(t *testing.T) {
+	now := time.Now()
+	swapped := tokenledger.Entry{Ts: now, Provider: "databricks", Profile: "dev", Model: "m-served", Requested: "m-asked", Input: 5}
+	plain := tokenledger.Entry{Ts: now, Provider: "databricks", Profile: "dev", Model: "m-served", Input: 5}
+	origRead, origQuotas := readLedger, fetchQuotas
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+	run := func(entries []tokenledger.Entry, args ...string) string {
+		readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
+		var out, errw bytes.Buffer
+		if code := runUsage(args, t.TempDir(), &out, &errw); code != 0 {
+			t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+		}
+		return out.String()
+	}
+	if got := run([]tokenledger.Entry{plain}, "--format", "json") + run([]tokenledger.Entry{plain}); strings.Contains(got, "swap") {
+		t.Errorf("a ledger with no swaps mentions swaps:\n%s", got)
+	}
+	text := run([]tokenledger.Entry{plain, swapped})
+	if !strings.Contains(text, "swapped: 1 requests asked for m-asked and were served by m-served on dev\n") {
+		t.Errorf("text lacks the footnote:\n%s", text)
+	}
+	if js := run([]tokenledger.Entry{swapped}, "--format", "json"); !strings.Contains(js, `"swaps"`) || !strings.Contains(js, `"requested": "m-asked"`) && !strings.Contains(js, `"requested":"m-asked"`) {
+		t.Errorf("json lacks swaps:\n%s", js)
+	}
+}
+
+func TestPrintGoogleLimitsLines(t *testing.T) {
+	reset := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC)
+	var buf bytes.Buffer
+	printGoogleLimits(&buf, googleResult{rows: []gemini.QuotaRow{
+		{Pool: "Gemini Models", Limit: "Weekly Limit Remaining", Remaining: 96, Reset: reset},
+		{Pool: "Gemini 4 Argon", Limit: "Gemini 4 Argon Weekly Limit", Remaining: 0, Reset: reset},
+	}})
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "GOOGLE LIMITS") {
+		t.Fatalf("output = %q, want a heading and one line per row", buf.String())
+	}
+	want := reset.Local().Format("2006-01-02 15:04")
+	for _, l := range lines[1:] {
+		if len([]rune(l)) > 80 || !strings.Contains(l, want) {
+			t.Errorf("line %q: want at most 80 characters and the local reset %s", l, want)
+		}
+	}
+	if !strings.Contains(lines[2], "Gemini 4 Argon · Weekly Limit") || !strings.Contains(lines[2], "0% left") {
+		t.Errorf("per-model line = %q", lines[2])
+	}
+}
+
+func TestPrintGoogleLimitsFailureIsOneLine(t *testing.T) {
+	var buf bytes.Buffer
+	printGoogleLimits(&buf, googleResult{err: errors.New("agy usage unavailable: not found")})
+	if got := strings.Count(strings.TrimSpace(buf.String()), "\n"); got != 1 {
+		t.Errorf("output = %q, want a heading and one error line", buf.String())
+	}
+	buf.Reset()
+	printGoogleLimits(&buf, googleResult{})
+	if buf.Len() != 0 {
+		t.Errorf("an empty result printed %q, want nothing", buf.String())
+	}
+}
+
+func TestRunPrintsGoogleLimitsOnlyWithQuotas(t *testing.T) {
+	isolateAgentStores(t)
+	orig := googleLimits
+	googleLimits = func(context.Context) ([]gemini.QuotaRow, error) {
+		return []gemini.QuotaRow{{Pool: "Gemini Models", Limit: "Weekly Limit Remaining", Remaining: 96}}, nil
+	}
+	t.Cleanup(func() { googleLimits = orig })
+	for _, c := range []struct {
+		args []string
+		want bool
+	}{{nil, true}, {[]string{"--providers=false"}, false}, {[]string{"--show", "total"}, false}} {
+		var out, errw bytes.Buffer
+		if code := runUsage(c.args, t.TempDir(), &out, &errw); code != 0 {
+			t.Fatalf("Run %v = %d; stderr:\n%s", c.args, code, errw.String())
+		}
+		if got := strings.Contains(out.String(), "GOOGLE LIMITS"); got != c.want {
+			t.Errorf("Run %v: Google section printed = %v, want %v:\n%s", c.args, got, c.want, out.String())
+		}
+	}
+}
+
+func TestNewestModTimePropagatesInfoError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "transcript.jsonl"), "{}")
+	if err := os.Chmod(dir, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("fixture must allow ReadDir before Info fails: %v", err)
+	}
+	if _, err := entries[0].Info(); !errors.Is(err, os.ErrPermission) {
+		t.Skipf("filesystem does not enforce directory search permissions: %v", err)
+	}
+	newest, err := newestModTime(dir)
+	if !errors.Is(err, os.ErrPermission) || !strings.Contains(err.Error(), "walk "+dir) {
+		t.Fatalf("DirEntry.Info error was swallowed: newest=%v err=%v", newest, err)
+	}
+}
+
+type partialReportWriter struct {
+	writes int
+	err    error
+}
+
+func (w *partialReportWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == 1 {
+		return len(p), nil
+	}
+	return 0, w.err
+}
+
+func isolatedUsageDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, env := range []string{"CLAUDE_CONFIG_DIR", "HOME", "CODEX_HOME", "COPILOT_HOME", "XDG_DATA_HOME"} {
+		t.Setenv(env, dir)
+	}
+	t.Setenv("OPENCODE_DB", ":memory:")
+	return dir
+}
+
+func TestUsageTextReportsWriteFailure(t *testing.T) {
+	dir := isolatedUsageDir(t)
+	writeUsageFixture(t, dir, "project", "session", time.Minute,
+		usageRecordLine("model", 7, 3, recentTS(time.Minute)))
+	w := &partialReportWriter{err: errors.New("report destination closed")}
+	var errw bytes.Buffer
+	code := runUsage([]string{"--session", "session", "--providers=false"}, dir, w, &errw)
+	if code != 1 || !strings.Contains(errw.String(), "usage: write output: report destination closed") {
+		t.Fatalf("partial report exited successfully or hid write error: exit=%d stderr=%s", code, &errw)
+	}
+}
+
+// TestPrintUsageTableFoldsWireSpellings: one model's plain and databricks- spellings share one row.
+func TestPrintUsageTableFoldsWireSpellings(t *testing.T) {
+	agg := &transcript.UsageAggregate{Models: map[string]*transcript.ModelUsage{
+		"claude-sonnet-5-5":            {InputTokens: 4},
+		"databricks-claude-sonnet-5-5": {InputTokens: 6},
+	}}
+	var out bytes.Buffer
+	printUsageTable(&out, agg, 1)
+	if n := strings.Count(out.String(), "sonnet-5-5"); n != 1 || !strings.Contains(out.String(), "          10") {
+		t.Fatalf("want one row totalling 10 input:\n%s", &out)
+	}
+}

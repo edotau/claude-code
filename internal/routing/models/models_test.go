@@ -1,0 +1,266 @@
+package models
+
+import (
+	"os"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+)
+
+func TestParseAndKnobs(t *testing.T) {
+	cases := []struct {
+		id       string
+		family   string
+		thinking string
+	}{
+		{"claude-opus-5", "opus", ""},
+		{"claude-sonnet-4-6", "sonnet", "31999"},
+		{"claude-haiku-4-5-20251001", "haiku", "31999"},
+		{"claude-sonnet-4-20250514", "sonnet", "31999"},
+		{"anthropic/claude-opus-4-8", "opus", ""},
+		{"databricks-claude-haiku-5-5", "haiku", "31999"},
+		{"databricks-claude-sonnet-4-6", "sonnet", "31999"},
+		{"gpt-5", "", ""},
+	}
+	for _, c := range cases {
+		if got := FamilyOf(c.id); got != c.family {
+			t.Errorf("FamilyOf(%q)=%q want %q", c.id, got, c.family)
+		}
+		if got, _ := ThinkingKnobs(c.id); got != c.thinking {
+			t.Errorf("ThinkingKnobs(%q)=%q want %q", c.id, got, c.thinking)
+		}
+	}
+	if _, maj, min, _ := ParseClaudeID("claude-haiku-4-5-20251001"); maj != 4 || min != 5 {
+		t.Errorf("dated id parsed as %d.%d", maj, min)
+	}
+	if Window("claude-opus-4-8[1m]") != ContextWindow1M || Strip1M("x[1m]") != "x" {
+		t.Error("[1m] handling")
+	}
+}
+
+func TestThinkingKnobsOpus4(t *testing.T) {
+	cases := []struct{ id, tokens, disableAdaptive string }{
+		{"claude-opus-4-6", "31999", "1"},
+		{"claude-opus-4-7[1m]", "64000", ""},
+		{"claude-opus-4-7", "31999", ""},
+		{"claude-opus-4-5", "31999", ""},
+	}
+	for _, c := range cases {
+		tokens, disable := ThinkingKnobs(c.id)
+		if tokens != c.tokens || disable != c.disableAdaptive {
+			t.Errorf("ThinkingKnobs(%q) = %q, %q; want %q, %q", c.id, tokens, disable, c.tokens, c.disableAdaptive)
+		}
+	}
+}
+
+func TestUseCase(t *testing.T) {
+	cases := []struct {
+		id, name string
+		want     string
+	}{
+		// Claude families, by id alone.
+		{"claude-fable-5-1", "", useFrontier},
+		{"claude-opus-5-5", "", useAgentic},
+		{"claude-sonnet-5-5", "", useBalanced},
+		{"claude-haiku-5-5", "", useHighVol},
+		// Gemini: pro/flash/flash-lite/gemma.
+		{"models/gemini-2.5-pro", "", useAgentic},
+		{"models/gemini-2.5-flash", "", useBalanced},
+		{"models/gemini-2.5-flash-lite", "", useHighVol},
+		{"models/gemma-4-26b-a4b-it", "", useHighVol},
+		// A speech model is caught by the id/name heuristic ahead of the gemini family switch.
+		{"models/gemini-2.5-flash-preview-tts", "", useSpeech},
+		// Copilot: bare "auto" alias, and a copilot-routed Claude id keeps its Claude family mapping.
+		{"auto", "", useAuto},
+		{"claude-sonnet-5", "", useBalanced},
+		// GPT family: mini/nano, o-series, and the plain chat alias.
+		{"gpt-5-mini", "", useHighVol},
+		{"gpt-5-nano", "", useHighVol},
+		{"o3", "", useFrontier},
+		{"o4-mini", "", useHighVol}, // mini wins over the o-series frontier check
+		{"gpt-5", "", useAgentic},
+		// Non-chat kinds, keyed off id/name text rather than family.
+		{"text-embedding-3-large", "", useEmbedding},
+		{"whisper-1", "", useSpeech},
+		{"dall-e-3", "", useImage},
+		{"veo-3", "", useVideo},
+		// Name-only signal still resolves a kind when the id alone carries nothing.
+		{"some-vendor-id-123", "Veo 3 Video Generation", useVideo},
+		// Unknown id and name: General, never empty.
+		{"zzz-unknown-9", "", useGeneral},
+	}
+	for _, c := range cases {
+		if got := UseCase(c.id, c.name); got != c.want {
+			t.Errorf("UseCase(%q, %q) = %q, want %q", c.id, c.name, got, c.want)
+		}
+	}
+}
+
+func TestTierModel(t *testing.T) {
+	for alias, want := range map[string]string{
+		EffortLow: Haiku, EffortMedium: Sonnet, EffortHigh: Sonnet, "": "", "bogus": "", "LOW": "",
+	} {
+		if got := AliasModel(alias); got != want {
+			t.Errorf("AliasModel(%q) = %q, want %q", alias, got, want)
+		}
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		oneM bool
+	}{
+		{"opus-5-5[1m]", "claude-opus-5-5", false},
+		{"opus-4-8[1m]", "claude-opus-4-8", true},
+		{"databricks-claude-opus-5-5", "claude-opus-5-5", false},
+		{"my-endpoint", "my-endpoint", false},
+		{"gpt-5", "gpt-5", false},
+		{"databricks-my-endpoint", "databricks-my-endpoint", false},
+		{"a/b", "a/b", false},
+		{"  claude-opus-5[1m]  ", "claude-opus-5", false},
+		{"  opus  ", "opus", false},
+		{"databricks-opus", "databricks-opus", false},
+		{"claude-opus-5-5", "claude-opus-5-5", false},
+	}
+	for _, c := range cases {
+		got, oneM := Canonical(c.in)
+		if got != c.want || oneM != c.oneM {
+			t.Errorf("Canonical(%q) = %q,%v; want %q,%v", c.in, got, oneM, c.want, c.oneM)
+		}
+		if again, _ := Canonical(got); again != got {
+			t.Errorf("Canonical not idempotent on %q: %q", got, again)
+		}
+	}
+}
+
+func TestFamilyKindAndWireFlags(t *testing.T) {
+	cases := []struct {
+		id              string
+		fam             Family
+		openAIReasoning bool
+	}{
+		{"claude-opus-5-5", FamilyClaude, false},
+		{"databricks-claude-opus-5-5", FamilyClaude, false},
+		{"claude-opus-5.5", FamilyClaude, false},
+		{"claude-opus-5-5[1m]", FamilyClaude, false},
+		{"claude-3-7-sonnet", FamilyClaude, false},
+		{"databricks-claude-3-7-sonnet", FamilyClaude, false},
+		{"us.anthropic.claude-3-5-sonnet-20241022-v2:0", FamilyClaude, false},
+		{"totally-unknown-model", familyOther, false},
+	}
+	for _, c := range cases {
+		if got := FamilyKind(c.id); got != c.fam {
+			t.Errorf("FamilyKind(%q) = %q, want %q", c.id, got, c.fam)
+		}
+		if got := IsOpenAIReasoning(c.id); got != c.openAIReasoning {
+			t.Errorf("IsOpenAIReasoning(%q) = %v, want %v", c.id, got, c.openAIReasoning)
+		}
+	}
+}
+
+func TestPromptTokens(t *testing.T) {
+	cases := []struct{ window, output, want int }{
+		{200_000, 32_000, 148_000},
+		{1_000_000, 32_000, 868_000},
+		{1_048_576, 32_000, 911_719},
+		{32_000, 32_000, 0},
+		{0, 32_000, 0},
+	}
+	for _, c := range cases {
+		if got := PromptTokens(c.window, c.output); got != c.want {
+			t.Errorf("PromptTokens(%d, %d) = %d, want %d", c.window, c.output, got, c.want)
+		}
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestKeeps1M(t *testing.T) {
+	for _, c := range []struct {
+		id   string
+		keep bool
+		win  int
+	}{
+		{"claude-opus-5-5", false, ContextWindow1M},
+		{"claude-opus-5-5[1m]", false, ContextWindow1M},
+		{"databricks-claude-sonnet-5-5[1m]", false, ContextWindow1M},
+		{"claude-opus-4-8[1m]", true, ContextWindow1M},
+		{"claude-opus-4-8", false, ContextWindowStd},
+		{"claude-sonnet-4-6[1m]", true, ContextWindow1M},
+		{"claude-haiku-4-5[1m]", false, ContextWindowStd},
+		{"gpt-6-1-sol[1m]", false, 1_050_000},
+	} {
+		if got := Keeps1M(c.id); got != c.keep {
+			t.Errorf("Keeps1M(%q) = %v, want %v", c.id, got, c.keep)
+		}
+		if got := Window(c.id); got != c.win {
+			t.Errorf("Window(%q) = %d, want %d", c.id, got, c.win)
+		}
+	}
+}
+
+func BenchmarkResolve(b *testing.B) {
+	ids := []string{"claude-opus-5-5", "anthropic/claude-sonnet-4.6", "gpt-5-5", "databricks-gpt-5-5", "gemini-3-8-flash", "opus", "vendor-unlisted-7b", "claude-sonnet-4.6-20990101"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		Resolve(ids[i%len(ids)])
+	}
+}
+
+func TestStrip1MRepeated(t *testing.T) {
+	for _, id := range []string{"m", "m[1m]", "m[1m][1m]", "m[1M][1m]"} {
+		if got := Strip1M(id); got != "m" {
+			t.Errorf("Strip1M(%q) = %q, want m", id, got)
+		}
+	}
+}
+
+func TestAgentType(t *testing.T) {
+	cases := []struct {
+		route, model string
+		code         bool
+		want         Type
+	}{
+		{"", "claude-opus-5-5", true, TypeCoworker},
+		{"github", "claude-opus-5-5", false, TypeCopilot},
+		{"databricks", "claude-opus-5-5", false, TypeClaude},
+		{"", "databricks-claude-sonnet-5-5", false, TypeClaude},
+		{"", "claude-sonnet-4-5-20250929", false, TypeClaude},
+		{"", "claude-opus-4-8[1m]", false, TypeClaude},
+		{"", "claude-fable-5-2", false, TypeClaude},
+		{"", "databricks-gpt-6-1-sol", false, TypeCodex},
+		{"", "gpt-5-4-mini", false, TypeCodex},
+		{"", "gemini-4-argon-high", false, TypeGemini},
+		{"", "databricks-kimi-k3", false, "kimi"},
+		{"", "grok-4-7", false, "grok"},
+		{"", "qwen3-next-80b-a3b-instruct", false, "qwen"},
+		{"", "glm-5-3-flash", false, "glm"},
+		{"", "databricks-gpt-oss-120b", false, "gpt-oss"},
+		{"", "databricks-meta-llama-3-3-70b-instruct", false, "llama"},
+		{"", "gemma-3-12b", false, "gemma"},
+		{"", "", false, ""},
+		{"", "4-7", false, ""},
+		{"", "", true, TypeCoworker},
+	}
+	for _, c := range cases {
+		if got := AgentType(c.route, c.model, c.code); got != c.want {
+			t.Errorf("AgentType(%q, %q, %v) = %q, want %q", c.route, c.model, c.code, got, c.want)
+		}
+	}
+}
+
+func TestClassifierModelSkipsIgnoredAndAbove(t *testing.T) {
+	for want, ids := range map[string][]string{
+		"claude-haiku-5-5":             {"claude-opus-5", "databricks-claude-sonnet-5-5", "", "claude-haiku-5-5"},
+		"claude-sonnet-5":              {"claude-sonnet-5"},
+		"qwen3-coder":                  {"qwen3-coder"},
+		"":                             {"claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5[1m]"},
+		"databricks-claude-sonnet-4-6": {"databricks-claude-sonnet-4-6"},
+	} {
+		if got := ClassifierModel(ids...); got != want {
+			t.Errorf("ClassifierModel(%v) = %q, want %q", ids, got, want)
+		}
+	}
+}

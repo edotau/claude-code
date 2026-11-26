@@ -1,0 +1,54 @@
+package router
+
+import (
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/routing/models"
+)
+
+// coolingSelf is the Cooling key for the account as a whole; per-model holds sit beside it under ModelKey.
+const coolingSelf = "·"
+
+// coolingPenalty is what a cooling account loses from its 0–1 Total: it sinks among near-ties, never leaves the pick.
+const coolingPenalty = 0.25
+
+// MarkCooling remembers a transient 429 hold on account; the longer hold wins, expired keys go, ·own is never written.
+func MarkCooling(account string, until, now time.Time) (bool, error) {
+	return markCooling(account, coolingSelf, until, now)
+}
+
+// MarkModelCooling remembers a per-minute-token hold on account's model alone, with MarkCooling's rules.
+func MarkModelCooling(account, model string, until, now time.Time) (bool, error) {
+	return markCooling(account, models.ModelKey(model), until, now)
+}
+
+func markCooling(account, key string, until, now time.Time) (bool, error) {
+	if strings.HasSuffix(account, "·own") {
+		return false, nil
+	}
+	return tryUpdate(authMarkWait, func(s State) {
+		e := s[account]
+		e.Cooling = extendHold(e.Cooling, key, until, now)
+		s[account] = e
+	})
+}
+
+// CoolingUntil is when account's hold ends; zero when it has none.
+func (s State) CoolingUntil(account string) time.Time {
+	return s[account].Cooling[coolingSelf]
+}
+
+// ModelCoolingUntil is when account's per-model hold on model ends; zero when it has none.
+func (s State) ModelCoolingUntil(account, model string) time.Time {
+	return s[account].Cooling[models.ModelKey(model)]
+}
+
+// accountCooling checks the account's own hold, then the gateway's hold on its profile ("<provider>·<p>" → p).
+func (s State) accountCooling(acct accountFn, account string, now time.Time) bool {
+	if s.CoolingUntil(account).After(now) {
+		return true
+	}
+	_, p, ok := strings.Cut(account, "·")
+	return ok && p != "" && p != "own" && s.CoolingUntil(acct(p)).After(now)
+}

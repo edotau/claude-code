@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 // nestedDepth caps `bash -c "…"` recursion.

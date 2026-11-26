@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // DefaultPerKey caps concurrent dispatches on one billed account (one credential, one rate limit).

@@ -19,11 +19,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/shadow"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/catalog"
 )
 
 // memorySub is one sub-verb's synopsis args and blurb; public ones are the memory page's COMMANDS rows.

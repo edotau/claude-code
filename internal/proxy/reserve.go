@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/proxyteam"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
+	"github.com/edotau/claude-code/internal/remote/egress"
 )
 
 // scopeStartWait bounds how long a spawned scoped proxy has to publish its scope file and answer /healthz.

@@ -13,8 +13,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // Exit codes of Fix; 1 is a skipped file, a missing tool or a failed fixer.

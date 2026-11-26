@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 const (

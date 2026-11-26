@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // Update gate in work units (edits + turns/2); a re-arm needs 10 new units AND 15 min: chatty re-arms evict history.

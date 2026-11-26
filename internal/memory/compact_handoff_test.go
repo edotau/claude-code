@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/mdlint"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // compactRepo is a banked git repo with a decision log, today's plan and report, in an isolated config.

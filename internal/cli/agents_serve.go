@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/serve"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 )
 
 var servePage = helptext.Page{Usage: "claude-code agents serve [--start|--stop|--restart|--status|--serve]",

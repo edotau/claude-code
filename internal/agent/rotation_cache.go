@@ -6,12 +6,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/copilotauth"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/serving"
+	"github.com/edotau/claude-code/internal/driver/copilotauth"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/catalog"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 var candidateMemo = paths.NewMemo[routingKey, []catalog.Candidate]("agent.rotation-candidates")

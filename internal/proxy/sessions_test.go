@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 func TestReadLiveStatePropagatesStateReadFailure(t *testing.T) {

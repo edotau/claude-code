@@ -11,8 +11,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 func TestResultCarriesObservedFactsOnlyWhenRecorded(t *testing.T) {

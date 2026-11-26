@@ -1,0 +1,1050 @@
+// Package bench is `review bench`: run a package's benchmarks, store them, compare with the rolling baseline.
+package bench
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"encoding/csv"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+)
+
+const (
+	noiseFlagCV   = 5.0 // ns/op coefficient of variation, percent; unlike the range it does not grow with --count
+	slowSampleSec = 2.0 // measured seconds per sample; go aims each at -benchtime (1 s), so 2x means one op runs long
+	hundred       = 100
+	runTimeout    = 30 * time.Minute
+	waitDelay     = 10 * time.Second
+	rollingLock   = 5 * time.Second
+)
+
+type options struct {
+	paths   []string
+	count   int
+	re      string
+	base    bool
+	out     string
+	verbose bool
+	profile bool
+	json    bool
+	repo    string
+	loop    loopOpts
+}
+
+// Delta is one benchstat comparison cell for a benchmark and unit.
+type Delta struct {
+	Old         string `json:"old"`
+	New         string `json:"new"`
+	Change      string `json:"change"`
+	P           string `json:"p"`
+	Significant bool   `json:"significant"`
+}
+
+// Spread is one metric's samples reduced: range, median and coefficient of variation in percent.
+type Spread struct {
+	Min    float64 `json:"min"`
+	Median float64 `json:"median"`
+	Max    float64 `json:"max"`
+	CV     float64 `json:"cv_pct"`
+}
+
+// Score is one benchmark: every reported metric's spread, noise, own run cost and the delta vs rolling.
+type Score struct {
+	Name     string            `json:"name"`
+	Samples  int               `json:"samples"`
+	Metrics  map[string]Spread `json:"metrics"`
+	NoisePct float64           `json:"noise_pct"`
+	CostSec  float64           `json:"cost_sec"`
+	Flags    []string          `json:"flags,omitempty"`
+	Deltas   map[string]Delta  `json:"deltas,omitempty"`
+	Epoch    string            `json:"epoch,omitempty"`
+	Source   string            `json:"source,omitempty"`
+}
+
+// PkgResult is one package's run: where it was stored, what the process cost and how each benchmark scored.
+type PkgResult struct {
+	Pkg        string    `json:"pkg"`
+	File       string    `json:"file"`
+	Compared   bool      `json:"compared"`
+	Baseline   bool      `json:"baseline,omitempty"`       // this run was written as rolling.txt
+	Stale      bool      `json:"stale_baseline,omitempty"` // rolling.txt exists but holds another epoch
+	Stats      RunStats  `json:"stats"`
+	Benchmarks []Score   `json:"benchmarks"`
+	TopFrames  []Frame   `json:"top_frames,omitempty"` // --profile: the run's CPU profile, flat share of samples
+	Missing    []string  `json:"missing,omitempty"`
+	Verdicts   []Verdict `json:"verdicts,omitempty"`
+
+	top, hold string // the repo, and why this run must not become the baseline ("" when it may)
+	repo      string // --repo: the repository history rows name when top is a temporary worktree of it
+}
+
+// Report is the whole run, the input of the improvement loop.
+type Report struct {
+	Env
+	Bench    string      `json:"bench"`
+	Count    int         `json:"count"`
+	Mode     string      `json:"mode"`
+	NoisyRun bool        `json:"noisy_load"`
+	Packages []PkgResult `json:"packages"`
+}
+
+type sample struct {
+	iters float64
+	vals  map[string]float64
+}
+
+// RunBench is `claude-code review bench`: 0 even on regressions, 1 on a run error, 2 on usage.
+func RunBench(args []string, stdout, stderr io.Writer) int {
+	o, code, done := parseArgs(args, stdout, stderr)
+	if done {
+		return code
+	}
+	if o.loop.reads() {
+		return runLoop(o, stdout, stderr)
+	}
+	if _, err := exec.LookPath("benchstat"); err != nil {
+		fmt.Fprintln(stderr, "review bench: benchstat not on PATH (go install golang.org/x/perf/cmd/benchstat@latest)")
+		return 1
+	}
+	if o.loop.decide {
+		return runLoop(o, stdout, stderr)
+	}
+	rep, err := run(o, stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "review bench:", err)
+		return 1
+	}
+	if o.json {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(rep); err != nil {
+			fmt.Fprintln(stderr, "review bench: write json:", err)
+			return 1
+		}
+		return 0
+	}
+	printText(stdout, rep, o.verbose)
+	return 0
+}
+
+func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
+	var o options
+	var format string
+	fs := helptext.NewFlagSet("review bench", helptext.Page{
+		Usage: "claude-code review bench [flags]",
+		About: "Run the benchmarks of changed packages and compare them with the rolling baseline.",
+	})
+	fs.Func("path", "file or dir of a package to run, repeatable; default: changed", func(s string) error {
+		o.paths = append(o.paths, s)
+		return nil
+	})
+	fs.IntVar(&o.count, "count", 10, "samples per benchmark")
+	fs.StringVar(&o.re, "bench", ".", "benchmark name regexp")
+	fs.BoolVar(&o.base, "base", false, "store the run as a base and as rolling.txt")
+	fs.StringVar(&o.out, "out", "", "also write the run text to this file (one package)")
+	fs.BoolVar(&o.profile, "profile", false, "also record the top CPU frames (profiling skews timings)")
+	fs.BoolVar(&o.verbose, "v", false, "also show benchmarks that did not move")
+	fs.StringVar(&format, "format", "text", "text|json")
+	fs.StringVar(&o.repo, "repo", "", "internal: the repository the post-commit worker measures")
+	loopFlags(fs, &o.loop)
+	if helptext.WantsHelp(args) {
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return o, 0, true
+	}
+	fs.SetOutput(stderr)
+	if _, err := helptext.ParseArgs(fs, args); err != nil {
+		return o, helptext.ExitCode(err), true
+	}
+	if format != "text" && format != "json" || o.count < 1 {
+		fmt.Fprintln(stderr, "review bench: --format must be text|json and --count at least 1")
+		return o, 2, true
+	}
+	o.json = format == "json"
+	if msg := o.flagConflict(); msg != "" {
+		fmt.Fprintln(stderr, "review bench:", msg)
+		return o, 2, true
+	}
+	return o, 0, false
+}
+
+func (o options) flagConflict() string {
+	l := o.loop
+	switch {
+	case l.statusMixed(o.out):
+		return "--status takes only --format"
+	case l.kind != "" && !l.queue:
+		return "--kind needs --queue"
+	case l.kind != "" && !slices.Contains([]string{"fix", "weak", "benchmark"}, l.kind):
+		return "--kind must be fix|weak|benchmark"
+	case o.out != "" && (l.queue || l.decide || l.record || l.verdicts):
+		return "--out only applies to a benchmark run"
+	}
+	return ""
+}
+
+func run(o options, stderr io.Writer) (Report, error) {
+	if err := checkRepo(o.repo); err != nil {
+		return Report{}, err
+	}
+	top, err := repoTop()
+	if err != nil {
+		return Report{}, err
+	}
+	pkgs, err := benchPackages(top, o.paths)
+	if err != nil {
+		return Report{}, err
+	}
+	if o.out != "" && len(pkgs) != 1 {
+		return Report{}, fmt.Errorf("--out needs exactly one benchmark package, got %d", len(pkgs))
+	}
+	rep := header(top, o)
+	for _, p := range pkgs {
+		fmt.Fprintf(stderr, "review bench: %s\n", p)
+		res, err := runPackage(top, p, o, rep)
+		if err != nil {
+			return rep, err
+		}
+		rep.Packages = append(rep.Packages, res)
+		if err := writeOut(o.out, res.File); err != nil {
+			return rep, err
+		}
+	}
+	return rep, nil
+}
+
+// writeOut copies the stored run text to out, atomically; "" is no copy.
+func writeOut(out, runFile string) error {
+	if out == "" {
+		return nil
+	}
+	b, err := os.ReadFile(runFile)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return err
+	}
+	return paths.AtomicWriteNoSync(out, b, 0o644)
+}
+
+// checkRepo accepts "" or an absolute existing directory; the error never names the path.
+func checkRepo(repo string) error {
+	if repo == "" {
+		return nil
+	}
+	if fi, err := os.Stat(repo); !filepath.IsAbs(repo) || err != nil || !fi.IsDir() {
+		return errors.New("--repo must be an absolute, existing directory")
+	}
+	return nil
+}
+
+func repoTop() (string, error) {
+	out, err := proc.GitInheritTimeout(".", "rev-parse", "--show-toplevel")
+	if err != nil || out == "" {
+		return "", errors.New("not a git repository")
+	}
+	return out, nil
+}
+
+func header(top string, o options) Report {
+	env := collectEnv(top)
+	mode := "run"
+	if o.base {
+		mode = "base"
+	}
+	return Report{
+		Env: env, Bench: o.re, Count: o.count, Mode: mode,
+		NoisyRun: env.Load1 > float64(runtime.NumCPU())/2 || hookLoaded(),
+	}
+}
+
+// The post-commit hook reports load the load average misses, such as active dispatches.
+func hookLoaded() bool { return os.Getenv("HARNESS_BENCH_UNDER_LOAD") == "true" }
+
+// benchPackages maps --path files (else the changed files) to package dirs that hold a Benchmark func.
+func benchPackages(top string, targets []string) ([]string, error) {
+	if len(targets) == 0 {
+		var err error
+		if targets, err = changedFiles(top); err != nil {
+			return nil, err
+		}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range targets {
+		dir := targetDir(t)
+		rel, err := filepath.Rel(top, dir)
+		if err != nil || strings.HasPrefix(rel, "..") || seen[rel] || !hasBenchmarks(dir) {
+			continue
+		}
+		seen[rel] = true
+		out = append(out, filepath.ToSlash(rel))
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// targetDir is a --path target's package dir, symlinks resolved: git's toplevel is, and a cwd under macOS /tmp is not.
+func targetDir(t string) string {
+	abs, _ := filepath.Abs(t)
+	dir := abs
+	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
+		dir = filepath.Dir(abs)
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
+}
+
+func changedFiles(top string) ([]string, error) {
+	names, err := proc.GitInheritTimeout(top, "diff", "--name-only", "HEAD", "--")
+	if err != nil {
+		return nil, fmt.Errorf("git diff: %w", err)
+	}
+	untracked, _ := proc.GitInheritTimeout(top, "ls-files", "--others", "--exclude-standard")
+	var out []string
+	for n := range strings.SplitSeq(names+"\n"+untracked, "\n") {
+		if n != "" {
+			out = append(out, filepath.Join(top, n))
+		}
+	}
+	return out, nil
+}
+
+var benchFunc = regexp.MustCompile(`(?m)^func Benchmark`)
+
+func hasBenchmarks(dir string) bool {
+	files, _ := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	for _, f := range files {
+		if b, err := os.ReadFile(f); err == nil && benchFunc.Match(b) {
+			return true
+		}
+	}
+	return false
+}
+
+// Frame is one function's flat share of a CPU profile, in percent.
+type Frame struct {
+	Func    string  `json:"func"`
+	FlatPct float64 `json:"flat_pct"`
+}
+
+const topFrameCount = 5
+
+// topFrames reads the heaviest flat frames from a profile with `go tool pprof -top`; a failure is no frames.
+func topFrames(ctx context.Context, bin, prof string) ([]Frame, error) {
+	out, err := exec.CommandContext(ctx, "go", "tool", "pprof", "-top", "-flat", "-nodecount="+strconv.Itoa(topFrameCount), bin, prof).Output()
+	if err != nil {
+		return nil, fmt.Errorf("go tool pprof: %w", err)
+	}
+	return parseTopFrames(string(out)), nil
+}
+
+// parseTopFrames reads pprof -top rows: flat, flat%, sum%, cum, cum%, name.
+func parseTopFrames(text string) []Frame {
+	var out []Frame
+	rows := false
+	for line := range strings.SplitSeq(text, "\n") {
+		f := strings.Fields(line)
+		switch {
+		case len(f) >= 2 && f[0] == "flat" && f[1] == "flat%":
+			rows = true
+		case rows && len(f) >= 6 && strings.HasSuffix(f[1], "%"):
+			if pct, err := strconv.ParseFloat(strings.TrimSuffix(f[1], "%"), 64); err == nil {
+				out = append(out, Frame{Func: strings.Join(f[5:], " "), FlatPct: pct})
+			}
+		}
+	}
+	return out
+}
+
+func goTest(top, pkg string, o options) (out string, frames []Frame, stats RunStats, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+	defer cancel()
+	args := []string{"test", "-trimpath", "-run", "^$", "-bench", o.re, "-benchmem", // -trimpath: snapshot dirs share cache entries
+		"-count", strconv.Itoa(o.count), "./" + pkg}
+	scratch := ""
+	if o.profile {
+		if scratch, err = os.MkdirTemp("", "bench-profile-"); err != nil {
+			return "", nil, stats, err
+		}
+		defer func() { _ = os.RemoveAll(scratch) }()
+		args = append(args, "-o", filepath.Join(scratch, "pkg.test"), "-cpuprofile", filepath.Join(scratch, "cpu.prof"))
+	}
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = top
+	ownGroup(cmd)
+	cmd.WaitDelay = waitDelay
+	var outb, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &outb, &errb
+	before, start := loadAverage(), time.Now()
+	runErr := cmd.Run()
+	stats = statsOf(cmd, time.Since(start), before)
+	if runErr != nil {
+		return "", nil, stats, fmt.Errorf("go test %s: %w\n%s%s", pkg, runErr, outb.String(), errb.String())
+	}
+	if o.profile {
+		var err error
+		if frames, err = topFrames(ctx, filepath.Join(scratch, "pkg.test"), filepath.Join(scratch, "cpu.prof")); err != nil {
+			fmt.Fprintf(os.Stderr, "bench: %s: no top frames: %v\n", pkg, err) // the timings stand without a profile
+		}
+	}
+	return outb.String(), frames, stats, nil
+}
+
+func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
+	dir := filepath.Join(benchRoot(), pkgDirName(pkg))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return PkgResult{}, err
+	}
+	epochs, err := benchmarkEpochs(top, pkg)
+	if err != nil {
+		return PkgResult{}, err
+	}
+	out, frames, stats, err := goTest(top, pkg, o)
+	if err != nil {
+		return PkgResult{}, err
+	}
+	current, err := benchmarkEpochs(top, pkg)
+	if err != nil {
+		return PkgResult{}, err
+	}
+	if epochHeader(current) != epochHeader(epochs) {
+		return PkgResult{}, errors.New("benchmark source changed during measurement; rerun")
+	}
+	head := fmt.Sprintf("%spackage: %s\nbench: %s\ncount: %d\n%s", rep.lines(), pkg, o.re, o.count, stats.lines())
+	// "# " keeps run metadata out of benchstat's config keys: a differing key (commit, load) splits files into tables
+	body := "# " + strings.ReplaceAll(strings.TrimSuffix(head, "\n"), "\n", "\n# ") + "\n" + out
+	body = epochHeader(epochs) + body
+	file, err := writeRunFile(dir, time.Now(), rep, body)
+	if err != nil {
+		return PkgResult{}, err
+	}
+	noisy := rep.NoisyRun || max(stats.LoadBefore, stats.LoadAfter) > float64(rep.CPUs)/2
+	res := PkgResult{Pkg: pkg, File: file, Stats: stats, TopFrames: frames, Benchmarks: scoreAll(out, noisy)}
+	for i := range res.Benchmarks {
+		e := epochs[benchmarkFunc(res.Benchmarks[i].Name)]
+		res.Benchmarks[i].Epoch, res.Benchmarks[i].Source = e.Hash, e.File
+	}
+	res.top, res.hold, res.repo = top, baselineHold(res.Benchmarks), o.repo
+	if err := compareRolling(&res, dir, body, o.base, !rep.Dirty); err != nil {
+		return res, err
+	}
+	res.Verdicts, err = recordRun(dir, rep, res, time.Now().UTC())
+	return res, err
+}
+
+// compareRolling compares res with dir's rolling.txt; with none and seed (a clean tree), the run becomes it.
+func compareRolling(res *PkgResult, dir, body string, base, seed bool) error {
+	rolling := filepath.Join(dir, "rolling.txt")
+	old, err := os.ReadFile(rolling)
+	promote, why := base || seed && err != nil, res.hold
+	switch {
+	case err == nil:
+		if !sameEpochs(string(old), body) {
+			res.Stale, promote = true, base || seed
+			why = cmp.Or(why, rolledBack(res.top, string(old), body))
+			res.Missing = append(res.Missing, staleWhy(string(old))+"; "+rebaseNote(promote, why))
+			break
+		}
+		deltas, err := compareSnapshot(dir, old, res.File)
+		if err != nil {
+			return err
+		}
+		res.Compared = true
+		attach(res.Benchmarks, deltas)
+		res.Missing = missingBench(string(old), body)
+	case !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	return promoteBaseline(res, dir, body, promote, why)
+}
+
+// promoteBaseline writes body as rolling.txt when promoted and not held, else notes why it was kept.
+func promoteBaseline(res *PkgResult, dir, body string, promote bool, why string) error {
+	switch {
+	case !promote:
+	case why != "":
+		if !res.Stale {
+			res.Missing = append(res.Missing, "baseline kept: "+why)
+		}
+	default:
+		res.Baseline = true
+		return writeRolling(dir, []byte(body))
+	}
+	return nil
+}
+
+// baselineHold is why this run must not become the baseline later runs trust, or "".
+func baselineHold(scores []Score) string {
+	switch {
+	case hookLoaded():
+		return "the run was under load"
+	case len(scores) == 0:
+		return "the run holds no benchmark samples"
+	case slices.ContainsFunc(scores, func(s Score) bool { return !isQuiet(s) }):
+		return "the run is noisy"
+	}
+	return ""
+}
+
+var headerCommit = regexp.MustCompile(`(?m)^# commit: ([0-9a-f]+)$`)
+
+// rolledBack is a hold reason when the run's commit is a strict ancestor of the baseline's: a historical run.
+func rolledBack(top, old, body string) string {
+	oc, nc := headerCommit.FindStringSubmatch(old), headerCommit.FindStringSubmatch(body)
+	if top == "" || oc == nil || nc == nil || strings.HasPrefix(oc[1], nc[1]) || strings.HasPrefix(nc[1], oc[1]) {
+		return ""
+	}
+	if _, err := proc.GitInheritTimeout(top, "merge-base", "--is-ancestor", nc[1], oc[1]); err != nil {
+		return ""
+	}
+	return "this run's commit " + nc[1] + " predates the baseline's " + oc[1]
+}
+
+// staleWhy tells a pre-epoch rolling.txt from one in another epoch.
+func staleWhy(old string) string {
+	if e, _ := parseEpochs(old); e == nil {
+		return "rolling.txt predates benchmark epochs"
+	}
+	return "benchmark epoch changed"
+}
+
+// rebaseNote says what an epoch change does to rolling.txt; only an unheld --base or clean-tree run replaces it.
+func rebaseNote(base bool, why string) string {
+	switch {
+	case why != "":
+		return "baseline kept: " + why
+	case base:
+		return "this run starts a new package baseline"
+	}
+	return "baseline kept; run with --base (or on a clean tree) to start a new one"
+}
+
+// compareSnapshot compares the validated baseline bytes, not a rolling.txt a peer may replace meanwhile.
+func compareSnapshot(dir string, old []byte, cur string) (map[string]map[string]Delta, error) {
+	f, err := os.CreateTemp(dir, ".rolling-*.txt") // same dir: the hook's benchstat shim keys on the package dir
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	_, werr := f.Write(old)
+	if err := errors.Join(werr, f.Close()); err != nil {
+		return nil, err
+	}
+	return compare(f.Name(), cur)
+}
+
+// writeRunFile creates the run file exclusively; the time and pid keep two runs from overwriting each other.
+func writeRunFile(dir string, at time.Time, rep Report, body string) (string, error) {
+	name := fmt.Sprintf("%s-%s-%s-%d.txt", at.Format("2006-01-02-150405"), rep.Commit, rep.Mode, os.Getpid())
+	file := filepath.Join(dir, name)
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.WriteString(body)
+	return file, errors.Join(werr, f.Close())
+}
+
+// benchUnits lists "benchmark unit" for every metric a run text holds.
+func benchUnits(text string) map[string]bool {
+	_, by := parseSamples(text)
+	out := map[string]bool{}
+	for n, ss := range by {
+		for _, s := range ss {
+			for u := range s.vals {
+				out[n+" "+u] = true
+			}
+		}
+	}
+	return out
+}
+
+// missingBench names the benchmark/unit pairs that only one of the two run texts holds.
+func missingBench(before, after string) []string {
+	b, a := benchUnits(before), benchUnits(after)
+	var out []string
+	for k := range b {
+		if !a[k] {
+			out = append(out, "missing after: "+k)
+		}
+	}
+	for k := range a {
+		if !b[k] {
+			out = append(out, "missing before: "+k)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func compare(old, cur string) (map[string]map[string]Delta, error) {
+	var out, errb bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "benchstat", "-format", "csv", old, cur)
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("benchstat: %w: %s", err, errb.String())
+	}
+	return parseBenchstatCSV(out.String()), nil
+}
+
+func attach(scores []Score, deltas map[string]map[string]Delta) {
+	for i := range scores {
+		scores[i].Deltas = deltas[strings.TrimPrefix(scores[i].Name, "Benchmark")] // benchstat drops the prefix
+	}
+}
+
+// parseBenchstatCSV reads `benchstat -format csv` into benchmark -> unit -> Delta.
+func parseBenchstatCSV(text string) map[string]map[string]Delta {
+	r := csv.NewReader(strings.NewReader(text))
+	r.FieldsPerRecord = -1
+	rows, _ := r.ReadAll()
+	out := map[string]map[string]Delta{}
+	unit := ""
+	for _, row := range rows {
+		switch {
+		case len(row) >= 6 && row[0] == "" && row[5] == "vs base":
+			unit = row[1]
+		case unit != "" && len(row) >= 7 && row[0] != "" && row[0] != "geomean":
+			if out[row[0]] == nil {
+				out[row[0]] = map[string]Delta{}
+			}
+			out[row[0]][unit] = Delta{Old: row[1], New: row[3], Change: row[5], P: row[6], Significant: row[5] != "~"}
+		}
+	}
+	return out
+}
+
+// parseSamples groups `go test -bench` result lines by benchmark; every "value unit" pair is a metric.
+func parseSamples(text string) (names []string, by map[string][]sample) {
+	by = map[string][]sample{}
+	for line := range strings.SplitSeq(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || !strings.HasPrefix(f[0], "Benchmark") {
+			continue
+		}
+		s := sample{vals: map[string]float64{}}
+		s.iters, _ = strconv.ParseFloat(f[1], 64)
+		for i := 3; i < len(f); i += 2 {
+			if v, err := strconv.ParseFloat(f[i-1], 64); err == nil {
+				s.vals[f[i]] = v
+			}
+		}
+		if _, ok := by[f[0]]; !ok {
+			names = append(names, f[0])
+		}
+		by[f[0]] = append(by[f[0]], s)
+	}
+	return names, by
+}
+
+func scoreAll(text string, noisyLoad bool) []Score {
+	names, by := parseSamples(text)
+	out := make([]Score, 0, len(names))
+	for _, n := range names {
+		out = append(out, score(n, by[n], noisyLoad))
+	}
+	return out
+}
+
+func score(name string, ss []sample, noisyLoad bool) Score {
+	sc := Score{Name: name, Samples: len(ss), Metrics: map[string]Spread{}}
+	byUnit := map[string][]float64{}
+	for _, s := range ss {
+		for u, v := range s.vals {
+			byUnit[u] = append(byUnit[u], v)
+		}
+		sc.CostSec += s.iters * s.vals["ns/op"] / 1e9
+	}
+	for u, v := range byUnit {
+		sc.Metrics[u] = spread(v)
+	}
+	if ns := sc.Metrics["ns/op"]; ns.Min > 0 {
+		sc.NoisePct = round((ns.Max - ns.Min) / ns.Min * hundred)
+	}
+	sc.CostSec = round(sc.CostSec)
+	if sc.Metrics["ns/op"].CV > noiseFlagCV {
+		sc.Flags = append(sc.Flags, "noisy")
+	}
+	if sc.CostSec/float64(len(ss)) > slowSampleSec {
+		sc.Flags = append(sc.Flags, "slow")
+	}
+	if noisyLoad {
+		sc.Flags = append(sc.Flags, "load")
+	}
+	return sc
+}
+
+func spread(v []float64) Spread {
+	sp := Spread{Min: slices.Min(v), Median: median(v), Max: slices.Max(v)}
+	if len(v) < 2 {
+		return sp
+	}
+	mean := 0.0
+	for _, x := range v {
+		mean += x
+	}
+	mean /= float64(len(v))
+	ss := 0.0
+	for _, x := range v {
+		ss += (x - mean) * (x - mean)
+	}
+	if mean != 0 {
+		sp.CV = round(math.Sqrt(ss/float64(len(v)-1)) / mean * hundred)
+	}
+	return sp
+}
+
+func median(v []float64) float64 {
+	s := slices.Sorted(slices.Values(v))
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
+}
+
+func round(v float64) float64 { return math.Round(v*hundred) / hundred }
+
+func moved(s Score) bool {
+	for _, d := range s.Deltas {
+		if d.Significant {
+			return true
+		}
+	}
+	return false
+}
+
+func printText(w io.Writer, r Report, verbose bool) {
+	noisy := ""
+	if r.NoisyRun {
+		noisy = " (noisy)"
+	}
+	fmt.Fprintf(w, "commit %s dirty=%t  %s  load %.2f/%d cpus%s  count %d\n",
+		r.Commit, r.Dirty, r.Go, r.Load1, r.CPUs, noisy, r.Count)
+	if len(r.Packages) == 0 {
+		fmt.Fprintln(w, "no changed package holds benchmarks")
+	}
+	for _, p := range r.Packages {
+		st := p.Stats
+		fmt.Fprintf(w, "\n%s  -> %s\n  wall %.1fs user %.1fs sys %.1fs rss %dMB load %.2f->%.2f\n",
+			p.Pkg, p.File, st.WallSec, st.UserSec, st.SysSec, st.MaxRSSKB/kbPerMB, st.LoadBefore, st.LoadAfter)
+		if note := baselineNote(p); note != "" {
+			fmt.Fprintln(w, "  "+note)
+		}
+		for _, m := range p.Missing {
+			fmt.Fprintln(w, "  "+m)
+		}
+		for _, f := range p.TopFrames {
+			fmt.Fprintf(w, "  frame %5.1f%%  %s\n", f.FlatPct, f.Func)
+		}
+		for _, s := range p.Benchmarks {
+			printScore(w, s, verbose)
+		}
+		for _, v := range p.Verdicts {
+			fmt.Fprintf(w, "  %s: %s (%s; gates only)\n", v.Benchmark, v.Verdict, v.Reason)
+		}
+	}
+}
+
+// baselineNote is "" when the run was compared or the epoch line in Missing already says what happened.
+func baselineNote(p PkgResult) string {
+	switch {
+	case p.Compared || p.Stale:
+		return ""
+	case p.Baseline:
+		return "no rolling.txt baseline; this run is now the baseline"
+	}
+	return "no rolling.txt baseline; run with --base (or on a clean tree) to create one"
+}
+
+func printScore(w io.Writer, s Score, verbose bool) {
+	if !verbose && !moved(s) && len(s.Flags) == 0 {
+		return
+	}
+	m := s.Metrics
+	fmt.Fprintf(w, "  %-44s %10.1f ns/op %8.0f B/op %5.0f allocs/op  noise %.1f%% cv %.1f%%  cost %.1fs",
+		s.Name, m["ns/op"].Median, m["B/op"].Median, m["allocs/op"].Median, s.NoisePct, m["ns/op"].CV, s.CostSec)
+	if len(s.Flags) > 0 {
+		fmt.Fprintf(w, "  [%s]", strings.Join(s.Flags, ","))
+	}
+	fmt.Fprintln(w)
+	for _, u := range []string{"sec/op", "B/op", "allocs/op"} {
+		if d, ok := s.Deltas[u]; ok && (verbose || d.Significant) {
+			fmt.Fprintf(w, "      %-10s %s -> %s  %s  (%s)\n", u, short(d.Old), short(d.New), d.Change, d.P)
+		}
+	}
+}
+
+// short prints a benchstat CSV number in 4 significant digits; anything that is not a number stays as written.
+func short(v string) string {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return v
+	}
+	return strconv.FormatFloat(f, 'g', 4, 64)
+}
+
+const (
+	bytesPerMB   = 1 << 20
+	kbPerMB      = 1024
+	probeTimeout = 10 * time.Second
+)
+
+// Env is the machine and build context of a run; a field that could not be collected stays empty.
+type Env struct {
+	Commit     string  `json:"commit"`
+	Dirty      bool    `json:"dirty"`
+	Go         string  `json:"go"`
+	GOOS       string  `json:"goos"`
+	GOARCH     string  `json:"goarch"`
+	Machine    string  `json:"machine"`
+	CPUs       int     `json:"cpus"`
+	GOMAXPROCS int     `json:"gomaxprocs"`
+	MemTotalMB int64   `json:"mem_total_mb,omitempty"`
+	MemAvailMB int64   `json:"mem_avail_mb,omitempty"`
+	Power      string  `json:"power,omitempty"`
+	Thermal    string  `json:"thermal,omitempty"`
+	Load1      float64 `json:"load1"`
+	// LoadUnknown means no load could be read; Load1 then holds the CPU count so the run reads as noisy.
+	LoadUnknown bool   `json:"load_unknown,omitempty"`
+	GitError    string `json:"git_error,omitempty"`
+}
+
+// procUsage is the go test process's rusage; zero means not collected (Windows).
+type procUsage struct {
+	MaxRSSKB    int64 `json:"max_rss_kb,omitempty"`
+	MinorFaults int64 `json:"minor_faults,omitempty"`
+	MajorFaults int64 `json:"major_faults,omitempty"`
+	VolCtx      int64 `json:"vol_ctx_switches,omitempty"`
+	InvolCtx    int64 `json:"invol_ctx_switches,omitempty"`
+}
+
+// RunStats is what one package's go test process cost and the load around it.
+type RunStats struct {
+	WallSec    float64 `json:"wall_sec"`
+	UserSec    float64 `json:"user_sec"`
+	SysSec     float64 `json:"sys_sec"`
+	LoadBefore float64 `json:"load_before"`
+	LoadAfter  float64 `json:"load_after"`
+	procUsage
+}
+
+func collectEnv(top string) Env {
+	sha, shaErr := proc.GitInheritTimeout(top, "rev-parse", "--short", "HEAD")
+	dirty, dirtyErr := proc.GitInheritTimeout(top, "status", "--porcelain")
+	gov, _ := out("go", "version")
+	total, avail := memInfo()
+	load, loadOK := readLoad()
+	e := Env{
+		Commit: sha, Dirty: dirty != "", Go: strings.TrimSpace(string(gov)), GOOS: runtime.GOOS,
+		GOARCH: runtime.GOARCH, Machine: machineName(), CPUs: runtime.NumCPU(), GOMAXPROCS: runtime.GOMAXPROCS(0),
+		MemTotalMB: total, MemAvailMB: avail, Load1: load, LoadUnknown: !loadOK,
+	}
+	e = withGitErrors(e, shaErr, dirtyErr)
+	if runtime.GOOS == "darwin" {
+		e.Power, e.Thermal = powerSource(), thermalHint()
+	}
+	return e
+}
+
+// withGitErrors records failed git probes; a failed status counts as dirty so the run never advances rolling.txt.
+func withGitErrors(e Env, errs ...error) Env {
+	if err := errors.Join(errs...); err != nil {
+		e.GitError = err.Error()
+		e.Dirty = true
+	}
+	return e
+}
+
+func (e Env) lines() string {
+	return fmt.Sprintf("commit: %s\ndirty: %t\ngo: %s\ngoos: %s\ngoarch: %s\nmachine: %s\ncpus: %d\ngomaxprocs: %d\n"+
+		"mem-total-mb: %d\nmem-avail-mb: %d\npower: %s\nthermal: %s\n",
+		e.Commit, e.Dirty, e.Go, e.GOOS, e.GOARCH, e.Machine, e.CPUs, e.GOMAXPROCS,
+		e.MemTotalMB, e.MemAvailMB, e.Power, e.Thermal)
+}
+
+func (s RunStats) lines() string {
+	return fmt.Sprintf("wall-sec: %.2f\nuser-sec: %.2f\nsys-sec: %.2f\nload-before: %.2f\nload-after: %.2f\n"+
+		"max-rss-kb: %d\nminor-faults: %d\nmajor-faults: %d\nvol-ctx-switches: %d\ninvol-ctx-switches: %d\n",
+		s.WallSec, s.UserSec, s.SysSec, s.LoadBefore, s.LoadAfter,
+		s.MaxRSSKB, s.MinorFaults, s.MajorFaults, s.VolCtx, s.InvolCtx)
+}
+
+func statsOf(cmd *exec.Cmd, wall time.Duration, before float64) RunStats {
+	s := RunStats{WallSec: round(wall.Seconds()), LoadBefore: before, LoadAfter: loadAverage()}
+	if ps := cmd.ProcessState; ps != nil {
+		s.UserSec, s.SysSec = round(ps.UserTime().Seconds()), round(ps.SystemTime().Seconds())
+		s.procUsage = usageOf(ps)
+	}
+	return s
+}
+
+// parseLoad reads the 1-minute load from /proc/loadavg or sysctl's "{ 1.2 1.1 1.0 }" form.
+func parseLoad(s string) float64 {
+	f := strings.Fields(strings.Trim(strings.TrimSpace(s), "{}"))
+	if len(f) == 0 {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(f[0], 64)
+	return v
+}
+
+// loadAverage returns the CPU count when no load can be read (Windows), so the run is never judged quiet.
+func loadAverage() float64 {
+	load, _ := readLoad()
+	return load
+}
+
+func readLoad() (float64, bool) {
+	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
+		return parseLoad(string(b)), true
+	}
+	if runtime.GOOS == "darwin" {
+		if b, err := out("sysctl", "-n", "vm.loadavg"); err == nil {
+			return parseLoad(string(b)), true
+		}
+	}
+	return float64(runtime.NumCPU()), false
+}
+
+// genericModels are DMI placeholders shared by many hosts; such a name alone cannot tell machines apart.
+var genericModels = []string{"standard pc", "virtual machine", "vmware", "kvm", "to be filled", "system product name",
+	"default string", "not specified"}
+
+func machineName() string {
+	model := ""
+	if runtime.GOOS == "darwin" {
+		if b, err := out("sysctl", "-n", "hw.model"); err == nil {
+			model = strings.TrimSpace(string(b))
+		}
+	} else if b, err := os.ReadFile("/sys/devices/virtual/dmi/id/product_name"); err == nil {
+		model = strings.TrimSpace(string(b))
+	}
+	host, _ := os.Hostname()
+	return pickMachine(model, host)
+}
+
+// pickMachine keeps a specific hardware model; a missing or generic one gains the hostname so hosts stay distinct.
+func pickMachine(model, host string) string {
+	lower := strings.ToLower(model)
+	generic := model == "" || slices.ContainsFunc(genericModels, func(g string) bool { return strings.Contains(lower, g) })
+	switch {
+	case !generic:
+		return model
+	case host == "" && model == "":
+		return "unknown"
+	case host == "":
+		return model
+	case model == "":
+		return host
+	}
+	return model + " (" + host + ")"
+}
+
+// memInfo returns total and available MB, 0 when the platform has no cheap source.
+func memInfo() (total, avail int64) {
+	if b, err := os.ReadFile("/proc/meminfo"); err == nil {
+		return parseMeminfo(string(b))
+	}
+	if runtime.GOOS != "darwin" {
+		return 0, 0
+	}
+	if b, err := out("sysctl", "-n", "hw.memsize"); err == nil {
+		n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		total = n / bytesPerMB
+	}
+	if b, err := out("vm_stat"); err == nil {
+		avail = parseVMStat(string(b))
+	}
+	return total, avail
+}
+
+func parseMeminfo(s string) (total, avail int64) {
+	for line := range strings.SplitSeq(s, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		kb, _ := strconv.ParseInt(f[1], 10, 64)
+		switch f[0] {
+		case "MemTotal:":
+			total = kb / kbPerMB
+		case "MemAvailable:":
+			avail = kb / kbPerMB
+		}
+	}
+	return total, avail
+}
+
+// parseVMStat sums free, inactive and speculative pages into MB.
+func parseVMStat(s string) int64 {
+	var pageSize, pages int64
+	for line := range strings.SplitSeq(s, "\n") {
+		if _, rest, ok := strings.Cut(line, "page size of "); ok {
+			f := strings.Fields(rest)
+			if len(f) > 0 {
+				pageSize, _ = strconv.ParseInt(f[0], 10, 64)
+			}
+			continue
+		}
+		name, val, ok := strings.Cut(line, ":")
+		if !ok || (name != "Pages free" && name != "Pages inactive" && name != "Pages speculative") {
+			continue
+		}
+		n, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(val), "."), 10, 64)
+		pages += n
+	}
+	return pages * pageSize / bytesPerMB
+}
+
+func powerSource() string {
+	b, err := out("pmset", "-g", "batt")
+	if err != nil {
+		return ""
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	return strings.TrimSpace(first)
+}
+
+func thermalHint() string {
+	b, err := out("pmset", "-g", "therm")
+	if err != nil {
+		return ""
+	}
+	var parts []string
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if l := strings.TrimPrefix(strings.TrimSpace(line), "Note: "); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func out(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}

@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/remote/egress"
 )
 
 // proxyRestartReport is `gateway proxy --restart` with --if-changed/--force/--dry-run: a stopped proxy is skipped.

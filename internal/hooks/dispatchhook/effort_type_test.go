@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentconfig/project"
 )
 
 // The roster is the agents/ files plus the built-ins (the `agents label` verb refuses others; the hook never does).

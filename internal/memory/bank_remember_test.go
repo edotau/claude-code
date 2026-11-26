@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // TestRememberUnknownTypeErrors: an unmapped --type is refused, naming the valid set.

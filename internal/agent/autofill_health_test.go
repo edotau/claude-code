@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
 )
 
 // the init wires plans.DispatchHealth to DispatchHealth; an unrecorded task reads healthy with no attempts.

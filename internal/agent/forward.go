@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // forwardPoll is how often the forwarder looks for the child and re-reads its event file.

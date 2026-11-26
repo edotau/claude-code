@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // Grammar says which lines start an entry; chosen from the file name, never guessed from content.

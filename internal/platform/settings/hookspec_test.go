@@ -1,0 +1,343 @@
+package settings
+
+import (
+	"encoding/json"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/edotau/claude-code/internal/routing/agentid"
+)
+
+func TestSettingsJSON(t *testing.T) {
+	b, err := settingsJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block map[string][]MatcherGroup
+	if err := json.Unmarshal(b, &block); err != nil {
+		t.Fatal(err)
+	}
+	if len(block[EventStop]) != 1 || len(block[EventStop][0].Hooks) != 1 || len(block[EventSessionStart]) != 1 || len(block[EventSessionEnd]) != 1 || len(block[EventUserPromptSubmit]) != 1 || block[EventPreToolUse][0].Matcher != "Bash" {
+		t.Errorf("block %s", b)
+	}
+}
+
+func TestIsHarnessSafetyCommand(t *testing.T) {
+	if !IsHarness("$HOME/.claude/bin/claude-code hook PreToolUse --safety-scan") || IsHarness("$HOME/.claude/bin/claude-code-other x") || IsHarness("foreign hook") {
+		t.Error("IsHarness")
+	}
+}
+
+func TestIsHarness(t *testing.T) {
+	for _, tt := range []struct {
+		command string
+		want    bool
+	}{
+		{hookBin + " hook x", true},
+		{"rtk hook claude", true}, // the stale entry `rtk init -g` writes
+		{"/opt/bin/rtk hook claude", true},
+		{"rtk hook codex", false},
+		{"HARNESS_HOOK_AGENT=codex " + hookBin + " hook x", true},
+		{"HARNESS_HOOK_AGENT=vendor_2 " + hookBin + " hook x", true},
+		{"HARNESS_HOOK_VENDOR=codex " + hookBin + " hook x", true}, // the pre-rename marker
+		{"HARNESS_HOOK_AGENT=codex $HOME/.claude/bin/.hooks PreToolUse --safety-scan", true},
+		{"$HOME/.claude/bin/.hooks PreToolUse --safety-scan", true},
+		{"$HOME/.claude/bin/.other PreToolUse", false},
+		{"FOO=1 " + hookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex foreign hook", false},
+		{hookBin + "-other hook x", false},
+		{"HARNESS_HOOK_AGENT=codex " + hookBin + "-other hook x", false},
+		{"HARNESS_HOOK_AGENT= " + hookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex; " + hookBin + " hook x", false},
+		{"HARNESS_HOOK_AGENT=codex FOO=1 " + hookBin + " hook x", false},
+	} {
+		t.Run(tt.command, func(t *testing.T) {
+			if got := IsHarness(tt.command); got != tt.want {
+				t.Errorf("IsHarness(%q) = %v, want %v", tt.command, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlanHooksRegistered(t *testing.T) {
+	byName := map[string]EventSpec{}
+	docsCount := 0
+	for _, s := range Specs() {
+		byName[s.Name] = s
+		if s.Name == "docs-placement" {
+			docsCount++
+		}
+	}
+	if _, ok := byName["plan-template"]; ok {
+		t.Fatal("retired plan-template hook remains registered")
+	}
+	checkDocsPlacement(t, byName, docsCount)
+	checkDocsPlanMirror(t, byName)
+	checkRenderedPlanHooks(t)
+}
+
+func checkDocsPlacement(t *testing.T, byName map[string]EventSpec, docsCount int) {
+	t.Helper()
+	docs, ok := byName["docs-placement"]
+	if !ok || docsCount != 1 || docs.Event != EventPreToolUse || docs.Matcher != "Write|Edit|MultiEdit|Bash" || !docs.Blocks {
+		t.Fatalf("docs-placement = %+v, ok=%v, count=%d", docs, ok, docsCount)
+	}
+}
+
+func checkDocsPlanMirror(t *testing.T, byName map[string]EventSpec) {
+	t.Helper()
+	mirror, ok := byName["docs-plan-mirror"]
+	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Blocks {
+		t.Fatalf("docs-plan-mirror = %+v, ok=%v", mirror, ok)
+	}
+}
+
+func checkRenderedPlanHooks(t *testing.T) {
+	t.Helper()
+	b, err := settingsJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block map[string][]MatcherGroup
+	if err := json.Unmarshal(b, &block); err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for event, groups := range block {
+		for _, g := range groups {
+			found += checkPlanHookGroup(t, event, g, b)
+		}
+	}
+	if found != 1 {
+		t.Errorf("rendered settings contain %d PreToolUse dispatcher entries, want 1: %s", found, b)
+	}
+}
+
+func checkPlanHookGroup(t *testing.T, event string, g MatcherGroup, b []byte) int {
+	t.Helper()
+	retired := EventSpec{Name: "plan-template", Event: EventPreToolUse}
+	found := 0
+	for _, h := range g.Hooks {
+		if h.Command == retired.Command() {
+			t.Fatalf("rendered settings contain retired plan-template: %s", b)
+		}
+		if h.Command == DispatcherCommand(EventPreToolUse) {
+			found++
+			if event != EventPreToolUse || !strings.Contains(g.Matcher, "Write|Edit") {
+				t.Errorf("PreToolUse dispatcher carries matcher %q, want it to cover docs-placement's Write|Edit", g.Matcher)
+			}
+		}
+	}
+	return found
+}
+
+// A merged dispatcher entry keeps the spinner text only when exactly one module on the event sets one.
+func TestEventsDispatcherStatusMessage(t *testing.T) {
+	old := Registry
+	defer func() { Registry = old }()
+	status := func(a, b string) string {
+		Registry = []Group{{Name: "x", Events: []EventSpec{
+			{Name: "x-a", Event: EventSessionStart, Budget: 5 * sec, StatusMessage: a},
+			{Name: "x-b", Event: EventSessionStart, Budget: 5 * sec, StatusMessage: b},
+		}}}
+		return Events()[EventSessionStart][0].Hooks[0].StatusMessage
+	}
+	if got := status("Loading", ""); got != "Loading" {
+		t.Fatalf("one status: %q", got)
+	}
+	if got := status("Loading", "Other"); got != "" {
+		t.Fatalf("two statuses: %q", got)
+	}
+}
+
+// One dispatcher entry per event, plus own entries only for Gate handlers.
+func TestGroupRenderOneEntryPerEvent(t *testing.T) {
+	b, err := settingsJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var block map[string][]MatcherGroup
+	if err := json.Unmarshal(b, &block); err != nil {
+		t.Fatal(err)
+	}
+	checkDispatcherEntries(t, block, ownEntriesPerEvent())
+	post := block[EventPostToolUse]
+	if len(post) != 2 || post[0].Hooks[0].Async {
+		t.Errorf("PostToolUse: want a synchronous dispatcher, then the async one: %+v", post)
+	} else if bg := post[1]; bg.Matcher != "Bash" || !bg.Hooks[0].Async || bg.Hooks[0].Command != DispatcherCommand(EventPostToolUse)+" "+AsyncFlag {
+		t.Errorf("PostToolUse: second entry %+v, want the async Bash dispatcher", bg)
+	}
+	if n := len(block[EventPreToolUse]); n != 2 {
+		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
+	}
+	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), ".hookd PreToolUse --safety-scan") {
+		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
+	}
+}
+
+func ownEntriesPerEvent() map[string]int {
+	own := map[string]int{}
+	for _, g := range Registry {
+		for _, s := range g.Events {
+			if !g.AgentOnly && g.Gate {
+				own[s.Event]++
+			}
+		}
+	}
+	return own
+}
+
+func checkDispatcherEntries(t *testing.T, block map[string][]MatcherGroup, own map[string]int) {
+	t.Helper()
+	for ev, entries := range block {
+		dispatchers := 0
+		for _, e := range entries {
+			for _, h := range e.Hooks {
+				if h.Command == DispatcherCommand(ev) {
+					dispatchers++
+				}
+			}
+		}
+		if dispatchers != 1 {
+			t.Errorf("%s: %d dispatcher entries", ev, dispatchers)
+		}
+		if len(entries) < 1+own[ev] {
+			t.Errorf("%s: %d entries, want at least %d", ev, len(entries), 1+own[ev])
+		}
+	}
+}
+
+// Every non-agent-only registry spec reaches the rendered block, via its own entry or a covering dispatcher.
+func TestEventsRenderEverySpec(t *testing.T) {
+	block := Events()
+	for _, g := range Registry {
+		if g.AgentOnly {
+			continue
+		}
+		for _, s := range g.Events {
+			if g.Gate {
+				if !hasOwnEntry(block[s.Event], s) {
+					t.Errorf("%s/%s: no own entry %q with matcher %q on %s", g.Name, s.Name, s.Command(), s.Matcher, s.Event)
+				}
+				continue
+			}
+			if !dispatcherCovers(block[s.Event], s) {
+				t.Errorf("%s/%s: no %s dispatcher entry covers matcher %q", g.Name, s.Name, s.Event, s.Matcher)
+			}
+		}
+	}
+}
+
+func hasOwnEntry(entries []MatcherGroup, s EventSpec) bool {
+	for _, e := range entries {
+		if e.Matcher != s.Matcher {
+			continue
+		}
+		for _, h := range e.Hooks {
+			if h.Command == s.Command() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dispatcherCovers: each matcher alternative is in the async dispatcher when s.Async names it, else the sync one.
+func dispatcherCovers(entries []MatcherGroup, s EventSpec) bool {
+	for alt := range strings.SplitSeq(s.Matcher, "|") {
+		async := s.Async != "" && slices.Contains(strings.Split(s.Async, "|"), alt)
+		if !slices.ContainsFunc(entries, func(e MatcherGroup) bool { return dispatcherHas(e, s.Event, alt, async) }) {
+			return false
+		}
+	}
+	return true
+}
+
+func dispatcherHas(e MatcherGroup, event, alt string, async bool) bool {
+	cmd := DispatcherCommand(event)
+	if async {
+		cmd += " " + AsyncFlag
+	}
+	if len(e.Hooks) != 1 || e.Hooks[0].Command != cmd || e.Hooks[0].Async != async {
+		return false
+	}
+	return e.Matcher == "" || alt != "" && slices.Contains(strings.Split(e.Matcher, "|"), alt) // "" matches every tool
+}
+
+// Async names only alternatives of the spec's own Matcher, so the split never invents a tool.
+func TestAsyncWithinMatcher(t *testing.T) {
+	for _, s := range Specs() {
+		if s.Async == "" {
+			continue
+		}
+		for alt := range strings.SplitSeq(s.Async, "|") {
+			if !slices.Contains(strings.Split(s.Matcher, "|"), alt) {
+				t.Errorf("%s: Async %q is not in Matcher %q", s.Name, alt, s.Matcher)
+			}
+		}
+	}
+}
+
+func TestSpecsFor(t *testing.T) {
+	names := func(agent, surface string) []string {
+		var out []string
+		for _, s := range SpecsFor(agent, surface) {
+			out = append(out, s.Name)
+		}
+		return out
+	}
+	tests := []struct {
+		agent, surface string
+		count          int // -1 = not checked
+		has, lacks     string
+		exact          []string // sorted names the set must equal
+	}{
+		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route", nil},
+		{"copilot", "native", -1, "safety-scan", "rtk-rewrite", nil},
+		{"copilot", "native", -1, "memory-start", "worktree-busy", nil},
+		{"copilot", "native", -1, "worktree-claim-check", "rtk-rewrite", nil},
+		{"codex", "native", -1, "worktree-claim", "worktree-busy", nil},
+		{"codex", "native", -1, "rtk-rewrite", "worktree-busy", nil},
+		{"gemini", "native", 12, "safety-scan", "rtk-rewrite", []string{
+			"docs-placement", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-tick", "format-stop", "memory-start",
+			"memory-update", "review-simplicity", "safety-scan", "safety-scan", "worktree-claim", "worktree-claim-check"}},
+		{"copilot", "native", -1, "memory-end", "memory-compact", nil},
+		{"opencode", "plugin", -1, "worktree-claim", "memory-end", nil},
+		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
+			"docs-placement", "docs-plan-mirror", "docs-plan-reminder",
+			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
+			"paths-resolve", "review-simplicity", "safety-scan", "safety-scan"}},
+		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
+		{"opencode", "native", 0, "", "", nil},
+		{"pi", "plugin", 2, "safety-scan", "docs-placement", []string{"safety-scan", "safety-scan"}},
+		{"claude", "bogus", 0, "", "", nil},
+	}
+	for _, tc := range tests {
+		got := names(tc.agent, tc.surface)
+		if tc.count >= 0 && len(got) != tc.count {
+			t.Errorf("%s/%s: %d specs %v, want %d", tc.agent, tc.surface, len(got), got, tc.count)
+		}
+		if tc.has != "" && !slices.Contains(got, tc.has) {
+			t.Errorf("%s/%s lacks %s", tc.agent, tc.surface, tc.has)
+		}
+		if tc.lacks != "" && slices.Contains(got, tc.lacks) {
+			t.Errorf("%s/%s must not have %s", tc.agent, tc.surface, tc.lacks)
+		}
+		if tc.exact != nil && !slices.Equal(slices.Sorted(slices.Values(got)), tc.exact) {
+			t.Errorf("%s/%s set = %v, want exactly %v", tc.agent, tc.surface, slices.Sorted(slices.Values(got)), tc.exact)
+		}
+	}
+}
+
+func TestSpecAgentsAreRoster(t *testing.T) {
+	for _, s := range Specs() {
+		for _, list := range [][]string{s.Agents, s.Hosted, s.Plugin} {
+			for _, a := range list {
+				if !agentid.Known(a) {
+					t.Errorf("%s/%s names agent %q, not in agentid.All()", s.Event, s.Name, a)
+				}
+			}
+		}
+	}
+}

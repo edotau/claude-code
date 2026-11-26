@@ -8,12 +8,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/bench"
-	"github.com/edotau/claude-code/internal/review/diff"
-	"github.com/edotau/claude-code/internal/review/source"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/workflows"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/dev/review/diff"
+	"github.com/edotau/claude-code/internal/dev/review/source"
+	"github.com/edotau/claude-code/internal/dev/workflows"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.

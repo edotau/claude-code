@@ -10,7 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // DefaultRecoveryCap is the event-log tail RecoveryPrompt keeps when capBytes is not positive.

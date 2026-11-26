@@ -10,7 +10,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/mdlint"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
 )
 
 var (

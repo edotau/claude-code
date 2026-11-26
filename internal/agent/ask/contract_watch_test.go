@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/dev/contract"
 )
 
 func startFleet(t *testing.T, parent, id string, role contract.Role) error {

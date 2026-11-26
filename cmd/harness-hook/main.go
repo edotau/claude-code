@@ -8,12 +8,12 @@ import (
 
 	// the registries hook modules read: ask's flag schema and the agent roster with its drivers
 	_ "github.com/edotau/claude-code/internal/agent/ask"
-	_ "github.com/edotau/claude-code/internal/claude"
-	_ "github.com/edotau/claude-code/internal/codex"
-	_ "github.com/edotau/claude-code/internal/copilot"
+	_ "github.com/edotau/claude-code/internal/driver/claude"
+	_ "github.com/edotau/claude-code/internal/driver/codex"
+	_ "github.com/edotau/claude-code/internal/driver/copilot"
+	_ "github.com/edotau/claude-code/internal/driver/opencode"
+	_ "github.com/edotau/claude-code/internal/driver/pi"
 	_ "github.com/edotau/claude-code/internal/memory/shadow"
-	_ "github.com/edotau/claude-code/internal/opencode"
-	_ "github.com/edotau/claude-code/internal/pi"
 )
 
 func main() { os.Exit(hooks.Main(os.Args)) }

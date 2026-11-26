@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // suiteRuns are whole-suite test runs in every language and wrapper the gate reads (point 2 of the plan).

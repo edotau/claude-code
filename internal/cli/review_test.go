@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 func TestWorkflowTarget(t *testing.T) {

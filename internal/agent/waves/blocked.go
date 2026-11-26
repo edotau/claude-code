@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/dev/plans"
 )
 
 // wait is what one leaf waits on: siblings of its own wave, done earlier tasks, or a hold only main can lift.

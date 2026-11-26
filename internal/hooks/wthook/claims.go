@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/shell"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/schemas"
+	"github.com/edotau/claude-code/internal/platform/shell"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // claim is one claims-ledger line: the reader's worktree.Claim stamped with the schema version.

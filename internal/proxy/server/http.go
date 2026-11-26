@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
+	"github.com/edotau/claude-code/internal/remote/egress"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.

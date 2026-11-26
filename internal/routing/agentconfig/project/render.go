@@ -1,0 +1,170 @@
+package project
+
+import (
+	"slices"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+)
+
+// agentBanner is the first body line of every generated agent file; prune only ever touches files carrying it.
+func agentBanner(agent Source, comment func(string) string) string {
+	return comment(agentBannerText + agent.dirName + ".md; do not edit by hand.")
+}
+
+func htmlComment(s string) string { return "<!-- " + s + " -->" }
+func hashComment(s string) string { return "# " + s }
+
+// agentBody is the shared system prompt: the agent body trimmed to one trailing newline.
+func agentBody(agent Source) string {
+	return strings.TrimRight(strings.TrimLeft(agent.body, "\n"), "\n") + "\n"
+}
+
+// renderGeminiAgent: ~/.gemini/agents/<name>.md — strict schema: name, description, translated tools only.
+func renderGeminiAgent(agent Source) string {
+	tools := geminiTools(toolList(agent.frontmatter["tools"]))
+	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
+	if len(tools) > 0 {
+		fields = append(fields, orderedField{"tools", tools})
+	}
+	return renderMarkdownAgent(agent, fields)
+}
+
+// renderMarkdownAgent is the frontmatter + banner + body tail every markdown agent renderer ends with.
+func renderMarkdownAgent(agent Source, fields []orderedField) string {
+	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+agentBody(agent))
+}
+
+// geminiToolNames maps Claude Code tool names onto agy's native tools (it has no grep, glob, ls or fetch tool).
+var geminiToolNames = map[string]string{
+	"Read": "read_file", "Write": "write_file", "Edit": "edit_file", "Bash": "run_command", "WebSearch": "search_web",
+}
+
+// geminiTools translates a Claude tool list; tools agy lacks (Agent, Grep, Glob, LS, WebFetch, MCP) are dropped.
+func geminiTools(claude []string) []string {
+	var out []string
+	for _, name := range claude {
+		if g, ok := geminiToolNames[name]; ok {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// copilotToolNames maps Claude Code tool names onto Copilot's custom-agent tool aliases.
+var copilotToolNames = map[string]string{
+	"Read": "read", "Grep": "search", "Glob": "search", "LS": "search", "Edit": "edit", "Write": "edit",
+	"Bash": "execute", "Agent": "agent", "WebFetch": "web", "WebSearch": "web",
+}
+
+// copilotTools translates a Claude tool list (deduplicated, order kept) and returns the names with no Copilot alias.
+func copilotTools(claude []string) (mapped, dropped []string) {
+	seen := map[string]bool{}
+	for _, name := range claude {
+		c, ok := copilotToolNames[name]
+		switch {
+		case !ok:
+			dropped = append(dropped, name)
+		case !seen[c]:
+			seen[c] = true
+			mapped = append(mapped, c)
+		}
+	}
+	return mapped, dropped
+}
+
+// concreteModel returns the frontmatter model when it names a real model; Claude tier aliases have no other-CLI route.
+func concreteModel(agent Source) string {
+	m := toString(agent.frontmatter["model"])
+	switch strings.ToLower(m) {
+	case "", "inherit", "sonnet", "opus", "haiku":
+		return ""
+	}
+	return m
+}
+
+// readOnlyTools reports an explicit tools: list that grants none of Edit, Write or Bash.
+func readOnlyTools(agent Source) bool {
+	tools := toolList(agent.frontmatter["tools"])
+	return len(tools) > 0 && !slices.ContainsFunc(tools, func(t string) bool { return t == "Edit" || t == "Write" || t == "Bash" })
+}
+
+// renderCopilotAgent: ~/.copilot/agents/<name>.md — Copilot tool names (dropped ones in a comment), model if concrete.
+func renderCopilotAgent(agent Source) string {
+	tools, dropped := copilotTools(toolList(agent.frontmatter["tools"]))
+	fields := []orderedField{{"name", agent.Name()}, {"description", skillDescription(agent)}}
+	if len(tools) > 0 {
+		fields = append(fields, orderedField{"tools", tools})
+	}
+	if m := concreteModel(agent); m != "" {
+		fields = append(fields, orderedField{"model", m})
+	}
+	note := ""
+	if len(dropped) > 0 {
+		note = htmlComment("Tools with no Copilot equivalent, dropped: "+strings.Join(dropped, ", ")) + "\n\n"
+	}
+	return buildFrontmatterFile(fields, agentBanner(agent, htmlComment)+"\n\n"+note+agentBody(agent))
+}
+
+// renderOpenCodeAgent: ~/.config/opencode/agents/<name>.md — mode: subagent, read-only agents deny edit and bash.
+func renderOpenCodeAgent(agent Source) string {
+	fields := []orderedField{{"description", skillDescription(agent)}, {"mode", "subagent"}}
+	if m := concreteModel(agent); m != "" {
+		fields = append(fields, orderedField{"model", m})
+	}
+	out := renderMarkdownAgent(agent, fields)
+	if !readOnlyTools(agent) {
+		return out
+	}
+	// The field writer emits only scalars and flat lists, so the nested permission block is spliced in here.
+	return strings.Replace(out, "\n---\n\n", "\npermission:\n  edit: deny\n  bash: deny\n---\n\n", 1)
+}
+
+// renderCodexAgent: ~/.codex/agents/<name>.toml — name, description, developer_instructions, reasoning effort.
+func renderCodexAgent(agent Source) string {
+	lines := []string{
+		agentBanner(agent, hashComment),
+		"name = " + agentconfig.TOMLQuoteRaw(agent.Name()),
+		"description = " + tomlMultiline(skillDescription(agent)),
+	}
+	if effort := codexEffort(toString(agent.frontmatter["effort"])); effort != "" {
+		lines = append(lines, "model_reasoning_effort = "+agentconfig.TOMLQuoteRaw(effort))
+	}
+	lines = append(lines, "developer_instructions = "+tomlMultiline(agentBody(agent)))
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// codexEffort maps the harness effort scale onto codex's; "max" has no codex value and becomes xhigh.
+func codexEffort(effort string) string {
+	if agentid.ValidEffort(agentid.Codex, effort) != nil {
+		return ""
+	}
+	native, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(effort))
+	return native
+}
+
+// toolList normalizes `tools:` (comma string or YAML list) to a clean string slice.
+func toolList(v any) []string {
+	var raw []string
+	switch t := v.(type) {
+	case []string:
+		raw = t
+	case string:
+		raw = strings.Split(t, ",")
+	}
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// tomlMultiline renders a TOML multi-line basic string; a `"""` inside the text is escaped as `""\"`.
+func tomlMultiline(s string) string {
+	escaped := strings.ReplaceAll(s, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"""`, `""\"`)
+	return "\"\"\"\n" + escaped + "\"\"\""
+}

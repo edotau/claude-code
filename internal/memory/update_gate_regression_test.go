@@ -3,7 +3,7 @@ package memory
 import (
 	"testing"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {

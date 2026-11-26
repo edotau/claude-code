@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // waitRecord saves a dispatch record with the given id and status, owned by this live process.

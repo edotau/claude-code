@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // cmdMemorySync runs one sync pass; the hidden --serve form is the peer side of it, run over ssh.

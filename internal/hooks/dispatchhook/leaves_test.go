@@ -17,16 +17,16 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	_ "github.com/edotau/claude-code/internal/codex" // registers the codex row the label-cell pin tests resolve
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	_ "github.com/edotau/claude-code/internal/driver/codex" // registers the codex row the label-cell pin tests resolve
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // writeMeta lays down <transcript dir>/<session>/subagents/agent-<agent>.meta.json mapping agent → toolUseId.

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/bench"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 const cannedBench = `{"commit":"abc1234","cpus":8,"noisy_load":false,"packages":[{

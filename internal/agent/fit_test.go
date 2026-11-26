@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/routing/catalog"
 )
 
 // Only successes and quality failures reach the fit table; an availability failure counts for nothing.

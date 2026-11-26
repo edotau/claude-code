@@ -1,0 +1,247 @@
+package opencode
+
+import (
+	"bufio"
+	"cmp"
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+
+	"github.com/edotau/claude-code/internal/agent"
+)
+
+type openCodeEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"sessionID"`
+	Part      struct {
+		Text   string `json:"text"`
+		Tool   string `json:"tool"`
+		CallID string `json:"callID"`
+		State  struct {
+			Status string `json:"status"`
+			// the call's arguments, sent once the tool has run
+			Input map[string]any `json:"input"`
+			// its result (a string for the built-in tools)
+			Output any `json:"output"`
+		} `json:"state"`
+		// step_finish: stop, length, tool-calls, ...
+		Reason string `json:"reason"`
+		// step_finish: USD
+		Cost   float64 `json:"cost"`
+		Tokens struct {
+			Input, Output, Reasoning int
+			Cache                    struct{ Read, Write int }
+		} `json:"tokens"`
+	} `json:"part"`
+	Error struct {
+		Name string `json:"name"`
+		Data struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	} `json:"error"`
+}
+
+// isMeaningfulOpenCodeEvent reports whether ev is real model output; step_start only renews the idle timeout.
+func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
+	switch ev.Type {
+	case "step_finish":
+		return true
+	case "text", "reasoning":
+		if strings.TrimSpace(ev.Part.Text) != "" {
+			return true
+		}
+	case "tool", "tool_use":
+		if ev.Part.Tool != "" || ev.Part.State.Status != "" {
+			return true
+		}
+	}
+	return ev.Part.Tokens.Output > 0
+}
+
+// parseOpenCodeEvents streams root text, signals first content and finished tools, and reports every decoded event.
+func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onEvent func(openCodeEvent), logs ...wire.StreamLog) (res wire.Result, _ error) {
+	lg := wire.PickLog(logs)
+	t := &ocTurn{sink: sink, lg: lg, res: &res, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
+		onMeaningful: onMeaningful, onTool: onTool, onEvent: onEvent}
+	tr, err := wire.DecodeEvents(br, lg, "decode opencode json", true, nil, t.handle)
+	res.Transport, res.Answer = tr, t.ans.String()
+	if res.Answer == "" && t.toolRan {
+		res.Answer = agent.NoTextAnswer
+	}
+	if err != nil {
+		return res, err
+	}
+	if t.cut { // the last step ended on the output token limit: its answer is cut short
+		res.Answer = ""
+		t.errs = append(t.errs, "opencode: step finished with reason length (output token limit)")
+	}
+	if len(t.errs) > 0 {
+		out := errors.New(strings.Join(t.errs, "; "))
+		if t.cut {
+			return res, retry.WithBudget(out, retry.BudgetOutput)
+		}
+		return res, out
+	}
+	return res, nil
+}
+
+// ocTurn is parseOpenCodeEvents' state across one run's JSON events.
+type ocTurn struct {
+	sink         wire.Sink
+	lg           wire.StreamLog
+	res          *wire.Result
+	ans          wire.Answer
+	errs         []string
+	seenTools    map[string]bool
+	fired        bool
+	toolRan      bool
+	cut          bool // the last step_finish reason was length
+	onMeaningful func()
+	onTool       func(openCodeEvent)
+	onEvent      func(openCodeEvent)
+}
+
+// handle applies one decoded event.
+func (t *ocTurn) handle(ev openCodeEvent, _ *wire.TransportTracker) (bool, error) {
+	if ev.SessionID != "" {
+		t.res.SessionID = ev.SessionID
+	}
+	t.notify(ev)
+	return false, t.apply(ev)
+}
+
+// notify reports the event, then fires the meaningful callback once.
+func (t *ocTurn) notify(ev openCodeEvent) {
+	if t.onEvent != nil {
+		t.onEvent(ev)
+	}
+	if !t.fired && t.onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
+		t.fired = true
+		t.onMeaningful()
+	}
+}
+
+func (t *ocTurn) apply(ev openCodeEvent) error {
+	switch ev.Type {
+	case "text":
+		return t.text(ev)
+	case "tool", "tool_use":
+		return t.tool(ev)
+	case "step_finish":
+		t.stepFinish(ev)
+	case "error":
+		return t.errorEvent(ev)
+	}
+	return nil
+}
+
+func (t *ocTurn) text(ev openCodeEvent) error {
+	if ev.Part.Text == "" {
+		return nil
+	}
+	if err := t.ans.Emit(t.sink, ev.Part.Text, true); err != nil {
+		return err
+	}
+	t.lg.Emit("assistant", ev.Part.Text)
+	return nil
+}
+
+func (t *ocTurn) tool(ev openCodeEvent) error {
+	if err := emitOpenCodeTool(t.sink, ev, t.seenTools, t.res.Usage); err != nil {
+		return err
+	}
+	if ev.Part.State.Status != "completed" {
+		return nil
+	}
+	t.toolRan = true
+	t.res.Written = append(t.res.Written, writtenPaths(ev)...)
+	if t.onTool != nil {
+		t.onTool(ev)
+	}
+	return nil
+}
+
+var openCodeWriteTools = map[string]bool{"write": true, "edit": true, "multiedit": true}
+
+// writtenPaths lists the files a completed write, edit or apply_patch call changed.
+func writtenPaths(ev openCodeEvent) []string {
+	in := ev.Part.State.Input
+	if path, _ := in["filePath"].(string); path != "" && openCodeWriteTools[ev.Part.Tool] {
+		return []string{path}
+	}
+	if patch, _ := in["patchText"].(string); ev.Part.Tool == "apply_patch" {
+		var out []string
+		for _, e := range textutil.PatchEdits(patch) {
+			if e.Kind != textutil.PatchDelete {
+				out = append(out, e.Path)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func (t *ocTurn) stepFinish(ev openCodeEvent) {
+	t.res.Turns++
+	t.cut = ev.Part.Reason == "length"
+	tk := ev.Part.Tokens
+	u := &t.res.Usage
+	u.InputTokens += tk.Input
+	u.CacheReadTokens += tk.Cache.Read
+	u.CacheCreationTokens += tk.Cache.Write
+	u.OutputTokens += tk.Output + tk.Reasoning
+	u.CostUSD += ev.Part.Cost
+	t.lg.Emit("result", fmt.Sprintf("step finished (%s), tokens in=%d out=%d", cmp.Or(ev.Part.Reason, "unknown"), tk.Input, tk.Output+tk.Reasoning))
+}
+
+func (t *ocTurn) errorEvent(ev openCodeEvent) error {
+	msg := cmp.Or(ev.Error.Data.Message, ev.Error.Name, "unknown error")
+	t.errs = append(t.errs, msg)
+	return wire.EmitError(t.lg, t.sink, msg)
+}
+
+// emitOpenCodeTool emits tool_use once per call id, then tool_result when that call completes or errors.
+func emitOpenCodeTool(sink wire.Sink, ev openCodeEvent, seen map[string]bool, sofar wire.Usage) error {
+	p := ev.Part
+	if p.Tool == "" {
+		return nil
+	}
+	if !seen[p.CallID] {
+		seen[p.CallID] = true
+		use := wire.ToolEvent(p.Tool, p.CallID)
+		if sofar != (wire.Usage{}) {
+			use.Usage = &sofar // total through the last step_finish, so a running row shows live tokens
+		}
+		if err := sink.Emit(use); err != nil {
+			return err
+		}
+	}
+	if p.State.Status == "completed" || p.State.Status == "error" {
+		return sink.Emit(wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: p.Tool, ID: p.CallID}, Status: p.State.Status})
+	}
+	return nil
+}
+
+// toolCallMarkupRE matches tool-call markup a model writes as text when it has no tools to call.
+var toolCallMarkupRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?s)<(invoke|function_calls|antml:invoke)\b.*?(</(invoke|function_calls|antml:invoke)>|$)`)
+})
+
+// refuseToolCallText fails a tools-off run whose whole answer is tool-call markup: the model tried to act, nothing ran.
+func refuseToolCallText(name string, req agent.RunOptions, answer string) error {
+	if req.Tools || !toolCallMarkupRE().MatchString(answer) {
+		return nil
+	}
+	if rest := strings.TrimSpace(toolCallMarkupRE().ReplaceAllString(answer, "")); len(rest) > 40 {
+		// prose around the markup is a real answer that quotes it
+		return nil
+	}
+	return retry.Fatal(name, errors.New(
+		"the model answered with tool calls, but tools are off so none ran; re-run with --tools or use another agent"))
+}

@@ -6,9 +6,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/driver/claude"
+	"github.com/edotau/claude-code/internal/driver/codex"
 )
 
 // anthropicSpec is the completion node for the anthropic verb.

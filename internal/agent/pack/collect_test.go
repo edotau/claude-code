@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // TestMain moves TMPDIR out of /tmp: a stray /tmp/.git makes collect's fail-closed check reject every fixture.

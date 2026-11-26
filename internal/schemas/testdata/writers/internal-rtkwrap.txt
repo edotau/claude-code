@@ -1,3 +1,0 @@
-internal/rtkwrap/log.go:logVerdict	unversioned: log: rtkwrap trial decision rows (dispatch, ~cwd, flag names, argc; no argv values), append-only, rotated to .1 at 16 MiB
-internal/rtkwrap/rtkwrap.go:Ensure	unversioned: script: shim-dir .bash_env, an EXIT trap a wrapped Pi launch sets as BASH_ENV
-internal/rtkwrap/session.go:SetSessionFlag	unversioned: flag: per-session code-mode switch, 0600, exists = on

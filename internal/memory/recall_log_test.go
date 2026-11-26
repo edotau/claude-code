@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // Rotation preserves history; returns exclude old reads and injections.

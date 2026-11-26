@@ -14,13 +14,13 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/dev/transcript"
+	"github.com/edotau/claude-code/internal/dev/workflows"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/transcript"
-	"github.com/edotau/claude-code/internal/workflows"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // agentLineRe matches a brief's `Agent:` line (read from briefHeader only); agentNameRe the words in it.

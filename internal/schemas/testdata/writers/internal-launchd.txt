@@ -1,1 +1,0 @@
-internal/launchd/launchd.go:install	unversioned: foreign: launchd plist (Apple format)

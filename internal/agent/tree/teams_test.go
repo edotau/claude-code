@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/proxyteam"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 )
 
 func TestTeamOnlyTreeRenders(t *testing.T) {

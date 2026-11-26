@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // laneJob is one finished run in a lane: who to tell, its UNFIXED verdict, its plan task, and a still-done check.
@@ -270,7 +270,7 @@ func laneChanged(repo *worktree.Repo, lane string) []string {
 func restrictionFiles(files []string) []string {
 	return slices.DeleteFunc(slices.Clone(files), func(f string) bool {
 		base := filepath.Base(f)
-		return !strings.HasPrefix(f, "internal/hooks/safety/") && f != "internal/settings/hookspec.go" &&
+		return !strings.HasPrefix(f, "internal/hooks/safety/") && f != "internal/platform/settings/hookspec.go" &&
 			(!strings.HasPrefix(base, "settings") || !strings.HasSuffix(base, ".json")) && !strings.HasPrefix(f, "(")
 	})
 }

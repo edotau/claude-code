@@ -16,16 +16,16 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	_ "github.com/edotau/claude-code/internal/claude"
-	_ "github.com/edotau/claude-code/internal/codex"
-	_ "github.com/edotau/claude-code/internal/copilot"
-	_ "github.com/edotau/claude-code/internal/gemini"
-	"github.com/edotau/claude-code/internal/hosttest"
-	_ "github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	_ "github.com/edotau/claude-code/internal/driver/claude"
+	_ "github.com/edotau/claude-code/internal/driver/codex"
+	_ "github.com/edotau/claude-code/internal/driver/copilot"
+	_ "github.com/edotau/claude-code/internal/driver/gemini"
+	_ "github.com/edotau/claude-code/internal/driver/opencode"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func TestAgentTransferInterspersedFlags(t *testing.T) {

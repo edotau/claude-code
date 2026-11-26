@@ -13,8 +13,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/platform/vault"
 )
 
 // Client tokens are long-lived, named, vault-held (hash only) tokens for an editor; accepted on serving-row /p/ routes.

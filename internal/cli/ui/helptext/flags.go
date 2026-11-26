@@ -1,0 +1,308 @@
+package helptext
+
+import (
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+)
+
+// WantsHelp reports a -h/-help/--help token before any "--", so callers can send help to stdout themselves.
+func WantsHelp(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-h" || a == "-help" || a == "--help" {
+			return true
+		}
+	}
+	return false
+}
+
+// ExitCode maps a FlagSet parse error to the verb's exit code: 0 after -h, 2 for a bad flag.
+func ExitCode(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	return 2
+}
+
+// Parse parses args into fs: (0,false) to continue, (0,true) after -h, (2,true) on a bad flag.
+func Parse(fs *flag.FlagSet, args []string) (code int, done bool) {
+	if err := fs.Parse(args); err != nil {
+		return ExitCode(err), true
+	}
+	return 0, false
+}
+
+// NewFlagSet builds a ContinueOnError FlagSet on stderr whose -h renders p with p.Flags set to it.
+func NewFlagSet(name string, p Page) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		p.Flags = fs
+		p.Fprint(fs.Output())
+	}
+	return fs
+}
+
+// Explicit is true when --<name> appeared on the command line fs parsed, so it beats any computed default.
+func Explicit(fs *flag.FlagSet, name string) bool {
+	explicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			explicit = true
+		}
+	})
+	return explicit
+}
+
+// ExtractBool pulls a `--name[=bool]` out of args before any "--"; stdlib flag needs them before positionals.
+func ExtractBool(args []string, name string) (bool, []string) {
+	flag := "--" + name
+	found := false
+	rest := make([]string, 0, len(args))
+	for i, a := range args {
+		if a == "--" {
+			return found, append(rest, args[i:]...)
+		}
+		if a == flag {
+			found = true
+			continue
+		}
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
+			if b, err := strconv.ParseBool(v); err == nil {
+				found = b
+				continue
+			}
+		}
+		rest = append(rest, a)
+	}
+	return found, rest
+}
+
+// Fail prints a one-line error and returns exit code 1, or 3 when an argument is an auth failure.
+func Fail(format string, a ...any) int {
+	return Report(NewError(ExitRuntime, format, a...))
+}
+
+// FailUsage prints a one-line error and returns usage exit code 2.
+func FailUsage(format string, a ...any) int {
+	return Report(NewError(ExitUsage, format, a...))
+}
+
+// SecretFlag registers --secret, the one flag that prints a credential's actual value.
+func SecretFlag(fs *flag.FlagSet) *bool {
+	return fs.Bool("secret", false, "print the actual value (default: <redacted: N bytes>)")
+}
+
+// Secret is one output line: Prefix, then Value, or its redacted stand-in without --secret.
+type Secret struct{ Prefix, Value string }
+
+// stdoutTerminal is the seam for whether stdout is a terminal.
+var stdoutTerminal = func() bool { return proc.IsTerminal(os.Stdout) }
+
+// PrintSecrets prints lines; a redacted print to a pipe exits 1, so $(…) never passes it on as a credential.
+func PrintSecrets(verb string, secret bool, lines ...Secret) int {
+	var b strings.Builder
+	for _, l := range lines {
+		v := l.Value
+		if !secret {
+			v = fmt.Sprintf("<redacted: %d bytes>", len(v))
+		}
+		textutil.WriteStrings(&b, l.Prefix, v, "\n")
+	}
+	if _, err := io.WriteString(os.Stdout, b.String()); err != nil {
+		return Fail("%s: %v", verb, err)
+	}
+	if secret || stdoutTerminal() {
+		return 0
+	}
+	return Fail("%s: printed redacted to a pipe; --secret prints the value (main session only)", verb)
+}
+
+// WriteJSONOrFail writes v as indented JSON to stdout; a write error is reported under label and returns 1.
+func WriteJSONOrFail(label string, v any) int {
+	if err := WriteJSON(os.Stdout, v); err != nil {
+		return Fail("%s: %v", label, err)
+	}
+	return 0
+}
+
+// BadFormat reports an invalid --format value as a usage error (exit 2).
+func BadFormat(prefix string, err error) int {
+	if prefix == "" {
+		return FailUsage("%v", err)
+	}
+	return FailUsage(prefix+": %v", err)
+}
+
+const (
+	Text = "text"
+	JSON = "json"
+)
+
+// FormatFlag registers --format on fs, defaulting to text.
+func FormatFlag(fs *flag.FlagSet) *string {
+	return FormatFlagWithUsage(fs, "output format: text|json")
+}
+
+// FormatFlagWithUsage registers a text|json format flag with command-specific help text.
+func FormatFlagWithUsage(fs *flag.FlagSet, usage string) *string {
+	v := new(string)
+	*v = Text
+	fs.Var(NewFormatValue(v), "format", usage+` (default "text")`)
+	return v
+}
+
+// NewFormatValue validates a string backed by an existing field at flag parse time.
+func NewFormatValue(v *string) flag.Value {
+	return formatValue{v}
+}
+
+type formatValue struct{ value *string }
+
+func (f formatValue) String() string {
+	if f.value == nil { // flag.PrintDefaults probes the zero value; the default is shown in usage.
+		return Text
+	}
+	return *f.value
+}
+func (f formatValue) Get() any            { return *f.value }
+func (f formatValue) Placeholder() string { return "string" }
+func (f formatValue) Set(v string) error {
+	if err := CheckFormat(v); err != nil {
+		return err
+	}
+	*f.value = v
+	return nil
+}
+
+// CheckFormat rejects anything but text or json.
+func CheckFormat(v string) error {
+	if v != Text && v != JSON {
+		return fmt.Errorf("--format %q: want text or json", v)
+	}
+	return nil
+}
+
+// WriteJSON encodes v as indented JSON followed by a newline.
+func WriteJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// ParseArgs is fs.Parse with flags allowed after positionals; everything after the first "--" is positional.
+func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+	head, tail := args, []string(nil)
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			head, tail = args[:i], args[i+1:]
+			break
+		}
+		if consumesValue(fs, args[i]) {
+			i++ // the next token is this flag's value, e.g. "--output --"; it can't be the terminator
+		}
+	}
+	var pos []string
+	for {
+		if err := fs.Parse(head); err != nil {
+			return nil, err
+		}
+		head = fs.Args()
+		if len(head) == 0 {
+			return append(pos, tail...), nil
+		}
+		pos, head = append(pos, head[0]), head[1:]
+	}
+}
+
+// consumesValue reports whether a is a registered non-bool flag without "=", so the "--" scan skips its value token.
+func consumesValue(fs *flag.FlagSet, a string) bool {
+	if len(a) < 2 || a[0] != '-' {
+		return false
+	}
+	name := strings.TrimLeft(a, "-")
+	if name == "" || strings.Contains(name, "=") {
+		return false
+	}
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !bf.IsBoolFlag()
+}
+
+// removedFlags maps each flag removed in the profile rename to its hint; they stay errors, never aliases.
+var removedFlags = map[string]string{
+	"--provider": "was renamed to --profile",
+	"--env":      "was renamed to --profile",
+	"--tier":     "was replaced by --model <alias>",
+	"--1m":       "was removed; 1M context is the base behavior on serving and anthropic endpoints",
+}
+
+// removedEverywhere are the entries RemovedFlagHint refuses on every verb that calls it; the rest are per command.
+var removedEverywhere = []string{"--provider", "--env", "--tier", "--1m"}
+
+// launcherValueFlags are non-bool flags known to consume the following token even if it starts with "-".
+var launcherValueFlags = []string{
+	"--profile", "--model", "--overlay", "--keep-env", "-f", "--file",
+	"--system-prompt", "--append-system-prompt", "-r", "--resume", "--session-id", "--add-dir", "--task",
+}
+
+// takesValue reports whether prev consumes next: fs decides when known, else only known value flags consume a "-" arg.
+func takesValue(fs *flag.FlagSet, prev, next string, names []string) bool {
+	if len(prev) < 2 || prev[0] != '-' || strings.Contains(prev, "=") {
+		return false
+	}
+	if fs != nil && fs.Lookup(strings.TrimLeft(prev, "-")) != nil {
+		return consumesValue(fs, prev)
+	}
+	if slices.Contains(names, prev) {
+		return false
+	}
+	return !strings.HasPrefix(next, "-") || slices.Contains(launcherValueFlags, prev)
+}
+
+// firstRemoved is the first of names typed before "--" that is not a flag value, or "".
+func firstRemoved(fs *flag.FlagSet, args, names []string) string {
+	prev := ""
+	for _, a := range args {
+		if takesValue(fs, prev, a, names) {
+			prev = ""
+			continue
+		}
+		if a == "--" {
+			return ""
+		}
+		prev = a
+		if name, _, _ := strings.Cut(a, "="); slices.Contains(names, name) {
+			return name
+		}
+	}
+	return ""
+}
+
+// RemovedFlagHintFS is the error for the first of names before "--" and not a flag's value (fs may be nil), or nil.
+func RemovedFlagHintFS(fs *flag.FlagSet, args []string, names ...string) error {
+	if name := firstRemoved(fs, args, names); name != "" {
+		return fmt.Errorf("%s %s", name, removedFlags[name])
+	}
+	return nil
+}
+
+// RemovedFlagHint returns the error for a removed flag before "--" (not a flag value), or nil.
+func RemovedFlagHint(args []string) error {
+	return RemovedFlagHintFS(nil, args, removedEverywhere...)
+}

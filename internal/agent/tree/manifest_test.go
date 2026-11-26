@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/edotau/claude-code/internal/codex"
+	_ "github.com/edotau/claude-code/internal/driver/codex"
 )
 
 // result.status wins when the script returns one; else the manifest status maps killed->error, completed->finished.

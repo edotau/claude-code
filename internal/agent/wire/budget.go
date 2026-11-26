@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // SpentBy is c's spend over the dispatch records of its subtree, a re-assigned holder's included.

@@ -63,7 +63,7 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 compile:  ## Build the bin/ binaries; no install
 	@mkdir -p $(dir $(BIN))
 	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)-$$$$"; tmp=".new.$$$$"; \
-	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
+	ldflags="-s -w -X github.com/edotau/claude-code/internal/platform/paths.BuildStamp=$$stamp"; \
 	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(BIN)$$tmp" ./cmd/claude-code && \
 	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(HOOK_BIN)$$tmp" ./cmd/harness-hook && \
 	size=$$(wc -c < "$(HOOK_BIN)$$tmp" | tr -d ' ') && \

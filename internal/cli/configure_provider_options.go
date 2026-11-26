@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func (o *configureOpts) conflictsWithAssignment() bool {

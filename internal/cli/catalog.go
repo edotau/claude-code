@@ -15,14 +15,14 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
-	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/providers"
-	endpoints "github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/table"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/table"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/catalog"
+	"github.com/edotau/claude-code/internal/routing/databricks/serving"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	endpoints "github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // catalogVerbs run for every agent; menuVerbs edit opencode's model menu and exist only there.

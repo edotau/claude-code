@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 type ExtractAction string

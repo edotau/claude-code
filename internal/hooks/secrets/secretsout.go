@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/platform/redact"
 )
 
 // VaultWait gives up on the vault read with a quarter of the budget left, so a stalled keyring never skips masking.

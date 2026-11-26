@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
 )
 
 // cutoffSchema versions the recent-cutoffs file; cutoffWindow is how long an entry steers a resubmit.

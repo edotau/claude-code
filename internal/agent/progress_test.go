@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // ProgressOf and Line label a running dispatch from its own files in the five shapes, drop a missing file, and clip.

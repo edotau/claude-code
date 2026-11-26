@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // The spawn mod's two payload calls ride the dispatch-effort command: top-level `harness_spawn` of "ready" or "query".

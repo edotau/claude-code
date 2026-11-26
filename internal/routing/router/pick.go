@@ -1,0 +1,827 @@
+package router
+
+import (
+	"bytes"
+	"cmp"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
+)
+
+// Gates a candidate must pass before it is scored; a Skip names the one that dropped it.
+const (
+	gateRow       = "row"
+	GateAvailable = "available"
+	gateAccount   = "account"
+	GateExhausted = "exhausted"
+	// a free opencode sub-candidate blocked at opus or on a work repo
+	gateFree = "free"
+	// the agent is deactivated (no profile set)
+	GateOff = "off"
+)
+
+// Candidate is one runnable dispatch: the agent, its cell at the alias, its account's state and its composite score.
+type Candidate struct {
+	Agent string `json:"agent"`
+	Cell
+	State   string             `json:"state"`
+	Billing string             `json:"billing"`
+	Scores  map[string]float64 `json:"scores,omitempty"`
+	Total   float64            `json:"total"`
+	// Profile names the profile a pinned or session-anchored candidate runs on; empty for every other candidate.
+	Profile string `json:"profile,omitempty"`
+}
+
+// Skip is an agent dropped by a gate, with why.
+type Skip struct {
+	Agent  string `json:"agent"`
+	Gate   string `json:"gate"`
+	Reason string `json:"reason"`
+}
+
+// PickResult is a pick: candidates in run order, the weights that scored them, then every skipped agent.
+type PickResult struct {
+	Alias      string             `json:"alias"`
+	Want       string             `json:"want,omitempty"`
+	Weights    map[string]float64 `json:"weights"`
+	Candidates []Candidate        `json:"candidates"`
+	Skipped    []Skip             `json:"skipped,omitempty"`
+}
+
+// PickOpts tunes a pick; nil funcs take the defaults (no presence check, no refresh, time.Now).
+type PickOpts struct {
+	Policy     Policy
+	Configured func(agent string, c Cell) error
+	// Account resolves the backend an agent actually uses ("" keeps the table's account key) and its billing type.
+	Account func(agent string, c Cell) (account, billing string)
+	// Refresh re-fetches one stale account and records it; the pick then rereads that entry.
+	Refresh func(ctx context.Context, account string) bool
+	Now     func() time.Time
+	// WorkRepo blocks free Zen on work repos; nil checks the cwd via IsWorkRepo.
+	WorkRepo func() bool
+	// Pins is every agent's routing pins, read once by the caller (agent.AgentPins).
+	Pins map[string]PinSpec
+	// CanServe reports whether provider p is usable by agent name (the roster's Serves).
+	CanServe func(agent string, p *providers.Provider) bool
+	// CodexModel respells codex's Databricks target for the agent (the pin or flag rule).
+	CodexModel func(providers.Target) providers.Target
+	// Lead is the profile the wanted agent leads with (coworkers: the session's or an override); "" = its pin leads.
+	Lead string
+	// refreshStale's collecting pass: must write nothing (no Discovery rotation)
+	dry bool
+}
+
+func (o PickOpts) canServe(agent string, p *providers.Provider) bool {
+	return o.CanServe == nil || o.CanServe(agent, p)
+}
+
+// codexModel is CodexModel applied to t, or t itself when unset.
+func (o PickOpts) codexModel(t providers.Target) providers.Target {
+	if o.CodexModel == nil {
+		return t
+	}
+	return o.CodexModel(t)
+}
+
+// PinSpec is one agent's routing pins: its profile, its model pin, its record fallback, and whether it is switched off.
+type PinSpec struct {
+	Profile, Model, Fallback string
+	Off                      bool
+}
+
+// pickScope is what a Dimension may read: the account states and every candidate scored together.
+type pickScope struct {
+	State      State
+	Candidates []Candidate
+	Latency    latencyTable
+}
+
+// Dimension is one scored axis, 0–1 with 1 better; success rate or alias fit can be added beside these.
+type Dimension interface {
+	Name() string
+	Score(c Candidate, s pickScope) float64
+}
+
+// Dimensions are the scored axes; table.json's weights must name exactly these.
+var Dimensions = []Dimension{priceDim{}, headroomDim{}, latencyDim{}}
+
+// Pick gates/scores want first, then ladder/score (low after non-low); FallbackAll Claude is last unless placed.
+func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o PickOpts) PickResult {
+	now, configured := time.Now(), o.Configured
+	if o.Now != nil {
+		now = o.Now()
+	}
+	if configured == nil {
+		configured = func(string, Cell) error { return nil }
+	}
+	if st == nil {
+		st = State{}
+	}
+	if o.Refresh != nil {
+		o.Refresh = t.refreshStale(ctx, alias, want, st, o, now, configured)
+	}
+	return t.pick(ctx, alias, want, st, o, now, configured)
+}
+
+func (t *RouteTable) pick(
+	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
+) PickResult {
+	ctx = withOverlayRoute(ctx)
+	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
+	pins := o.Pins
+	reg, err := providers.LoadShared()
+	if err != nil {
+		res.Skipped = append(res.Skipped, Skip{"registry", gateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
+	}
+	pg := &pickGate{reg: reg, held: map[string]bool{}}
+	ctx = context.WithValue(ctx, accountKey{}, accountFn(pg.providerAccount))
+	gate := func(agent string) []Candidate {
+		g := t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
+		if agent == want {
+			g = t.leadRotated(ctx, pg, alias, agent, g, st, o, now, configured, &res)
+		}
+		return g
+	}
+	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)
+	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res}
+	firstG = lp.admitGroups(firstG)
+	lastG = lp.admitGroups(lastG)
+	restG, lastG = lp.l.claim(restG, lastG)
+	firstG, restG = lp.l.armSplit(firstG, restG)
+	units := lp.units(restG)
+	restG = make([][]Candidate, len(units))
+	for i, u := range units {
+		restG[i] = u.cs
+	}
+	flatFirst, flatRest, flatLast := slices.Concat(firstG...), slices.Concat(restG...), slices.Concat(lastG...)
+	all := t.scoreVia(pg.providerAccount, slices.Concat(flatFirst, flatRest, flatLast), st, now)
+	nf, nr := len(flatFirst), len(flatRest)
+	firstG = regroup(firstG, all[:nf])
+	for i, g := range regroup(restG, all[nf:nf+nr]) {
+		units[i].cs = g
+	}
+	lastG = regroup(lastG, all[nf+nr:])
+	// units sort whole (not their individual candidates), so a free winner keeps its paid backup adjacent.
+	lp.l.placeClaude(units)
+	sortUnits(units)
+	res.Candidates = slices.Concat(firstG...)
+	for _, u := range units {
+		res.Candidates = append(res.Candidates, u.cs...)
+	}
+	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
+	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, reg, now, &res)
+	return res
+}
+
+// RotatedLead is a role rotation's pick as the route sees it: the row that leads, and rows no hop may use.
+type RotatedLead struct {
+	Row  string   `json:"row"`
+	Drop []string `json:"drop,omitempty"` // rows of exclusive providers the dispatch did not start on
+}
+
+type rotatedLeadKey struct{}
+
+// WithRotatedLead marks l on ctx: a wanted claude whose PickOpts.Lead is l.Row runs there first, never on l.Drop.
+func WithRotatedLead(ctx context.Context, l RotatedLead) context.Context {
+	return context.WithValue(ctx, rotatedLeadKey{}, l)
+}
+
+// RotatedLeadOf is the rotated lead marked on ctx; zero when none.
+func RotatedLeadOf(ctx context.Context) RotatedLead { return rotatedLead(ctx) }
+
+func rotatedLead(ctx context.Context) RotatedLead {
+	l, _ := ctx.Value(rotatedLeadKey{}).(RotatedLead)
+	return l
+}
+
+// leadRotated puts a wanted claude's rotated lead row ahead of base, which stays its fallback in order minus Drop.
+func (t *RouteTable) leadRotated(
+	ctx context.Context, pg *pickGate, alias, agent string, base []Candidate, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	lead := rotatedLead(ctx)
+	if lead.Row == "" || lead.Row != o.Lead || agent != "claude" || pg.reg == nil {
+		return base
+	}
+	o.CanServe = nil // claude runs on any row through the proxy, and the rotation already checked this one
+	head := t.gateRow(ctx, pg, alias, agent, lead.Row, "", false, st, o, now, configured, res)
+	drop := slices.Clone(lead.Drop)
+	if len(head) > 0 { // base's own cell on the lead's account is the same hop spelled another way
+		drop = append(drop, lead.Row)
+	}
+	rest := slices.DeleteFunc(slices.Clone(base), func(c Candidate) bool {
+		return slices.ContainsFunc(drop, func(row string) bool { return c.Profile == row || c.Account == pg.providerAccount(row) })
+	})
+	return append(head, rest...)
+}
+
+// deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.
+func deadLast(cs []Candidate, st State, reg *providers.Registry, now time.Time, res *PickResult) []Candidate {
+	var live, dead []Candidate
+	for _, c := range cs {
+		if !st.candidateDead(reg, c, now) {
+			live = append(live, c)
+			continue
+		}
+		dead = append(dead, c)
+		res.Skipped = append(res.Skipped, Skip{c.Agent, GateExhausted, c.Model + " is quota-denied on " + c.Account + "; tried last"})
+	}
+	return append(live, dead...)
+}
+
+// refreshConcurrency bounds the stale-account refreshes one pick runs at once.
+const refreshConcurrency = 4
+
+// refreshStale dry-picks stale accounts, refreshes concurrently, and prevents repeat refreshes in the real pick.
+func (t *RouteTable) refreshStale(
+	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
+) func(context.Context, string) bool {
+	refresh := o.Refresh
+	var stale []string
+	o.dry = true
+	o.Refresh = func(_ context.Context, account string) bool {
+		if !slices.Contains(stale, account) {
+			stale = append(stale, account)
+		}
+		return false
+	}
+	t.pick(ctx, alias, want, st, o, now, configured)
+	_, err := parallel.Map(context.Background(), stale, refreshConcurrency, func(_ context.Context, account string) (struct{}, error) {
+		refresh(ctx, account)
+		return struct{}{}, nil
+	})
+	parallel.Rethrow(err)
+	if len(stale) > 0 {
+		fresh := LoadState()
+		for _, account := range stale {
+			if e, ok := fresh[account]; ok {
+				st[account] = e
+			}
+		}
+	}
+	return func(ctx context.Context, account string) bool {
+		return !slices.Contains(stale, account) && refresh(ctx, account)
+	}
+}
+
+// dedupeCandidates drops later repeats of the same agent, account and model, keeping order.
+func dedupeCandidates(cs []Candidate) []Candidate {
+	seen := make(map[[3]string]bool)
+	return slices.DeleteFunc(cs, func(c Candidate) bool {
+		key := [3]string{c.Agent, c.Account, c.Model}
+		if seen[key] {
+			return true
+		}
+		seen[key] = true
+		return false
+	})
+}
+
+// OffOrder reports a gate skip of an agent the order never holds: not the wanted agent, claude or the registry.
+func OffOrder(label, want string) bool {
+	who, _, _ := strings.Cut(label, "·")
+	return who != want && who != "claude" && who != "registry"
+}
+
+// ClaudeBackstop is the last claude candidate when the fallback mode runs it after the others; -1 = none.
+func ClaudeBackstop(cands []Candidate, req int, p Policy) int {
+	p = p.Resolved()
+	if !p.Agents || !p.OffArm {
+		return -1
+	}
+	last := -1
+	for i, c := range cands {
+		if c.Agent == "claude" {
+			last = i
+		}
+	}
+	if last == req {
+		return -1
+	}
+	return last
+}
+
+// RequestedIndex is the candidate the caller asked for: the wanted agent on the overlay workspace, the lead or its pin.
+func RequestedIndex(ctx context.Context, cands []Candidate, want, lead string, pin int) int {
+	on := func(profile string) int {
+		acct := ProviderAccount(profile)
+		return slices.IndexFunc(cands, func(c Candidate) bool {
+			return c.Agent == want && (c.Profile == profile || c.Account == acct)
+		})
+	}
+	switch arm := ArmProfileContext(ctx); {
+	case arm != "":
+		return on(arm)
+	case want == "claude":
+		return slices.IndexFunc(cands, func(c Candidate) bool { return c.Agent == "claude" })
+	case lead != "":
+		return on(lead)
+	}
+	return pin
+}
+
+// AskedWorkspace reports the wanted agent on the overlay workspace or inside a confinement: neither is a fallback.
+func AskedWorkspace(ctx context.Context, cand Candidate, want string) bool {
+	if cand.Agent != want {
+		return false
+	}
+	if arm := ArmProfileContext(ctx); arm != "" && cand.Profile == arm {
+		// databricks:<p> asked for this workspace: running there is not a fallback
+		return true
+	}
+	// the confinement admitted it: the pin was set aside, nothing fell back
+	cp, _ := ConfinedContext(ctx)
+	return cp != ""
+}
+
+func skipNoRow(res *PickResult, agent, alias string) {
+	res.Skipped = append(res.Skipped, Skip{agent, gateRow, "no " + alias + " row"})
+}
+
+func skipNotConfigured(res *PickResult, agent string, err error) {
+	res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "not configured: " + textutil.FirstLine(strings.TrimSpace(err.Error()))})
+}
+
+// regroup reslices a flat, scored candidate list back into groups sized like the originals.
+func regroup(groups [][]Candidate, flat []Candidate) [][]Candidate {
+	out := make([][]Candidate, len(groups))
+	for i, g := range groups {
+		out[i], flat = flat[:len(g)], flat[len(g):]
+	}
+	return out
+}
+
+// gateAgent records failed gates; returns one candidate, or opencode’s free winner plus its paid backup.
+func (t *RouteTable) gateAgent(
+	ctx context.Context, alias, agent string, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	if agentid.Routing(agent).SubLadder && !t.OpencodeRowOverridden[alias] {
+		return t.gateOpencodeCandidate(ctx, alias, "", st, o, now, configured, res)
+	}
+	if agentid.Routing(agent).NoOwnLogin {
+		return nil
+	}
+	c, ok := t.Cell(agent, alias)
+	if !ok {
+		skipNoRow(res, agent, alias)
+		return nil
+	}
+	if err := configured(agent, c); err != nil {
+		skipNotConfigured(res, agent, err)
+		return nil
+	}
+	billing := t.Billing[c.Account]
+	if o.Account != nil {
+		if a, b := o.Account(agent, c); a != "" {
+			c.Account, billing = a, b
+		}
+	}
+	cand, ok := t.gateAccount(ctx, agent, c, billing, st, o, now, res)
+	if !ok {
+		return nil
+	}
+	return []Candidate{cand}
+}
+
+// gateAccount runs a resolved cell through the copilot-pin, auth-mark, refresh and exhausted gates; name labels Skips.
+func (t *RouteTable) gateAccount(
+	ctx context.Context, name string, c Cell, billing string, st State, o PickOpts, now time.Time, res *PickResult,
+) (Candidate, bool) {
+	if c.Account == copilotUnpinned {
+		res.Skipped = append(res.Skipped,
+			Skip{name, gateAccount, "no pinned Copilot account (claude-code configure agents --agent copilot)"})
+		return Candidate{}, false
+	}
+	if reason, marked := st.authMarkedVia(accountFrom(ctx), c.Account, now); marked {
+		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
+		return Candidate{}, false
+	}
+	e := st[c.Account]
+	if o.Refresh != nil && e.Stale(now) && e.Status(now) != StateExhausted && o.Refresh(ctx, c.Account) {
+		e = LoadState()[c.Account]
+		st[c.Account] = e
+	}
+	s := e.Status(now)
+	if s == StateExhausted {
+		res.Skipped = append(res.Skipped, Skip{name, GateExhausted, ExhaustedReason(c.Account, e, now)})
+		return Candidate{}, false
+	}
+	return Candidate{Agent: accountProvider(name), Cell: c, State: s, Billing: billing}, true
+}
+
+// opencodeOrder is free Zen then configured paid order; scores only break ties at the same position (owner policy).
+func (t *RouteTable) opencodeOrder() []string {
+	return slices.Concat([]string{"zen-free"}, t.OpencodeLadder)
+}
+
+// gateOpencodeCandidate gates logins/quota/free rules in order; a free winner keeps its first paid backup adjacent.
+func (t *RouteTable) gateOpencodeCandidate(
+	ctx context.Context, alias, only string, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) []Candidate {
+	var ok []opencodeSub
+	order := t.opencodeOrder()
+	if only != "" {
+		order = []string{only}
+	}
+	for _, id := range order {
+		if s, pass := t.gateOpencodeSub(ctx, id, alias, st, o, now, configured, res); pass {
+			ok = append(ok, s)
+		}
+	}
+	if len(ok) == 0 {
+		res.Skipped = append(res.Skipped, Skip{"opencode", GateAvailable, "no opencode sub-candidate passed (no login, exhausted, or free blocked)"})
+		return nil
+	}
+	slices.SortStableFunc(ok, func(a, b opencodeSub) int { return cmp.Compare(lowRank(a.state), lowRank(b.state)) })
+	w := ok[0]
+	group := []Candidate{{Agent: "opencode", Cell: w.c, State: w.state, Billing: w.billing}}
+	if only != "" {
+		return group
+	}
+	if w.billing == BillFree {
+		for _, s := range ok[1:] {
+			if s.billing != BillFree {
+				group = append(group, Candidate{Agent: "opencode", Cell: s.c, State: s.state, Billing: s.billing})
+				break
+			}
+		}
+	}
+	return group
+}
+
+type opencodeSub struct {
+	id      string
+	c       Cell
+	billing string
+	state   string
+}
+
+// gateOpencodeSub gates one ladder id at alias; pass is false when it is unknown, absent, blocked or unavailable.
+func (t *RouteTable) gateOpencodeSub(
+	ctx context.Context, id, alias string, st State, o PickOpts, now time.Time,
+	configured func(agent string, c Cell) error, res *PickResult,
+) (opencodeSub, bool) {
+	workRepo := o.WorkRepo
+	if workRepo == nil {
+		workRepo = func() bool { return IsWorkRepo("") }
+	}
+	name := "opencode·" + id
+	if _, known := t.OpencodeSub[id]; !known {
+		res.Skipped = append(res.Skipped, Skip{name, gateRow, "unknown opencode ladder id"})
+		return opencodeSub{}, false
+	}
+	c, has := t.OpencodeSub[id][alias]
+	if !has {
+		// e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
+		return opencodeSub{}, false
+	}
+	billing := t.Billing[c.Account]
+	if billing == BillFree && workRepo() {
+		res.Skipped = append(res.Skipped, Skip{name, gateFree, "free blocked on a work repo"})
+		return opencodeSub{}, false
+	}
+	if billing == BillFree && !t.OpencodeRouting.FreeTierOK(alias) {
+		res.Skipped = append(res.Skipped, Skip{name, gateFree, "free not enabled at " + alias})
+		return opencodeSub{}, false
+	}
+	if err := configured("opencode", c); err != nil {
+		skipNotConfigured(res, name, err)
+		return opencodeSub{}, false
+	}
+	cand, pass := t.gateAccount(ctx, name, c, billing, st, o, now, res)
+	if !pass {
+		return opencodeSub{}, false
+	}
+	return opencodeSub{id, c, billing, cand.State}, true
+}
+
+// gatherCandidates gates want, other agents, then FallbackAll Claude; free+paid groups remain inseparable.
+func (t *RouteTable) gatherCandidates(ctx context.Context, want string, o PickOpts, gate func(string) []Candidate) (first, rest, last [][]Candidate) {
+	if want != "" {
+		if cs := gate(want); len(cs) > 0 {
+			first = append(first, cs)
+		}
+	}
+	// the route falls a wanted claude through
+	if o.oneHop() || (want == "claude" && ArmProfileContext(ctx) == "") {
+		return first, nil, nil
+	}
+	rest = gateOthers(want, gate)
+	if want != "claude" {
+		last = claudeLast(o, gate)
+	}
+	return first, rest, last
+}
+
+func gateOthers(want string, gate func(string) []Candidate) (rest [][]Candidate) {
+	for _, r := range TableAgents {
+		if r == want || r == "claude" {
+			continue
+		}
+		if cs := gate(r); len(cs) > 0 {
+			rest = append(rest, cs)
+		}
+	}
+	return rest
+}
+
+// claudeLast gates claude as the final agent fallback.
+func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
+	if p := o.Policy.Resolved(); !p.Agents || !p.OffArm {
+		return nil
+	}
+	if cs := gate("claude"); len(cs) > 0 {
+		return [][]Candidate{cs}
+	}
+	return nil
+}
+
+// scoreVia fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
+func (t *RouteTable) scoreVia(acct accountFn, cs []Candidate, st State, now time.Time) []Candidate {
+	sc := pickScope{State: st, Candidates: cs, Latency: latencyFor(now)}
+	weights := t.Weights
+	if !sc.Latency.anyMeasured(cs) {
+		weights = withoutLatency(weights)
+	}
+	out := make([]Candidate, len(cs))
+	for i, c := range cs {
+		c.Scores = map[string]float64{}
+		for _, d := range Dimensions {
+			v := d.Score(c, sc)
+			c.Scores[d.Name()] = v
+			c.Total += weights[d.Name()] * v
+		}
+		if st.accountCooling(acct, c.Account, now) {
+			c.Total -= coolingPenalty
+		}
+		out[i] = c
+	}
+	return out
+}
+
+func lowRank(s string) int {
+	if s == StateLow {
+		return 1
+	}
+	return 0
+}
+
+// priceDim: a subscription window already paid for scores its share left; credits score cheapest-at-tier = 1.
+type priceDim struct{}
+
+func (priceDim) Name() string { return "price" }
+
+func (priceDim) Score(c Candidate, s pickScope) float64 {
+	if c.Billing == BillFree {
+		return 1
+	}
+	if c.Billing == BillSubscription {
+		return headroom(s.State[c.Account])
+	}
+	p, low := blended(c.Price), -1.0
+	for _, o := range s.Candidates {
+		if b := blended(o.Price); o.Billing != BillSubscription && b > 0 && (low < 0 || b < low) {
+			low = b
+		}
+	}
+	if p <= 0 || low <= 0 {
+		// unpriced cells tie
+		return 1
+	}
+	return low / p
+}
+
+// headroomDim is 1 − the used share of the account's tightest window.
+type headroomDim struct{}
+
+func (headroomDim) Name() string { return "headroom" }
+
+func (headroomDim) Score(c Candidate, s pickScope) float64 { return headroom(s.State[c.Account]) }
+
+// headroom of an unseen account is 0.5: unknown ranks below a reading known to have room.
+func headroom(e Entry) float64 {
+	if e.Seen.IsZero() {
+		return 0.5
+	}
+	return min(max(1-e.UsedPct/100, 0), 1)
+}
+
+// blended weights input 3:1 over output, the usual agentic read/write mix.
+func blended(p Price) float64 { return (3*p.In + p.Out) / 4 }
+
+// authSkipReason is the mark's own reason, else the login hint for the account's provider.
+func authSkipReason(reason, account string) string {
+	if reason != "" {
+		return reason
+	}
+	return "auth rejected: run `" + providers.LoginCommand(strings.TrimPrefix(account, "databricks·")) + "`"
+}
+
+// ExhaustedReason names the account and its reset, e.g. "github·aueric_boehcp exhausted until 2026-11-01".
+func ExhaustedReason(account string, e Entry, now time.Time) string {
+	s := account + " exhausted"
+	if u := e.Until(now); !u.IsZero() {
+		layout := "2006-01-02 15:04"
+		if u.Sub(now) > 24*time.Hour {
+			layout = "2006-01-02"
+		}
+		s += " until " + u.Local().Format(layout)
+	}
+	if e.Reason != "" {
+		s += " (" + e.Reason + ")"
+	}
+	return s
+}
+
+// EnvFallback (process, else vault env) names the mode: a route.FallbackModes value or 1/true/yes (all); unset is none
+const EnvFallback = "AGENT_ERROR_FALLBACK"
+
+// oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).
+func (o PickOpts) oneHop() bool {
+	return o.Policy.Resolved().Kind == PolicyNone || !o.Policy.Resolved().Agents
+}
+
+// ParseFallback reads a stored mode: empty is none, 1/true/yes is all; any other value is returned for validation.
+func ParseFallback(raw string) string {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case "":
+		return route.FallbackNone
+	case "1", "true", "yes":
+		return route.FallbackAll
+	default:
+		return v
+	}
+}
+
+// gitTimeout bounds each git call so a hung one fails closed instead of blocking a pick.
+const gitTimeout = 10 * time.Second
+
+// workRepoMarkers loads case-insensitive remote substrings; empty means personal, errors fail closed in IsWorkRepo.
+var workRepoMarkers = func() ([]string, error) {
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return nil, err
+	}
+	return slices.Clone(reg.Routing.Opencode.Markers()), nil // the registry is shared: callers get their own copy
+}
+
+// gitRemoteURLs lists fetch/push URLs via git remote -v; tests replace this seam.
+var gitRemoteURLs = perDir(func(dir string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "-v").Output()
+	if err != nil {
+		return nil, err
+	}
+	var urls []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if fields := strings.Fields(line); len(fields) >= 2 {
+			urls = append(urls, fields[1])
+		}
+	}
+	return urls, nil
+})
+
+// perDir memoizes f's successful answers by absolute dir for the process; errors are retried, never cached.
+func perDir[T any](f func(string) (T, error)) func(string) (T, error) {
+	var cache sync.Map
+	return func(dir string) (T, error) {
+		key, err := filepath.Abs(dir)
+		if err != nil {
+			return f(dir)
+		}
+		if v, ok := cache.Load(key); ok {
+			return v.(T), nil
+		}
+		v, err := f(dir)
+		if err == nil {
+			cache.Store(key, v)
+		}
+		return v, err
+	}
+}
+
+// gitInRepo runs `git rev-parse --git-dir`: only git's "not a git repository" verdict is false; other failures error.
+var gitInRepo = perDir(func(dir string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--git-dir")
+	// pin git's message language for the stderr match
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && strings.Contains(stderr.String(), "not a git repository") {
+		return false, nil
+	}
+	return false, err
+})
+
+// IsWorkRepo matches remote markers; empty markers/non-repos are personal, registry or git errors fail closed.
+func IsWorkRepo(dir string) bool {
+	markers, err := workRepoMarkers()
+	if err != nil {
+		// registry unreadable: fail closed, never fail open on free
+		return true
+	}
+	if len(markers) == 0 {
+		return false
+	}
+	if dir == "" {
+		dir = "."
+	}
+	inRepo, err := gitInRepo(dir)
+	if err != nil {
+		// git missing or errored (e.g. corrupt config): fail closed
+		return true
+	}
+	if !inRepo {
+		return false
+	}
+	urls, err := gitRemoteURLs(dir)
+	if err != nil {
+		// git errored inside a repo: fail closed
+		return true
+	}
+	return matchesWorkMarkers(urls, markers)
+}
+
+func matchesWorkMarkers(urls, markers []string) bool {
+	for _, u := range urls {
+		u = strings.ToLower(u)
+		for _, m := range markers {
+			if strings.Contains(u, strings.ToLower(m)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// WindowPick is a model whose context window is larger than the one a prompt overflowed.
+type WindowPick struct {
+	Model  string
+	Window int
+}
+
+// LargerWindow lists what may replace ran on p after an overflow: its 1M variant (allow1M), same family, the rest.
+func LargerWindow(p *providers.Provider, ran string, pool []string, floor int, allow1M bool) []WindowPick {
+	fits := func(id string) bool { return windowFits(p, id, ran, floor) }
+	var out, same, other []WindowPick
+	if bigger := models.Strip1M(ran) + "[1m]"; allow1M && !models.Has1M(ran) && fits(bigger) {
+		out = append(out, WindowPick{bigger, providers.Window(p, bigger)})
+	}
+	for _, entry := range pool {
+		id := providers.SpellPin(p, entry)
+		if w := providers.Window(p, id); fits(id) && rePickable(p, id, ran) {
+			if models.FamilyKind(id) == models.FamilyKind(ran) {
+				same = append(same, WindowPick{id, w})
+			} else {
+				other = append(other, WindowPick{id, w})
+			}
+		}
+	}
+	byWindow := func(a, b WindowPick) int { return cmp.Compare(a.Window, b.Window) }
+	slices.SortStableFunc(same, byWindow)
+	slices.SortStableFunc(other, byWindow)
+	return slices.Concat(out, same, other)
+}
+
+// OutputReserve is the reply room assumed for a model with no listed output limit (Claude Code's default max output).
+const OutputReserve = 32_000
+
+// windowFits: id's window is above ran's and, with a known prompt floor, above floor plus id's output limit.
+func windowFits(p *providers.Provider, id, ran string, floor int) bool {
+	need := providers.Window(p, ran) + 1
+	if floor > 0 {
+		lim, _ := providers.LimitsFor(p, models.Strip1M(id))
+		need = max(need, floor+cmp.Or(lim.Output, OutputReserve))
+	}
+	return providers.Window(p, id) >= need
+}
+
+// rePickable drops ran itself and, on Databricks, Fable, which that route refuses by name.
+func rePickable(p *providers.Provider, id, ran string) bool {
+	fam, _, _, claude := models.ParseClaudeID(id)
+	fable := claude && fam == models.Fable && p.Preset == providers.PresetDatabricks
+	return id != "" && !models.SameModel(id, ran) && !fable
+}

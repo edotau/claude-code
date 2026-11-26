@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/remote/network/remote"
+	"github.com/edotau/claude-code/internal/routing/route"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // ErrBadTransition marks a state change refused: not an edge of the table, or not the actor's to make.

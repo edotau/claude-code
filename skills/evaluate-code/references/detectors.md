@@ -55,7 +55,7 @@ The gate is opt-in, absent from seeded `settings.json`:
 4. **CI:** PR checks parse verdicts and fail the job explicitly; advisory verbs do not fail it for findings.
 
 Git setup: executable `.git/hooks/pre-commit` with `#!/bin/sh` and `exec claude-code review gate`.
-PreToolUse setup: `rules/harness/change-protocol.md`; register in `internal/settings/hookspec.go` and handle in
+PreToolUse setup: `rules/harness/change-protocol.md`; register in `internal/platform/settings/hookspec.go` and handle in
 `internal/hooks/dispatch.go`; owner runs `claude-code configure restore` or edits settings.
 CI: use `complexity --json` on changed supported source files (skip an empty list) and
 `diff --diff origin/main...HEAD --json`; reject FAIL, optionally WARN per team tolerance.

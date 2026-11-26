@@ -7,10 +7,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/preflight"
+	"github.com/edotau/claude-code/internal/driver/copilot"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // preflightRefresh re-lists stale served-endpoint caches within the preflight budget, silently.

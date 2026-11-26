@@ -1,0 +1,389 @@
+package source
+
+import (
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/proc"
+)
+
+type simplifyArgs struct {
+	targets   []string
+	base      string
+	threshold string
+	jsonOut   bool
+	fail      bool
+}
+
+type simplifyQuality struct {
+	Score  int     `json:"score"`
+	Grade  string  `json:"grade"`
+	Smells []Smell `json:"smells"`
+}
+
+type simplifyFile struct {
+	File       string          `json:"file"`
+	Complexity []Finding       `json:"complexity"`
+	Quality    simplifyQuality `json:"quality"`
+}
+
+type simplifySummary struct {
+	Files      int `json:"files"`
+	Complexity int `json:"complexity"`
+	Quality    int `json:"quality"`
+}
+
+type simplifyReport struct {
+	Files   []simplifyFile  `json:"files"`
+	Failed  []string        `json:"analysis_failed,omitempty"`
+	Summary simplifySummary `json:"summary"`
+}
+
+// parseSimplifyArgs: -h prints the usage page to stdout (exit 0); a bad flag or threshold exits 2.
+func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, int, bool) {
+	fs := helptext.NewFlagSet("review simplify", helptext.Page{
+		Usage: "claude-code review simplify [paths...] [flags]",
+		About: "One advisory pass of complexity and quality checks. With no paths, " +
+			"checks the files changed since the base.",
+	})
+	base := fs.String("base", "", "diff base ref, used only when no paths are given (default: merge-base with upstream, else HEAD~1)")
+	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
+	jsonOut := fs.Bool("json", false, "Output in JSON format")
+	fail := fs.Bool("fail", false, "exit 1 on NEW comment/size violations in changed Go lines (quality.md)")
+	if helptext.WantsHelp(args) {
+		fs.SetOutput(stdout)
+		fs.Usage()
+		return simplifyArgs{}, 0, true
+	}
+	fs.SetOutput(stderr)
+	targets, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return simplifyArgs{}, helptext.ExitCode(err), true
+	}
+	if _, ok := complexityThresholds[*threshold]; !ok {
+		fmt.Fprintf(stderr, "review simplify: argument --threshold: invalid choice: %q\n", *threshold)
+		return simplifyArgs{}, 2, true
+	}
+	if *fail && *jsonOut {
+		fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --json")
+		return simplifyArgs{}, 2, true
+	}
+	if *fail {
+		set := false
+		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "threshold" })
+		if set {
+			fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --threshold")
+			return simplifyArgs{}, 2, true
+		}
+	}
+	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail}, 0, false
+}
+
+// gitLines runs git with list args in dir and returns its non-empty output lines.
+func gitLines(dir string, args ...string) ([]string, error) {
+	out, err := proc.GitInheritTimeout(dir, append([]string{"-c", "core.quotepath=false"}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for l := range strings.SplitSeq(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines, nil
+}
+
+// simplifyBase resolves the diff base: the flag, else merge-base with upstream, else HEAD~1.
+func simplifyBase(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	if l, err := gitLines(".", "merge-base", "@{upstream}", "HEAD"); err == nil && len(l) > 0 {
+		return l[0]
+	}
+	return "HEAD~1"
+}
+
+// changedSimplifyFiles lists existing changed files (working tree vs base), relative to the cwd when possible.
+func changedSimplifyFiles(base string) ([]string, error) {
+	tops, err := gitLines(".", "rev-parse", "--show-toplevel")
+	if err != nil || len(tops) == 0 {
+		return nil, errors.New("not a git repository")
+	}
+	names, err := changedNames(tops[0], base)
+	if err != nil {
+		return nil, err
+	}
+	cwd, _ := os.Getwd()
+	if real, evalErr := filepath.EvalSymlinks(cwd); evalErr == nil {
+		cwd = real // git's toplevel is symlink-resolved (macOS /var -> /private/var); Rel needs the same root
+	}
+	var files []string
+	for _, n := range names {
+		abs := filepath.Join(tops[0], n)
+		if st, statErr := os.Stat(abs); statErr != nil || st.IsDir() {
+			continue
+		}
+		if rel, relErr := filepath.Rel(cwd, abs); relErr == nil {
+			abs = rel
+		}
+		files = append(files, abs)
+	}
+	return files, nil
+}
+
+// changedNames is git diff --name-only against base plus untracked files, which git diff never lists.
+func changedNames(top, base string) ([]string, error) {
+	if strings.HasPrefix(base, "-") {
+		return nil, fmt.Errorf("invalid base %q: must not start with '-'", base)
+	}
+	if _, err := gitLines(top, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+		return nil, fmt.Errorf("base %q does not exist (no upstream or previous commit?); pass --base <ref>", base)
+	}
+	names, err := gitLines(top, "diff", "--name-only", base, "--")
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s: %w", base, err)
+	}
+	untracked, err := gitLines(top, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+	return append(names, untracked...), nil
+}
+
+// simplifyTargets expands paths to supported-language files, deduped and sorted; an unreadable path never reads clean.
+func simplifyTargets(paths []string, warn io.Writer) (files, unreadable []string) {
+	var exts []string
+	for _, list := range Extensions {
+		for _, e := range list {
+			exts = append(exts, strings.TrimPrefix(e, "."))
+		}
+	}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		found, bad := walkComplexityFiles(p, exts, warn)
+		for _, b := range bad {
+			if !nonSourceFile(b) {
+				unreadable = append(unreadable, b)
+			}
+		}
+		for _, f := range found {
+			if key := resolvePath(f); !seen[key] && DetectLanguage(f) != "" {
+				seen[key] = true
+				files = append(files, f)
+			}
+		}
+	}
+	sort.Strings(files)
+	return files, unreadable
+}
+
+// nonSourceFile is true for an existing non-directory path of no supported language; a dir may hide source files.
+func nonSourceFile(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir() && DetectLanguage(p) == ""
+}
+
+// analyzeSimplifyFile runs both checks on one file; an error means the file could not be analyzed.
+func analyzeSimplifyFile(path string, th thresholds) (simplifyFile, error) {
+	q, err := qualityOf(path)
+	if err != nil {
+		return simplifyFile{}, err
+	}
+	var findings []Finding
+	r, cerr := analyzeFileComplexity(path, th)
+	if cerr != nil {
+		return simplifyFile{}, cerr
+	}
+	if r != nil {
+		findings = r.Findings
+	}
+	return simplifyFile{File: path, Complexity: NonNil(findings),
+		Quality: simplifyQuality{Score: q.QualityScore, Grade: q.Grade, Smells: NonNil(q.Smells)}}, nil
+}
+
+// analyzeSimplifyTargets runs both checks on each file; a file that cannot be analyzed lands in Failed.
+func analyzeSimplifyTargets(files []string, th thresholds, stderr io.Writer) simplifyReport {
+	report := simplifyReport{Files: []simplifyFile{}}
+	for _, f := range files {
+		sf, err := analyzeSimplifyFile(f, th)
+		if err != nil {
+			fmt.Fprintf(stderr, "review simplify: analysis failed: %s: %v\n", f, err)
+			report.Failed = append(report.Failed, f)
+			continue
+		}
+		report.Files = append(report.Files, sf)
+		report.Summary.Complexity += len(sf.Complexity)
+		report.Summary.Quality += len(sf.Quality.Smells)
+	}
+	report.Summary.Files = len(report.Files)
+	return report
+}
+
+func printSimplifyReport(w io.Writer, r simplifyReport, threshold string) {
+	fmt.Fprintf(w, "Simplify Check — %d files, threshold %s\n", r.Summary.Files, threshold)
+	for _, f := range r.Files {
+		if len(f.Complexity) == 0 && len(f.Quality.Smells) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "\n  %s  (quality %d/100 %s)\n", f.File, f.Quality.Score, f.Quality.Grade)
+		for _, c := range f.Complexity {
+			loc := ""
+			if c.Line > 0 {
+				loc = fmt.Sprintf(" line %d", c.Line)
+			}
+			fmt.Fprintf(w, "    [%s] %s%s: %s\n", strings.ToUpper(c.Severity), c.Rule, loc, c.Message)
+		}
+		for _, s := range f.Quality.Smells {
+			fmt.Fprintf(w, "    [%s] %s (%s): %s\n", strings.ToUpper(s.Severity), s.Type, s.Location, s.Message)
+		}
+	}
+	for _, f := range r.Failed {
+		fmt.Fprintf(w, "\n  %s  ANALYSIS FAILED\n", f)
+	}
+	fmt.Fprintf(w, "\nFindings: %d (complexity %d, quality %d)\n",
+		r.Summary.Complexity+r.Summary.Quality, r.Summary.Complexity, r.Summary.Quality)
+}
+
+// RunSimplify is the simplify skill's advisory first pass; only a failed analysis changes the exit code.
+func RunSimplify(args []string, stdout, stderr io.Writer) int {
+	parsed, code, done := parseSimplifyArgs(args, stdout, stderr)
+	if done {
+		return code
+	}
+	paths := parsed.targets
+	if err := checkTargets(paths, DetectLanguage); err != nil {
+		fmt.Fprintf(stderr, "review simplify: %v\n", err)
+		return 2
+	}
+	if len(paths) == 0 {
+		changed, err := changedSimplifyFiles(simplifyBase(parsed.base))
+		if err != nil {
+			fmt.Fprintf(stderr, "review simplify: %s\n", err)
+			return 1
+		}
+		paths = changed
+	}
+	files, unreadable := simplifyTargets(paths, stderr)
+	if parsed.fail {
+		return failOnNewViolations(files, simplifyBase(parsed.base), stdout, stderr)
+	}
+	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
+	report.Failed = append(report.Failed, unreadable...)
+	if parsed.jsonOut {
+		if err := WritePyJSON(stdout, report); err != nil {
+			fmt.Fprintf(stderr, "Error: %s\n", err)
+			return 1
+		}
+		return simplifyExit(report)
+	}
+	if report.Summary.Files == 0 && len(report.Failed) == 0 {
+		fmt.Fprintln(stdout, "No changed source files.")
+		return 0
+	}
+	printSimplifyReport(stdout, report, parsed.threshold)
+	return simplifyExit(report)
+}
+
+// simplifyExit is 1 when any file could not be analyzed, so a dropped file never reads as clean.
+func simplifyExit(r simplifyReport) int {
+	if len(r.Failed) > 0 {
+		return 1
+	}
+	return 0
+}
+
+var lineLoc = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`line \d+`) })
+
+// SimplicityFindingsWithBaseline loads before only when after has findings; false suppresses findings.
+func SimplicityFindingsWithBaseline(path, after string, baseline func() (string, bool)) []string {
+	lang := DetectLanguage(path)
+	if lang == "" {
+		return nil
+	}
+	found := simplicityKeyed(path, after, lang)
+	if len(found) == 0 {
+		return nil
+	}
+	before, ok := baseline()
+	if !ok {
+		return nil
+	}
+	old := map[string]int{}
+	for _, f := range simplicityKeyed(path, before, lang) {
+		old[f.key]++
+	}
+	var out []string
+	for _, f := range found {
+		if old[f.key] > 0 {
+			old[f.key]--
+			continue
+		}
+		out = append(out, f.text)
+	}
+	return out
+}
+
+type keyedFinding struct{ key, text string }
+
+// complexityKeyed keys content's complexity findings; a syntax error yields none, keeping the edit hook quiet.
+func complexityKeyed(path, content string) []keyedFinding {
+	cl := DetectComplexityLang(path)
+	if cl == "" {
+		return nil
+	}
+	r, err := complexityContent(path, content, cl, complexityThresholds["medium"])
+	if err != nil {
+		return nil
+	}
+	var out []keyedFinding
+	for _, f := range r.Findings {
+		loc := ""
+		if f.Line > 0 {
+			loc = fmt.Sprintf("line %d: ", f.Line)
+		}
+		out = append(out, keyedFinding{"c|" + f.Rule + "|" + f.Message, loc + f.Message})
+	}
+	return out
+}
+
+// simplicityKeyed lists every finding of content with a line-free key and a located one-line text.
+func simplicityKeyed(path, content, lang string) []keyedFinding {
+	if content == "" {
+		return nil
+	}
+	out := complexityKeyed(path, content)
+	if q, err := QualityContent(path, content, lang); err == nil {
+		for _, s := range q.Smells {
+			if smellReported(s, out) {
+				continue
+			}
+			text := s.Type + ": " + s.Message
+			if s.Location != "" {
+				text = s.Location + ": " + text
+			}
+			key := "q|" + s.Type + "|" + s.Message + "|" + lineLoc().ReplaceAllString(s.Location, "")
+			out = append(out, keyedFinding{key, text})
+		}
+	}
+	return out
+}
+
+// smellReported is a long_function or high_complexity smell whose function the complexity check already flagged.
+func smellReported(s Smell, found []keyedFinding) bool {
+	rule := map[string]string{"long_function": "c|function-length|", "high_complexity": "c|cyclomatic-complexity|"}[s.Type]
+	return rule != "" && slices.ContainsFunc(found, func(f keyedFinding) bool {
+		return strings.HasPrefix(f.key, rule+"'"+s.Location+"'")
+	})
+}

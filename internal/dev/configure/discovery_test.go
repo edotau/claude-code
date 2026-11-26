@@ -1,0 +1,95 @@
+package configure
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"testing"
+
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
+)
+
+// listing is the fake workspace: Claude, a Responses-only GPT, an open chat model, a cold and an embeddings row.
+const listing = `{"endpoints":[
+{"name":"databricks-claude-sonnet-5-5","task":"llm/v1/chat","state":{"ready":"READY"}},
+{"name":"databricks-gpt-5-5","task":"llm/v1/chat","state":{"ready":"READY"}},
+{"name":"databricks-glm-5-2","task":"llm/v1/chat","state":{"ready":"READY"}},
+{"name":"databricks-cold-1","task":"llm/v1/chat","state":{"ready":"NOT_READY"}},
+{"name":"databricks-embed-1","task":"llm/v1/embeddings","state":{"ready":"READY"}}]}`
+
+// workspace serves identity and listing for profile dev.
+func workspace(t *testing.T) {
+	t.Helper()
+	vaulttest.Use(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(providers.EnvSessionProfile, "")
+	t.Setenv("DATABRICKS_DEV_PAT", "synthetic-discovery-pat")
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/2.0/preview/scim/v2/Me" {
+			_, _ = w.Write([]byte(`{"id":"discovery-subject","active":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(listing))
+	}))
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = srv.Client().Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
+	f := map[string]any{"preset": "databricks", "host": srv.URL, "auth": map[string]any{"type": "pat"}}
+	if err := providers.SetProviderFields("dev", f); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An agent outside the roster is refused by name.
+func TestModelsUnknownAgent(t *testing.T) {
+	workspace(t)
+	_, err := DiscoverModels(context.Background(), ModelQuery{Agent: "nope"})
+	if err == nil || err.Error() != `discovery: unknown agent "nope"` {
+		t.Errorf("Models(nope) error = %v; want the unknown agent error", err)
+	}
+}
+
+// opencode with no profile names the flag on Recall and collapses to one line otherwise.
+func TestModelsOpencodeProfileErrors(t *testing.T) {
+	workspace(t)
+	for mode, want := range map[ModelMode]string{
+		RecallModels:   "no profile pinned for opencode; pass --profile",
+		VerifiedModels: "cannot resolve profile; check the provider configuration",
+	} {
+		_, err := DiscoverModels(context.Background(), ModelQuery{Agent: agentid.OpenCode, Mode: mode})
+		if err == nil || err.Error() != want {
+			t.Errorf("mode %d, no profile: error = %v, want %q", mode, err, want)
+		}
+	}
+}
+
+// One workspace listing, one query shape: each agent gets the ids its dialects reach and the same raw rows.
+func TestModelsFiltersOneListingPerAgent(t *testing.T) {
+	workspace(t)
+	chat := []string{"databricks-claude-sonnet-5-5", "databricks-glm-5-2"}
+	for _, tc := range []struct {
+		agent string
+		want  []string
+	}{
+		{agentid.Codex, []string{"databricks-gpt-5-5"}},
+		{agentid.Copilot, chat},
+		{agentid.OpenCode, chat},
+	} {
+		res, err := DiscoverModels(context.Background(), ModelQuery{Agent: tc.agent, Profile: "dev", Mode: VerifiedModels})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.agent, err)
+		}
+		var got []string
+		for _, m := range res.Models {
+			got = append(got, m.ID)
+		}
+		if !slices.Equal(got, tc.want) || len(res.Raw) != 5 || res.Profile != "dev" || res.Snapshot == nil {
+			t.Errorf("%s: models = %v (raw %d, profile %q, snapshot %v); want %v over 5 raw rows on dev",
+				tc.agent, got, len(res.Raw), res.Profile, res.Snapshot != nil, tc.want)
+		}
+	}
+}

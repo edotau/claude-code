@@ -19,14 +19,14 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/hooks/docs"
+	"github.com/edotau/claude-code/internal/hooks/hooktelemetry"
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/secrets"
 	"github.com/edotau/claude-code/internal/hooks/web"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
-	"github.com/edotau/claude-code/internal/hooktelemetry"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
 
 func bound(group, matcher string, budget time.Duration, run core.Runner) Bound {

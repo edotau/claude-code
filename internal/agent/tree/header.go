@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/serve"
-	"github.com/edotau/claude-code/internal/review/bench"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 const (

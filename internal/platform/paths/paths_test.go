@@ -1,0 +1,761 @@
+package paths
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+)
+
+func BenchmarkTryFileLock(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.lock")
+	calls := 0
+	fn := func() error { calls++; return nil }
+	if ran, err := TryFileLock(path, 0, fn); err != nil || !ran {
+		b.Fatalf("initial lock: ran=%v err=%v", ran, err)
+	}
+	calls = 0
+	b.ReportAllocs()
+	for b.Loop() {
+		if ran, err := TryFileLock(path, 0, fn); err != nil || !ran {
+			b.Fatalf("uncontended lock: ran=%v err=%v", ran, err)
+		}
+	}
+	if calls != b.N {
+		b.Fatalf("lock callbacks = %d, want %d", calls, b.N)
+	}
+}
+
+func BenchmarkAtomicWrite(b *testing.B) {
+	dest := filepath.Join(b.TempDir(), "atomic.bin")
+	data := make([]byte, 4<<10)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if err := AtomicWrite(dest, data, 0o600); err != nil {
+			b.Fatalf("AtomicWrite: %v", err)
+		}
+	}
+}
+
+func TestStateDirIsHarnessUnderConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	want := filepath.Join(dir, "state", "harness")
+	if got := StateDir(); got != want {
+		t.Errorf("StateDir() = %s, want %s", got, want)
+	}
+}
+
+func TestConfigPathPrecedence(t *testing.T) {
+	home, native := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", native)
+	for _, tc := range []struct{ home, want string }{
+		{home, filepath.Join(home, ".codex", "config.toml")},
+		{"", filepath.Join(native, "config.toml")},
+	} {
+		got, err := CodexConfigPath(tc.home)
+		if err != nil || got != tc.want {
+			t.Fatalf("ConfigPath(%q) = %q, %v; want %q", tc.home, got, err, tc.want)
+		}
+	}
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("HOME", t.TempDir())
+	defaultHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CodexConfigPath(""); err != nil || got != filepath.Join(defaultHome, ".codex", "config.toml") {
+		t.Fatalf("default ConfigPath = %q, %v", got, err)
+	}
+}
+
+var backupTS = time.Date(2026, 10, 21, 15, 4, 5, 123456789, time.UTC)
+
+func TestBackupPathNoFilesystemAccess(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", filepath.Join(dir, "home-unused"))
+	// BackupPath is pure: it must not create CacheDir, src, or any parent, even once called.
+	src := filepath.Join(dir, "home-unused", ".config", "thing.json")
+	_ = BackupPath(src, backupTS)
+	if _, err := os.Stat(StateDir()); !os.IsNotExist(err) {
+		t.Errorf("BackupPath touched the filesystem: StateDir() stat err = %v", err)
+	}
+}
+
+func TestBackupPathInHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	src := filepath.Join(home, ".config", "opencode", "opencode.jsonc")
+	got := BackupPath(src, backupTS)
+	want := filepath.Join(dir, "state", "harness", "backups", ".config", "opencode", "opencode.jsonc.bak-20261021-150405.123456789")
+	if got != want {
+		t.Errorf("BackupPath() = %s, want %s", got, want)
+	}
+}
+
+func TestBackupPathOutsideHome(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := filepath.Join(dir, "home")
+	t.Setenv("HOME", home)
+	// src lives entirely outside $HOME (e.g. a Windows WSL profile under /mnt)
+	outside := filepath.Join(dir, "mnt", "c", "Users", "eric", ".claude", "settings.json")
+	got := BackupPath(outside, backupTS)
+	want := filepath.Join(dir, "state", "harness", "backups", filepath.Clean(outside[1:])+".bak-20261021-150405.123456789")
+	if got != want {
+		t.Errorf("BackupPath() = %s, want %s", got, want)
+	}
+}
+
+func TestBackupDirFormat(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	got := BackupDir("install", backupTS)
+	want := filepath.Join(dir, "state", "harness", "backups", "setup", "install-20261021-150405")
+	if got != want {
+		t.Errorf("BackupDir() = %s, want %s", got, want)
+	}
+}
+
+func TestBackupDirNoFilesystemAccess(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	_ = BackupDir("install", backupTS)
+	if _, err := os.Stat(StateDir()); !os.IsNotExist(err) {
+		t.Errorf("BackupDir touched the filesystem: StateDir() stat err = %v", err)
+	}
+}
+
+func TestClaudeJSONFollowsNonDefaultConfigDirOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cases := []struct{ env, want string }{
+		{"", filepath.Join(home, ".claude.json")},
+		{filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")}, // default dir set explicitly
+		{filepath.Join(home, "wt"), filepath.Join(home, "wt", ".claude.json")},
+	}
+	for _, c := range cases {
+		t.Setenv("CLAUDE_CONFIG_DIR", c.env)
+		if got := ClaudeJSON(); got != c.want {
+			t.Errorf("CLAUDE_CONFIG_DIR=%q: ClaudeJSON() = %s, want %s", c.env, got, c.want)
+		}
+	}
+}
+
+func TestStatHelpers(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(file, []byte("  hello \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "nope")
+
+	tests := []struct {
+		name               string
+		fn                 func(string) bool
+		file, dir, missing bool
+	}{
+		{"IsFile", IsFile, true, false, false},
+		{"IsDir", IsDir, false, true, false},
+		{"FileExists", FileExists, true, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := [3]bool{tt.fn(file), tt.fn(dir), tt.fn(missing)}
+			if want := [3]bool{tt.file, tt.dir, tt.missing}; got != want {
+				t.Errorf("%s: file/dir/missing = %v, want %v", tt.name, got, want)
+			}
+		})
+	}
+}
+
+func TestDirSize(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for p, body := range map[string]string{"a": "123", "sub/b": "45678"} {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := DirSize(dir); got != 8 {
+		t.Errorf("DirSize(dir) = %d, want 8", got)
+	}
+	if got := DirSize(filepath.Join(dir, "a")); got != 3 {
+		t.Errorf("DirSize(file) = %d, want 3", got)
+	}
+	if got := DirSize(filepath.Join(dir, "nope")); got != 0 {
+		t.Errorf("DirSize(missing) = %d, want 0", got)
+	}
+}
+
+func TestSafeName(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"claude":            true,
+		"databricks-expert": true,
+		"../../escape":      false,
+		"a/b":               false,
+		`a\b`:               false,
+		".":                 false,
+		"..":                false,
+		"":                  false,
+		".hidden":           false,
+		"/etc/passwd":       false,
+	} {
+		if got := SafeName(name); got != ok {
+			t.Errorf("SafeName(%q) = %v, want %v", name, got, ok)
+		}
+	}
+}
+
+// writeBackup numbers collisions base, base-1, base-2 and never overwrites; files are 0600.
+func TestWriteBackupNumbersCollisions(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "cfg.bak")
+	for i, want := range []string{base, base + "-1", base + "-2"} {
+		got, err := writeBackup(base, []byte{byte('a' + i)})
+		if err != nil || got != want {
+			t.Fatalf("call %d: got %q, %v; want %q", i, got, err, want)
+		}
+		b, _ := os.ReadFile(got)
+		if string(b) != string([]byte{byte('a' + i)}) {
+			t.Fatalf("%s content %q", got, b)
+		}
+		if fi, _ := os.Stat(got); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode %v", got, fi.Mode().Perm())
+		}
+	}
+}
+
+// WriteIfUnchanged replaces dest only while old is on disk; a mismatch leaves dest and the backups alone.
+func TestWriteIfUnchanged(t *testing.T) {
+	for _, tc := range []struct {
+		name, disk, old string // disk "" = no file
+		wantDest        string // "next" = replaced; anything else must fail as stale
+		wantBackup      string // the backup's content, "" = no backup
+	}{
+		{name: "unchanged", disk: "a", old: "a", wantDest: "next", wantBackup: "a"},
+		{name: "missing file, empty old", wantDest: "next"},
+		{name: "changed", disk: "b", old: "a", wantDest: "b"},
+		{name: "appeared", disk: "b", wantDest: "b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			dest := filepath.Join(t.TempDir(), "cfg.json")
+			if tc.disk != "" {
+				_ = os.WriteFile(dest, []byte(tc.disk), 0o600)
+			}
+			backup, err := WriteIfUnchanged(dest, []byte(tc.old), []byte("next"), 0o600, "cfg")
+			wantErr := "<nil>"
+			if tc.wantDest != "next" {
+				wantErr = "live cfg changed under the merge (" + dest + ") — re-run to merge the newer file"
+			}
+			if fmt.Sprint(err) != wantErr {
+				t.Fatalf("err = %v, want %s", err, wantErr)
+			}
+			if got, _ := os.ReadFile(dest); string(got) != tc.wantDest {
+				t.Fatalf("dest = %q, want %q", got, tc.wantDest)
+			}
+			if b, _ := os.ReadFile(backup); string(b) != tc.wantBackup {
+				t.Fatalf("backup %q holds %q, want %q", backup, b, tc.wantBackup)
+			}
+		})
+	}
+}
+
+func TestWriteIfUnchangedSecondCheckFailureReturnsBackup(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dest := filepath.Join(t.TempDir(), "cfg.json")
+	if err := os.WriteFile(dest, []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	orig := ReadLive
+	t.Cleanup(func() { ReadLive = orig })
+	ReadLive = func(path string) ([]byte, error) {
+		reads++
+		if reads == 2 {
+			if err := os.WriteFile(path, []byte("b"), 0o600); err != nil {
+				return nil, err
+			}
+		}
+		return os.ReadFile(path)
+	}
+
+	backup, err := WriteIfUnchanged(dest, []byte("a"), []byte("next"), 0o600, "cfg")
+	if err == nil || !strings.Contains(err.Error(), "changed under the merge") {
+		t.Fatalf("WriteIfUnchanged error = %v, want changed-under-merge error", err)
+	}
+	if backup == "" {
+		t.Fatal("WriteIfUnchanged returned an empty backup path after the second check failed")
+	}
+	if got, readErr := os.ReadFile(backup); readErr != nil || string(got) != "a" {
+		t.Errorf("backup = %q, %v; want original contents", got, readErr)
+	}
+	if got, readErr := os.ReadFile(dest); readErr != nil || string(got) != "b" {
+		t.Errorf("destination = %q, %v; want concurrent contents", got, readErr)
+	}
+}
+
+func TestAtomicWriteSyncsParentDir(t *testing.T) {
+	orig := syncDir
+	t.Cleanup(func() { syncDir = orig })
+	var synced []string
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "atomic.json")
+	if err := AtomicWrite(dest, []byte("payload"), 0o640); err != nil {
+		t.Fatalf("AtomicWrite: %v", err)
+	}
+	if got, _ := os.ReadFile(dest); string(got) != "payload" {
+		t.Fatalf("dest = %q, want %q", got, "payload")
+	}
+	if info, err := os.Stat(dest); err != nil {
+		t.Fatal(err)
+	} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %v, want 0640", info.Mode().Perm())
+	}
+	if runtime.GOOS != "windows" && (len(synced) != 1 || synced[0] != dir) {
+		t.Fatalf("dir syncs = %q, want one sync of %q", synced, dir)
+	}
+
+	errSync := errors.New("injected dir sync failure")
+	syncDir = func(string) error { return errSync }
+	if err := AtomicWrite(dest, []byte("again"), 0o640); !errors.Is(err, errSync) {
+		t.Fatalf("AtomicWrite err = %v, want injected dir sync error", err)
+	}
+
+	synced = nil
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+	if err := AtomicWriteNoSync(dest, []byte("nosync"), 0o640); err != nil {
+		t.Fatalf("AtomicWriteNoSync: %v", err)
+	}
+	if len(synced) != 0 {
+		t.Fatalf("AtomicWriteNoSync synced dirs %q, want none", synced)
+	}
+}
+
+func TestVSCodeSettingsIsPlatformSpecific(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)        // os.UserHomeDir on unix
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
+	orig := vscodeGOOS
+	t.Cleanup(func() { vscodeGOOS = orig })
+
+	for _, tc := range []struct {
+		goos, vscodeServer, want string
+	}{
+		{"darwin", "", filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")},
+		{"windows", "", filepath.Join(home, "AppData", "Roaming", "Code", "User", "settings.json")},
+		{"linux", "", filepath.Join(home, ".config", "Code", "User", "settings.json")},
+		{"linux", "dir", filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json")},
+		{"linux", "file", filepath.Join(home, ".config", "Code", "User", "settings.json")},
+		{"darwin", "dir", filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")},
+	} {
+		t.Run(tc.goos+"/vscode-server="+tc.vscodeServer, func(t *testing.T) {
+			vscodeGOOS = tc.goos
+			server := filepath.Join(home, ".vscode-server")
+			if err := os.RemoveAll(server); err != nil {
+				t.Fatal(err)
+			}
+			switch tc.vscodeServer {
+			case "dir":
+				if err := os.MkdirAll(server, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "file": // only a directory marks a vscode-server host
+				if err := os.WriteFile(server, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			dest, err := VSCodeSettings()
+			if err != nil || dest != tc.want {
+				t.Errorf("VSCodeSettings() = %s, %v; want %s", dest, err, tc.want)
+			}
+		})
+	}
+}
+
+// TryFileLock must not run fn while another fd already holds the lock, and must run it once released.
+func TestTryFileLockContention(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !TryLock(f) {
+		t.Fatal("could not take the lock")
+	}
+
+	ran, err := TryFileLock(path, 100*time.Millisecond, func() error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Error("TryFileLock must not run fn while the lock is held elsewhere")
+	}
+
+	unlock(f)
+	f.Close()
+
+	ran, err = TryFileLock(path, 100*time.Millisecond, func() error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Error("TryFileLock must run fn once the lock is released")
+	}
+}
+
+// holdLock takes path's WithFileLock in a goroutine and returns the func that releases it.
+func holdLock(t *testing.T, path string) (release func()) {
+	t.Helper()
+	held, stop, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() { done <- WithFileLock(path, func() error { close(held); <-stop; return nil }) }()
+	<-held
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			close(stop)
+			if err := <-done; err != nil {
+				t.Errorf("holder: %v", err)
+			}
+		})
+	}
+	t.Cleanup(release) // a failed assertion must not leave the lock held for the next subtest
+	return release
+}
+
+// signalPoll is a lockPoll that returns d and signals the channel on its first call: a waiter found the lock held.
+func signalPoll(d time.Duration) (func(int) time.Duration, <-chan struct{}) {
+	sig := make(chan struct{}, 1)
+	return func(int) time.Duration {
+		select {
+		case sig <- struct{}{}:
+		default:
+		}
+		return d
+	}, sig
+}
+
+// WithFileLock waits lockTimeout for a holder: it succeeds once the holder releases inside the wait, else ErrLockTimeout.
+func TestWithFileLockWaitsForHolder(t *testing.T) {
+	oldWait, oldPoll := lockTimeout, lockPoll
+	t.Cleanup(func() { lockTimeout, lockPoll = oldWait, oldPoll })
+	path := filepath.Join(t.TempDir(), "f")
+
+	t.Run("released inside the wait", func(t *testing.T) {
+		poll, waiting := signalPoll(time.Millisecond)
+		lockTimeout, lockPoll = 5*time.Second, poll
+		release, done := holdLock(t, path), make(chan error, 1)
+		go func() { done <- WithFileLock(path, func() error { return nil }) }()
+		select {
+		case <-waiting: // the second locker found the lock held and is polling
+			release()
+		case err := <-done:
+			t.Fatalf("second locker returned %v without waiting for the holder", err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("second locker after the release: %v", err)
+		}
+	})
+
+	t.Run("held past the wait", func(t *testing.T) {
+		wait := 10 * time.Millisecond
+		lockTimeout, lockPoll = wait, func(int) time.Duration { return wait / 10 }
+		release, ran, start := holdLock(t, path), false, time.Now()
+		err := WithFileLock(path, func() error { ran = true; return nil })
+		elapsed := time.Since(start)
+		release()
+		if ran || !errors.Is(err, ErrLockTimeout) {
+			t.Fatalf("ran=%t err=%v, want fn skipped and ErrLockTimeout", ran, err)
+		}
+		if elapsed < wait || elapsed > 50*wait {
+			t.Errorf("gave up after %v, want between %v and %v", elapsed, wait, 50*wait)
+		}
+	})
+}
+
+// WithFileLockWithin gives up after its own wait, not lockTimeout, and runs fn when the lock is free.
+func TestWithFileLockWithinUsesItsOwnWait(t *testing.T) {
+	oldWait, oldPoll := lockTimeout, lockPoll
+	t.Cleanup(func() { lockTimeout, lockPoll = oldWait, oldPoll })
+	lockTimeout, lockPoll = time.Hour, func(int) time.Duration { return time.Millisecond }
+	path := filepath.Join(t.TempDir(), "f")
+	ran := false
+	if err := WithFileLockWithin(path, time.Second, func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("free lock: ran=%t err=%v, want fn run", ran, err)
+	}
+	release := holdLock(t, path)
+	ran = false
+	err := WithFileLockWithin(path, 10*time.Millisecond, func() error { ran = true; return nil })
+	release()
+	if ran || !errors.Is(err, ErrLockTimeout) {
+		t.Fatalf("held lock: ran=%t err=%v, want fn skipped and ErrLockTimeout well before lockTimeout", ran, err)
+	}
+}
+
+func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	want := filepath.Join(Canon(real), "a", "b")
+	if got := CanonDeep(filepath.Join(link, "a", "b")); got != want {
+		t.Fatalf("CanonDeep through symlink with missing tail = %q, want %q", got, want)
+	}
+	if got := Canon(filepath.Join(link, "a")); got != filepath.Join(link, "a") {
+		t.Fatalf("Canon of an unresolvable path = %q, want it cleaned only", got)
+	}
+}
+
+func TestCanonDeepDanglingSymlinkEscapes(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
+	store, outside := Canon(t.TempDir()), Canon(t.TempDir())
+	target := filepath.Join(outside, "newfile")
+	link := filepath.Join(store, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	rel := filepath.Join(store, "rel")
+	if err := os.Symlink(filepath.Join("..", filepath.Base(outside), "gone"), rel); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if got := CanonDeep(link); got != target {
+		t.Errorf("CanonDeep(dangling link) = %q, want %q", got, target)
+	}
+	if got, want := CanonDeep(filepath.Join(link, "sub", "file")), filepath.Join(target, "sub", "file"); got != want {
+		t.Errorf("CanonDeep(dangling link/sub/file) = %q, want %q", got, want)
+	}
+	if got, want := CanonDeep(rel), filepath.Join(outside, "gone"); got != want {
+		t.Errorf("CanonDeep(relative dangling) = %q, want %q", got, want)
+	}
+}
+
+func TestAppendLineConcurrent(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sub", "log")
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			if err := AppendLine(file, fmt.Appendf(nil, "line-%02d", i)); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("got %d lines, want 20: %q", len(lines), data)
+	}
+	if err := AppendLine(file, []byte("x\n")); err != nil || !strings.HasSuffix(readStr(t, file), "\nx\n") {
+		t.Fatalf("pre-terminated line got a second newline or failed: %v", err)
+	}
+}
+
+func readStr(t *testing.T, f string) string {
+	t.Helper()
+	b, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestSwapSymlinkConcurrent(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("initial", link); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			<-start
+			for range 10 {
+				if err := SwapSymlink(fmt.Sprintf("target-%d", i), link); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if target, err := os.Readlink(link); err != nil || !strings.HasPrefix(target, "target-") {
+		t.Fatalf("final link = %q, %v", target, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("temporary links left behind: %v, %v", entries, err)
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+// Within cleans both sides, so a sibling prefix, a trailing slash, ".." and the root "/" all resolve correctly.
+func TestWithin(t *testing.T) {
+	for _, tc := range []struct {
+		path, base string
+		want       bool
+	}{
+		{"/a/foo", "/a/foo", true}, {"/a/foo/bar", "/a/foo", true}, {"/a/foo/", "/a/foo", true},
+		{"/a/foobar", "/a/foo", false}, {"/a/foo/../bar", "/a/foo", false}, {"/x", "/", true}, {"/a/foo", "/a/foo/", true},
+	} {
+		if got := Within(tc.path, tc.base); got != tc.want {
+			t.Errorf("Within(%q, %q) = %v, want %v", tc.path, tc.base, got, tc.want)
+		}
+	}
+}
+
+// TestTryFileLockRetriesOnReplacedPath checks a lock taken on a file the path does not name is dropped and retaken.
+func TestTryFileLockRetriesOnReplacedPath(t *testing.T) {
+	dir := t.TempDir()
+	path, other := filepath.Join(dir, "lock"), filepath.Join(dir, "other")
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	opens := 0
+	open := func() (*os.File, error) {
+		opens++
+		name := path
+		if opens == 1 { // the first handle names a file the path does not, as after an unlink, on every OS
+			name = other
+		}
+		f, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR, 0o600)
+		must(err)
+		return f, nil
+	}
+	called, nested := false, true
+	fn := func() error {
+		called = true
+		var err error
+		nested, err = TryFileLock(path, 0, func() error { return nil })
+		return err
+	}
+	ran, err := tryFileLock(path, time.Second, fn, open)
+	must(err)
+	if !ran || !called || nested || opens != 2 {
+		t.Fatalf("err=%v ran=%v called=%v nested=%v opens=%d", err, ran, called, nested, opens)
+	}
+}
+
+func TestExportCASetsOnlyUnsetVars(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	for _, n := range CAEnvNames {
+		t.Setenv(n, "")
+	}
+	ExportCA()
+	for _, n := range CAEnvNames {
+		if os.Getenv(n) != "" {
+			t.Fatalf("%s set without a bundle", n)
+		}
+	}
+	if err := os.MkdirAll(CertsDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CABundle(), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SSL_CERT_FILE", "/x")
+	ExportCA()
+	if got := os.Getenv("SSL_CERT_FILE"); got != "/x" {
+		t.Fatalf("SSL_CERT_FILE = %q, want /x", got)
+	}
+	for _, n := range CAEnvNames[1:] {
+		if got := os.Getenv(n); got != CABundle() {
+			t.Fatalf("%s = %q, want %q", n, got, CABundle())
+		}
+	}
+}
+
+func TestMigrateCertsCopiesOnce(t *testing.T) {
+	old, dir := t.TempDir(), filepath.Join(t.TempDir(), "certs")
+	if migrateCerts(old, dir) {
+		t.Fatal("migrated without a bundle")
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Fatal("dir created without a bundle")
+	}
+	for _, n := range []string{"root.pem", "issuing.pem", caBundleName} {
+		if err := os.WriteFile(filepath.Join(old, n), []byte(n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !migrateCerts(old, dir) {
+		t.Fatal("migrate failed")
+	}
+	for _, n := range []string{"root.pem", "issuing.pem", caBundleName} {
+		for _, d := range []string{old, dir} {
+			if b, err := os.ReadFile(filepath.Join(d, n)); err != nil || string(b) != n {
+				t.Fatalf("%s/%s: %q %v", d, n, b, err)
+			}
+		}
+	}
+}
+
+func TestMemoryStoreLayout(t *testing.T) {
+	store := MemoryStoreDir()
+	if want := filepath.Join(ConfigDir(), "memory"); store != want {
+		t.Fatalf("MemoryStoreDir = %q, want %q", store, want)
+	}
+	if got, want := MemoryStateDir(), filepath.Join(StateDir(), "memory"); got != want {
+		t.Fatalf("MemoryStateDir = %q, want %q", got, want)
+	}
+	if got, want := MemorySub("reports", "a/b.md"), filepath.Join(store, "reports", "a", "b.md"); got != want {
+		t.Fatalf("MemorySub = %q, want %q", got, want)
+	}
+	if MemorySubDir("x") != filepath.Join(store, "x") {
+		t.Fatal("MemorySubDir")
+	}
+}
+
+// Given a path glob, Then another letter case of the same path matches only where the filesystem folds case.
+func TestGlobMatchFoldsCase(t *testing.T) {
+	for _, fold := range []bool{true, false} {
+		old := foldGlobCase
+		foldGlobCase = fold
+		if got := GlobMatch("/repo/internal/agent/**", "/repo/Internal/Agent/x.go"); got != fold {
+			t.Errorf("fold=%v: got %v, want %v", fold, got, fold)
+		}
+		foldGlobCase = old
+	}
+}
+
+// The audit queue's store, its sidecars and the dirs holding it are protected; its logs and a look-alike are not.
+func TestProtectedAuditDB(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	db := AuditDBPath()
+	for _, p := range []string{db, db + "-wal", db + "-shm", filepath.Dir(db), StateDir()} {
+		if !Protected(p) {
+			t.Errorf("Protected(%s) = false", p)
+		}
+	}
+	for _, p := range []string{db + "-old", filepath.Join(filepath.Dir(db), "run-1-abcdef01.log")} {
+		if Protected(p) {
+			t.Errorf("Protected(%s) = true", p)
+		}
+	}
+}

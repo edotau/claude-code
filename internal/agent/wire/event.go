@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // EventSchema versions the `ask --format stream-json` event line.

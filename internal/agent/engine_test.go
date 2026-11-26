@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // A hub cell with no opencode Hub linked into the binary is a dispatch error, not a nil-pointer panic.

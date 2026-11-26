@@ -9,10 +9,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/remote/egress"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 type profileUse struct {

@@ -14,14 +14,14 @@ import (
 	"testing"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/databricks"
-	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/driver/codex"
+	"github.com/edotau/claude-code/internal/driver/opencode"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/databricks"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 // runProfile drives agent's Profile row picker with answer and returns the dialog output.

@@ -10,9 +10,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/router"
-	usagepkg "github.com/edotau/claude-code/internal/usage"
+	usagepkg "github.com/edotau/claude-code/internal/dev/usage"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // RouteFlags holds the ask flags the wave runner shares: --overlay and --fallback.

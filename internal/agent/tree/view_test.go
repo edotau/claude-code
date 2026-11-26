@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // dashNodes is s1 > a > d1, then s2 and a root dispatch r; roots start open, a starts closed.

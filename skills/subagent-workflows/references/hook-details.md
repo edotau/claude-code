@@ -100,7 +100,7 @@ pin, else the model of the brief's task tier: a `Tier:` line, else the classifie
 ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a note; print it with
 `claude-code agents label <type> [--profile p] [--model m] --task FILE`. Every fix (type, label, pin) rides one
 `updatedInput`, one note line each. Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract.
-Implementation: `internal/hooks/dispatchhook/effort.go`; workflow validation: `internal/workflows/workflowlint.go`. In
+Implementation: `internal/hooks/dispatchhook/effort.go`; workflow validation: `internal/dev/workflows/workflowlint.go`. In
 auto mode a rewritten call costs one mechanical resend of the exact corrected input (the classifier refuses a
 hook-modified input once)
 
@@ -135,7 +135,7 @@ On a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`),
 `verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines, then a
 `commit+tick: [cd <lane> && ]claude-code worktree commit --task '<id>' --plan <file> --type "<type>" <file ids>` line
 for the main session, on top of the message; it never holds. A rejected shape prints `verify not run: shape` and leaves
-only the scoped gate. For the `verify:` allowlist, see `VerifyShape` in `internal/plans/verify.go`.
+only the scoped gate. For the `verify:` allowlist, see `VerifyShape` in `internal/dev/plans/verify.go`.
 
 `dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
 started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,

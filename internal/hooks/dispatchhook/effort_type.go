@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agentconfig/project"
-	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/agentconfig/project"
+	"github.com/edotau/claude-code/internal/routing/agentid"
 )
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.

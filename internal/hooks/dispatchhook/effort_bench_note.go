@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 const maxBenchPackages = 3
@@ -52,7 +52,7 @@ func (e *effortPlan) benchNote(cwd, task string) string {
 		line := fmt.Sprintf(
 			"perf: %s has benchmarks; run rtk bypass go test -run ^$ -bench . -benchmem -count=10 ./%s/ before and after, compare with benchstat against state/harness/bench/%s/rolling.txt, and report the table",
 			pkg, pkg, dashed)
-		if strings.HasPrefix(pkg+"/", "internal/hooks/") || strings.HasPrefix(pkg+"/", "internal/permission/") {
+		if strings.HasPrefix(pkg+"/", "internal/hooks/") || strings.HasPrefix(pkg+"/", "internal/platform/permission/") {
 			line += "; hook package: cost only, never what it allows or blocks (R27)"
 		}
 		lines = append(lines, line)

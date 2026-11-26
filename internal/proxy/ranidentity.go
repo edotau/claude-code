@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // RanIdentitySuffix names the file beside a dispatch's record holding the identity (sp|user) the proxy served it.

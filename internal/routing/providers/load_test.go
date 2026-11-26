@@ -1,0 +1,496 @@
+package providers
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"reflect"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+)
+
+// sealedKinds are the sealed authTypes whose mint goes through the OIDC token endpoint.
+var sealedKinds = []struct{ kind, clientID, secret string }{
+	{AuthOAuth, "", "refresh-1"},
+	{AuthM2M, "sp-client", "sp-secret-xyz"},
+}
+
+func mintFollowersReady(t *testing.T, n int32) <-chan struct{} {
+	t.Helper()
+	var followers atomic.Int32
+	ready := make(chan struct{})
+	setFlightHook(t, func(leader bool) {
+		if !leader && followers.Add(1) == n {
+			close(ready)
+		}
+	})
+	return ready
+}
+
+func TestSealedAuthHerdMintsOnce(t *testing.T) {
+	for _, k := range sealedKinds {
+		t.Run(k.kind, func(t *testing.T) {
+			var posts atomic.Int32
+			ready := mintFollowersReady(t, 19)
+			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+				posts.Add(1)
+				select {
+				case <-ready:
+				case <-time.After(10 * time.Second):
+					t.Error("not all 19 followers joined the mint flight")
+				}
+				return 200, map[string]any{"access_token": "herd-token", "expires_in": 3600}
+			})
+			p := mintRow(t, "sf-herd-"+k.kind, k.kind, k.clientID, srv.URL)
+			sealFor(t, p, k.secret)
+			vals, errs := herd(p, 20)
+			for i := range vals {
+				if errs[i] != nil || vals[i] != "herd-token" {
+					t.Fatalf("caller %d: %d-byte token, %v", i, len(vals[i]), errs[i])
+				}
+			}
+			if n := posts.Load(); n != 1 {
+				t.Fatalf("token endpoint hit %d times, want 1", n)
+			}
+		})
+	}
+}
+
+func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
+	for _, k := range sealedKinds {
+		t.Run(k.kind, func(t *testing.T) {
+			var posts atomic.Int32
+			gate := make(chan struct{})
+			entered := make(chan struct{})
+			release := sync.OnceFunc(func() { close(gate) })
+			joined := mintFollowersReady(t, 1)
+			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
+				n := posts.Add(1)
+				if n == 1 {
+					close(entered)
+					<-gate
+				}
+				return 200, map[string]any{"access_token": fmt.Sprintf("tok-%d", n), "expires_in": 3600}
+			})
+			p := mintRow(t, "sf-refresh-"+k.kind, k.kind, k.clientID, srv.URL)
+			sealFor(t, p, k.secret)
+			var wg sync.WaitGroup
+			defer func() { release(); wg.Wait() }()
+			wg.Go(func() { _, _ = Credential(context.Background(), p) })
+			waitFlightSignal(t, entered)
+			var got string
+			var err error
+			wg.Go(func() { got, err = Refresh(context.Background(), p) })
+			waitFlightSignal(t, joined)
+			release()
+			wg.Wait()
+			if err != nil || got != "tok-2" {
+				t.Fatalf("Refresh = %d-byte token, %v; want the forced mint tok-2, not the in-flight result", len(got), err)
+			}
+			if n := posts.Load(); n != 2 {
+				t.Fatalf("token endpoint hit %d times, want 2 (one non-forced, one forced)", n)
+			}
+		})
+	}
+}
+
+const nestedTestDoc = `{"default":"work","providers":{
+ "anthropic":{"work":{"protocol":"anthropic","base_url":"https://api.anthropic.com","auth":{"type":"key"}}},
+ "openai":{"scratch":{"protocol":"openai","base_url":"https://api.openai.com/v1","auth":{"type":"key"}}}}}`
+
+func TestParseNestedByProvider(t *testing.T) {
+	reg, err := Parse(assets.ProviderDefaults(), []byte(nestedTestDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"work": "anthropic", "scratch": "openai", "ultra": "anthropic", "copilot": "github"} {
+		if p := reg.Providers[name]; p == nil || p.Provider != want || p.Name != name {
+			t.Errorf("profile %q = %+v, want provider %q", name, p, want)
+		}
+	}
+	if reg.Default != "work" {
+		t.Errorf("default = %q", reg.Default)
+	}
+	if got := reg.ProfilesOf("anthropic"); strings.Join(got, ",") != "ultra,anthropic,work" {
+		t.Errorf("ProfilesOf(anthropic) = %v", got)
+	}
+}
+
+// The embedded defaults validate on their own, and every built-in row is named by its key under a known provider.
+func TestEmbeddedDefaultsValid(t *testing.T) {
+	reg, err := Parse(assets.ProviderDefaults(), nil)
+	if err != nil || len(reg.Providers) == 0 {
+		t.Fatalf("Parse(defaults) = %v, %d rows", err, len(reg.Providers))
+	}
+	for n, p := range reg.Providers {
+		if p.Name != n || !slices.Contains(providerKeys, p.Provider) || !slices.Contains(reg.ProfilesOf(p.Provider), n) {
+			t.Errorf("built-in %q = name %q under provider %q, want its own key under a known provider", n, p.Name, p.Provider)
+		}
+	}
+}
+
+func TestDuplicateProfileRejected(t *testing.T) {
+	cases := map[string]string{
+		"two providers in one doc": `{"providers":{"anthropic":{"dup":{"protocol":"anthropic","base_url":"https://x","auth":{"type":"none"}}},` +
+			`"openai":{"dup":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
+		"overlay profile owned by another provider": `{"providers":{"openai":{"ultra":{"protocol":"openai","base_url":"https://y","auth":{"type":"none"}}}}}`,
+	}
+	for name, doc := range cases {
+		_, err := Parse(assets.ProviderDefaults(), []byte(doc))
+		if err == nil || !strings.Contains(err.Error(), "unique across providers") {
+			t.Errorf("%s: err = %v, want a unique-across-providers rejection", name, err)
+		}
+	}
+}
+
+func TestOverlayWritesNestedAndAcceptsFlatView(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := SetProviderFields("qa", map[string]any{
+		"preset": "databricks", "host": "https://dbc-3.cloud.databricks.com", "cliProfile": "qa",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doc := readOverlay(t, "providers")
+	if !strings.Contains(doc, `"databricks": {`) || !strings.Contains(doc, `"qa": {`) {
+		t.Fatalf("overlay is not nested by provider:\n%s", doc)
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.Providers["qa"].Provider != "databricks" {
+		t.Errorf("qa provider = %q", reg.Providers["qa"].Provider)
+	}
+	if got := DatabricksProfiles(reg); len(got) != 1 || got[0] != "qa" {
+		t.Errorf("DatabricksProfiles = %v", got)
+	}
+}
+
+func TestRoutingCellsAcceptClaudeIDsAndAliases(t *testing.T) {
+	for key, ok := range map[string]bool{"opus": true, "claude-opus-5-5": true, "claude-haiku-5-5": true, "claude-fable-5-1": false, "bogus": false} {
+		doc := `{"routing":{"cells":{"claude":{"` + key + `":{"model":"claude-opus-5-5"}}}}}`
+		_, err := Parse(assets.ProviderDefaults(), []byte(doc))
+		if (err == nil) != ok {
+			t.Errorf("cells key %q: err = %v, want accepted=%v", key, err, ok)
+		}
+	}
+}
+
+func TestSameModelIgnoresOneMAndSpelling(t *testing.T) {
+	p := Provider{Models: map[string]string{"opus": "claude-opus-5-5[1m]", "sonnet": "databricks-claude-sonnet-5-5"}}
+	if got := p.AliasOf("claude-opus-5-5"); got != "opus" {
+		t.Errorf("AliasOf(plain) with a [1m] table = %q", got)
+	}
+	if got := p.AliasOf("claude-sonnet-5.5"); got != "sonnet" {
+		t.Errorf("AliasOf(dotted) = %q", got)
+	}
+	if tgt, ok := Demote(&p, "claude-opus-5-5"); !ok || tgt.Model != "databricks-claude-sonnet-5-5" {
+		t.Errorf("Demote = %+v, %v", tgt, ok)
+	}
+}
+
+// A malformed overlay still yields the base registry named, ordered and preset-expanded, alongside the error.
+func TestParseBadOverlayKeepsBuiltBase(t *testing.T) {
+	reg, err := Parse(assets.ProviderDefaults(), []byte(`{"providers": `))
+	if err == nil {
+		t.Fatal("want an error for a malformed overlay")
+	}
+	if reg == nil || len(reg.Providers) == 0 {
+		t.Fatalf("registry = %+v, want the built base", reg)
+	}
+	for n, p := range reg.Providers {
+		if p.Name != n {
+			t.Fatalf("provider %q has Name %q", n, p.Name)
+		}
+	}
+	if len(reg.order) == 0 {
+		t.Error("declared order is empty")
+	}
+}
+
+func TestLoadDecoratesPresetModels(t *testing.T) {
+	reg := mustParse(t, `{"providers":{"databricks":{"dbx":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net/","cliProfile":"work",
+	  "models":{"opus":"claude-opus-4-8[1m]","sonnet":"gpt-5.5"}}}}}`)
+	m := reg.Providers["dbx"].Models
+	want := map[string]string{
+		"opus": "databricks-claude-opus-4-8[1m]", "sonnet": "databricks-gpt-5-5", "haiku": "databricks-claude-haiku-5-5",
+	}
+	for k, v := range want {
+		if m[k] != v {
+			t.Errorf("Models[%s] = %q, want %q", k, m[k], v)
+		}
+	}
+	plain := mustParse(t, `{"providers":{"openai":{"p":{"protocol":"anthropic","base_url":"https://p","auth":{"type":"none"},"models":{"opus":"gpt-5.5"}}}}}`)
+	if got := plain.Providers["p"].Models["opus"]; got != "gpt-5.5" {
+		t.Errorf("plain provider model = %q", got)
+	}
+}
+
+func TestLoadCacheReturnsIndependentRegistry(t *testing.T) {
+	// Given a settled vault with a provider model and fallback list.
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(vault.Path(), old, old); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantModel := reg.Providers["ultra"].Models["opus"]
+	wantFallback := slices.Clone(reg.Fallback)
+	// When a caller mutates the returned model map and appends to fallback.
+	reg.Providers["ultra"].Models["opus"] = "x"
+	reg.Fallback = append(reg.Fallback, "caller-only")
+	next, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Then another Load returns the unchanged cached registry.
+	if got := next.Providers["ultra"].Models["opus"]; got != wantModel {
+		t.Errorf("Providers[ultra].Models[opus] = %q, want %q", got, wantModel)
+	}
+	if !slices.Equal(next.Fallback, wantFallback) {
+		t.Errorf("Fallback = %v, want %v", next.Fallback, wantFallback)
+	}
+}
+
+func TestRegistryCloneReferenceFields(t *testing.T) {
+	// Given a registry with every reference field populated, including private declaration order.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reg := Registry{order: []string{"order"}}
+	populateCloneReferences(reflect.ValueOf(&reg).Elem())
+	// When the real Clone copies all nested provider and routing types.
+	cloned := reg.clone()
+	// Then values are preserved and no map, slice or pointer field aliases its original.
+	if !reflect.DeepEqual(&reg, cloned) {
+		t.Fatal("Clone changed registry values")
+	}
+	assertCloneReferences(t, reflect.ValueOf(&reg), reflect.ValueOf(cloned), "Registry")
+}
+
+func populateCloneReferences(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Struct:
+		for _, fv := range v.Fields() {
+			if fv.CanSet() {
+				populateCloneReferences(fv)
+			}
+		}
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		populateCloneReferences(v.Elem())
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type()))
+		key := reflect.New(v.Type().Key()).Elem()
+		value := reflect.New(v.Type().Elem()).Elem()
+		populateCloneReferences(key)
+		populateCloneReferences(value)
+		v.SetMapIndex(key, value)
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 2))
+		populateCloneReferences(v.Index(0))
+	case reflect.String:
+		v.SetString("fixture")
+	}
+}
+
+func assertCloneReferences(t *testing.T, original, cloned reflect.Value, field string) {
+	t.Helper()
+	switch original.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice:
+		if original.IsNil() || cloned.IsNil() {
+			t.Fatalf("%s: reference field must be populated in original and clone", field)
+		}
+		if original.UnsafePointer() == cloned.UnsafePointer() {
+			t.Errorf("%s: Clone aliases original %s", field, original.Kind())
+		}
+	}
+	walkCloneReferences(t, original, cloned, field)
+}
+
+func walkCloneReferences(t *testing.T, original, cloned reflect.Value, field string) {
+	t.Helper()
+	switch original.Kind() {
+	case reflect.Struct:
+		for i := 0; i < original.NumField(); i++ {
+			name := field + "." + original.Type().Field(i).Name
+			assertCloneReferences(t, original.Field(i), cloned.Field(i), name)
+		}
+	case reflect.Pointer:
+		assertCloneReferences(t, original.Elem(), cloned.Elem(), field)
+	case reflect.Map:
+		for _, key := range original.MapKeys() {
+			name := fmt.Sprintf("%s[%v]", field, key)
+			assertCloneReferences(t, original.MapIndex(key), cloned.MapIndex(key), name)
+		}
+	case reflect.Slice:
+		for i := 0; i < original.Len(); i++ {
+			name := fmt.Sprintf("%s[%d]", field, i)
+			assertCloneReferences(t, original.Index(i), cloned.Index(i), name)
+		}
+	}
+}
+
+func TestParseNamesGithubRowsByLogin(t *testing.T) {
+	const row = `"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}`
+	for _, tc := range []struct {
+		name, rows string
+		want, kept []string
+	}{
+		{"keyed row takes its login", `"x":{` + row + `,"login":"octo"}`, []string{"octo"}, nil},
+		{"two rows one login", `"x":{` + row + `,"login":"octo"},"y":{` + row + `,"login":"octo"}`, []string{"octo"}, []string{"y"}},
+		{"logins differ by case", `"x":{` + row + `,"login":"Octo"},"y":{` + row + `,"login":"octo"}`, []string{"Octo"}, []string{"y"}},
+		{"login names another row", `"x":{` + row + `,"login":"copilot"}`, nil, []string{"x"}},
+	} {
+		reg, err := Parse(assets.ProviderDefaults(), []byte(`{"providers":{"github":{`+tc.rows+`}}}`))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		for _, n := range append(tc.want, tc.kept...) {
+			if reg.Providers[n] == nil || reg.Providers[n].Name != n {
+				t.Errorf("%s: missing row %q in %v", tc.name, n, reg.Names())
+			}
+		}
+		if reg.Providers["x"] != nil && !slices.Contains(tc.kept, "x") {
+			t.Errorf("%s: row x was not renamed: %v", tc.name, reg.Names())
+		}
+	}
+}
+
+func settledVault(b *testing.B) {
+	b.Helper()
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(vault.Path(), old, old); err != nil {
+		b.Fatal(err)
+	}
+	// Chtimes bumps ctime, so move the stamp clock past the racy window
+	b.Cleanup(paths.SetStampNowForTest(func() time.Time { return time.Now().Add(time.Hour) }))
+}
+
+func TestLoadSharedFreshSameSizeRewrite(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"ultra"    }`)
+	fi, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	t.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	assertRegistryDefault(t, "ultra")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"anthropic"}`)
+	if err := os.Chtimes(vault.Path(), fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(vault.Path())
+	if err != nil || after.Size() != fi.Size() || !after.ModTime().Equal(fi.ModTime()) {
+		t.Fatal("rewrite did not preserve file size and mtime")
+	}
+	assertRegistryDefault(t, "anthropic")
+}
+
+func assertRegistryDefault(t *testing.T, want string) {
+	t.Helper()
+	got, err := LoadShared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Default != want {
+		t.Fatalf("registry default = %q, want %q", got.Default, want)
+	}
+}
+
+func TestLoadSharedFreshUnchangedDoesNotReparse(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["anthropic","ultra"]}`)
+	now := time.Now()
+	t.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	orig := parseProviderOverlay
+	t.Cleanup(func() { parseProviderOverlay = orig })
+	calls := 0
+	parseProviderOverlay = func(doc []byte) (*Registry, error) {
+		calls++
+		return orig(doc)
+	}
+	registryContent.Lock()
+	registryContent.doc, registryContent.reg = nil, nil
+	registryContent.Unlock()
+	for range 2 {
+		if _, err := LoadShared(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("overlay parsed %d times, want one", calls)
+	}
+}
+
+func BenchmarkLoadRegistryCold(b *testing.B) {
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	reset := func() {
+		registryContent.Lock()
+		registryContent.doc, registryContent.reg = nil, nil
+		registryContent.Unlock()
+	}
+	b.Cleanup(reset)
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		reset()
+		b.StartTimer()
+		// Calling loadRegistry directly bypasses loadCache and lastChecked.
+		if _, err := loadRegistry(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoad(b *testing.B) {
+	settledVault(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := Load(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoadShared(b *testing.B) {
+	settledVault(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := LoadShared(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoadSharedFresh(b *testing.B) {
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	now := time.Now()
+	b.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	if _, err := LoadShared(); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if _, err := LoadShared(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/proxyteam"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 )
 
 func TestChosenProxyIsTakenOnceAndForgotten(t *testing.T) {

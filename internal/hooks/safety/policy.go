@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/permission"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
 
 // policy is the settings.json permissions.deny safety-scan reads: Bash rules, Edit/Write globs, other tools' rules.

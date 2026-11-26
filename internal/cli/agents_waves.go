@@ -11,8 +11,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/waves"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // registerDispatchWaves registers the plan runner's options on the waves flag set.

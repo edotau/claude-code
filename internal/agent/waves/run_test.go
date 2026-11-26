@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 type runFixture struct {

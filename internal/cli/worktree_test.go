@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/contract"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 // Bare worktree lists (exit 0); an unknown verb, a wrong arity or an unknown name fails.

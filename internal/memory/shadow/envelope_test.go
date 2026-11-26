@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/sqlite"
+	"github.com/edotau/claude-code/internal/platform/sqlite"
 )
 
 // envPeer is one machine's temp db with its envelope store; the lock and truth seams never touch the live store.

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/platform/redact"
 
-	_ "github.com/edotau/claude-code/internal/nonet"
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
 )
 
 func sessionEndInput(path string) *core.Input {

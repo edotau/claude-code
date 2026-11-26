@@ -1,9 +1,9 @@
 ---
 paths:
   - "internal/agent/**"
-  - "internal/agentconfig/**"
-  - "internal/copilot/**"
-  - "internal/setup/install*.go"
+  - "internal/routing/agentconfig/**"
+  - "internal/driver/copilot/**"
+  - "internal/dev/setup/install*.go"
 ---
 # Agent CLIs — codex, copilot, opencode, gemini, pi
 
@@ -16,7 +16,7 @@ paths:
   written to `~/.pi`.
 - opencode's `~/.config/opencode/` gets only the theme file and `agents sync`'s agent files; model/MCP/theme config
   come from a tracked overlay injected at launch (`OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
-  `internal/agentconfig/template/`).
+  `internal/routing/agentconfig/template/`).
 - Codex pins live in the vault codex agent record and apply to `$CODEX_HOME/config.toml`; snapshots and baseline are
   vault-encrypted (`settings_backups`, last 5, excluded from exports). Provider config, hook trust and unknown native
   keys are preserved; an unavailable vault key aborts changed writes.
@@ -64,7 +64,7 @@ paths:
   `--no-context-files` (no CLAUDE.md or AGENTS.md) and `--no-mcp`;
   repo code is disabled with `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`.
   `effort` maps to `--thinking` (minimal–max); auto and tier aliases follow Model precedence below.
-  Wires (`internal/pi/config.go`, `pickWire`): Claude uses Anthropic; Responses-capable non-Claude/non-Grok uses
+  Wires (`internal/driver/pi/config.go`, `pickWire`): Claude uses Anthropic; Responses-capable non-Claude/non-Grok uses
   Responses; the rest, including Grok, uses chat. Missing profile routes remove models from the menu.
   Each wire uses `http://127.0.0.1:18765/p/<profile>` with a session token exported at launch, never on disk.
   Pi's exit code does not establish success: require `agent_settled`, last stop reason `stop`, and no open tool call.
@@ -91,7 +91,7 @@ paths:
   no CLAUDE.md, skills or MCP. Implementation: `internal/agent/pirunner.go`, `withPiRunner`, `staysOnWorkspace`.
 - **pi typed actions** — Pi's guard extension also registers `gate` and `handback`: the model picks the action and its
   typed arguments and Go builds the command. A typed hand-back (status, summary, unfixed) becomes the run's answer and
-  its footer line (`internal/pi/stream.go` `handbackStatuses`). A brief's `own`, `report` and `verify` keys on
+  its footer line (`internal/driver/pi/stream.go` `handbackStatuses`). A brief's `own`, `report` and `verify` keys on
   `agents ask --brief` wrap the brief; Go runs `verify` once after an answered run with status ok (not for remote work)
   and records it as the result's `verify` object; a failed verify does not change the run's status.
   The record carries per-tool stats.
@@ -123,8 +123,8 @@ paths:
   `builtin:codemode`, and nested calls still pass `safety-scan`. Code mode never wraps (see Pi carrier and
   experiments, rule 4). The type `coworker` means Pi in code mode (`"agent":"coworker"` is
   `"agent":"pi","codemode":"on"`): `CodeModeRow.TypedByMode` on Pi's row
-  (`/Users/edotau/.claude/internal/agentid/agentid.go`) types a Pi code-mode run `coworker` (receipt `coworker`) and a
-  Pi run with code mode off by its model (`claude`, runner `pi`).
+  (`/Users/edotau/.claude/internal/routing/agentid/agentid.go`) types a Pi code-mode run `coworker`
+  (receipt `coworker`) and a Pi run with code mode off by its model (`claude`, runner `pi`).
 
 ### pi packages
 
@@ -355,8 +355,9 @@ vendor CLI untouched.
 ## Skills and instructions parity
 
 - **Skills.** `agents sync` links `skills/<name>/SKILL.md` into `~/.agents/skills`, plus copilot's `~/.copilot/skills`
-  and agy's `~/.gemini/antigravity-cli/skills` (`internal/agentconfig/project/targets.go`). `skills/synced/**` gets no
-  link (opencode reads `~/.claude/skills` natively); sync never prunes a link into it and prints a stale one as `EXTRA`.
+  and agy's `~/.gemini/antigravity-cli/skills` (`internal/routing/agentconfig/project/targets.go`).
+  `skills/synced/**` gets no link (opencode reads `~/.claude/skills` natively); sync never prunes a link into it
+  and prints a stale one as `EXTRA`.
 - **Portable core.** `CLAUDE.md` (else `AGENTS.md`, `.copilot/copilot-instructions.md`,
   `.github/copilot-instructions.md`: first present) plus unscoped `rules/standards/*.md`, listed by
   `project.PortableCore`; headless and interactive runs load the same core.

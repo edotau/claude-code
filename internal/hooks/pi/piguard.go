@@ -16,12 +16,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/contract"
+	"github.com/edotau/claude-code/internal/dev/contract"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // GuardName is the "module" of `hook PreToolUse --pi-guard`: Pi's guard sends a raw tool call, this judges it.

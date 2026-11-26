@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/databricks/serving"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // testBase stands in for the running proxy's base URL.

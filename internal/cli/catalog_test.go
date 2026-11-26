@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/providers"
-	endpoints "github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/catalog"
+	"github.com/edotau/claude-code/internal/routing/databricks/serving"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	endpoints "github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // catalogListing is the fake workspace: Claude, a Responses-only GPT, open chat models, a cold and an embeddings row.

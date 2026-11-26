@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // memTestStore stands in for the shadow store (an import cycle bars it): import files, ApplyDocs, export; no settle.

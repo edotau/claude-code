@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/mdlint"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/dev/mdlint"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // toolTimeout bounds one formatter run.

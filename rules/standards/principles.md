@@ -18,9 +18,9 @@
   Understand why a working setup exists before changing it, else leave it.
 - **Old plans are ideas** — re-derive each claim from today's code; a build request is recorded as a task with its
   goal, never parked as an opinion.
-- **Full paths** — name every file and directory by absolute path (`~/.claude/internal/agentconfig/overlay.go:91`) in
-  replies, briefs, plans, reports and handoffs. A repo-relative path is fine only inside a code block that starts with
-  `cd <absolute repo path>`.
+- **Full paths** — name every file and directory by absolute path
+  (`~/.claude/internal/routing/agentconfig/overlay.go:91`) in replies, briefs, plans, reports and handoffs. A
+  repo-relative path is fine only inside a code block that starts with `cd <absolute repo path>`.
 
 ## Code changes
 

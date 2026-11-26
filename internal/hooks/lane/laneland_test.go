@@ -11,11 +11,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/memory/memtest"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 func TestLaneLandVerdict(t *testing.T) {
@@ -62,9 +62,9 @@ func TestLaneLandTranscriptStampMovesWhenLeafRunsAgain(t *testing.T) {
 }
 
 func TestLaneLandRestrictionFiles(t *testing.T) {
-	got := restrictionFiles([]string{"internal/hooks/safety/safety.go", "internal/settings/hookspec.go",
+	got := restrictionFiles([]string{"internal/hooks/safety/safety.go", "internal/platform/settings/hookspec.go",
 		"settings.json", "README.md", "internal/hooks/laneland.go", "(diff unreadable)"})
-	want := []string{"internal/hooks/safety/safety.go", "internal/settings/hookspec.go", "settings.json", "(diff unreadable)"}
+	want := []string{"internal/hooks/safety/safety.go", "internal/platform/settings/hookspec.go", "settings.json", "(diff unreadable)"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("restrictionFiles = %v, want %v", got, want)
 	}

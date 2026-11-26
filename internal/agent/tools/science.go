@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 var claudeScienceBaseURL = "https://downloads.claude.ai/claude-science/latest"

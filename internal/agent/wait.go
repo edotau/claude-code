@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // Wait states: done and error from the record, lost a dead running record, timeout unsettled.

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/configure"
 )
 
 var historyPage = helptext.Page{

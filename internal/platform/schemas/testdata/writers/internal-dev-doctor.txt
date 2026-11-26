@@ -1,0 +1,2 @@
+internal/dev/doctor/mcphealth.go:mcpList	unversioned: foreign: temp output of claude mcp list
+internal/dev/doctor/upstream.go:upstreamLatest	upstream-latest

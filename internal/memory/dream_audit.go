@@ -24,9 +24,9 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/review/bench"
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
 
 const (

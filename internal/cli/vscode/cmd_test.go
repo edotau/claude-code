@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 func TestThemeVSCodeServeNoLongerRoutes(t *testing.T) {

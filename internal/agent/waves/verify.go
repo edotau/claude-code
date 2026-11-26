@@ -19,9 +19,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/inspect"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.

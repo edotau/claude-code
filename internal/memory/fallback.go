@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/models"
 )
 
 // StoreCopy is a throwaway git clone of the store for the fallback to read; a var so tests need no repo.

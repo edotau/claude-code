@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 func TestWrittenPaths(t *testing.T) {

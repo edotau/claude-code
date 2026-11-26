@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/schemas"
 )
 
 // Scope is a scoped proxy's record: scopes/<team>@<id>.json, written while it serves, removed when it closes.

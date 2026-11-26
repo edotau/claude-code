@@ -1,10 +1,10 @@
 ---
 paths:
-  - "internal/providers/**"
-  - "internal/vault/**"
-  - "internal/models/**"
+  - "internal/routing/providers/**"
+  - "internal/platform/vault/**"
+  - "internal/routing/models/**"
   - "internal/proxy/**"
-  - "internal/router/**"
+  - "internal/routing/router/**"
   - "internal/agent/route*.go"
 ---
 # Providers, Models, Credentials

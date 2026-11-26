@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/remote/egress"
 )
 
 // rejectLocal must stop every non-public resolved address and pass a public one.

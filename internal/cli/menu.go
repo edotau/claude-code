@@ -10,10 +10,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/ansi"
-	"github.com/edotau/claude-code/internal/ui/helptext"
-	"github.com/edotau/claude-code/internal/ui/theme"
+	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/theme"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // nameWidth is the menu's command-name column.

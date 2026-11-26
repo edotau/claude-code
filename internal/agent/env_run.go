@@ -15,11 +15,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/redact"
-	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/redact"
+	"github.com/edotau/claude-code/internal/remote/egress"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 // childWaitDelay is how long a killed child's open pipes may delay Wait; a var so tests can lengthen it.

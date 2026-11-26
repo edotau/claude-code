@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
 const suiteWhy = "whole-suite test run denied: the suite runs once, on the local working branch, by the main session"

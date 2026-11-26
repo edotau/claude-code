@@ -13,18 +13,18 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
+	_ "github.com/edotau/claude-code/internal/driver/claude" // registers the claude row
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/memory/memtest"
 	_ "github.com/edotau/claude-code/internal/memory/shadow" // links the vector store, as both binaries do
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/settings"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/worktree"
-	"github.com/edotau/claude-code/internal/worktree/worktreetest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 )
 
 // TestMain stubs every detached spawn and the process scan: no memhook test starts a process or reads the machine.

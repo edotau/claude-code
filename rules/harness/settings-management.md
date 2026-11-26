@@ -1,7 +1,7 @@
 ---
 paths:
-  - "internal/settings/**"
-  - "internal/agentconfig/*.go"
+  - "internal/platform/settings/**"
+  - "internal/routing/agentconfig/*.go"
   - "**/settings.json"
 ---
 # Settings Management
@@ -21,7 +21,7 @@ It keeps a backup in `state/harness/backups/`; explicit `--fmt --check --out <fi
 
 ## Where settings come from
 
-- A missing file is seeded from `internal/assets/settings/template.json` and `internal/settings/hookspec.go`.
+- A missing file is seeded from `internal/assets/settings/template.json` and `internal/platform/settings/hookspec.go`.
   Install only validates an existing file; hook changes reach it by hand edit or explicit restore.
 - Build both binaries with `make compile` first: install requires `bin/.hookd`.
   Both share `bin/.build-stamp`; a mismatch hands hooks to `bin/claude-code`.

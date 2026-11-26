@@ -1,8 +1,8 @@
 ---
 paths:
   - "internal/hooks/**"
-  - "internal/settings/**"
-  - "internal/agentconfig/**"
+  - "internal/platform/settings/**"
+  - "internal/routing/agentconfig/**"
   - "agents/**"
   - "commands/**"
   - "rules/**"
@@ -23,7 +23,7 @@ Act on every applicable item when changing hooks, settings, agent configs, agent
    are the always-on core. Fix overlay extends links, the `CLAUDE.md` index, skills and commands in the same change.
 4. **Skill, CLAUDE.md or roster changed:** run `claude-code agents sync`, then `claude-code agents sync --check`.
    If projection roots are unwritable, report the boundary and exact pending command.
-5. **File writer or disk format changed:** register/classify it in `internal/schemas`, including
+5. **File writer or disk format changed:** register/classify it in `internal/platform/schemas`, including
    `testdata/writers/<pkg>.txt` and the registry golden. Refresh hook/settings goldens and examples in the same change.
 6. **Record:** the commit message names what was rebuilt and deferred.
 7. **Component added/changed (agent, skill, hook, plugin):** write a manifest of files/actions and get approval first.

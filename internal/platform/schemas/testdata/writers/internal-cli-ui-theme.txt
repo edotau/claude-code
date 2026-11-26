@@ -1,0 +1,2 @@
+internal/cli/ui/theme/look.go:setGradientLocked	unversioned: foreign: theme file in a vendor home
+internal/cli/ui/theme/theme.go:writeMerged	unversioned: foreign: theme file and backup in a vendor home

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/worktree"
 )
 
 // TestFailuresVerb: report, ls, a second claim exits 3 naming the first, done hides it, a bad kind exits 2.

@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/dev/preflight"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // servedSession seeds a hermetic vault and a dev Databricks session; it returns the served-refresh spawn count.

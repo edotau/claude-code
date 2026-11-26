@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // fixFake swaps the exec seam: gofmt -w and mdsmith fix append a marker to each file; the listers name every file.

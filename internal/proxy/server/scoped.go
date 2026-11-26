@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 // Scoped is an in-process proxy for one team and id: a loopback listener of its own, no proxy.json, no reclaim.

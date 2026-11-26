@@ -13,8 +13,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // writesTimeout bounds each git call around a run, which never gate it: a slow repo costs this much, not more.

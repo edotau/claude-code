@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/redact"
 )
 
 const (

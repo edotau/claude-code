@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/routing/catalog"
 )
 
 // FitOutcomes keeps successes and quality failures; records from the oldest live dispatch on wait, so none is skipped.

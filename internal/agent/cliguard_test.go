@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
 )
 
 func TestCLIVersionAtParsesFakeBinary(t *testing.T) {

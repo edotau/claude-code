@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // fakeExportDB keeps rendered docs in maps; Import reads the file under root like the shadow adapter.

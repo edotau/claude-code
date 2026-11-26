@@ -5,7 +5,7 @@ package pi
 import (
 	"os/exec"
 
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 type stepTree struct{ cmd *exec.Cmd }

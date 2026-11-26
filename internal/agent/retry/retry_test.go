@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/egress"
+	"github.com/edotau/claude-code/internal/remote/egress"
 )
 
 func TestBackoff(t *testing.T) {
@@ -354,7 +354,7 @@ func assertDispatchCallGlobals(t *testing.T, p string, n ast.Node, banned map[st
 func TestNoSetenvOrChdirInDispatchPath(t *testing.T) {
 	banned := map[string]bool{"os.Setenv": true, "os.Unsetenv": true, "os.Clearenv": true, "os.Chdir": true}
 	var files []string
-	for _, dir := range []string{"..", "../../claude", "../../codex", "../../copilot", "../../gemini", "../../opencode"} {
+	for _, dir := range []string{"..", "../../driver/claude", "../../driver/codex", "../../driver/copilot", "../../driver/gemini", "../../driver/opencode"} {
 		got, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil || len(got) == 0 {
 			t.Fatalf("no sources in %s: %v", dir, err)

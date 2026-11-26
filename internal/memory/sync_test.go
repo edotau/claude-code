@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // fakeEnvelopes is an in-memory EnvelopeStore: per-origin rows and watermarks, apply records the seq.

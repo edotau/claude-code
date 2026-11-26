@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/platform/redact"
 )
 
 func TestRunVerifyRecordsExit(t *testing.T) {

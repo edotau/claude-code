@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/dev/review/source"
 )
 
 // branchy returns a Go function whose cyclomatic complexity is n+1.

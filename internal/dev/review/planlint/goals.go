@@ -1,0 +1,468 @@
+package planlint
+
+import (
+	"fmt"
+	"io"
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+
+	reviewsource "github.com/edotau/claude-code/internal/dev/review/source"
+
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+)
+
+// stepResult mirrors the Python step-result dict field order.
+type stepResult struct {
+	Title string `json:"title"`
+	Score int    `json:"score"`
+	Level string `json:"level"`
+}
+
+// noStepsResult/stepsResult are two shapes because the Python script returns dict literals with different keys.
+type noStepsResult struct {
+	Status          string          `json:"status"`
+	Source          string          `json:"source"`
+	StepsFound      int             `json:"steps_found"`
+	Verdict         string          `json:"verdict"`
+	Score           int             `json:"score"`
+	MaxScore        int             `json:"max_score"`
+	StepResults     []stepResult    `json:"step_results"`
+	Recommendations []string        `json:"recommendations"`
+	OversizedTasks  []oversizedTask `json:"oversized_tasks,omitempty"`
+}
+
+type stepsResult struct {
+	Status               string               `json:"status"`
+	Source               string               `json:"source"`
+	StepsFound           int                  `json:"steps_found"`
+	Score                int                  `json:"score"`
+	MaxScore             int                  `json:"max_score"`
+	Percentage           reviewsource.PyFloat `json:"percentage"`
+	HasFinalVerification bool                 `json:"has_final_verification"`
+	Verdict              string               `json:"verdict"`
+	StepResults          []stepResult         `json:"step_results"`
+	Recommendations      []string             `json:"recommendations"`
+	OversizedTasks       []oversizedTask      `json:"oversized_tasks,omitempty"`
+}
+
+// oversizedTask is a task line that isn't leaf-sized: too many packages or findings, or a code task with no `owns:`.
+type oversizedTask struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
+var (
+	concreteRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:assert\w*|\.toBe|\.toEqual|pytest|jest|npm\s+test|go\s+test|exit\s*(?:code)?\s*[=:]?\s*0|status\s*[=:]?\s*200|curl\b|grep\b|diff\b|benchmark)\b|\bexpect\(|\b(?:latency\s*<|throughput\s*>)`)
+	})
+	reasonableRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:verify|check|confirm|inspect|review|compare|validate|run\s+and\s+see|manually|open\s+in\s+browser|screenshot)\b`)
+	})
+	vagueRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:should\s+work|looks?\s+(?:good|right|fine|ok)|seems?\s+(?:correct|fine)|hopefully|probably\s+works?)\b`)
+	})
+	stepRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:\d+[.)]\s+|[-*]\s+\[.\]\s+|[-*]\s+Step\s+\d+)`) })
+	phaseRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^#{2,3} Phase\s+[^\n]+`) })
+	headingRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(#{1,6})\s+`) })
+	finalRe   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:final|end-to-end|full\s+test|regression|all\s+(?:tests?\s+)?pass)\b`)
+	})
+	verifyVerbRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:tests?|verif\w*|checks?|runs?|pass(?:es)?|validat\w*|audit\w*)\b`)
+	})
+
+	taskLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*-\s*\[[ xX]\]\s+(.+)$`) })
+	// Group 1 is the fence run (3+ backticks or tildes), group 2 the rest of the line (the info string).
+	fenceRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("^\\s*(`{3,}|~{3,})(.*)$") })
+	// First segment at a token start (no RE2 lookbehind); absolute, ~/ and .claude/ prefixes are allowed.
+	internalPkgRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./|~/|/[^\\s`(,]*/)?(?:\\.claude/)?(internal|cmd)/([A-Za-z0-9_]+)")
+	})
+	topDirRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile("(?:^|[\\s`(,])(?:\\./)?([a-zA-Z][a-zA-Z0-9_-]*)/[A-Za-z0-9_.\\-]+")
+	})
+	ownsRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`owns:\s*[^\s—]`) })
+	findingsRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(\d+)\s+(?:findings|items|fixes|functions|files)\b`)
+	})
+	codeTaskRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bagent:|\.go\b`) })
+)
+
+// agentNames head agent alternatives like `(codex/copilot)`, which are not package paths.
+var agentNames = func() map[string]bool {
+	set := map[string]bool{agentid.Binary(agentid.Gemini): true}
+	for _, a := range agentid.All() {
+		set[a] = true
+	}
+	return set
+}()
+
+// countPackageMentions counts distinct internal/cmd package pairs and other path heads, excluding agent names.
+func countPackageMentions(line string) int {
+	pkgs := map[string]bool{}
+	for _, m := range internalPkgRe().FindAllStringSubmatch(line, -1) {
+		pkgs[m[1]+"/"+m[2]] = true
+	}
+	for _, m := range topDirRe().FindAllStringSubmatch(line, -1) {
+		if m[1] == "internal" || m[1] == "cmd" || agentNames[m[1]] {
+			continue
+		}
+		pkgs[m[1]] = true
+	}
+	return len(pkgs)
+}
+
+// maxFindingsCount returns the largest "<N> findings/items/fixes/functions/files" count on the line, if any.
+func maxFindingsCount(line string) (int, bool) {
+	best, found := 0, false
+	for _, m := range findingsRe().FindAllStringSubmatch(line, -1) {
+		n, err := strconv.Atoi(m[1])
+		if err != nil { // m[1] is \d+: only an int overflow fails, and it is oversized by any limit
+			n = math.MaxInt
+		}
+		if n > best {
+			best = n
+			found = true
+		}
+	}
+	return best, found
+}
+
+// findOversizedTasks flags checklist task lines not leaf-sized per agents/Plan.md (>3 packages, >10 items, no `owns:`).
+func findOversizedTasks(text string) []oversizedTask {
+	var out []oversizedTask
+	var fence fenceState
+	for _, raw := range splitLines(text) {
+		if fence.skip(raw) {
+			continue
+		}
+		m := taskLineRe().FindStringSubmatch(raw)
+		if m == nil {
+			continue
+		}
+		line := m[1]
+		reasons := oversizeReasons(line)
+		if len(reasons) == 0 {
+			continue
+		}
+		out = append(out, oversizedTask{Title: textutil.TruncateRunes(line, 120), Reason: strings.Join(reasons, "; ")})
+	}
+	return out
+}
+
+// oversizeReasons lists why a task line is not leaf-sized; empty means it is fine.
+func oversizeReasons(line string) []string {
+	var reasons []string
+	if n := countPackageMentions(line); n > 3 {
+		reasons = append(reasons, fmt.Sprintf("names %d packages (limit 3)", n))
+	}
+	if n, ok := maxFindingsCount(line); ok && n >= 11 {
+		reasons = append(reasons, fmt.Sprintf("mentions %d findings/items (limit 10)", n))
+	}
+	if codeTaskRe().MatchString(line) && !ownsRe().MatchString(line) {
+		reasons = append(reasons, "code task has no `owns:` segment")
+	}
+	return reasons
+}
+
+func extractSteps(text string) []string {
+	// A phase-looking line inside a code fence yields no phase steps, so fall back to the list.
+	if steps := extractPhaseSteps(text); len(steps) > 0 {
+		return steps
+	}
+	return extractListSteps(text)
+}
+
+// extractPhaseSteps collects each phase heading and its body, up to the next heading of equal or higher level.
+func extractPhaseSteps(text string) []string {
+	var steps []string
+	var current []string
+	level := 0
+	var fence fenceState
+	for _, line := range splitLines(text) {
+		var heading []string
+		phase := false
+		if !fence.skip(line) {
+			heading = headingRe().FindStringSubmatch(line)
+			phase = phaseRe().MatchString(line)
+		}
+		if level > 0 && heading != nil && (len(heading[1]) <= level || phase) {
+			steps = append(steps, strings.Join(current, "\n"))
+			current = nil
+			level = 0
+		}
+		if phase {
+			level = len(heading[1])
+			current = []string{line}
+		} else if level > 0 {
+			// The template label alone is not verification evidence.
+			current = append(current, strings.ReplaceAll(line, "**Verify:**", ""))
+		}
+	}
+	if level > 0 {
+		steps = append(steps, strings.Join(current, "\n"))
+	}
+	return steps
+}
+
+// fenceState is the open code fence (its character and run length); the zero value is outside any fence.
+type fenceState struct {
+	char byte
+	n    int
+}
+
+// skip reports whether line is a fence delimiter or inside a fence; a closer matches char, length and no info.
+func (f *fenceState) skip(line string) bool {
+	m := fenceRe().FindStringSubmatch(line)
+	if m == nil {
+		return f.n > 0
+	}
+	run, rest := m[1], strings.TrimSpace(m[2])
+	switch {
+	case f.n == 0:
+		*f = fenceState{char: run[0], n: len(run)}
+	case run[0] == f.char && len(run) >= f.n && rest == "":
+		*f = fenceState{}
+	}
+	return true
+}
+
+func extractListSteps(text string) []string {
+	var b stepBuilder
+	var fence fenceState
+	for _, line := range splitLines(text) {
+		stripped := strings.TrimSpace(line)
+		switch {
+		case fence.skip(line):
+			b.add(line)
+		case b.building && headingRe().MatchString(line) && !stepRe().MatchString(stripped):
+			b.end() // a heading ends the last step's body
+		case stepRe().MatchString(stripped):
+			b.flush()
+			b.current, b.building = []string{stripped}, true
+		default:
+			b.add(line)
+		}
+	}
+	b.flush()
+	return b.steps
+}
+
+// stepBuilder accumulates the lines of the step being read.
+type stepBuilder struct {
+	steps, current []string
+	building       bool
+}
+
+// add appends a body line to the current step, if one is open.
+func (b *stepBuilder) add(line string) {
+	if b.building {
+		b.current = append(b.current, line)
+	}
+}
+
+// flush closes the current step into steps, if one is open.
+func (b *stepBuilder) flush() {
+	if b.building {
+		b.steps = append(b.steps, strings.Join(b.current, "\n"))
+	}
+}
+
+// end flushes the current step and leaves none open.
+func (b *stepBuilder) end() {
+	b.flush()
+	b.current, b.building = nil, false
+}
+
+func scoreStep(step string) (int, string) {
+	if concreteRe().MatchString(step) {
+		return 3, "concrete"
+	}
+	if reasonableRe().MatchString(step) {
+		return 2, "reasonable"
+	}
+	if vagueRe().MatchString(step) {
+		return 1, "vague"
+	}
+	return 0, "none"
+}
+
+// analysis holds every field either JSON shape needs; RunGoals picks the shape at marshal time.
+type analysis struct {
+	source               string
+	stepsFound           int
+	score                int
+	maxScore             int
+	percentage           float64
+	hasFinalVerification bool
+	verdict              string
+	stepResults          []stepResult
+	recommendations      []string
+	noPlan               bool
+	oversizedTasks       []oversizedTask
+}
+
+// isFinalVerification reports whether a step is a final check: a final/regression keyword plus a verification signal.
+func isFinalVerification(step string) bool {
+	if !finalRe().MatchString(step) {
+		return false
+	}
+	pts, _ := scoreStep(step) // concrete or reasonable: the same classifiers every step is scored with
+	return pts >= 2 || verifyVerbRe().MatchString(step)
+}
+
+func scoreSteps(steps []string) ([]stepResult, int) {
+	results := make([]stepResult, 0, len(steps))
+	total := 0
+	for _, step := range steps {
+		pts, level := scoreStep(step)
+		total += pts
+		results = append(results, stepResult{Title: textutil.TruncateRunes(textutil.FirstLine(step), 120), Score: pts, Level: level})
+	}
+	return results, total
+}
+
+func goalsVerdict(pct float64) string {
+	switch {
+	case pct >= 70:
+		return "STRONG"
+	case pct >= 40:
+		return "WEAK"
+	}
+	return "MISSING"
+}
+
+func goalRecommendations(results []stepResult, hasFinal bool) []string {
+	noneN, vagueN := 0, 0
+	for _, r := range results {
+		switch r.Level {
+		case "none":
+			noneN++
+		case "vague":
+			vagueN++
+		}
+	}
+	var recs []string
+	if noneN > 0 {
+		recs = append(recs, fmt.Sprintf("%d step(s) have no verification. Add 'verify: [check]' to each.", noneN))
+	}
+	if vagueN > 0 {
+		recs = append(recs, fmt.Sprintf("%d step(s) have vague criteria. Replace 'should work' with a concrete check.", vagueN))
+	}
+	if !hasFinal {
+		recs = append(recs, "No final / end-to-end verification step. Add one at the end.")
+	}
+	if len(recs) == 0 {
+		recs = append(recs, "Strong verification coverage. Good to go.")
+	}
+	return recs
+}
+
+func analyze(text, source string) analysis {
+	oversized := findOversizedTasks(text)
+	steps := extractSteps(text)
+	if len(steps) == 0 {
+		return analysis{
+			source:          source,
+			noPlan:          true,
+			verdict:         "NO_PLAN",
+			stepResults:     []stepResult{},
+			recommendations: []string{"No numbered/bulleted steps found. Is this a plan?"},
+			oversizedTasks:  oversized,
+		}
+	}
+
+	results, total := scoreSteps(steps)
+	maxScore := len(steps) * 3
+	pct := reviewsource.Round1(float64(total) / float64(maxScore) * 100)
+	hasFinal := isFinalVerification(steps[len(steps)-1])
+	verdict := goalsVerdict(pct)
+	recs := goalRecommendations(results, hasFinal)
+
+	return analysis{
+		source:               source,
+		stepsFound:           len(steps),
+		score:                total,
+		maxScore:             maxScore,
+		percentage:           pct,
+		hasFinalVerification: hasFinal,
+		verdict:              verdict,
+		stepResults:          results,
+		recommendations:      recs,
+		oversizedTasks:       oversized,
+	}
+}
+
+// RunGoals is the Go entry point for goal_verifier.py's CLI.
+func RunGoals(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	input, jsonOut, code, handled := parseInputJSONArgs("goals",
+		"Check every plan step names a verifiable goal and the plan ends on one.", args, stdout, stderr)
+	if handled {
+		return code
+	}
+	text, source, exit, ok := readInput(input, stdin, stderr)
+	if !ok {
+		return exit
+	}
+
+	a := analyze(text, source)
+
+	var err error
+	if jsonOut {
+		err = reviewsource.WritePyJSON(stdout, goalsResult(a))
+	} else {
+		err = printGoals(stdout, a)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "claude-code plan goals: error: writing output: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func goalsResult(a analysis) any {
+	if a.noPlan {
+		return noStepsResult{
+			Status: "ok", Source: a.source, StepsFound: 0, Verdict: a.verdict,
+			Score: 0, MaxScore: 0, StepResults: a.stepResults, Recommendations: a.recommendations,
+			OversizedTasks: a.oversizedTasks,
+		}
+	}
+	return stepsResult{
+		Status: "ok", Source: a.source, StepsFound: a.stepsFound, Score: a.score, MaxScore: a.maxScore,
+		Percentage: reviewsource.PyFloat(a.percentage), HasFinalVerification: a.hasFinalVerification, Verdict: a.verdict,
+		StepResults: a.stepResults, Recommendations: a.recommendations, OversizedTasks: a.oversizedTasks,
+	}
+}
+
+func printGoals(dst io.Writer, a analysis) error {
+	stdout := &strings.Builder{}
+	fmt.Fprintf(stdout, "Goal Verifier — %s\n", a.source)
+	pctStr := "0"
+	if !a.noPlan {
+		pctStr = reviewsource.FormatPyFloat(a.percentage)
+	}
+	fmt.Fprintf(stdout, "Steps: %d   Score: %d/%d (%s%%)\n", a.stepsFound, a.score, a.maxScore, pctStr)
+	fmt.Fprintf(stdout, "Verdict: %s\n\n", a.verdict)
+	icons := map[string]string{"concrete": "+", "reasonable": "~", "vague": "?", "none": "!"}
+	for _, sr := range a.stepResults {
+		fmt.Fprintf(stdout, "  [%s] %s  (%s, %d/3)\n", icons[sr.Level], textutil.TruncateRunes(sr.Title, 100), sr.Level, sr.Score)
+	}
+	fmt.Fprintln(stdout)
+	for _, rec := range a.recommendations {
+		fmt.Fprintf(stdout, "  -> %s\n", rec)
+	}
+	if len(a.oversizedTasks) > 0 {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "Oversized tasks:")
+		for _, t := range a.oversizedTasks {
+			fmt.Fprintf(stdout, "  ! %s  (%s)\n", textutil.TruncateRunes(t.Title, 100), t.Reason)
+		}
+	}
+	_, err := io.WriteString(dst, stdout.String())
+	return err
+}

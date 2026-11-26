@@ -14,12 +14,12 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/cli/menu"
-	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/providers"
-	_ "github.com/edotau/claude-code/internal/proxyteam" // registers its formats until the binary links it
-	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/schemas"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+	_ "github.com/edotau/claude-code/internal/proxy/proxyteam" // registers its formats until the binary links it
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func run(args []string) int { return cmdConfigure(args) }
@@ -188,7 +188,7 @@ func TestConfigureRemovedFormsExitTwoWithHint(t *testing.T) {
 var update = flag.Bool("update", false, "regenerate the schemas registry golden")
 
 const (
-	goldenPath = "../schemas/testdata/registry.golden"
+	goldenPath = "../platform/schemas/testdata/registry.golden"
 	legacyTag  = "# legacy-layout: "
 	// outside marks a Glob that is fixed at package init, so it cannot follow CLAUDE_CONFIG_DIR in a test.
 	outside = "<fixed at init>"
@@ -303,12 +303,12 @@ func TestContractLayout(t *testing.T) {
 			// Desktop owns its external data root; none of these files may be swept by harness clean.
 			switch f.Name {
 			case "desktop-profile", "desktop-meta", "desktop-state":
-				if f.Owner != "internal/desktop" || f.Clean != "" {
+				if f.Owner != "internal/platform/desktop" || f.Clean != "" {
 					t.Fatal("Desktop formats must remain externally owned and kept")
 				}
 				return
 			case "rtk-config": // rtk owns its config dir; the harness renders the file but never sweeps it
-				if f.Owner != "internal/setup" || f.Kind != schemas.Derived || f.Clean != "" {
+				if f.Owner != "internal/dev/setup" || f.Kind != schemas.Derived || f.Clean != "" {
 					t.Fatal("rtk-config must stay a derived, externally placed file the harness never cleans")
 				}
 				return

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 const candidateRows = `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"repeats":1,"change":"Add a hook.","target":"unknown","kind":"hook","size":"small"}` + "\n" +

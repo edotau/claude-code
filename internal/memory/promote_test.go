@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // seedConventionBlock plants one id-marked conventions.md bullet in the bank and returns its id.

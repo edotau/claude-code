@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
 func TestReviewFindingsParseAndDegrade(t *testing.T) {

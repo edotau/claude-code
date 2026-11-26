@@ -1,2 +1,0 @@
-internal/review/diff/gate.go:runStagedComplexity	unversioned: foreign: staged-blob scratch copy, removed after the gate
-internal/review/diff/pranalyzer.go:writeOutput	unversioned: foreign: -o output

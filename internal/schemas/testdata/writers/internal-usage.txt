@@ -1,2 +1,0 @@
-internal/usage/claude.go:writeClaudeOwnerSidecar	unversioned: text: claude login owner fingerprint
-internal/usage/claude.go:writeClaudeUsageCache	oauth-usage-cache

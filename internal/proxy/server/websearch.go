@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
-	"github.com/edotau/claude-code/internal/serving"
-	"github.com/edotau/claude-code/internal/websearch"
+	"github.com/edotau/claude-code/internal/remote/websearch"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/serving"
 )
 
 // searchRoundCap bounds one request's web searches, and the rounds a model may spend after its max_uses.

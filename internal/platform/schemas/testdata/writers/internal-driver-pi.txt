@@ -1,0 +1,5 @@
+internal/driver/pi/config.go:WriteConfig	pi-config
+internal/driver/pi/guard.go:WriteGuard	pi-guard
+internal/driver/pi/launch.go:writeCodemodeSettings	pi-config
+internal/driver/pi/pkginstall.go:install	pi-packages
+internal/driver/pi/pkginstall.go:runFetch	pi-packages

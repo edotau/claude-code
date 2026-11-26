@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/dev/transcript"
 )
 
 // subagentMeta is the subset of agent-<id>.meta.json this view renders.

@@ -1,0 +1,428 @@
+package doctor
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
+
+	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/vault"
+	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/remote/network/browser"
+	"github.com/edotau/claude-code/internal/routing/agentconfig/project"
+)
+
+func doctorGitFixture(t *testing.T, dirty bool) string {
+	t.Helper()
+	dir := hosttest.Repo(t)
+	run := func(args ...string) { t.Helper(); hosttest.In(t, dir, args...) }
+	text := "nothing sensitive\n"
+	if dirty {
+		text = "FAKE_TOKEN=" + "gh" + "p_obviouslyFAKEfixtureToken1234567890\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fixture.env"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "fixture.env")
+	run("-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
+	return dir
+}
+
+func TestDoctorSecretAuditExitCodes(t *testing.T) {
+	for _, mode := range []string{"scan", "git", "secrets"} {
+		for _, finding := range []bool{false, true} {
+			t.Run(mode+map[bool]string{false: "/clean", true: "/finding"}[finding], func(t *testing.T) {
+				args, value := doctorSecretAuditFixture(t, mode, finding)
+				code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(args) })
+				want := 0
+				if finding {
+					want = 1
+				}
+				if code != want {
+					t.Errorf("doctor --%s exit %d, want %d", mode, code, want)
+				}
+				if strings.Contains(stdout+stderr, value) {
+					t.Fatal("doctor leaked the fake raw value")
+				}
+				prefix := "doctor --scan:"
+				if mode == "git" {
+					prefix = "doctor --git:"
+				}
+				if !strings.Contains(stdout, prefix) {
+					t.Errorf("missing audit prefix %q", prefix)
+				}
+			})
+		}
+	}
+}
+
+func doctorSecretAuditFixture(t *testing.T, mode string, finding bool) ([]string, string) {
+	t.Helper()
+	cfg := vaulttest.UseFreshKey(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(doctorGitFixture(t, finding && mode != "scan"))
+	const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
+	data := `{"env":{"FAKE_TOKEN":"${FAKE_TOKEN}"}}`
+	if finding && mode != "git" {
+		data = `{"env":{"FAKE_TOKEN":"` + value + `"}}`
+	}
+	path := filepath.Join(cfg, "settings.json")
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--" + mode}
+	if mode == "scan" {
+		return append(args, path), value
+	}
+	return append(args, "--since", "1"), value
+}
+
+func TestDoctorSecretsWorstExitWins(t *testing.T) {
+	for _, finding := range []string{"scan", "git", "vault"} {
+		t.Run(finding, func(t *testing.T) {
+			cfg := vaulttest.UseFreshKey(t)
+			t.Setenv("HOME", t.TempDir())
+			t.Chdir(doctorGitFixture(t, finding == "git"))
+			const value = "gh" + "p_obviouslyFAKEfixtureToken1234567890"
+			data := "{}"
+			if finding == "scan" {
+				data = `{"env":{"FAKE_TOKEN":"` + value + `"}}`
+			}
+			if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if finding == "vault" {
+				if err := vault.Store("AUDIT_FAKE_KEY", value); err != nil {
+					t.Fatal(err)
+				}
+				wrongVaultKey(t)
+			}
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+				return Run([]string{"--secrets", "--since", "1"})
+			})
+			if code != 1 {
+				t.Errorf("%s finding was lost: exit %d, want 1", finding, code)
+			}
+			if strings.Contains(stdout+stderr, value) {
+				t.Fatal("combined doctor audit leaked a raw value")
+			}
+		})
+	}
+}
+
+func TestDoctorAuditUsageErrors(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, args := range [][]string{
+		{"unexpected"}, {"--git", "unexpected"},
+		{"--scan", "--format", "json"}, {"--git", "--format", "json"},
+		{"--secrets", "--format", "json"},
+	} {
+		code, _, _ := hosttest.CaptureOutput(t, func() int { return Run(args) })
+		if code != 2 {
+			t.Errorf("doctor %v exit %d, want 2", args, code)
+		}
+	}
+}
+
+func TestDoctorPlainIncludesVaultRows(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	stubLocalServer(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no real tool --version probes
+	t.Cleanup(browser.SetCommandTimeout(50 * time.Millisecond))
+	if err := vault.Store("PLAIN_DOCTOR_FAKE_KEY", "obviously-fake-doctor-value"); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"text", "json"} {
+		code, stdout, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--format", format}) })
+		if strings.Contains(stdout, "obviously-fake-doctor-value") {
+			t.Fatal("plain doctor leaked a raw value")
+		}
+		if code != 0 && code != 1 {
+			t.Fatalf("doctor exit %d", code)
+		}
+		if format == "text" {
+			checkDoctorVaultText(t, stdout)
+			continue
+		}
+		checkDoctorVaultJSON(t, stdout)
+	}
+}
+
+func checkDoctorVaultText(t *testing.T, stdout string) {
+	t.Helper()
+	for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
+		if !strings.Contains(stdout, name) {
+			t.Errorf("plain doctor missing %s", name)
+		}
+	}
+	if n := strings.Count(stdout, "vault master key"); n != 0 {
+		t.Errorf("plain doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
+	}
+}
+
+func checkDoctorVaultJSON(t *testing.T, stdout string) {
+	t.Helper()
+	var doc struct {
+		Checks []struct {
+			Name string `json:"name"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range doc.Checks {
+		names = append(names, c.Name)
+	}
+	for _, name := range []string{"vault", "vault perms", "vault key names", "keyring tool"} {
+		if !slices.Contains(names, name) {
+			t.Errorf("JSON doctor missing %s", name)
+		}
+	}
+	n := 0
+	for _, name := range names {
+		if name == "vault master key" {
+			n++
+		}
+	}
+	if n != 0 {
+		t.Errorf("JSON doctor's \"vault\" row already carries the master-key status; want zero \"vault master key\" rows, got %d", n)
+	}
+}
+
+// doctor --audit (text) reproduces exactly what the old `audit` verb printed for the same fixture log
+func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	audit.Log(audit.ProviderSwitch, "gemini", "")
+	audit.LogSession(audit.HookBlocked, "0f0ce843-24b4-492c-af96-5fc141ea3371", "safety", "destructive command")
+
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit"}) })
+	if code != 0 {
+		t.Fatalf("doctor --audit = %d, want 0: %s", code, stderr)
+	}
+
+	ev, err := audit.Read(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want strings.Builder
+	for _, e := range ev {
+		want.WriteString(e.Time.Local().Format("2006-01-02 15:04"))
+		want.WriteString("  ")
+		want.WriteString(pad(string(e.Action), 16))
+		want.WriteString(" ")
+		want.WriteString(pad(e.Resource, 22))
+		want.WriteString(" ")
+		want.WriteString(e.Detail)
+		want.WriteString("\n")
+	}
+	if stdout != want.String() {
+		t.Errorf("doctor --audit text =\n%q\nwant\n%q", stdout, want.String())
+	}
+	audit.Log(audit.HookBlocked, "safety", "destructive command") // a probe run: no session id
+	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit"}) })
+	if !strings.HasSuffix(stdout, "1 of 2 hook_blocked had a test/probe session id (empty or not a real session's shape)\n") {
+		t.Errorf("doctor --audit text = %q, want the test/probe count last", stdout)
+	}
+}
+
+// doctor --audit --format json carries the same Days/Summary/Events shape the old `audit --format json` printed.
+func TestDoctorAuditJSONShape(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	audit.Log(audit.SecretSet, "OPENAI_API_KEY", "")
+
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("doctor --audit --format json = %d, want 0: %s", code, stderr)
+	}
+	var got struct {
+		Days    int                  `json:"days"`
+		Summary map[audit.Action]int `json:"summary"`
+		Events  []audit.Event        `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("doctor --audit --format json did not decode: %v\n%s", err, stdout)
+	}
+	if got.Days != 7 {
+		t.Errorf("Days = %d, want 7 (default)", got.Days)
+	}
+	if got.Summary[audit.SecretSet] != 1 || len(got.Events) != 1 {
+		t.Errorf("got = %+v, want one SecretSet event", got)
+	}
+}
+
+// doctor --audit --days rejects a non-positive value with exit 2 and says what to pass instead.
+func TestDoctorAuditRejectsNonPositiveDays(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit", "--days", "0"}) })
+	if code != 2 {
+		t.Errorf("doctor --audit --days 0 = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "--days must be at least 1") || !strings.Contains(stderr, "try --days 7") {
+		t.Errorf("stderr = %q, want the --days minimum and a suggested value", stderr)
+	}
+}
+
+func pad(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
+}
+
+// Regression: doctor --format json exits non-zero when writing to stdout fails.
+func TestDoctorJSONWriteError(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := doctorChecks
+	doctorChecks = func(context.Context) ([]check, bool) { return []check{{Name: "x", OK: true}}, true }
+	t.Cleanup(func() { doctorChecks = orig })
+	hosttest.ClosedStdout(t)
+
+	code := Run([]string{"--format", "json"})
+	if code == 0 {
+		t.Errorf("doctor --format json on closed stdout: exit %d, want non-zero", code)
+	}
+}
+
+// Regression: doctor --audit --format json exits non-zero when writing to stdout fails.
+func TestDoctorAuditJSONWriteError(t *testing.T) {
+	hosttest.ClosedStdout(t)
+
+	code := Run([]string{"--audit", "--format", "json"})
+	if code == 0 {
+		t.Errorf("doctor --audit --format json on closed stdout: exit %d, want non-zero", code)
+	}
+}
+
+func TestDoctorRejectsConflictingModes(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, args := range [][]string{
+		{"--scan", "--audit"}, {"--secrets", "--refresh"},
+		{"--git", "--audit"}, {"--audit", "--refresh"},
+		{"--mcp", "--scan"}, {"--prompts", "--audit"}, {"--prompts", "--mcp"},
+	} {
+		code, _, errOut := hosttest.CaptureOutput(t, func() int { return Run(args) })
+		if code != 2 {
+			t.Errorf("doctor %v exit %d, want 2", args, code)
+		}
+		if !strings.Contains(errOut, "cannot combine") {
+			t.Errorf("doctor %v stderr %q does not name the conflict", args, errOut)
+		}
+	}
+}
+
+func TestDoctorProxyFlag(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := proxyCheck
+	t.Cleanup(func() { proxyCheck = orig })
+
+	for _, tc := range []struct {
+		name   string
+		detail string
+		bad    bool
+		want   int
+	}{
+		{name: "ok", detail: "not running; teams: 0 teams", bad: false, want: 0},
+		{name: "fail", detail: "proxy.json unreadable", bad: true, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proxyCheck = func(context.Context) (string, bool) { return tc.detail, tc.bad }
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--proxy"}) })
+			if code != tc.want || !strings.Contains(stdout, "proxy") || !strings.Contains(stdout, tc.detail) {
+				t.Fatalf("doctor --proxy = (%d, %q, %q), want exit %d with %q", code, stdout, stderr, tc.want, tc.detail)
+			}
+		})
+	}
+}
+
+// TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
+func TestMain(m *testing.M) {
+	listProxyListeners = func(context.Context, int) ([]proxy.Listener, error) { return nil, nil }
+	detectBrowsers = func() (browser.Report, error) { return browser.Report{}, nil }
+	os.Exit(hosttest.Main(m))
+}
+
+func TestDoctorAgentRows(t *testing.T) {
+	doctorScratch(t)
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "codex"}) })
+	if code != 1 {
+		t.Errorf("exit %d, want 1 (binary and login missing in a scratch dir)", code)
+	}
+	for _, want := range []string{"codex binary", "codex login", "codex route", "codex projection",
+		"claude-code install --tools=codex", "agents sync"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("missing row %q in %q (stderr %q)", want, stdout, stderr)
+		}
+	}
+	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "nope"}) }); code != 2 ||
+		!strings.Contains(stderr, "unknown agent") {
+		t.Errorf("unknown agent: exit %d, stderr %q, want 2 naming the roster", code, stderr)
+	}
+}
+
+func TestDoctorAgentHealthy(t *testing.T) {
+	doctorScratch(t)
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte("#!/bin/sh\necho Logged in using ChatGPT\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(paths.AgentBinDirEnv, bin)
+	proj := project.Dir(paths.ConfigDir(), "codex")
+	if err := os.MkdirAll(proj, 0o755); err != nil || os.WriteFile(filepath.Join(proj, "a.md"), nil, 0o644) != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "codex", "--format", "json"}) })
+	if code != 0 {
+		t.Fatalf("healthy codex exit %d, want 0: %s %s", code, stdout, stderr)
+	}
+	var got struct {
+		OK     bool
+		Checks []struct {
+			Name   string
+			OK     bool
+			Detail string
+		}
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil || !got.OK || len(got.Checks) != 4 {
+		t.Fatalf("envelope = %q (%v), want ok with 4 checks", stdout, err)
+	}
+	if d := got.Checks[1].Detail; d != "codex login present" {
+		t.Errorf("login detail = %q", d)
+	}
+	if d := got.Checks[3].Detail; !strings.HasPrefix(d, "1 agent(s) at ") {
+		t.Errorf("projection detail = %q", d)
+	}
+	_, text, _ := hosttest.CaptureOutput(t, func() int { return Run([]string{"--agent", "claude"}) })
+	for _, want := range []string{"claude binary", "claude login", "claude route", "claude projection"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("claude rows lack %q: %q", want, text)
+		}
+	}
+}
+
+// stubLocalServer points the last-resort row at a test-owned server, never 127.0.0.1:10100.
+func stubLocalServer(t *testing.T) {
+	t.Helper()
+	vaulttest.Use(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.8-27b:gguf:q6"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	vaulttest.Put(t, vault.Overlay, "providers",
+		`{"providers":{"magnitude":{"local":{"protocol":"openai","base_url":"`+srv.URL+`/inference/v1",`+
+			`"routes":{"anthropic":"`+srv.URL+`/inference/anthropic"},"concurrency":1,`+
+			`"options":{"last_resort":true},"auth":{"type":"key","command":"echo local"},`+
+			`"models":{"sonnet":"qwen3.8-27b:gguf:q6"}}}}}`)
+}

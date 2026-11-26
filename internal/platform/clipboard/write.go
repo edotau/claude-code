@@ -1,0 +1,229 @@
+package clipboard
+
+import (
+	"bytes"
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+)
+
+// clearTimeout bounds ClearIfMatch so a hung clipboard tool cannot leave the secret uncleared forever.
+const clearTimeout = 30 * time.Second
+
+// pipeGrace is how long run waits for stdout to close after the tool exits.
+var pipeGrace = 2 * time.Second
+
+// errOutputCut: the tool exited 0 but its stdout was cut off at pipeGrace, so the output may be truncated.
+var errOutputCut = errors.New("clipboard tool output may be truncated")
+
+// DefaultClearAfter is how long a copied secret stays on the clipboard before the timed clear.
+const DefaultClearAfter = 30 * time.Second
+
+// ErrNoClipboard means no supported clipboard tool was found for this platform.
+var ErrNoClipboard = errors.New("no clipboard tool available (need powershell.exe, pbcopy, wl-copy or xclip)")
+
+// run is the exec seam: it runs name with stdin and returns stdout; tests replace it to assert argv.
+var run = func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.WaitDelay = pipeGrace // xclip -i forks a selection owner that holds the stdout pipe open
+	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) { // exit 0; writes ignore the cut stdout, a strict read must not trust it
+		if strictRead(ctx) {
+			return out.Bytes(), errOutputCut
+		}
+		err = nil
+	}
+	if err != nil {
+		// Command name and status only: never stderr or stdin, which may echo the value.
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+			return nil, fmt.Errorf("%s: exit status %d", name, ee.ExitCode())
+		}
+		return nil, fmt.Errorf("%s: could not run", name)
+	}
+	return out.Bytes(), nil
+}
+
+type strictReadKey struct{}
+
+// withStrictRead marks ctx so run fails a read whose stdout was cut at pipeGrace instead of trusting it.
+func withStrictRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, strictReadKey{}, true)
+}
+
+func strictRead(ctx context.Context) bool {
+	v, _ := ctx.Value(strictReadKey{}).(bool)
+	return v
+}
+
+// spawnClear is the detach seam for ScheduleClear.
+var spawnClear = func(self string, args []string, stdin []byte) error {
+	// A real pipe filled before Start: a bytes.Reader is copied by a goroutine that dies when we exit.
+	r, w, err := os.Pipe()
+	if err != nil {
+		return errors.New("clip --clear: could not start")
+	}
+	defer r.Close()
+	_, werr := w.Write(stdin)
+	_ = w.Close()
+	cmd := exec.Command(self, args...)
+	cmd.Stdin = r
+	proc.Detach(cmd)
+	if werr != nil || cmd.Start() != nil {
+		return errors.New("clip --clear: could not start")
+	}
+	return cmd.Process.Release()
+}
+
+// selfPath resolves the running binary; a var so tests can pin it.
+var selfPath = os.Executable
+
+// onWSL reports whether we are under WSL; a var so tests can force either branch.
+var onWSL = proc.OnWSL
+
+type tool struct {
+	name        string
+	write, read []string // argv after name
+	clear       []string // nil = write empty stdin
+}
+
+// wslPowerShell is where WSL has Windows PowerShell when interop leaves it off PATH; a var so tests can pin it.
+var wslPowerShell = paths.WinPowerShell
+
+// SetWSLForTest pins WSL detection for other packages' tests and returns the restore.
+func SetWSLForTest(on bool) func() {
+	old := onWSL
+	onWSL = func() bool { return on }
+	return func() { onWSL = old }
+}
+
+const psPre = "[Console]::InputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8;" +
+	"Add-Type -AssemblyName System.Windows.Forms;"
+
+var psArgs = []string{"-NoProfile", "-NonInteractive", "-Sta"}
+
+func psCmd(script string) []string { return append(append([]string{}, psArgs...), "-Command", script) }
+
+// psWrite reads stdin, marks the data off Win+V history/cloud sync, then sets the clipboard.
+const psWrite = psPre + "$t=[Console]::In.ReadToEnd();$d=New-Object System.Windows.Forms.DataObject;" +
+	"$d.SetText($t);$d.SetData('ExcludeClipboardContentFromMonitorProcessing',$true);" +
+	"[System.Windows.Forms.Clipboard]::SetDataObject($d,$true)"
+
+const psRead = psPre + "$c=Get-Clipboard -Raw;if($c -ne $null){[Console]::Out.Write($c)}"
+
+const psClear = psPre + "[System.Windows.Forms.Clipboard]::Clear()"
+
+// onPath reports whether n resolves on PATH.
+func onPath(n string) bool { _, err := exec.LookPath(n); return err == nil }
+
+func pick() (tool, error) {
+	ps := powerShellPath(onPath)
+	switch {
+	case onWSL() && (onPath(ps) || ps == wslPowerShell()):
+		return tool{ps, psCmd(psWrite), psCmd(psRead), psCmd(psClear)}, nil
+	case onPath("pbcopy"):
+		return tool{"pbcopy", nil, nil, nil}, nil
+	case os.Getenv("WAYLAND_DISPLAY") != "" && onPath("wl-copy"):
+		return tool{"wl-copy", nil, []string{"-n"}, []string{"--clear"}}, nil
+	case os.Getenv("DISPLAY") != "" && onPath("xclip"):
+		return tool{"xclip", []string{"-selection", "clipboard", "-i"}, []string{"-selection", "clipboard", "-o"}, nil}, nil
+	}
+	return tool{}, ErrNoClipboard
+}
+
+func powerShellPath(has func(string) bool) string {
+	ps := "powershell.exe"
+	if has(ps) {
+		return ps
+	}
+	p := wslPowerShell()
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return ps
+}
+
+// WriteSecret puts value on the clipboard; the value travels on stdin only, never argv.
+func WriteSecret(ctx context.Context, value string) error {
+	t, err := pick()
+	if err != nil {
+		return err
+	}
+	_, err = run(ctx, []byte(value), t.name, t.write...)
+	return err
+}
+
+// Digest is the sha256 hex digest ScheduleClear/ClearIfMatch compare against.
+func Digest(value string) string {
+	return textutil.SHA256Hex([]byte(value))
+}
+
+// ScheduleClear spawns a detached `clip --clear` child; only value's sha256 reaches it, on stdin.
+func ScheduleClear(after time.Duration, value string) error {
+	if testing.Testing() {
+		return errors.New("clip --clear: refused under test")
+	}
+	self, err := selfPath()
+	if err != nil {
+		return errors.New("clip --clear: cannot locate own binary")
+	}
+	return spawnClear(self, []string{"clip", "--clear", "--after", after.String()}, []byte(Digest(value)))
+}
+
+// ClearIfMatch clears the clipboard only when its text hashes to digest; it reports whether it cleared.
+func ClearIfMatch(ctx context.Context, digest string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, clearTimeout)
+	defer cancel()
+	t, err := pick()
+	if err != nil {
+		return false, err
+	}
+	cur, err := readText(withStrictRead(ctx), t)
+	if err != nil {
+		return false, err
+	}
+	digest = strings.ToLower(strings.TrimSpace(digest))
+	if !digestMatches(cur, digest) {
+		return false, nil
+	}
+	if t.clear != nil {
+		_, err = run(ctx, nil, t.name, t.clear...)
+	} else {
+		_, err = run(ctx, []byte{}, t.name, t.write...)
+	}
+	return err == nil, err
+}
+
+func readText(ctx context.Context, t tool) ([]byte, error) {
+	if t.name == "wl-copy" {
+		return run(ctx, nil, "wl-paste", t.read...) // wl-copy writes; its paste side is a separate binary
+	}
+	if t.read != nil {
+		return run(ctx, nil, t.name, t.read...)
+	}
+	return run(ctx, nil, "pbpaste")
+}
+
+// digestMatches tries the text as read and without a trailing newline some tools append.
+func digestMatches(cur []byte, digest string) bool {
+	for _, c := range []string{string(cur), strings.TrimRight(string(cur), "\r\n")} {
+		if c != "" && subtle.ConstantTimeCompare([]byte(Digest(c)), []byte(digest)) == 1 {
+			return true
+		}
+	}
+	return false
+}

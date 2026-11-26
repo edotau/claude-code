@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/edotau/claude-code/internal/httpx"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/httpx"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // SweepScopes removes the record and lock of every scope whose process is gone; it returns the files it removed.

@@ -10,10 +10,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/memory"
 
+	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
 // stewardPctEnv is the vault env for the context share that starts the handoff; 0 mutes the handoff only.

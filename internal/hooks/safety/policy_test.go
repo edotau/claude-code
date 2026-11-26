@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/permission"
-	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/permission"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
 
 func policyTemplateFile(tb testing.TB) {

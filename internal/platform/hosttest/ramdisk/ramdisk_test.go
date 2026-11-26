@@ -1,0 +1,213 @@
+package ramdisk
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/hosttest"
+)
+
+// fakeDisk stubs the mount seams and reports what ran; attachErr makes the disk unavailable.
+type fakeDisk struct {
+	tmp      string
+	attached []string
+	detached []string
+}
+
+func stubDisk(t *testing.T, system string, attachErr error) *fakeDisk {
+	t.Helper()
+	f := &fakeDisk{tmp: t.TempDir()}
+	origGoos, origAttach, origDetach, origMounted := goos, attach, detach, mounted
+	mounted = func(string) bool { return false }
+	goos = system
+	attach = func(volume string) (string, string, error) {
+		f.attached = append(f.attached, volume)
+		return "/dev/disk9", f.tmp, attachErr
+	}
+	detach = func(dev string) { f.detached = append(f.detached, dev) }
+	t.Cleanup(func() { goos, attach, detach, mounted = origGoos, origAttach, origDetach, origMounted })
+	return f
+}
+
+func probe(out, code string) []string {
+	return []string{"sh", "-c", `printf %s "$TMPDIR" > "$0"; exit "$1"`, out, code}
+}
+
+func TestRunOnDiskPassesTMPDIRAndExitCodeThenDetaches(t *testing.T) {
+	f := stubDisk(t, "darwin", nil)
+	out := filepath.Join(t.TempDir(), "tmpdir")
+	if code := Run(append([]string{"--"}, probe(out, "3")...)); code != 3 {
+		t.Fatalf("exit = %d, want the command's 3", code)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != f.tmp {
+		t.Errorf("child TMPDIR = %q, want %q", got, f.tmp)
+	}
+	if len(f.attached) != 1 || f.attached[0] != "claude-code-test" {
+		t.Errorf("attached = %v, want the stable volume", f.attached)
+	}
+	if len(f.detached) != 1 || f.detached[0] != "/dev/disk9" {
+		t.Errorf("detached = %v, want the attached device once", f.detached)
+	}
+}
+
+func TestVolumeNameIsStableWhenFreeElseSuffixedByPid(t *testing.T) {
+	orig := mounted
+	t.Cleanup(func() { mounted = orig })
+	mounted = func(string) bool { return false }
+	if got := volumeName(42); got != "claude-code-test" {
+		t.Errorf("free: volumeName = %q, want the stable name", got)
+	}
+	mounted = func(v string) bool { return v == "claude-code-test" }
+	if got := volumeName(42); got != "claude-code-test-42" {
+		t.Errorf("taken: volumeName = %q, want the per-pid name", got)
+	}
+}
+
+func TestRunCancelDuringAttachDetachesAndSkipsCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signals to self are not supported on windows")
+	}
+	f := stubDisk(t, "darwin", nil)
+	attach = func(volume string) (string, string, error) {
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(syscall.SIGTERM)
+		time.Sleep(300 * time.Millisecond) // let the runtime deliver it to the handler
+		return "/dev/disk9", f.tmp, nil
+	}
+	out := filepath.Join(t.TempDir(), "tmpdir")
+	if code := Run(probe(out, "0")); code != 143 {
+		t.Errorf("exit = %d, want 143", code)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("command ran despite the cancel")
+	}
+	if len(f.detached) != 1 {
+		t.Errorf("detached %v, want one detach", f.detached)
+	}
+}
+
+func TestRunWithoutDiskUsesNormalTMPDIR(t *testing.T) {
+	cases := []struct {
+		name       string
+		goos, off  string
+		attachErr  error
+		wantAttach int
+	}{
+		{name: "not macOS", goos: "linux"},
+		{name: "opted out", goos: "darwin", off: "0"},
+		{name: "attach failed", goos: "darwin", attachErr: errors.New("no hdiutil"), wantAttach: 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := stubDisk(t, c.goos, c.attachErr)
+			t.Setenv(offEnv, c.off)
+			t.Setenv("TMPDIR", t.TempDir())
+			out := filepath.Join(t.TempDir(), "tmpdir")
+			if code := Run(probe(out, "0")); code != 0 {
+				t.Fatalf("exit = %d", code)
+			}
+			got, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != os.Getenv("TMPDIR") {
+				t.Errorf("child TMPDIR = %q, want the inherited %q", got, os.Getenv("TMPDIR"))
+			}
+			if len(f.attached) != c.wantAttach || len(f.detached) != 0 {
+				t.Errorf("attached %d, detached %d; want %d, 0", len(f.attached), len(f.detached), c.wantAttach)
+			}
+		})
+	}
+}
+
+func TestRunStalledEraseDetachesAndRunsCommand(t *testing.T) {
+	bin := t.TempDir()
+	detached := filepath.Join(t.TempDir(), "detached")
+	t.Setenv("RAMDISK_DETACH_LOG", detached)
+	writeDiskTool(t, bin, "hdiutil", `if [ "$1" = attach ]; then
+printf '/dev/disk9\n'
+else
+printf '%s' "$2" > "$RAMDISK_DETACH_LOG"
+fi
+`)
+	origTimeout, origWait := diskTimeout, diskWaitDelay
+	diskTimeout, diskWaitDelay = time.Second, time.Second
+	t.Cleanup(func() { diskTimeout, diskWaitDelay = origTimeout, origWait })
+	bound := diskTimeout + diskWaitDelay + 3*time.Second // load headroom over the abandon point
+	stall := bound + 5*time.Second
+	writeDiskTool(t, bin, "diskutil", fmt.Sprintf("exec sleep %d\n", int(stall/time.Second)))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(offEnv, "1")
+	t.Setenv("TMPDIR", t.TempDir())
+	origGoos, origAttach, origMounted := goos, attach, mounted
+	goos, attach, mounted = "darwin", attachDisk, func(string) bool { return false }
+	t.Cleanup(func() { goos, attach, mounted = origGoos, origAttach, origMounted })
+	out := filepath.Join(t.TempDir(), "tmpdir")
+	start := time.Now()
+	code := Run(probe(out, "3"))
+	if elapsed := time.Since(start); elapsed >= bound {
+		t.Errorf("stalled erase took %s, want less than %s (the stub stalls for %s)", elapsed, bound, stall)
+	}
+	if code != 3 {
+		t.Errorf("exit = %d, want the fallback command's 3", code)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != os.Getenv("TMPDIR") {
+		t.Errorf("child TMPDIR = %q, want inherited %q", got, os.Getenv("TMPDIR"))
+	}
+	got, err = readEventually(detached, stall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "/dev/disk9" {
+		t.Errorf("detached = %q, want /dev/disk9", got)
+	}
+}
+
+// readEventually polls for non-empty path up to limit, so a slow detached command is waited for, not misread.
+func readEventually(path string, limit time.Duration) (got []byte, err error) {
+	for deadline := time.Now().Add(limit); ; time.Sleep(10 * time.Millisecond) {
+		if got, err = os.ReadFile(path); (err == nil && len(got) > 0) || time.Now().After(deadline) {
+			return got, err
+		}
+	}
+}
+
+func writeDiskTool(t *testing.T, dir, name, script string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunErrorPaths(t *testing.T) {
+	f := stubDisk(t, "darwin", nil)
+	if code := Run(nil); code != exitUsage {
+		t.Errorf("no command: exit = %d, want %d", code, exitUsage)
+	}
+	if len(f.attached) != 0 {
+		t.Errorf("no command still attached a disk: %v", f.attached)
+	}
+	if code := Run([]string{"claude-code-no-such-command"}); code != exitNotFound {
+		t.Errorf("missing command: exit = %d, want %d", code, exitNotFound)
+	}
+	if len(f.detached) != 1 {
+		t.Errorf("missing command leaked the disk: detached = %v", f.detached)
+	}
+}
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }

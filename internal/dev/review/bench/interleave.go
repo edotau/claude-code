@@ -1,0 +1,251 @@
+package bench
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
+)
+
+// abOptions is an interleaved run: A is the parent worktree, B the fix; rounds alternate A, B, A, B, ...
+type abOptions struct {
+	A, B   string // worktree dirs, both clean and at different commits
+	Pkg    string // package dir relative to a worktree, e.g. internal/hooks/safety
+	Bench  string // -bench regexp; "" is "."
+	Rounds int    // A/B pairs; at least 1
+	Count  int    // samples per benchmark per round; at least 1
+	Work   string // dir for the round files and the merged before.txt and after.txt; "" makes a temp dir
+}
+
+// abResult names both commits, the merged run files, and the verdict decided on them.
+type abResult struct {
+	CommitA, CommitB string
+	Before, After    string
+	Decision         decision
+}
+
+// abSeam is what an interleaved run touches outside the process; tests stub it.
+type abSeam struct {
+	commit func(dir string) (string, error)
+	dirty  func(dir string) (bool, error)
+	bench  func(ctx context.Context, dir string, o abOptions, out string) error
+	decide func(before, after string) (decision, error)
+}
+
+var abBusy sync.Mutex // one benchmark process at a time in this process
+
+// interleave runs the A/B benchmarks one process at a time, merges each side's rounds, and decides.
+func interleave(ctx context.Context, o abOptions, s abSeam, log io.Writer) (abResult, error) {
+	if !abBusy.TryLock() {
+		return abResult{}, errors.New("interleave: another interleaved run is active")
+	}
+	defer abBusy.Unlock()
+	o, err := o.normalized()
+	if err != nil {
+		return abResult{}, err
+	}
+	res, err := preflight(o, s)
+	if err != nil {
+		return res, err
+	}
+	fmt.Fprintf(log, "interleave: A %s (%s) vs B %s (%s), %d rounds x count %d\n",
+		res.CommitA, o.A, res.CommitB, o.B, o.Rounds, o.Count)
+	as, bs, err := runRounds(ctx, o, s, res, log)
+	if err != nil {
+		return res, err
+	}
+	res.Before, res.After = filepath.Join(o.Work, "before.txt"), filepath.Join(o.Work, "after.txt")
+	if err := errors.Join(mergeRuns(res.Before, as), mergeRuns(res.After, bs)); err != nil {
+		return res, err
+	}
+	res.Decision, err = s.decide(res.Before, res.After)
+	return res, err
+}
+
+// normalized resolves the worktree dirs (the repo top is symlink-resolved) and defaults the rest.
+func (o abOptions) normalized() (abOptions, error) {
+	if o.Pkg == "" || filepath.IsAbs(o.Pkg) || o.Rounds < 1 || o.Count < 1 {
+		return o, errors.New("interleave: need a relative Pkg, Rounds >= 1 and Count >= 1")
+	}
+	for _, dir := range []*string{&o.A, &o.B} {
+		abs, err := canonicalWorktree(*dir)
+		if err != nil {
+			return o, err
+		}
+		*dir = abs
+	}
+	if o.A == o.B {
+		return o, errors.New("interleave: A and B are the same worktree")
+	}
+	if o.Bench == "" {
+		o.Bench = "."
+	}
+	var err error
+	o.Work, err = ensureWorkDir(o.Work)
+	return o, err
+}
+
+func ensureWorkDir(work string) (string, error) {
+	if work == "" {
+		w, err := os.MkdirTemp("", "bench-ab-")
+		if err != nil {
+			return "", err
+		}
+		work = w
+	}
+	work, err := filepath.Abs(work) // children run in other dirs, so a relative Work would split
+	if err != nil {
+		return "", err
+	}
+	return work, os.MkdirAll(work, 0o755)
+}
+
+func canonicalWorktree(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err != nil {
+		return "", fmt.Errorf("interleave: worktree: %w", err)
+	}
+	return abs, nil
+}
+
+// preflight refuses a dirty worktree, or two worktrees at one commit, before any benchmark starts.
+func preflight(o abOptions, s abSeam) (abResult, error) {
+	var res abResult
+	for i, d := range []string{o.A, o.B} {
+		dirty, err := s.dirty(d)
+		if err != nil {
+			return res, fmt.Errorf("interleave: %s: %w", d, err)
+		}
+		if dirty {
+			return res, fmt.Errorf("interleave: worktree %s is dirty; commit the fix first", d)
+		}
+		sha, err := s.commit(d)
+		if err != nil {
+			return res, fmt.Errorf("interleave: %s: %w", d, err)
+		}
+		if i == 0 {
+			res.CommitA = sha
+		} else {
+			res.CommitB = sha
+		}
+	}
+	if res.CommitA == res.CommitB {
+		return res, fmt.Errorf("interleave: A and B are both at %s; nothing to compare", res.CommitA)
+	}
+	return res, nil
+}
+
+type abSide struct {
+	name, dir, sha string
+	files          *[]string
+}
+
+// runRounds runs ABBA order, one at a time, so linear drift hits both sides alike; returns each side's files.
+func runRounds(ctx context.Context, o abOptions, s abSeam, res abResult, log io.Writer) (as, bs []string, err error) {
+	rdir, err := os.MkdirTemp(o.Work, "rounds-") // private per run, so concurrent runs cannot share files
+	if err != nil {
+		return nil, nil, err
+	}
+	a, b := abSide{"a", o.A, res.CommitA, &as}, abSide{"b", o.B, res.CommitB, &bs}
+	for r := 1; r <= o.Rounds; r++ {
+		order := []abSide{a, b}
+		if r%2 == 0 {
+			order = []abSide{b, a}
+		}
+		for _, side := range order {
+			out := filepath.Join(rdir, fmt.Sprintf("%s-%d.txt", side.name, r))
+			fmt.Fprintf(log, "interleave: round %d/%d %s %s\n", r, o.Rounds, strings.ToUpper(side.name), side.sha)
+			if err := s.bench(ctx, side.dir, o, out); err != nil {
+				return nil, nil, err
+			}
+			if err := checkRound(out, side.sha); err != nil {
+				return nil, nil, err
+			}
+			if dirty, err := s.dirty(side.dir); err != nil || dirty {
+				return nil, nil, fmt.Errorf("interleave: worktree %s changed during its round (err %v)", side.dir, err)
+			}
+			*side.files = append(*side.files, out)
+		}
+	}
+	return as, bs, nil
+}
+
+// checkRound confirms a round came from the expected clean commit on a quiet machine; noise aborts at once.
+func checkRound(file, sha string) error {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	text := string(b)
+	if !strings.Contains(text, "\n# commit: "+sha+"\n") && !strings.HasPrefix(text, "# commit: "+sha+"\n") {
+		return fmt.Errorf("interleave: %s is not a run of commit %s", file, sha)
+	}
+	if strings.Contains(text, "\n# dirty: true\n") {
+		return fmt.Errorf("interleave: %s ran on a dirty tree", file)
+	}
+	if loadNoisy(text) {
+		return fmt.Errorf("interleave: load rose above half the CPUs during %s; re-run on a quiet machine", file)
+	}
+	return nil
+}
+
+// mergeRuns writes dst: the first round whole, then every later round's samples and load lines.
+func mergeRuns(dst string, files []string) error {
+	var sb strings.Builder
+	var first string
+	for i, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if i == 0 {
+			first = string(b)
+			sb.WriteString(strings.TrimSuffix(first, "\n"))
+			sb.WriteByte('\n')
+			continue
+		}
+		if !sameEpochs(first, string(b)) {
+			return fmt.Errorf("interleave: benchmark epochs changed between rounds (%s)", f)
+		}
+		for line := range strings.SplitSeq(string(b), "\n") {
+			if strings.HasPrefix(line, "Benchmark") || headerNum.MatchString(line) {
+				sb.WriteString(line)
+				sb.WriteByte('\n')
+			}
+		}
+	}
+	return paths.AtomicWriteNoSync(dst, []byte(sb.String()), 0o644)
+}
+
+// execBench runs `review bench --out` of this binary in dir, so one side's run is its own process.
+func execBench(ctx context.Context, dir string, o abOptions, out string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "review", "bench", "--path", o.Pkg, "--count", strconv.Itoa(o.Count),
+		"--bench", o.Bench, "--out", out)
+	cmd.Dir = dir
+	ownGroup(cmd)
+	cmd.WaitDelay = waitDelay
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("interleave: review bench in %s: %w\n%s", dir, err, errb.String())
+	}
+	return nil
+}

@@ -12,10 +12,10 @@ These conventions for `github.com/edotau/claude-code` override the general golan
 - `cmd/claude-code/main.go` wires and exits; logic lives in `internal/<area>/`.
 - `internal/cli` owns the command table, menu, dispatch, flags and output. A verb is `cmd<Verb>` in its area's
   CLI file or a table entry into its package; small verbs share a file.
-- A package imported by multiple areas stays top-level; one area's helper nests under it; provider code stays
-  under its provider. Box each external SDK in one package.
-- Package paths mirror verbs: `internal/<verb>/<command>` exists only for that command.
-  Shared helpers stay top-level (`internal/httpx`, `internal/egress`).
+- `internal/` groups packages into 11 domains: `agent`, `assets`, `cli`, `dev`, `driver`, `hooks`, `memory`,
+  `platform`, `proxy`, `remote`, `routing`. Box each external SDK in one package under `driver/` or its domain.
+- Shared helpers live under their domain (`internal/platform/httpx`, `internal/remote/egress`), not flat at
+  `internal/` root; one area's private helper nests under it.
 - **Layout is memory:** one concept has one name across command/package, settings/type/table/vault/configure,
   and package/techdebt/memory area. Fix a name/place mismatch instead of recording it in memory; mirroring is a guide.
 - Scratch writers use `state/harness/<area>/` or the git dir, never a repo root; ignoring the file is not a fix.
@@ -48,8 +48,8 @@ Terminal help and TUI rows stay on one line, ≤80 characters including the labe
   Package narrative belongs in README/docs, not `doc.go`.
 - `.golangci.yml`: `linters.default: none`, explicit enables including `modernize`, `gocognit` threshold 30.
   `claude-code review simplify --fail` enforces quality caps and test-file layout.
-- Process-global env/cwd changes go through `internal/proc`; direct calls are allowed only there, in
-  `internal/hosttest` and tests. Per-run values use `proc.WithValues`/`agent.RunValues`.
+- Process-global env/cwd changes go through `internal/platform/proc`; direct calls are allowed only there, in
+  `internal/platform/hosttest` and tests. Per-run values use `proc.WithValues`/`agent.RunValues`.
 - CLI lint does not include gopls checks such as `writestring`; also check editor diagnostics.
 - Verify dependency APIs with `go doc <pkg>.<Sym>` or the module cache, never memory.
 - Follow `quality.md` → Verification Order and `standing-requirements.md` R16/R32 for test scope.

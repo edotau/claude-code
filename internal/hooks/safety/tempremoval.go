@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 // symlinkMaker spots a command that could point a temp path into a real directory before the removal runs.

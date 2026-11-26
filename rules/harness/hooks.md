@@ -1,7 +1,7 @@
 ---
 paths:
   - "internal/hooks/**"
-  - "internal/settings/hookspec.go"
+  - "internal/platform/settings/hookspec.go"
 ---
 # Hooks System
 
@@ -9,7 +9,7 @@ paths:
 `make compile` builds both with `bin/.build-stamp`; non-hook verbs or stamp mismatch hand over to claude-code.
 Safety treats both binaries alike.
 
-Declare hooks only in `internal/settings/hookspec.go` (one Spec per invocation); handlers live in internal/hooks.
+Declare hooks only in `internal/platform/settings/hookspec.go` (one Spec per invocation); handlers live in internal/hooks.
 Change both, install projections, hand-edit existing Claude settings (`settings-management.md`).
 `claude-code agents sync` renders native hooks/configs; `agents sync --check` detects drift.
 

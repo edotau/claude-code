@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/dev/tokenledger"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/tokenledger"
+	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 func TestMeteredExcludesOnlyCLIPassthrough(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"testing"
 	"text/template/parse"
 
-	_ "github.com/edotau/claude-code/internal/nonet"
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
 )
 
 const importPath = "github.com/edotau/claude-code/internal/assets"

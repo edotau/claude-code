@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/route"
 )
 
 func TestPiBriefArgvAddsReportPath(t *testing.T) {

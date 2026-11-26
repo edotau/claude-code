@@ -8,7 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
 // compiled is a handler matcher: literal alternatives, or an anchored case-insensitive regexp; both nil never match.

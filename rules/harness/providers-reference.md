@@ -1,10 +1,10 @@
 ---
 paths:
-  - "internal/providers/**"
-  - "internal/vault/**"
+  - "internal/routing/providers/**"
+  - "internal/platform/vault/**"
   - "internal/proxy/**"
-  - "internal/databricks/**"
-  - "internal/catalog/**"
+  - "internal/routing/databricks/**"
+  - "internal/routing/catalog/**"
 ---
 # Providers Reference
 
@@ -202,7 +202,7 @@ claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 
 ## Proxy teams and scopes
 
-Team schema: `internal/proxyteam`; shipped rows: `internal/assets/proxy/teams.json`. The default `shared` team takes
+Team schema: `internal/proxy/proxyteam`; shipped rows: `internal/assets/proxy/teams.json`. The default `shared` team takes
 unclaimed kinds; `phase` takes `group`, runs in its owning wave/batch and falls back to `shared`.
 
 - `name`: unique; a scope is named `<team>@<id>`

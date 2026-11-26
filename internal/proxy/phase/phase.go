@@ -8,8 +8,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 	"github.com/edotau/claude-code/internal/proxy/server"
-	"github.com/edotau/claude-code/internal/proxyteam"
 )
 
 func init() { agent.HostPhaseProxy = host }

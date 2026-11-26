@@ -15,13 +15,13 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/review/autofix"
-	"github.com/edotau/claude-code/internal/review/bench"
-	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/review/autofix"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // autofixTimeout bounds one commit's repair, lane setup and leaf launch inside the detached verifier.

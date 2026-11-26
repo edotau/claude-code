@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/edotau/claude-code/internal/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
 )
 
 func main() { os.Exit(rtkwrap.Main(os.Args)) }

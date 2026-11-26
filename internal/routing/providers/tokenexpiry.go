@@ -1,0 +1,161 @@
+package providers
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"math"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sync"
+	"time"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/schemas"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+)
+
+// tokenNameRE admits only a provider name that is a safe single path segment.
+var tokenNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
+
+// cacheRecordPath is the record file of a provider name in the state cache dir; "" when the name is not a safe segment.
+func cacheRecordPath(dir, name string) string {
+	if !tokenNameRE().MatchString(name) || name == "." || name == ".." {
+		return ""
+	}
+	return filepath.Join(paths.StateDir(), "cache", dir, name+".json")
+}
+
+// tokenExpiryPath is the expiry record for a provider; "" when the name is not a safe path segment.
+func tokenExpiryPath(name string) string { return cacheRecordPath("token-expiry", name) }
+
+// maxJWTExp bounds a plausible exp claim (year 9999) so the float64 to int64 conversion cannot overflow.
+const maxJWTExp = 253402300799
+
+// JWTExp returns the numeric exp claim of a JWT-shaped credential; false for anything else.
+func JWTExp(v string) (int64, bool) {
+	var claims struct {
+		Exp *float64 `json:"exp"`
+	}
+	if !textutil.JWTClaims(v, &claims) || claims.Exp == nil {
+		return 0, false
+	}
+	if e := *claims.Exp; math.IsNaN(e) || e < 0 || e > maxJWTExp {
+		return 0, false
+	}
+	return int64(*claims.Exp), true
+}
+
+// tokenExpiryRecord is the on-disk expiry record; Exp is a pointer so an absent claim stays distinguishable.
+type tokenExpiryRecord struct {
+	Schema int    `json:"schema"`
+	Exp    *int64 `json:"exp"`
+	// statusline vocabulary of the minting credential: u2m, m2m, pat, ...
+	Method string `json:"method,omitempty"`
+}
+
+// recordTokenExpiry stores only the exp claim of a JWT credential and the method that minted it; errors are ignored.
+func recordTokenExpiry(name, v, method string) {
+	exp, ok := JWTExp(v)
+	path := tokenExpiryPath(name)
+	if !ok || path == "" {
+		return
+	}
+	b, err := json.Marshal(tokenExpiryRecord{Schema: tokenExpirySchema, Exp: &exp, Method: method})
+	if err != nil {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	// derived cache: temp+rename keeps reads whole; a crash-torn file is a miss the next resolution rewrites
+	_ = paths.AtomicWriteNoSync(path, b, 0o600)
+}
+
+// spExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).
+const spExpirySuffix = ".sp"
+
+// TokenExpiry is the expiry the record name holds (a row's user or own credential; name+spExpirySuffix its SP's).
+func TokenExpiry(name string) (time.Time, bool) {
+	exp, _, _, ok := readTokenExpiry(name)
+	return exp, ok
+}
+
+// TokenExpiryMethodFor is the row's expiry and method for a session identity: user and sp read their own record.
+func TokenExpiryMethodFor(name, identity string) (time.Time, string, bool) {
+	exp, method, at, ok := readTokenExpiry(name)
+	spExp, spMethod, spAt, spOK := readTokenExpiry(name + spExpirySuffix)
+	switch identity {
+	case IdentityUser:
+		return exp, method, ok
+	case IdentitySP:
+		return spExp, spMethod, spOK
+	}
+	if spOK && (!ok || spAt.After(at)) {
+		return spExp, spMethod, true
+	}
+	return exp, method, ok
+}
+
+// readTokenExpiry reads one expiry record and when it was written; false when absent or unreadable.
+func readTokenExpiry(name string) (exp time.Time, method string, written time.Time, ok bool) {
+	path := tokenExpiryPath(name)
+	if path == "" {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return
+	}
+	var rec tokenExpiryRecord
+	if !schemas.DecodeOK(tokenExpiryFormat, b, &rec) || rec.Exp == nil {
+		return
+	}
+	return time.Unix(*rec.Exp, 0), rec.Method, info.ModTime(), true
+}
+
+// expiryMethod maps an auth method to the statusline's credential label: a user OAuth login is u2m.
+func expiryMethod(m string) string {
+	if m == AuthOAuth {
+		return "u2m"
+	}
+	return m
+}
+
+// tokenExpirySchema is the token-expiry record's schema version; a mismatch is a cache miss.
+const tokenExpirySchema = 2
+
+var tokenExpiryFormat = schemas.Register(schemas.Format{
+	Name: "token-expiry", Owner: "internal/routing/providers", Kind: schemas.Cache,
+	Glob:    func() string { return filepath.Join(paths.StateDir(), "cache", "token-expiry", "*.json") },
+	New:     func() any { return &tokenExpiryRecord{} },
+	Version: tokenExpirySchema, Keep: "rebuildable cache; a version mismatch is a miss",
+})
+
+// ValidU2M reports the remaining life of a u2m login that needs no browser: a cached future expiry, else one refresh.
+func ValidU2M(ctx context.Context, p *Provider) (time.Duration, bool) {
+	if p.Auth.Method() != AuthOAuth {
+		return 0, false
+	}
+	if secret, err := mintSecret(p); err != nil || secret == "" {
+		return 0, false
+	}
+	if _, err := userCredential(ctx, p, false); err != nil {
+		return 0, false
+	}
+	exp, ok := TokenExpiry(p.Name)
+	if !ok || time.Until(exp) <= 0 {
+		return 0, false
+	}
+	return time.Until(exp), true
+}

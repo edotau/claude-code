@@ -1,0 +1,737 @@
+package bench
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/router"
+)
+
+// gitRepo is a temp repo with one commit holding internal/x/a.go.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "internal/x/a.go"), "package x\n")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-qm", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return dir
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const runFile = "goos: darwin\n" +
+	"BenchmarkA-8\t1000\t300 ns/op\t16 B/op\t2 allocs/op\n" +
+	"BenchmarkA-8\t1000\t100 ns/op\t16 B/op\t2 allocs/op\n" +
+	"BenchmarkA-8\t1000\t200 ns/op\t16 B/op\t2 allocs/op\n" +
+	"BenchmarkB-8\t1000\t50 ns/op\t0 B/op\t0 allocs/op\n" +
+	"PASS\n"
+
+func TestDriverLineHelpers(t *testing.T) {
+	for _, c := range []struct{ in, first, last string }{
+		{"", "", ""},
+		{"one", "one", "one"},
+		{"  a\nb\n\nc  \n\n", "a", "c"},
+		{"KEEP\nbecause", "KEEP", "because"},
+	} {
+		if got := firstLine(c.in); got != c.first {
+			t.Errorf("firstLine(%q) = %q, want %q", c.in, got, c.first)
+		}
+		if got := textutil.LastLine(c.in); got != c.last {
+			t.Errorf("textutil.LastLine(%q) = %q, want %q", c.in, got, c.last)
+		}
+	}
+}
+
+func TestDriverMedians(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "run.txt")
+	writeFile(t, f, runFile)
+	got, err := medians(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"BenchmarkA-8: 200.0 ns/op, 16 B/op, 2 allocs/op (3 samples)",
+		"BenchmarkB-8: 50.0 ns/op, 0 B/op, 0 allocs/op (1 samples)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("medians lacks %q:\n%s", want, got)
+		}
+	}
+	writeFile(t, f, "no benchmarks here\n")
+	if _, err := medians(f); err == nil {
+		t.Error("a file with no samples was accepted")
+	}
+}
+
+func TestDriverSavedMSDay(t *testing.T) {
+	dir := t.TempDir()
+	before, after := filepath.Join(dir, "before"), filepath.Join(dir, "after")
+	writeFile(t, before, "BenchmarkA-8\t1\t3000 ns/op\nBenchmarkB-8\t1\t9000 ns/op\nBenchmarkC-8\t1\t5000 ns/op\n")
+	writeFile(t, after, "BenchmarkA-8\t1\t1000 ns/op\nBenchmarkB-8\t1\t8000 ns/op\nBenchmarkOther-8\t1\t1 ns/op\n")
+	c := candidate{CallsPerDay: 1e6, res: abResult{Before: before, After: after,
+		Decision: decision{Faster: []string{"A-8", "B-8"}}}}
+	if got := savedMSDay(c); got != 2000 { // the largest judged drop is A's 2000 ns, times 1e6 calls
+		t.Errorf("savedMSDay = %v, want 2000", got)
+	}
+	c.res.Decision.Faster = []string{"B-8"} // A's drop is larger but the decision did not judge it faster
+	if got := savedMSDay(c); got != 1000 {
+		t.Errorf("only B judged: savedMSDay = %v, want 1000", got)
+	}
+	c.res.Decision.Faster = nil // an allocation-only KEEP saves no judged time
+	if got := savedMSDay(c); got != 0 {
+		t.Errorf("no judged timing win: savedMSDay = %v, want 0", got)
+	}
+	c.res.Decision.Faster = []string{"A-8"}
+	c.res.After = filepath.Join(dir, "missing")
+	if got := savedMSDay(c); got != 0 {
+		t.Errorf("unreadable after file: %v, want 0", got)
+	}
+}
+
+func TestDriverOwnedFilesSkipsTests(t *testing.T) {
+	lane := t.TempDir()
+	for _, f := range []string{"a.go", "b.go", "a_test.go", "notes.txt"} {
+		writeFile(t, filepath.Join(lane, "internal/x", f), "x")
+	}
+	out, err := ownedFiles(lane, "internal/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(lane, "internal/x/a.go"), filepath.Join(lane, "internal/x/b.go")}
+	if !slices.Equal(got, want) {
+		t.Errorf("owned = %v, want %v", got, want)
+	}
+}
+
+func TestDriverNextSlugSkipsExistingBranch(t *testing.T) {
+	d := &driver{top: gitRepo(t)}
+	day := time.Now().Format("20060102")
+	first := "bench-hooks-safety-" + day + "-1"
+	if got := d.nextSlug("internal/hooks/safety"); got != first {
+		t.Fatalf("slug = %q, want %q", got, first)
+	}
+	if out, err := exec.Command("git", "-C", d.top, "branch", "worktree-"+first).CombinedOutput(); err != nil {
+		t.Fatalf("git branch: %v\n%s", err, out)
+	}
+	if got, want := d.nextSlug("internal/hooks/safety"), "bench-hooks-safety-"+day+"-2"; got != want {
+		t.Errorf("slug = %q, want %q", got, want)
+	}
+}
+
+func TestDriverGatesRevert(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{"outside the package", map[string]string{"internal/x/a.go": "package x // edited\n", "internal/y/b.go": "package y\n"},
+			"internal/y/b.go is outside internal/x"},
+		{"test file", map[string]string{"internal/x/a_test.go": "package x\n"}, "internal/x/a_test.go is a test file"},
+		{"no change", nil, "changed nothing"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lane := gitRepo(t)
+			for f, body := range c.files {
+				writeFile(t, filepath.Join(lane, f), body)
+			}
+			cand := candidate{Pkg: "internal/x", lane: lane}
+			why, err := (&driver{}).gates(context.Background(), &cand)
+			if err != nil || !strings.Contains(why, c.want) {
+				t.Errorf("gates = %q, %v; want reason containing %q", why, err, c.want)
+			}
+		})
+	}
+}
+
+// judgeRun fakes `agents ask|wait|result` with the given answer and logs every other call.
+func judgeRun(t *testing.T, answer string) *[]string {
+	t.Helper()
+	var calls []string
+	old := driverRun
+	t.Cleanup(func() { driverRun = old })
+	driverRun = func(_ context.Context, _, _, _ string, args ...string) (string, int, error) {
+		switch {
+		case slices.Equal(args[:2], []string{"agents", "ask"}):
+			return `{"id":"j1"}` + "\n", 0, nil
+		case slices.Equal(args[:2], []string{"agents", "result"}):
+			b, _ := json.Marshal(askEnvelope{Status: "ok", Answer: answer})
+			return string(b), 0, nil
+		}
+		calls = append(calls, strings.Join(args, " "))
+		return "", 0, nil
+	}
+	return &calls
+}
+
+func TestDriverAskOverlayKeepsPins(t *testing.T) {
+	old := driverRun
+	t.Cleanup(func() { driverRun = old })
+	var argv []string
+	driverRun = func(_ context.Context, _, _, _ string, args ...string) (string, int, error) {
+		switch args[1] {
+		case "ask":
+			argv = slices.Clone(args)
+			return `{"id":"j1"}`, 0, nil
+		case "result":
+			return `{"status":"ok"}`, 0, nil
+		}
+		return "", 0, nil
+	}
+	d := &driver{top: "/repo", exe: "claude-code"}
+	if _, err := d.ask(context.Background(), "/lane", "brief", benchOverlay{Model: "opus", Fallback: "none"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"agents", "ask", "--background", "--format", "json", "--workdir", "/lane", "--overlay"}
+	if len(argv) != len(want)+2 || !slices.Equal(argv[:len(want)], want) || argv[len(argv)-1] != "-" {
+		t.Fatalf("ask argv = %q, want %q then JSON and stdin", argv, want)
+	}
+	var ov agentconfig.Overlay
+	if err := json.Unmarshal([]byte(argv[len(want)]), &ov); err != nil {
+		t.Fatal(err)
+	}
+	if ov.Provider != "databricks" || ov.Profile != "auto" || ov.Model != "opus" || ov.Fallback != "none" {
+		t.Fatalf("review leaf lost a pin: %+v", ov)
+	}
+	origins := agentconfig.Origins(nil, ov, agentconfig.Overlay{}, ov)
+	policy, err := router.PolicyOf(ov.Fallback, router.PolicyOverlay)
+	if !origins.Typed("model") || !origins.Typed("fallback") || err != nil || !policy.Typed() || policy.Kind != router.PolicyNone {
+		t.Fatalf("overlay weakened typed pins: origins %v, policy %+v, error %v", origins, policy, err)
+	}
+}
+
+// wantRows checks the scorecard holds no row (verdict "") or exactly one with that verdict.
+func wantRows(t *testing.T, verdict string) {
+	t.Helper()
+	rows, err := readJSONL[scorecardRow](filepath.Join(benchRoot(), "scorecard.jsonl"))
+	var got []string
+	for _, r := range rows {
+		got = append(got, r.Verdict)
+	}
+	if want := []string{verdict}; verdict != "" && !slices.Equal(got, want) || verdict == "" && len(got) != 0 {
+		t.Errorf("scorecard verdicts = %v, %v; want %q", got, err, verdict)
+	}
+}
+
+func TestDriverJudgeVerdicts(t *testing.T) {
+	cases := []struct {
+		name, answer string
+		want         outcome
+		cleaned      bool
+		rowVerdict   string // "" = nothing recorded
+	}{
+		{"owner flag holds even after KEEP", "KEEP\n" + ownerFlag + ": touches the guard", held, false, ""},
+		{"other first line reverts", "REVERT\nchanges behaviour", reverted, true, "reverted"},
+		{"KEEP in prose is not KEEP", "I would KEEP this", reverted, true, "reverted"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			calls := judgeRun(t, c.answer)
+			lane := gitRepo(t)
+			cand := candidate{Pkg: "internal/x", What: "cut allocs", slug: "bench-x-1", lane: lane, parent: "HEAD",
+				res: abResult{Before: "before.txt", After: "after.txt", Decision: decision{Rows: []string{"A-8 sec/op -20%"}}}}
+			d := &driver{top: lane, exe: "claude-code", out: io.Discard, log: io.Discard, skip: map[string]bool{}}
+			got, err := d.judge(context.Background(), cand)
+			if err != nil || got != c.want {
+				t.Fatalf("judge = %v, %v; want %v", got, err, c.want)
+			}
+			if cleaned := slices.Contains(*calls, "worktree clean --force bench-x-1"); cleaned != c.cleaned {
+				t.Errorf("lane cleaned = %v, want %v (calls %v)", cleaned, c.cleaned, *calls)
+			}
+			if skipped := d.skip[closeKey("internal/x", "cut allocs")]; skipped != (c.want == held) {
+				t.Errorf("skip set = %v for outcome %v", skipped, c.want)
+			}
+			wantRows(t, c.rowVerdict)
+		})
+	}
+}
+
+func TestDriverSpendsDispatchTokens(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	judgeRun(t, "REVERT")
+	var spent []string
+	old := spendDispatch
+	t.Cleanup(func() { spendDispatch = old })
+	spendDispatch = func(kind, id string, _ time.Time) error { spent = append(spent, kind+" "+id); return nil }
+	lane := gitRepo(t)
+	cand := candidate{Pkg: "internal/x", What: "w", slug: "bench-x-1", lane: lane, parent: "HEAD",
+		res: abResult{Before: "before.txt", After: "after.txt", Decision: decision{Rows: []string{"A-8 sec/op -20%"}}}}
+	d := &driver{top: lane, exe: "claude-code", out: io.Discard, log: io.Discard, skip: map[string]bool{}}
+	if _, err := d.judge(context.Background(), cand); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spent, []string{KindBenchLoop + " j1"}) {
+		t.Fatalf("spent %v, want the review dispatch j1", spent)
+	}
+}
+
+// stubLoop runs the loop through runDriver with canned steps; it returns the exit code and output.
+func stubLoop(t *testing.T, max int, steps loopSteps) (int, string) {
+	t.Helper()
+	var out strings.Builder
+	old := newDriverFn
+	t.Cleanup(func() { newDriverFn = old })
+	newDriverFn = func(io.Writer, io.Writer) (*driver, error) {
+		return &driver{out: &out, log: io.Discard, skip: map[string]bool{}, steps: steps}, nil
+	}
+	return runDriver(loopOpts{maxItems: max}, &out, io.Discard), out.String()
+}
+
+// scripted is steps whose item returns the outcomes in order and counts the calls.
+func scripted(outcomes []outcome, busy bool, calls *int) loopSteps {
+	return loopSteps{
+		quiet: func(context.Context) (bool, string) { return !busy, "load 9.00" },
+		pick:  func() (Item, bool, error) { return Item{Pkg: "internal/x", What: "w"}, true, nil },
+		item: func(context.Context, Item) (outcome, error) {
+			o := outcomes[min(*calls, len(outcomes)-1)]
+			*calls++
+			return o, nil
+		},
+	}
+}
+
+func TestDriverLoopBudgets(t *testing.T) {
+	cases := []struct {
+		name     string
+		max      int
+		outcomes []outcome
+		busy     bool
+		calls    int
+		say      string
+	}{
+		{"max 0 does nothing", 0, []outcome{kept}, false, 0, "done (--max 0)"},
+		{"max caps items", 2, []outcome{kept}, false, 2, "done (--max 2)"},
+		{"two reverts stop the loop", 5, []outcome{reverted}, false, 2, "2 reverts in a row; stopping"},
+		{"a keep resets the revert count", 4, []outcome{reverted, kept, reverted, kept}, false, 4, "done (--max 4)"},
+		{"busy machine defers", 3, []outcome{kept}, true, 0, "machine busy (load 9.00); deferred"},
+		{"busy measurement lock defers", 3, []outcome{deferred}, false, 1, "bench loop: deferred"},
+		{"an inconclusive run stops", 3, []outcome{noComparison}, false, 1, "no conclusive comparison"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			calls := 0
+			code, out := stubLoop(t, c.max, scripted(c.outcomes, c.busy, &calls))
+			if code != 0 || calls != c.calls || !strings.Contains(out, c.say) {
+				t.Errorf("exit %d, %d items (want %d), output %q (want %q)", code, calls, c.calls, out, c.say)
+			}
+		})
+	}
+}
+
+func TestDriverMeasuredExcludesTheWorkerLock(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "measurement.lock")
+	oldPath, oldWait := measureLockPath, measureWait
+	t.Cleanup(func() { measureLockPath, measureWait = oldPath, oldWait })
+	measureLockPath, measureWait = func() (string, error) { return lock, nil }, 20*time.Millisecond
+	ran := false
+	held, err := paths.TryFileLock(lock, 0, func() error { // the post-commit worker's flock on the same file
+		return measured(func() error { ran = true; return nil })
+	})
+	if !held || !errors.Is(err, errMeasureBusy) || ran {
+		t.Fatalf("under the worker's lock: held=%v err=%v ran=%v, want busy and fn skipped", held, err, ran)
+	}
+	if err := measured(func() error { ran = true; return nil }); err != nil || !ran {
+		t.Fatalf("free lock: err=%v ran=%v", err, ran)
+	}
+}
+
+func TestDriverHeldLockDefers(t *testing.T) {
+	oldWait := loopLockWait
+	t.Cleanup(func() { loopLockWait = oldWait })
+	loopLockWait = 0
+	calls := 0
+	steps := scripted([]outcome{kept}, false, &calls)
+	var code int
+	var out string
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if err := os.MkdirAll(benchRoot(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran, err := paths.TryFileLock(filepath.Join(benchRoot(), "loop.lock"), 0, func() error {
+		code, out = stubLoop(t, 3, steps)
+		return nil
+	})
+	if err != nil || !ran {
+		t.Fatalf("test could not take the lock: %v, %v", ran, err)
+	}
+	if code != 0 || calls != 0 || !strings.Contains(out, "another loop is running; deferred") {
+		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+// noDispatch fails the test when the loop reaches a subprocess.
+func noDispatch(t *testing.T) {
+	t.Helper()
+	old := driverRun
+	t.Cleanup(func() { driverRun = old })
+	driverRun = func(context.Context, string, string, string, ...string) (string, int, error) {
+		t.Error("the loop dispatched past its budget")
+		return "", 0, nil
+	}
+}
+
+func setReserved(t *testing.T, sha string) {
+	t.Helper()
+	old := reservedSHA
+	t.Cleanup(func() { reservedSHA = old })
+	reservedSHA = sha
+}
+
+func ledgerLoops(t *testing.T) int {
+	t.Helper()
+	rows, err := readBudget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := dayUse(rows, KindBenchLoop, time.Now())
+	return runs
+}
+
+func TestDriverHandRunStopsAtTokenLimit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindGateFix, ID: "", Tokens: dailyTokens}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	code, out := stubLoop(t, 3, scripted([]outcome{kept}, false, &calls))
+	want := "daily token budget reached: 15000000/15000000; resumes tomorrow"
+	if code != 0 || calls != 0 || !strings.Contains(out, want) || ledgerLoops(t) != 0 {
+		t.Errorf("exit %d, %d items, %d loop slots, output %q (want %q)", code, calls, ledgerLoops(t), out, want)
+	}
+}
+
+func TestDriverLoopStopsWhenItemsSpendTheDay(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if ok, why := Reserve(KindBenchLoop, testSHA, time.Now()); !ok {
+		t.Fatal(why)
+	}
+	setReserved(t, testSHA)
+	calls := 0
+	steps := scripted([]outcome{kept}, false, &calls)
+	item := steps.item
+	steps.item = func(ctx context.Context, it Item) (outcome, error) {
+		if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindBenchLoop, ID: "", Tokens: dailyTokens}); err != nil {
+			t.Fatal(err)
+		}
+		return item(ctx, it)
+	}
+	code, out := stubLoop(t, 3, steps)
+	if code != 0 || calls != 1 || !strings.Contains(out, "daily token budget reached") {
+		t.Errorf("exit %d, %d items (want 1), output %q", code, calls, out)
+	}
+}
+
+func TestDriverHandRunRefusedAtFiveLoops(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	for i := range dailyBenchLoops {
+		if err := appendBudgetRow(budgetRow{At: time.Now(), Kind: KindBenchLoop, ID: strconv.Itoa(i), Tokens: 0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	code, out := stubLoop(t, 3, scripted([]outcome{kept}, false, &calls))
+	if code != 0 || calls != 0 || !strings.Contains(out, "daily bench-loop count limit reached") {
+		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+func TestDriverRunsAreCountedOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	calls := 0
+	if code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls)); code != 0 || calls != 1 || ledgerLoops(t) != 1 {
+		t.Fatalf("hand run: exit %d, %d items, %d slots, output %q; want 1 slot", code, calls, ledgerLoops(t), out)
+	}
+	if ok, why := Reserve(KindBenchLoop, testSHA, time.Now()); !ok {
+		t.Fatal(why)
+	}
+	setReserved(t, testSHA)
+	if code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls)); code != 0 || calls != 2 || ledgerLoops(t) != 2 {
+		t.Fatalf("worker run: exit %d, %d items, %d slots, output %q; want 2 slots in all", code, calls, ledgerLoops(t), out)
+	}
+}
+
+func TestDriverReservedNeedsALedgerRow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	setReserved(t, testSHA)
+	calls := 0
+	code, out := stubLoop(t, 1, scripted([]outcome{kept}, false, &calls))
+	if code != 0 || calls != 0 || !strings.Contains(out, "no launch reservation for "+testSHA) {
+		t.Errorf("exit %d, %d items, output %q", code, calls, out)
+	}
+}
+
+// An automatic run picks only its repo's item; with none it ends before any dispatch.
+func TestDriverReservedPicksOnlyThisRepo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	noDispatch(t)
+	top, other := t.TempDir(), t.TempDir()
+	pkg := filepath.Join(top, "internal", "p")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "p_test.go"), []byte("package p\n\nfunc BenchmarkA() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mine, theirs := autoRow(time.Now(), regressed), autoRow(time.Now(), regressed)
+	mine.Repo, theirs.Repo = repoIdentity(top), repoIdentity(other)
+	theirs.Pkg, theirs.Benchmark = "internal/q", "BenchmarkQ-8"
+	theirs.Score.Metrics["ns/op"] = Spread{Median: 1e9, CV: 1} // outranks mine machine-wide
+	if err := appendHistory(filepath.Join(benchRoot(), "p"), []observation{mine, theirs}); err != nil {
+		t.Fatal(err)
+	}
+	writeBenchFile(t, "candidates.jsonl", `{"pkg":"internal/p","calls_per_day":20000}`)
+	setReserved(t, testSHA)
+	d := &driver{top: top, skip: map[string]bool{}}
+	if it, ok, err := d.pick(); err != nil || !ok || it.Pkg != "internal/p" {
+		t.Fatalf("pick = %+v, %v, %v; want this repo's internal/p", it, ok, err)
+	}
+	var out strings.Builder
+	d = &driver{top: t.TempDir(), out: &out, log: io.Discard, skip: map[string]bool{}}
+	d.steps = loopSteps{quiet: func(context.Context) (bool, string) { return true, "" }, pick: d.pick,
+		item: func(context.Context, Item) (outcome, error) { t.Error("item ran with no candidate"); return kept, nil }}
+	if err := d.loop(context.Background(), 1); err != nil || !strings.Contains(out.String(), "no candidate for this repo") {
+		t.Fatalf("loop err %v, output %q", err, out.String())
+	}
+}
+
+func TestDriverCorruptLedgerRefuses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	noDispatch(t)
+	if err := paths.AppendLine(budgetFile(), []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	for _, sha := range []string{"", testSHA} {
+		setReserved(t, sha)
+		var out, errb strings.Builder
+		if code := runDriver(loopOpts{maxItems: 1}, &out, &errb); code != 1 ||
+			!strings.Contains(errb.String(), "inspect budget.jsonl") || strings.Contains(errb.String(), dir) {
+			t.Errorf("reserved %q: exit %d, stderr %q", sha, code, errb.String())
+		}
+	}
+}
+
+func TestBriefBlankFields(t *testing.T) {
+	fix := assets.BenchFixInput{Workdir: "/tmp/owner's lane", Package: "./internal/shell", OwnedLine: `["x"]`,
+		Benchmark: "Bench", Cause: "cause", Numbers: "numbers", BeforeFile: "before", BenchCommand: "bench",
+		IdentityCommand: "identity", Verify: "verify"}
+	review := assets.BenchReviewInput{Workdir: fix.Workdir, Package: fix.Package, OwnedLine: fix.OwnedLine,
+		Benchmark: fix.Benchmark, Numbers: fix.Numbers, BeforeFile: fix.BeforeFile, AfterFile: "after",
+		IdentityCommand: fix.IdentityCommand, Verify: fix.Verify, Diff: "- old\n+ new"}
+	checkBlankFields(t, fix, review)
+}
+
+func checkBlankFields(t *testing.T, fix assets.BenchFixInput, review assets.BenchReviewInput) {
+	t.Helper()
+	for _, item := range []any{fix, review} {
+		v := reflect.ValueOf(item)
+		for i := range v.NumField() {
+			name := v.Type().Field(i).Name
+			if name == "Diff" || v.Field(i).Kind() != reflect.String {
+				continue
+			}
+			copy := reflect.New(v.Type()).Elem()
+			copy.Set(v)
+			copy.Field(i).SetString(" ")
+			var err error
+			switch value := copy.Interface().(type) {
+			case assets.BenchFixInput:
+				_, err = renderFixBrief(value)
+			case assets.BenchReviewInput:
+				_, err = renderReviewBrief(value)
+			}
+			if err == nil || !strings.Contains(err.Error(), "empty "+name) {
+				t.Errorf("%T blank %s: %v", item, name, err)
+			}
+		}
+	}
+}
+
+func TestRenderBrief(t *testing.T) {
+	values := map[string]string{
+		"Workdir": "/tmp/owner's lane", "Package": "./internal/shell",
+		"OwnedLine": `["/tmp/owner's lane/internal/shell/shell.go"]`,
+		"Benchmark": "BenchmarkCommentsEachHash", "Cause": "repeated buffer allocation",
+		"Numbers":    "before: 120 ns/op, 64 B/op; after: 90 ns/op, 32 B/op",
+		"BeforeFile": "/tmp/before.txt", "AfterFile": "/tmp/after.txt",
+		"BenchCommand":    "rtk go test -run '^$' -bench '^BenchmarkCommentsEachHash$' -benchmem ./internal/shell",
+		"IdentityCommand": "rtk go test -run '^TestCommentsEachHash$' ./internal/shell",
+		"Verify":          "rtk go test ./internal/shell", "Diff": "- old allocation\n+ reused buffer",
+	}
+	sections := map[string][]string{
+		"fix":    {values["Cause"], values["BenchCommand"]},
+		"review": {values["Diff"], values["AfterFile"]},
+	}
+	fix := assets.BenchFixInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Cause: values["Cause"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		BenchCommand: values["BenchCommand"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"]}
+	review := assets.BenchReviewInput{Workdir: values["Workdir"], Package: values["Package"], OwnedLine: values["OwnedLine"],
+		Benchmark: values["Benchmark"], Numbers: values["Numbers"], BeforeFile: values["BeforeFile"],
+		AfterFile: values["AfterFile"], IdentityCommand: values["IdentityCommand"], Verify: values["Verify"], Diff: values["Diff"]}
+	for kind, required := range sections {
+		t.Run(kind, func(t *testing.T) {
+			var got string
+			var err error
+			if kind == "fix" {
+				got, err = renderFixBrief(fix)
+			} else {
+				got, err = renderReviewBrief(review)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			required = append(required, values["Numbers"], values["Benchmark"], values["BeforeFile"], values["Verify"],
+				values["IdentityCommand"], values["OwnedLine"], "cd '/tmp/owner'\"'\"'s lane'")
+			checkBriefSections(t, got, required)
+		})
+	}
+	checkBriefErrors(t, review)
+}
+
+func checkBriefErrors(t *testing.T, review assets.BenchReviewInput) {
+	t.Helper()
+	review.Diff = "```diff\n\n```"
+	if got, err := renderReviewBrief(review); err != nil || !strings.Contains(got, assets.BenchNoDiff()) {
+		t.Errorf("empty diff: %v, placeholder missing", err)
+	}
+	if got, err := renderFixBrief(assets.BenchFixInput{}); err == nil || got != "" {
+		t.Errorf("fix: missing input returned %q, %v", got, err)
+	}
+	if got, err := renderReviewBrief(assets.BenchReviewInput{}); err == nil || got != "" {
+		t.Errorf("review: missing input returned %q, %v", got, err)
+	}
+}
+
+func checkBriefSections(t *testing.T, got string, required []string) {
+	t.Helper()
+	for _, want := range required {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(got, "{{") || strings.Contains(got, "<no value>") {
+		t.Error("unrendered placeholder")
+	}
+}
+
+func testLanes(t *testing.T, lanes []autoLane, clean func(context.Context, string, string) (string, error)) {
+	t.Helper()
+	data, err := json.Marshal(lanes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldList, oldClean := laneList, laneClean
+	laneList = func(context.Context, string) (string, error) { return string(data), nil }
+	laneClean = clean
+	t.Cleanup(func() { laneList, laneClean = oldList, oldClean })
+}
+
+func TestAutoLanes(t *testing.T) {
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-providers-20261123-1", Branch: "worktree-bench-providers-20261123-1"},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0"},
+		{Path: "/lanes/rtk-external-agents", Branch: "worktree-rtk-external-agents"},
+		{Path: "/lanes/bench-providers-20261123-2", Branch: "main"},
+		{Path: "/lanes/autofix-ABCDEF0", Branch: "worktree-autofix-ABCDEF0"},
+	}, nil)
+	got, err := autoLanes(t.Context(), "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("automatic lanes = %+v", got)
+	}
+	if names := []string{got[0].Name, got[1].Name}; !reflect.DeepEqual(names, []string{"bench-providers-20261123-1", "autofix-abcdef0"}) {
+		t.Fatalf("automatic lanes = %+v", got)
+	}
+}
+
+func TestLaneCap(t *testing.T) {
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-a-20261123-1", Branch: "worktree-bench-a-20261123-1"},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0"},
+		{Path: "/lanes/bench-b-20261123-2", Branch: "worktree-bench-b-20261123-2"},
+		{Path: "/lanes/gofmt-fix", Branch: "worktree-gofmt-fix"},
+	}, nil)
+	err := LaneCap(t.Context(), "/repo")
+	if err == nil || !strings.Contains(err.Error(), "3 open") || !strings.Contains(err.Error(), "bench-b-20261123-2") {
+		t.Fatalf("cap error = %v", err)
+	}
+}
+
+func TestCleanLanes(t *testing.T) {
+	var cleaned []string
+	testLanes(t, []autoLane{
+		{Path: "/lanes/bench-a-20261123-1", Branch: "worktree-bench-a-20261123-1", Merged: true},
+		{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0", Dirty: true, Merged: true},
+		{Path: "/lanes/bench-b-20261123-2", Branch: "worktree-bench-b-20261123-2", Behind: 20},
+		{Path: "/lanes/bench-c-20261123-3", Branch: "worktree-bench-c-20261123-3", Behind: 21},
+	}, func(_ context.Context, _, name string) (string, error) {
+		cleaned = append(cleaned, name)
+		return "", nil
+	})
+	var out bytes.Buffer
+	if err := CleanLanes(t.Context(), "/repo", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cleaned, []string{"bench-a-20261123-1"}) {
+		t.Fatalf("cleaned = %v", cleaned)
+	}
+	if text := out.String(); !strings.Contains(text, "removed automatic lane bench-a-20261123-1") ||
+		!strings.Contains(text, "kept dirty automatic lane autofix-abcdef0") ||
+		!strings.Contains(text, "claude-code worktree land bench-c-20261123-3") ||
+		strings.Contains(text, "bench-b-20261123-2") {
+		t.Fatalf("notices = %q", text)
+	}
+}
+
+func TestCleanLanesFailures(t *testing.T) {
+	want := errors.New("refused")
+	testLanes(t, []autoLane{{Path: "/lanes/autofix-abcdef0", Branch: "worktree-autofix-abcdef0", Merged: true}},
+		func(context.Context, string, string) (string, error) { return "refused: still in use\n", want })
+	var out bytes.Buffer
+	if err := CleanLanes(t.Context(), "/repo", &out); !errors.Is(err, want) ||
+		out.String() != "refused automatic lane autofix-abcdef0: refused: still in use\n" {
+		t.Fatalf("error = %v, notice = %q", err, out.String())
+	}
+	laneList = func(context.Context, string) (string, error) { return "", want }
+	out.Reset()
+	if err := CleanLanes(t.Context(), "/repo", &out); !errors.Is(err, want) || out.Len() != 0 {
+		t.Fatalf("list error = %v, notices = %q", err, out.String())
+	}
+}
