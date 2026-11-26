@@ -283,12 +283,12 @@ func TestHubRunIdleAfterFirstOutput(t *testing.T) {
 	data, _ := fakeOpencode(t, "1.19.3", "", nil)
 	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
 	old := agent.IdleLimit
-	agent.IdleLimit = 400 * time.Millisecond // margin over the 50ms steady gaps, which spawn processes under load
 	t.Cleanup(func() { agent.IdleLimit = old })
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
 	l := hubDispatch{agent: "opencode", provider: p}
 	const text = `{"type":"text","sessionID":"s","part":{"text":"hi"}}`
-	run := func(body string) error {
+	run := func(limit time.Duration, body string) error {
+		agent.IdleLimit = limit
 		pathstest.FakeVendor(t, "opencode", body)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -296,10 +296,10 @@ func TestHubRunIdleAfterFirstOutput(t *testing.T) {
 		return err
 	}
 	line := "printf '%s\\n' '" + text + "'\n"
-	if err := run("/bin/cat > /dev/null\n/bin/sleep 0.3\n" + line + "/bin/sleep 1\n"); !errors.Is(err, agent.ErrSilent) {
+	if err := run(100*time.Millisecond, "/bin/cat > /dev/null\n"+line+"/bin/sleep 3\n"); !errors.Is(err, agent.ErrSilent) {
 		t.Fatalf("quiet after first output: err = %v, want ErrSilent", err)
 	}
-	if err := run("/bin/cat > /dev/null\n" + line + strings.Repeat("/bin/sleep 0.05\n"+line, 8)); err != nil {
+	if err := run(600*time.Millisecond, "/bin/cat > /dev/null\n"+line+strings.Repeat("/bin/sleep 0.15\n"+line, 5)); err != nil {
 		t.Fatalf("steady stream: %v", err)
 	}
 }
