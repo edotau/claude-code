@@ -2,6 +2,7 @@ package menu
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 type fakeSignin struct {
@@ -437,5 +440,32 @@ func TestAllRejectedRowText(t *testing.T) {
 	runProviderAll(d)
 	if !strings.Contains(dbxOut(d), "qa: rejected") {
 		t.Errorf("output:\n%s", dbxOut(d))
+	}
+}
+
+// --all pins copilot only to the verified row of copilot's own login; another account or an existing pin stays.
+func TestAllLoginPinsWhatItVerified(t *testing.T) {
+	for _, tc := range []struct{ name, row, login, pin, want string }{
+		{"own login row pinned", "xuser", "xuser", "", "xuser"},
+		{"another account's row pins nothing", "auser", "xuser", "", ""},
+		{"logged out pins nothing", "xuser", "", "", ""},
+		{"explicit pin kept", "xuser", "xuser", "auser", "auser"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			menuTestEnv(t)
+			reg := addGithubProfiles(t, "auser", "xuser")
+			vaulttest.SetRecord(t, "copilot", "profile", tc.pin)
+			copilotLoggedInAs(t, tc.login)
+			allSeams(t, nil, true, time.Second)
+			d := &dialog{reg: reg, out: &bytes.Buffer{}, br: bufio.NewReader(strings.NewReader("y\nn\n"))}
+			captureStderr(t, func() {
+				if st := allLoginRow(d, allRowStatus{Row: tc.row, Status: allNeedsLogin}); st.Status != allOK {
+					t.Fatalf("recheck = %+v, want ok", st)
+				}
+			})
+			if got := vault.GetAgentRecord("copilot").Route.Profile; got != tc.want {
+				t.Errorf("copilot profile = %q, want %q; dialog said %q", got, tc.want, d.out)
+			}
+		})
 	}
 }

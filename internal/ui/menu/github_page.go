@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/copilotauth"
 	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
@@ -44,18 +45,18 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 
 	copilotAccountLine(d)
 
-	ctx := context.Background()
-	auth := agent.AuthStatus("copilot")
-	copilotOK = auth.Present
+	// copilot's own stored login; gh's active account never counts as it
+	own := copilotauth.StoredLogin()
+	copilotOK = own != ""
 	if copilotOK {
-		auth.Account = cmp.Or(auth.Account, agent.AuthPlan(ctx, "copilot", auth).Account)
-		d.printf("%-16s present (%s)\n", "copilot CLI", auth.Label())
+		d.printf("%-16s present (logged in as %s)\n", "copilot CLI", own)
 	} else {
-		d.printf("%-16s ABSENT: no usable GitHub login\n", "copilot CLI")
+		d.printf("%-16s ABSENT: not logged in (copilot login)\n", "copilot CLI")
 	}
 
 	d.printf("%-16s %s\n", "opencode login", opencodeAccountLine(d.reg))
 
+	ctx := context.Background()
 	oc, _ := agent.LookupSchema("opencode")
 	cp, _ := agent.LookupSchema("copilot")
 	ocRoute, cpRoute := oc.DescribeRoute(ctx, d.reg), cp.DescribeRoute(ctx, d.reg)

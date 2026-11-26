@@ -91,8 +91,9 @@ func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 	if strings.Contains(got, "rTyUiOpLkJhGfDsAzXcVb") {
 		t.Errorf("github section leaked a credential:\n%s", got)
 	}
-	if !regexp.MustCompile(`copilot CLI +present`).MatchString(got) {
-		t.Errorf("want copilot CLI to read present via GH_TOKEN:\n%s", got)
+	// GH_TOKEN is not copilot's own login
+	if !regexp.MustCompile(`copilot CLI +ABSENT`).MatchString(got) {
+		t.Errorf("want copilot CLI absent with only GH_TOKEN:\n%s", got)
 	}
 	for _, want := range []string{"gh CLI", "copilot CLI", "route("} {
 		if !strings.Contains(got, want) {
@@ -136,5 +137,30 @@ func TestGithubProfileRefusesNameClash(t *testing.T) {
 	}
 	if p := reg.Providers["anthropic"]; p == nil || p.Login != "" || slices.Contains(reg.ProfilesOf("github"), "anthropic") {
 		t.Errorf("anthropic row was rewritten: %+v", p)
+	}
+}
+
+// gh's active account is not copilot's login: the copilot CLI row is present only on copilot's own stored login.
+func TestGithubStatusCopilotRowIsCopilotsOwnLogin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "fake gh is a sh script")
+	reg := menuTestEnv(t)
+	ghDir := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", ghDir)
+	hosts := "github.com:\n    users:\n        yuser:\n    user: yuser\n"
+	if err := os.WriteFile(filepath.Join(ghDir, "hosts.yml"), []byte(hosts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gh := "#!/bin/sh\n[ \"$1 $2\" = \"auth token\" ] && echo fixture-token\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(os.Getenv("PATH"), "gh"), []byte(gh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, login := range []string{"", "xuser"} {
+		copilotLoggedInAs(t, login)
+		var out bytes.Buffer
+		ghOK, copilotOK, _ := githubStatusRows(&dialog{reg: reg, out: &out})
+		present := strings.Contains(out.String(), "copilot CLI      present (logged in as xuser)")
+		if !ghOK || copilotOK != (login != "") || present != copilotOK {
+			t.Errorf("copilot login %q: gh=%v copilot=%v out=%q", login, ghOK, copilotOK, out.String())
+		}
 	}
 }

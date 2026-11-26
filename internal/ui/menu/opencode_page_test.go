@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -17,6 +19,7 @@ import (
 // ocFake stubs every opencode page seam: no real opencode, terminal or keyring is touched.
 type ocFake struct {
 	ints        []opencode.OpencodeIntegration
+	after       []opencode.OpencodeIntegration // ints once a login ran, when set
 	err         error
 	major       int
 	answers     []tui.ListResult
@@ -63,6 +66,9 @@ func installOCFake(t *testing.T, f *ocFake) {
 	}
 	runAttached = func(argv []string) (bool, error) {
 		f.ran = append(f.ran, argv)
+		if f.after != nil {
+			f.ints = f.after
+		}
 		return f.cancel, f.runErr
 	}
 	confirmKey = func(q string, def bool) bool { f.asked = append(f.asked, q); return f.confirm }
@@ -416,6 +422,35 @@ func TestOpencodeDatabricksRowSetsUp(t *testing.T) {
 			}
 			if strings.Contains(dbxOut(d), dbxTok) {
 				t.Errorf("output leaked the token: %q", dbxOut(d))
+			}
+		})
+	}
+}
+
+// After `opencode auth login` a new github-copilot entry is verified and pinned; none pins nothing; a pin is kept.
+func TestOpencodeAddAccountPinsVerifiedCopilot(t *testing.T) {
+	copilot := opencode.OpencodeIntegration{ID: "github-copilot", Conns: []opencode.OpencodeConn{{Kind: "credential", ID: "github-copilot"}}}
+	openai := opencode.OpencodeIntegration{ID: "openai", Conns: []opencode.OpencodeConn{{Kind: "credential", ID: "openai"}}}
+	for _, tc := range []struct {
+		name, pin, want string
+		after           []opencode.OpencodeIntegration
+	}{
+		{"copilot entry verified and pinned", "", "github-copilot", []opencode.OpencodeIntegration{copilot}},
+		{"no copilot entry pins nothing", "", "", []opencode.OpencodeIntegration{openai}},
+		{"existing pin kept", "zen-free", "zen-free", []opencode.OpencodeIntegration{copilot}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := menuTestEnv(t)
+			vaulttest.SetRecord(t, "opencode", "profile", tc.pin)
+			installOCFake(t, &ocFake{major: 1, after: tc.after})
+			d, out := ocDialog()
+			d.reg = reg
+			ocAddAccount(d)
+			if got := vault.GetAgentRecord("opencode").Route.Profile; got != tc.want {
+				t.Errorf("opencode profile = %q, want %q; dialog said %q", got, tc.want, out)
+			}
+			if verified := strings.Contains(out.String(), "Copilot login verified"); verified != (tc.after[0].ID == "github-copilot") {
+				t.Errorf("verified = %v for %s; dialog said %q", verified, tc.after[0].ID, out)
 			}
 		})
 	}

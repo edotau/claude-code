@@ -294,8 +294,11 @@ func ocSwitch(d *dialog, r ocRow, argv []string) {
 	}
 }
 
-// ocAddAccount delegates sign-in to bin/opencode and reports the new account count.
+// ocAddAccount delegates sign-in to bin/opencode, reports the account count and pins only a login it verified.
 func ocAddAccount(d *dialog) {
+	before, _ := opencodeAuth()
+	// 1.x keeps one entry per integration, so a re-login shows only as a new stored token (compared, never printed)
+	tokBefore := opencode.OpencodeCopilotToken()
 	if err := opencodeSignIn(); err != nil {
 		d.printf("opencode: %v\n", err)
 		return
@@ -304,15 +307,42 @@ func ocAddAccount(d *dialog) {
 	configure.DiscoverAfterSignin()
 	ints, err := opencodeAuth()
 	if err != nil {
-		d.printf("opencode: %v\n", err)
-	} else {
-		n := 0
-		for _, in := range ints {
-			n += len(in.Conns)
-		}
-		d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
+		d.printf("opencode: %v; nothing pinned\n", err)
+		return
 	}
-	agentActiveOn(d, "opencode")
+	n := 0
+	for _, in := range ints {
+		n += len(in.Conns)
+	}
+	d.printf("opencode: %d %s\n", n, textutil.PluralWord(n, "account", "accounts"))
+	// a Copilot entry wins when this login added it or opencode has no own (Go) login, as its route order does
+	cp, own := ocConns(ints, "github-copilot"), ocConns(ints, opencode.OpencodeCredID("opencode-go"))
+	switch {
+	case cp > ocConns(before, "github-copilot") || cp > 0 && (own == 0 || opencode.OpencodeCopilotToken() != tokBefore):
+		d.println("opencode: GitHub Copilot login verified in opencode's auth store")
+		// the ladder id, not a github account profile: opencode runs on its own stored Copilot login
+		pinVerified(d, "opencode", "github-copilot")
+	case own > 0:
+		agentActiveOn(d, "opencode")
+	default:
+		d.println("opencode: no GitHub Copilot entry in opencode's auth store; nothing pinned")
+	}
+}
+
+// ocConns counts the usable stored credentials of integration id in ints; env-backed and expired ones do not count.
+func ocConns(ints []opencode.OpencodeIntegration, id string) int {
+	n := 0
+	for _, in := range ints {
+		if in.ID != id {
+			continue
+		}
+		for _, c := range in.Conns {
+			if c.Kind != "env" && c.NeedsAuth == "" {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // opencodeSignIn runs `opencode auth login` on the terminal and drops the cached auth; a cancel is an error.

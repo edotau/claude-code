@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // Seams for --all; tests replace the sign-in factory, its cap and the TTY gates.
@@ -202,10 +204,26 @@ func allLoginRow(d *dialog, s allRowStatus) allRowStatus {
 	}
 	st := allCheckOne(ctx, namedProvider(s.Row, cur))
 	if st.Status == allOK {
+		// only the row a sign-in to its agent means (copilot: the profile of copilot's own login) is pinned
+		if name := cur.Auth.Login; name != "" && !agent.VaultAgentIsClaude(name) && signInProfile(d, name) == s.Row {
+			pinVerified(d, name, s.Row)
+		}
 		fmt.Fprintf(os.Stderr, "%s: pick models now? [Y/n] ", s.Row)
 		if yes(d.br) {
 			offerModels(d, s.Row)
 		}
 	}
 	return st
+}
+
+// pinVerified pins name to a profile whose login was just verified; an explicit existing pin is never changed.
+func pinVerified(d *dialog, name, profile string) {
+	// PinLabel also sees an account route pin, which the PROFILE field reads as unset
+	if pin := configure.PinLabel(vault.GetAgentRecord(name)); pin != "" {
+		d.printf("%s: pin kept on %s\n", name, pin)
+		return
+	}
+	if _, err := writeAgentField(d, name, "PROFILE", profile); err != nil {
+		d.printf("%s: %v\n", name, err)
+	}
 }
