@@ -245,6 +245,7 @@ func SelectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (nam
 		o.Persona = def
 		o.Model, o.Provider, o.Effort = cmp.Or(o.Model, model), cmp.Or(o.Provider, def.Profile), cmp.Or(o.Effort, def.Effort)
 	}
+	o.Effort = cmp.Or(o.Effort, models.EffortMedium)
 	return name, nil
 }
 

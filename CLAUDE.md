@@ -31,7 +31,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 
 ## Hard rules (always on)
 
-1. **`settings.json` is yours:** hand-edited, tracked in git (still listed in `.gitignore`); install never writes an
+1. **`settings.json` is yours:** hand-edited, tracked in git; install never writes an
    existing one; the lint step only reformats it (`configure --fmt`: key order, backup kept); reset with
    `claude-code configure --restore` (`rules/harness/settings-management.md`).
 2. **Secrets live only in the encrypted vault (`state/vault.db`; `claude-code vault set`) or a provider's

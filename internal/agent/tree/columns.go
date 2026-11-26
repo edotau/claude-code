@@ -22,7 +22,7 @@ const (
 	levelCount
 )
 
-// jobCols are a dispatch row's columns: marker, agent, model, · provider, profile, ↑in, ↓out, since, elapsed.
+// jobCols are a dispatch row's columns: marker, agent, model, provider, profile, ↑in, ↓out, since, elapsed.
 var jobCols = []col{{}, {max: 18}, {fit: true}, {}, {}, {right: true}, {right: true}, {right: true}, {right: true}}
 
 // spanFrom is the first of the two token columns a queued row's span covers.
@@ -70,6 +70,7 @@ type row struct {
 	span          bool   // cell spanFrom fills its column and the next one, left-aligned
 	tint          string // SGR code for the marker glyph, applied only when the layout is painted
 	sel           bool   // the interactive selection: the whole row prints in reverse video
+	head          bool   // column names: sized by the data rows, clipped to them
 }
 
 // layout collects rows in print order so column widths can be measured across a whole level before any line is built.
@@ -108,7 +109,7 @@ func (l *layout) free(indent int, text string) {
 // lines builds one line per row, clipped to width (0 = whole); it clips the rows' cells in place, so call it once.
 func (l *layout) lines(width int, paint string) []string {
 	rows := l.capped(width)
-	widths := levelWidths(rows)
+	widths := levelWidths(slices.DeleteFunc(slices.Clone(rows), func(r row) bool { return r.head }))
 	dropOptional(widths, width)
 	fitModels(rows, widths, width)
 	if width > 0 {
@@ -273,10 +274,7 @@ func dispatchBudget(rows []row, w []int, level, width int) (cur []int, keptIn bo
 	}
 	grow(colModel)
 	grow(colAgent)
-	rem++ // colSep gives the model-to-provider gap one cell, not two
-	if whole(colProv, nat[colProv]); cur[colProv] == 0 {
-		rem--
-	}
+	whole(colProv, nat[colProv])
 	whole(colProf, nat[colProf])
 	whole(colSince, nat[colSince])
 	whole(spanFrom, plainSpanWidth(rows, level))
@@ -339,7 +337,7 @@ func truncSpan(rows []row, w []int, level int) {
 func plainSpanWidth(rows []row, level int) int {
 	natural := 0
 	for _, r := range rows {
-		if r.level == level && !r.span {
+		if r.level == level && !r.span && !r.head {
 			natural = max(natural, textutil.DisplayWidth(r.cells[spanFrom]))
 		}
 	}
@@ -378,9 +376,8 @@ func (r row) line(ws []int, width int, paint string) string {
 			continue
 		}
 		r.writeCell(&b, c, size, width <= 0 || pos+size <= width, paint)
-		sep := r.colSep(ws, c)
-		pos += size + len(sep)
-		b.WriteString(sep)
+		pos += size + len(gap)
+		b.WriteString(gap)
 	}
 	text := r.cells[len(r.cells)-1]
 	if avail := width - prefixWidth(ws, r.indent); width > 0 {
@@ -398,14 +395,6 @@ func (r row) line(ws []int, width int, paint string) string {
 	return line
 }
 
-// colSep is the separator after column c: one space before a shown "· provider" cell, else the gap.
-func (r row) colSep(ws []int, c int) string {
-	if noText[r.level] && c == colModel && ws[colProv] > 0 {
-		return " "
-	}
-	return gap
-}
-
 // cellSize is fixed cell c's printed width: a span covers the next column too, which then prints nothing.
 func (r row) cellSize(ws []int, c int) int {
 	switch {
@@ -419,12 +408,20 @@ func (r row) cellSize(ws []int, c int) int {
 	return ws[c]
 }
 
+// cellText is cell c; a column name is clipped to the data's width.
+func (r row) cellText(c, size int) string {
+	if r.head {
+		return textutil.TruncateCells(r.cells[c], size, "")
+	}
+	return r.cells[c]
+}
+
 func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint string) {
 	hot := paint != "" && r.hot>>c&1 != 0 && visible
 	if hot {
 		b.WriteString(paint)
 	}
-	padded := textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right && (!r.span || c != spanFrom))
+	padded := textutil.PadCells(r.cellText(c, size), size, levelCols[r.level][c].right && (!r.span || c != spanFrom))
 	if c == 0 && r.tint != "" && paint != "" && !r.sel {
 		padded = tintGlyph(padded, r.tint)
 	}

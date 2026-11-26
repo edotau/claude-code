@@ -151,7 +151,7 @@ func (d Dispatch) since(now time.Time) string {
 	return age
 }
 
-// jobCells are a dispatch row after its marker: agent, model, "· provider", profile, ↑in, ↓out, since, elapsed.
+// jobCells are a dispatch row after its marker: agent, model, provider, profile, ↑in, ↓out, since, elapsed.
 func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
 	typ := dispatchType(d)
 	if d.Agent == agentid.Pi && !d.codeMode && d.recType != string(models.TypeCoworker) {
@@ -167,7 +167,7 @@ func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []strin
 	if d.queued != "" {
 		up, down = queueText(d, now, pools), ""
 	}
-	return []string{name, model, "· " + provider, profile, up, down, d.since(now), durationText(d.Duration)}
+	return []string{name, model, provider, profile, up, down, d.since(now), durationText(d.Duration)}
 }
 
 // queueText is "queued 1m10s (pool databricks:qa 2/4)"; the count is left out when the daemon does not answer.
@@ -216,10 +216,11 @@ func poolsFor(rows []nested) map[string]serve.PoolRow {
 	return nil
 }
 
-// addJobs adds the machine-wide dispatch job nodes under a "dispatches" header, one row each; detail adds the lines.
+// addJobs adds the machine-wide dispatch job nodes under a column-name row, one row each; detail adds the lines.
 func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 	l.sep()
-	l.free(0, "dispatches")
+	l.add(levelJob, "", "agent", "model", "provider", "", "in", "out", "idle", "time", "")
+	l.rows[len(l.rows)-1].head = true
 	rows := nodeRows(nodes)
 	pools := poolsFor(rows)
 	for _, n := range rows {

@@ -539,7 +539,7 @@ func TestRunningRowHasNoTask(t *testing.T) {
 	var b strings.Builder
 	renderTree(&b, &Tree{Dispatches: []Dispatch{dispatchFromRecord(rec, "", now)}}, now, 80, "")
 	row := strings.Split(b.String(), "\n")[1]
-	want := []string{"●", "claude", "claude-sonnet-5-5", "·", "qa", "0s", "1m"}
+	want := []string{"●", "claude", "claude-sonnet-5-5", "qa", "0s", "1m"}
 	if got := strings.Fields(row); !slices.Equal(got, want) {
 		t.Errorf("row = %q, want fields %q", row, want)
 	}

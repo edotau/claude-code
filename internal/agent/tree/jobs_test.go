@@ -20,7 +20,7 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID != "1-codex" {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
-	want := []string{"codex", "gpt-6-astra", "· databricks", "dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
+	want := []string{"codex", "gpt-6-astra", "databricks", "dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
 	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
@@ -122,17 +122,17 @@ func TestJobRowsTypeLabelsAndAlignedRoute(t *testing.T) {
 	var b strings.Builder
 	renderTree(&b, &Tree{Dispatches: ds}, now, 0, "")
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")[1:]
-	if strings.Index(lines[0], "· databricks") != strings.Index(lines[1], "· databricks") ||
+	if strings.Index(lines[0], "databricks") != strings.Index(lines[1], "databricks") ||
 		strings.Index(lines[0], "qa") != strings.Index(lines[1], "dev") {
 		t.Errorf("route columns not aligned:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
-// A row whose single-space model separator makes it exactly the terminal width keeps its profile cell.
+// A row exactly the terminal width keeps its profile cell.
 func TestJobRowExactWidthKeepsProfile(t *testing.T) {
 	var l layout
-	l.add(levelJob, "●", "pi", "gpt-6-sol", "· databricks", "dev", "", "", "", "9s", "")
-	if got := l.lines(40, "")[0]; !strings.Contains(got, "dev") || !strings.HasSuffix(got, "9s") {
-		t.Errorf("row = %q, want profile and elapsed at width 40", got)
+	l.add(levelJob, "●", "pi", "gpt-6-sol", "databricks", "dev", "", "", "", "9s", "")
+	if got := l.lines(41, "")[0]; !strings.Contains(got, "dev") || !strings.HasSuffix(got, "9s") {
+		t.Errorf("row = %q, want profile and elapsed at width 41", got)
 	}
 }

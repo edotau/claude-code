@@ -75,7 +75,7 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 				t.Errorf("piped line %d is clipped: %q", i, line)
 			}
 			switch {
-			case strings.Contains(line, "· own login"):
+			case strings.Contains(line, "own login"):
 				dispatches = append(dispatches, line)
 			case strings.Contains(line, "↑"):
 				subagents = append(subagents, line)
@@ -671,8 +671,8 @@ func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
 			if textutil.DisplayWidth(ln) > w {
 				t.Errorf("width %d: line %q too wide", w, ln)
 			}
-			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra · databricks  dev") {
-				t.Errorf("width %d: elapsed or model · profile missing in %q", w, ln)
+			if !strings.Contains(ln, "2m43s") || w >= 80 && !strings.Contains(ln, "gpt-6-astra  databricks  dev") {
+				t.Errorf("width %d: elapsed or model, provider, profile missing in %q", w, ln)
 			}
 		}
 	}

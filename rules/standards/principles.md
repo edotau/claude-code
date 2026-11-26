@@ -35,6 +35,9 @@
   and rename an existing one only when the owner asks.
 - **No single source** — a source, mirror, route or profile is an ordered list with runtime fallback and the same
   integrity check; never remove a working source to unify (an owner pin or an explicit `--fallback none` stands).
+- **No owner-specific names** — new code, tests, labels and docs never hardcode the owner's profile, provider,
+  host or naming scheme (`dev`, `qa`, `prod`, a workspace or machine name); they read names from the registry or
+  input, so a profile named `dfsfdsfasf` works unchanged (owner, 2026-11-26: "from now on"; existing code stays).
 - **Typed over composed** — wherever code can decide, the model picks from a typed list (an action, an id, an enum,
   typed arguments) and Go builds the exact command, path or record from it; a model never writes a command line,
   file name or status text that code could produce ready to run. New surfaces start typed; an existing free-text

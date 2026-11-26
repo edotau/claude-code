@@ -61,7 +61,7 @@ Every verb takes `-h`; `claude-code -h` lists the menu.
 | `rules/`, `skills/` | Standards and gotchas Claude loads; on-demand how-to references |
 | `state/vault.db` | The encrypted vault (untracked): secrets, pins, provider and agent overlays |
 | `memory/` | The memory bank, a local-only git repo that is never pushed |
-| `settings.json` | Yours: hand-edited, tracked in git so every machine shares it (still listed in `.gitignore`) |
+| `settings.json` | Yours: hand-edited, tracked in git so every machine shares it |
 
 The full map is `CLAUDE.md` → Where things live. State formats, backups, `container/` and `mods/`:
 [`rules/harness/commands.md`](rules/harness/commands.md) → Layout.
