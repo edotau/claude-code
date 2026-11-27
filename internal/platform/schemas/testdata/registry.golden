@@ -46,9 +46,9 @@ codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/driv
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
 contract | record | 1 | state/harness/contract/*.json | internal/dev/contract | keep
 coworker-overlay | wire | 2 | - | internal/routing/agentconfig | keep
-desktop-meta | derived | 0 | <fixed at init> | internal/platform/desktop | keep
-desktop-profile | derived | 0 | <fixed at init> | internal/platform/desktop | keep
-desktop-state | record | 1 | <fixed at init> | internal/platform/desktop | keep
+desktop-meta | derived | 0 | <fixed at init> | internal/dev/desktop | keep
+desktop-profile | derived | 0 | <fixed at init> | internal/dev/desktop | keep
+desktop-state | record | 1 | <fixed at init> | internal/dev/desktop | keep
 dispatch-cutoffs | cache | 1 | state/harness/agent/cutoffs.json | internal/agent | keep
 dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/agent/wire | clean:dispatch-log
 dispatch-health | cache | 1 | state/harness/agent/health.json | internal/agent | keep

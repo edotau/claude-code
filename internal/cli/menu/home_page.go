@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"

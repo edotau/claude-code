@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/databricks"
 	"github.com/edotau/claude-code/internal/dev/doctor"
 	"github.com/edotau/claude-code/internal/dev/setup"
 	usagecmd "github.com/edotau/claude-code/internal/dev/usage"
@@ -23,7 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/remote/network"
 	"github.com/edotau/claude-code/internal/remote/network/remote"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
-	"github.com/edotau/claude-code/internal/routing/databricks"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
@@ -262,6 +263,7 @@ func lookup(name string) *command {
 // wireSeams sets the cross-package UI seams once, in a fixed order, before any verb runs.
 var wireSeams = sync.OnceFunc(func() {
 	ask.WireUI()
+	agent.LoginRow = databricks.LoginRow
 	wireAsk()
 	wireConfigure()
 })

@@ -20,11 +20,11 @@ import (
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 
 	"github.com/edotau/claude-code/internal/cli/ui/ansi"
+	"github.com/edotau/claude-code/internal/dev/databricks"
 	"github.com/edotau/claude-code/internal/platform/clipboard"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/routing/databricks"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 

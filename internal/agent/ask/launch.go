@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/routing/databricks"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
@@ -114,10 +113,9 @@ func modelsLaunchArgs(argv []string, profile string) []string {
 	return append([]string{"--profile", profile}, argv...)
 }
 
-// WireUI installs the terminal and sign-in UI the agent package calls but does not import.
+// WireUI installs terminal and secret prompts; cli wires the interactive Databricks login.
 func WireUI() {
 	agent.StdinIsTerminal = tui.StdinIsTerminal
-	agent.LoginRow = databricks.LoginRow
 	agent.PromptSecret = func(name string) (string, error) {
 		return tui.Secret("Paste the value for "+name+" (input hidden; empty cancels): ", vault.Preview)
 	}

@@ -16,10 +16,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
 	"github.com/edotau/claude-code/internal/routing/providers"

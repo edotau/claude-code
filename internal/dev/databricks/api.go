@@ -55,7 +55,7 @@ var apiAllowed = []struct {
 
 var apiQuery = regexp.MustCompile(`^[A-Za-z0-9_=&.,-]*$`)
 
-// apiTarget is the cleaned, allow-listed path plus query to send, or why raw is refused; what it returns is what is sent.
+// apiTarget is the cleaned, allow-listed path plus query to send, or why raw is refused.
 func apiTarget(raw string) (string, error) {
 	rawPath, query, hasQuery := strings.Cut(raw, "?")
 	if hasQuery && !apiQuery.MatchString(query) {

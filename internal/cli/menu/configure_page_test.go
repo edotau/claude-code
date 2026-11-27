@@ -16,11 +16,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
 	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	_ "github.com/edotau/claude-code/internal/driver/claude"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/served"

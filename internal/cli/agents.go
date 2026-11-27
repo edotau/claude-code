@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/tree"
+	"github.com/edotau/claude-code/internal/cli/gatewayresolve"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/dev/configure"
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
@@ -25,7 +26,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/agentconfig/project"
-	"github.com/edotau/claude-code/internal/routing/gateway/resolve"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 

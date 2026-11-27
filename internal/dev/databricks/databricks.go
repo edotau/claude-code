@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
-	"github.com/edotau/claude-code/internal/platform/desktop"
+	"github.com/edotau/claude-code/internal/dev/desktop"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"

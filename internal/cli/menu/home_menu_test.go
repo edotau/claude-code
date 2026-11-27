@@ -15,9 +15,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/cli/ui/table"
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
 	"github.com/edotau/claude-code/internal/routing/providers"

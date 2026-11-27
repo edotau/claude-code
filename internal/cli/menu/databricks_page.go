@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/cli/ui/ansi"
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
 	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/dev/databricks"
 	"github.com/edotau/claude-code/internal/platform/clipboard"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/agentid"
-	"github.com/edotau/claude-code/internal/routing/databricks"
 	"github.com/edotau/claude-code/internal/routing/databricks/oauth"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )

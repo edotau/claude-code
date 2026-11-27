@@ -6,7 +6,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 

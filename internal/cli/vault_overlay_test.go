@@ -13,9 +13,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/dev/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/vault"
-	"github.com/edotau/claude-code/internal/platform/vault/vaultdoc"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 )
 

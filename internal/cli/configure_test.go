@@ -13,7 +13,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/cli/menu"
+	"github.com/edotau/claude-code/internal/dev/databricks"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/schemas"
 	"github.com/edotau/claude-code/internal/platform/vault"
@@ -303,7 +306,7 @@ func TestContractLayout(t *testing.T) {
 			// Desktop owns its external data root; none of these files may be swept by harness clean.
 			switch f.Name {
 			case "desktop-profile", "desktop-meta", "desktop-state":
-				if f.Owner != "internal/platform/desktop" || f.Clean != "" {
+				if f.Owner != "internal/dev/desktop" || f.Clean != "" {
 					t.Fatal("Desktop formats must remain externally owned and kept")
 				}
 				return
@@ -586,5 +589,14 @@ func TestConfigureRoutingWeights(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("%v: exit %d %s", args, code, stderr)
 		}
+	}
+}
+
+// The CLI owns interactive login; ask's terminal wiring must not replace it.
+func TestWireSeamsInstallsDatabricksLogin(t *testing.T) {
+	wireSeams()
+	ask.WireUI()
+	if reflect.ValueOf(agent.LoginRow).Pointer() != reflect.ValueOf(databricks.LoginRow).Pointer() {
+		t.Fatal("CLI did not wire the Databricks login")
 	}
 }
