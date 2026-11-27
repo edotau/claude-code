@@ -1,0 +1,17 @@
+{{/* fields: NonTriggers TaskCases Triggers */}}# Skill evals
+
+## Should trigger
+
+{{range .Triggers}}- {{.}}
+{{end}}
+## Should not trigger
+
+{{range .NonTriggers}}- {{.}}
+{{end}}
+## Tasks
+
+{{range .TaskCases}}- {{.}}
+{{end}}
+## Fresh-agent check
+
+Hand the skill to an agent with no other context and one task. It passes if the agent finishes without asking what the skill meant.

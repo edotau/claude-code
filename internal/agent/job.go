@@ -455,9 +455,9 @@ func waitGone(pid int, d time.Duration) bool {
 	return groupGone(pid)
 }
 
-// groupGone reports pid dead with no process left in group pid; an unreadable table counts as not gone.
+// groupGone reports pid dead and group pid empty by signal-0 probe and table scan (proc.List is empty under go test).
 func groupGone(pid int) bool {
-	if proc.Alive(pid) {
+	if proc.Alive(pid) || proc.GroupAlive(pid) {
 		return false
 	}
 	procs, err := procTable(proc.DispatchIDEnv)

@@ -29,8 +29,8 @@ linters:
           msg: 'use internal/proc: process-wide state has one home'
   exclusions:
     rules:
-      # internal/proc is the one home; hosttest is a test-helper package; tests restore their own state.
-      - path: '(^|/)internal/(proc|hosttest)/|_test\.go$'
+      # internal/platform/proc is the one home; hosttest is a test-helper package; tests restore their own state.
+      - path: '(^|/)internal/platform/(proc|hosttest)/|_test\.go$'
         linters: [forbidigo]
       - path: _test\.go
         linters:

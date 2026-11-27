@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -285,5 +286,37 @@ func TestViaPrefixPinsEgressHost(t *testing.T) {
 	srv.Close() // handlers are done: the log is safe to read
 	if !strings.Contains(log.String(), " via=box") {
 		t.Errorf("log line lacks via=box: %q", log.String())
+	}
+}
+
+// BenchmarkGuardedClientReconnect times a fresh connection to a local TLS server; the first request primes the cache.
+func BenchmarkGuardedClientReconnect(b *testing.B) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	b.Cleanup(srv.Close)
+	for _, cached := range []bool{false, true} {
+		b.Run(fmt.Sprintf("cache=%t", cached), func(b *testing.B) {
+			c := guardedClient()
+			tr := c.Transport.(*http.Transport)
+			tr.TLSClientConfig.RootCAs = srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+			if !cached {
+				tr.TLSClientConfig.ClientSessionCache = nil
+			}
+			var resumed int
+			for i := 0; b.Loop(); i++ {
+				resp, err := c.Get(srv.URL)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if i > 0 && resp.TLS.DidResume {
+					resumed++
+				}
+				tr.CloseIdleConnections()
+			}
+			if cached && b.N > 1 && resumed != b.N-1 {
+				b.Fatalf("resumed %d of %d reconnects", resumed, b.N-1)
+			}
+		})
 	}
 }

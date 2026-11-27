@@ -593,10 +593,15 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 	top, sha, files := job.Top, job.SHA, job.Files
 	// The runner sees admission load before writing history; --repo names the repo, not the temporary worktree.
 	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha, strconv.FormatBool(underLoad), "--repo", top}
+	adopted := map[string]bool{}
 	for _, p := range files {
 		rel, err := filepath.Rel(top, p)
 		if err != nil {
 			rel = p
+		}
+		if pkg := filepath.ToSlash(filepath.Dir(rel)); !adopted[pkg] {
+			adopted[pkg] = true
+			bench.AdoptBaseline(top, pkg) // the worker holds the measurement lock here; a moved package keeps its history
 		}
 		args = append(args, "--path", rel)
 	}
@@ -798,11 +803,7 @@ func benchBaselines(job benchJob, root string) map[string]benchBaseline {
 		if _, seen := out[pkg]; seen {
 			continue
 		}
-		name := strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-")
-		if pkg == "." {
-			name = "root"
-		}
-		raw, err := os.ReadFile(filepath.Join(root, name+".txt"))
+		raw, err := os.ReadFile(filepath.Join(root, bench.AdoptBaseline(job.Top, pkg)+".txt"))
 		if err != nil {
 			out[pkg] = benchBaseline{Commit: "none", Reason: "baseline unavailable"}
 			continue
@@ -1103,8 +1104,8 @@ func benchParts(noisyRun bool, flags []string, deltas map[string]benchDelta) []s
 }
 
 type benchTally struct {
-	benched, failed, queued, skipped, without, retries int
-	regression                                         string
+	benched, failed, queued, skipped, unqueued, without, retries int
+	regression                                                   string
 }
 
 // BenchCoverage is the doctor row over top's last n trunk commits; ok is false on a failed run or a regression.
@@ -1124,8 +1125,8 @@ func BenchCoverage(ctx context.Context, top string, n int) (detail string, ok bo
 		}
 		t.add(filepath.Join(state, sha))
 	}
-	detail = fmt.Sprintf("last %d commits: %d benched, %d failed, %d queued, %d skipped, %d without benchmarks",
-		len(shas), t.benched, t.failed, t.queued, t.skipped, t.without)
+	detail = fmt.Sprintf("last %d commits: %d benched, %d failed, %d queued, %d skipped (unbuildable), %d never queued, %d without benchmarks",
+		len(shas), t.benched, t.failed, t.queued, t.skipped, t.unqueued, t.without)
 	if t.retries > 0 {
 		detail += fmt.Sprintf("; %d await a quiet retry", t.retries)
 	}
@@ -1154,7 +1155,7 @@ func (t *benchTally) add(base string) {
 	case paths.FileExists(base + ".job.json"):
 		t.queued++
 	default:
-		t.skipped++
+		t.unqueued++
 	}
 }
 

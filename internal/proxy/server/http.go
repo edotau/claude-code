@@ -353,6 +353,10 @@ func relayChatBuffered(w *statusWriter, in *http.Request, body io.Reader, t prov
 
 func (r *Router) sendRequest(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header), credential string) (*http.Response, error) {
+	if state, _ := in.Context().Value(passthroughBodyKey{}).(*passthroughBodyState); state != nil &&
+		sameBodyBytes(state.outbound.raw, body) {
+		return r.sendRequestBody(in, method, p, url, state.outbound, hdr, credential)
+	}
 	return r.sendRequestBody(in, method, p, url, proxyBody{raw: body, model: passthroughModel(body)}, hdr, credential)
 }
 

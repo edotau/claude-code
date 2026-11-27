@@ -54,7 +54,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), flag("plan-task"), valuedFlag("tier", agent.TierNames), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), flag("plan-task"), flag("shape"), flag("name"), flag("description"), flag("trigger"), flag("non-trigger"), flag("task-case"), flag("not-for"), flag("reference"), flag("from"), boolFlag("synthesis-schema"), boolFlag("write"), valuedFlag("tier", agent.TierNames), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
 		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
 			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
@@ -166,9 +166,10 @@ var agentsSubPages = map[string][3]string{
 			"--dry-run without --lost; none of <id>, --agent and --lost)."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
 		"Exit 0 all done, 1 any error or lost, 2 usage, 4 timed out, still running."},
-	"brief": {"brief [--path [<agent>] | --task <file|-> [flags]]",
+	"brief": {"brief [--path|--task <file|->|--shape <id>] [flags]",
 		"Render a leaf brief, or --path: reserve an empty file and print its path.\n" +
-			"Path mode takes only an optional agent; files expire after seven days.",
+			"Path mode takes only an optional agent; files expire after seven days.\n" +
+			"--shape skill: print SKILL.md and evals.md; --write creates skills/<name>/.",
 		"Exit 0, 1 I/O error, 2 usage."},
 }
 
@@ -610,9 +611,13 @@ func cmdAgentsBrief(args []string) int {
 		input.CodeMode = &on
 		return nil
 	})
+	shape := briefShapeFlags(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
+	}
+	if shape.id != "" {
+		return renderShapeBrief(fs, shape, pos)
 	}
 	if *pathMode {
 		return printBriefPath(fs, pos)
@@ -622,6 +627,68 @@ func cmdAgentsBrief(args []string) int {
 		return 2
 	}
 	return renderAgentsBrief(*taskFile, input)
+}
+
+// shapeFlags is the typed input of `agents brief --shape`.
+type shapeFlags struct {
+	id, from      string
+	write, schema *bool
+	in            agent.SkillRequest
+}
+
+func briefShapeFlags(fs *flag.FlagSet) *shapeFlags {
+	sf := &shapeFlags{write: fs.Bool("write", false, "with --shape: create the files under the config dir, never overwriting"),
+		schema: fs.Bool("synthesis-schema", false, "with --shape skill: print an example synthesis record to fill")}
+	fs.StringVar(&sf.from, "from", "", "with --shape skill: a synthesis record (JSON file, - for stdin) to fill the body")
+	fs.StringVar(&sf.id, "shape", "", "render a new prompt file of this shape ("+strings.Join(agent.ShapeIDs(), "|")+")")
+	fs.StringVar(&sf.in.Name, "name", "", "with --shape: the file stem (the skill's directory name)")
+	fs.StringVar(&sf.in.Description, "description", "", "with --shape: what it does, one line")
+	fs.StringVar(&sf.in.NotFor, "not-for", "", "with --shape: what belongs elsewhere")
+	fs.Func("trigger", "with --shape: a phrase for the Use for clause; repeat", func(v string) error {
+		sf.in.Triggers = append(sf.in.Triggers, strings.TrimSpace(v))
+		return nil
+	})
+	fs.Func("non-trigger", "with --shape: a near-miss prompt; repeat", func(v string) error {
+		sf.in.NonTriggers = append(sf.in.NonTriggers, strings.TrimSpace(v))
+		return nil
+	})
+	fs.Func("task-case", "with --shape: a task and its correct result; repeat", func(v string) error {
+		sf.in.TaskCases = append(sf.in.TaskCases, strings.TrimSpace(v))
+		return nil
+	})
+	fs.Func("reference", "with --shape: a references/<stem>.md stub; repeat", func(v string) error {
+		sf.in.Refs = append(sf.in.Refs, strings.TrimSpace(v))
+		return nil
+	})
+	return sf
+}
+
+func renderShapeBrief(fs *flag.FlagSet, sf *shapeFlags, pos []string) int {
+	if !slices.Contains(agent.ShapeIDs(), sf.id) {
+		return helptext.Fail("agents brief: unknown --shape %q; known: %s", sf.id, strings.Join(agent.ShapeIDs(), ", "))
+	}
+	if *sf.schema {
+		return printOut(agent.SynthesisExample())
+	}
+	if len(pos) > 0 || sf.in.Name == "" {
+		fs.Usage()
+		return 2
+	}
+	if err := sf.in.ReadSynthesis(sf.from); err != nil {
+		return helptext.Fail("agents brief: --from %s: %v", sf.from, err)
+	}
+	out, err := agent.ScaffoldSkill(paths.ConfigDir(), sf.in, *sf.write)
+	if err != nil {
+		return helptext.Fail("agents brief: %v", err)
+	}
+	return printOut(out)
+}
+
+func printOut(out string) int {
+	if _, err := fmt.Print(out); err != nil {
+		return helptext.Fail("agents brief: write output: %v", err)
+	}
+	return 0
 }
 
 func renderAgentsBrief(taskFile string, input agent.BriefInput) int {

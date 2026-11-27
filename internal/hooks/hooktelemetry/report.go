@@ -261,7 +261,7 @@ func (s Report) WriteSignals(w io.Writer) {
 type Module struct {
 	Name                    string
 	Fires, Denies, Overruns int
-	P95                     float64
+	P50, P95                float64
 	HasDuration             bool
 }
 
@@ -289,7 +289,7 @@ func (s Report) Modules() []Module {
 		row.Name = name
 		if n := len(m.durations); n > 0 {
 			slices.Sort(m.durations)
-			row.P95, row.HasDuration = m.durations[n-1-n/20], true
+			row.P50, row.P95, row.HasDuration = m.durations[n/2], m.durations[n-1-n/20], true
 		}
 		rows = append(rows, row)
 	}

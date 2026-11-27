@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -187,6 +188,7 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	if rec.PID <= 0 {
 		t.Fatalf("rec.PID = %d, want > 0", rec.PID)
 	}
+	t.Cleanup(func() { _ = proc.SignalGroup(rec.PID, syscall.SIGKILL) })
 	assertSpawnLog(t, rec.Log)
 	if !rec.Alive() {
 		t.Fatal("rec.Alive() = false right after Spawn, want true")
@@ -200,6 +202,9 @@ func TestSpawnSetsPIDAndLogThenCancelStops(t *testing.T) {
 	}
 	if rec.Alive() {
 		t.Error("rec.Alive() = true after Cancel, want false")
+	}
+	if proc.GroupAlive(rec.PID) {
+		t.Error("a member of the job's process group outlived Cancel")
 	}
 
 	assertSavedCancellation(t, rec.ID)

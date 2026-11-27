@@ -1,5 +1,6 @@
 internal/agent/ancestry.go:indexedAncestors	unversioned: cache: .children.idx ancestry index, rebuilt when missing or bad
 internal/agent/brief.go:reserveBrief	unversioned: marker: empty relay brief file reserved by exclusive create; the relay fills it
+internal/agent/brief.go:writeSkillFiles	unversioned: skill: new skills/<stem>/ tree from agents brief --shape --write, never overwrites
 internal/agent/cutoffs.go:updateCutoffs	dispatch-cutoffs
 internal/agent/job.go:markRecovery	unversioned: log: relaunch marker line in the vendor job log, humans only
 internal/agent/job.go:spawnArgvContext	unversioned: log: vendor job log, humans only

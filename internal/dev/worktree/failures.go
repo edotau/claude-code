@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/health"
@@ -258,15 +259,40 @@ func readInt(file string) int64 {
 	return n
 }
 
+// failureParse is the last parsed log, reused while its size and mtime are unchanged so one hook parses it once.
+var failureParse struct {
+	sync.Mutex
+	file string
+	size int64
+	mod  time.Time
+	recs []Failure
+}
+
 // ListFailures returns every logged record, oldest first; a missing log is empty, an unreadable one an error.
 func ListFailures(root string) ([]Failure, error) {
-	raw, err := os.ReadFile(failuresLog(root))
+	file := failuresLog(root)
+	st, serr := os.Stat(file)
+	failureParse.Lock()
+	defer failureParse.Unlock()
+	if c := &failureParse; serr == nil && c.file == file && c.size == st.Size() && c.mod.Equal(st.ModTime()) {
+		return slices.Clone(c.recs), nil
+	}
+	raw, err := os.ReadFile(file)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	out := parseFailures(raw)
+	if serr == nil && int64(len(raw)) == st.Size() { // the file did not grow between the stat and the read
+		failureParse.file, failureParse.size, failureParse.mod = file, st.Size(), st.ModTime()
+		failureParse.recs = slices.Clone(out)
+	}
+	return out, nil
+}
+
+func parseFailures(raw []byte) []Failure {
 	var out []Failure
 	for l := range bytes.SplitSeq(raw, []byte("\n")) {
 		var r Failure
@@ -274,7 +300,7 @@ func ListFailures(root string) ([]Failure, error) {
 			out = append(out, r)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // FailuresSinceWithin returns up to limit unseen records and the skipped count; a lock timeout leaves the cursor.

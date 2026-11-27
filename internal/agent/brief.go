@@ -277,3 +277,115 @@ func pruneBriefs(dir string, now time.Time) error {
 	}
 	return nil
 }
+
+// SkillRequest is the typed input of `agents brief --shape skill`.
+type SkillRequest struct {
+	Name, Description, NotFor              string
+	Triggers, Refs, NonTriggers, TaskCases []string
+	Synthesis                              *assets.Synthesis
+}
+
+// ReadSynthesis fills r.Synthesis from the record at path ("-" is stdin); an empty path leaves it unset.
+func (r *SkillRequest) ReadSynthesis(path string) error {
+	if path == "" {
+		return nil
+	}
+	raw, err := ReadBrief(path)
+	if err != nil {
+		return err
+	}
+	syn, err := assets.ParseSynthesis([]byte(raw))
+	if err != nil {
+		return err
+	}
+	r.Synthesis = &syn
+	return nil
+}
+
+// SynthesisExample is the record `agents brief --shape skill --synthesis-schema` prints for a model to fill.
+func SynthesisExample() string { return assets.SynthesisExample() }
+
+// ShapeIDs lists the prompt shapes `agents brief --shape` knows.
+func ShapeIDs() []string {
+	ids := make([]string, len(assets.Shapes))
+	for i, s := range assets.Shapes {
+		ids[i] = s.ID
+	}
+	return ids
+}
+
+// ScaffoldSkill renders a skill, checks it against its shape in a scratch dir, then writes it when write is set.
+func ScaffoldSkill(root string, in SkillRequest, write bool) (string, error) {
+	if err := checkSkillWrite(in, write); err != nil {
+		return "", err
+	}
+	sk, err := assets.RenderSkill(assets.SkillInput(in))
+	if err != nil {
+		return "", err
+	}
+	if err := checkSkillScaffold(sk, write); err != nil {
+		return "", err
+	}
+	if !write {
+		return sk.Entry.Body + "\n--- evals.md ---\n\n" + sk.Evals.Body, nil
+	}
+	dir := filepath.Join(root, filepath.Dir(sk.Entry.Path))
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil { // exclusive: an existing skill is never overwritten
+		return "", fmt.Errorf("refusing to write: %w", err)
+	}
+	if err := writeSkillFiles(root, sk); err != nil {
+		return "", err
+	}
+	return "wrote " + filepath.Join(root, sk.Entry.Path) + "\n", nil
+}
+
+func checkSkillWrite(in SkillRequest, write bool) error {
+	if write && len(in.NonTriggers) == 0 {
+		return errors.New("--write requires at least one --non-trigger")
+	}
+	if write && len(in.Triggers) == 0 {
+		return errors.New("--write requires at least one --trigger")
+	}
+	return nil
+}
+
+func checkSkillScaffold(sk assets.SkillScaffold, write bool) error {
+	shape, _ := assets.ShapeByID("skill")
+	scratch, err := os.MkdirTemp("", "skill-scaffold-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(scratch) }()
+	check := sk
+	if !write {
+		check.Evals = assets.SkillFile{}
+	}
+	if err := writeSkillFiles(scratch, check); err != nil {
+		return err
+	}
+	if fs := shape.Validate(filepath.Join(scratch, sk.Entry.Path), []byte(sk.Entry.Body)); len(fs) > 0 {
+		return fmt.Errorf("skill scaffold breaks its own shape (a template bug): %s", fs[0].Msg)
+	}
+	return nil
+}
+
+// The entry is written last so its load table never names a missing file.
+func writeSkillFiles(root string, sk assets.SkillScaffold) error {
+	files := slices.Clone(sk.Refs)
+	if sk.Evals.Path != "" {
+		files = append(files, sk.Evals)
+	}
+	for _, f := range append(files, sk.Entry) {
+		p := filepath.Join(root, f.Path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(f.Body), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}

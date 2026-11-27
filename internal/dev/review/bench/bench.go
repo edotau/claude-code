@@ -412,7 +412,7 @@ func goTest(top, pkg string, o options) (out string, frames []Frame, stats RunSt
 }
 
 func runPackage(top, pkg string, o options, rep Report) (PkgResult, error) {
-	dir := filepath.Join(benchRoot(), pkgDirName(pkg))
+	dir := filepath.Join(benchRoot(), AdoptBaseline(top, pkg))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return PkgResult{}, err
 	}

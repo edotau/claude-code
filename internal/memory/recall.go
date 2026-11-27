@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -193,6 +197,77 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	logHits(hits, accessRecall, time.Now(), sessionID)
 	markSeen(sessionID, hits, expand) // bodies mark the key, pointers "p:"+key
 	return context
+}
+
+const (
+	queryVecMax = 200            // cached query vectors kept; the oldest go first
+	queryVecAge = 24 * time.Hour // a cached vector older than this is a miss
+)
+
+// queryVecFile is the cache file for one (model, query) pair; the model id is part of the key.
+func queryVecFile(model, query string) string {
+	sum := sha256.Sum256([]byte(model + "\x00" + query))
+	return filepath.Join(paths.MemoryStateDir(), "queryvec", hex.EncodeToString(sum[:])+".vec")
+}
+
+// readQueryVec is the cached normalized vector for query under model; a missing, stale or malformed file is a miss.
+func readQueryVec(model, query string) ([]float32, bool) {
+	path := queryVecFile(model, query)
+	st, err := os.Stat(path)
+	if err != nil || time.Since(st.ModTime()) > queryVecAge {
+		return nil, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 || len(b)%4 != 0 {
+		return nil, false
+	}
+	vec := make([]float32, len(b)/4)
+	for i := range vec {
+		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[4*i:]))
+	}
+	return vec, true
+}
+
+// writeQueryVec stores a complete vector atomically and trims the cache to queryVecMax files.
+func writeQueryVec(model, query string, vec []float32) {
+	if len(vec) == 0 {
+		return
+	}
+	path := queryVecFile(model, query)
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil || paths.AtomicWriteNoSync(path, []byte(encodeVec(vec)), 0o600) != nil {
+		return
+	}
+	ents, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(ents) <= queryVecMax {
+		return
+	}
+	mtime := func(e os.DirEntry) time.Time {
+		if i, err := e.Info(); err == nil {
+			return i.ModTime()
+		}
+		return time.Time{}
+	}
+	sort.Slice(ents, func(i, j int) bool { return mtime(ents[i]).Before(mtime(ents[j])) })
+	for _, e := range ents[:len(ents)-queryVecMax] {
+		_ = os.Remove(filepath.Join(filepath.Dir(path), e.Name()))
+	}
+}
+
+// cachedQuery answers from a stored query vector, skipping the endpoint lookup, secret read and network call.
+func cachedQuery(ctx context.Context, query string) (*semanticQuery, bool) {
+	head, err := within(ctx, vectorStore().Head)()
+	if err != nil || head.Model == "" || !head.Rows {
+		return nil, false
+	}
+	vec, ok := readQueryVec(head.Model, query)
+	if !ok {
+		return nil, false
+	}
+	rows, bad := joinRows(head.Model, len(vec), within(ctx, readEmbedCache))
+	if bad.err != nil {
+		return nil, false
+	}
+	return newSemantic(vec, rows), true
 }
 
 func recallTiming() bool { return os.Getenv("CLAUDE_RECALL_TIMING") == "1" }

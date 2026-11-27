@@ -539,9 +539,25 @@ func TestKeepShellEndpointScopedProxyBaseKeepsCredential(t *testing.T) {
 		t.Error("a changed start time or unprobeable pid must read as stale")
 	}
 	ln.Close()
-	if scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: start}) {
+	if !closedPortReadsStale(t, port, start) {
 		t.Error("a closed listener must read as stale")
 	}
+}
+
+// closedPortReadsStale retries fresh closed ports: a parallel test may rebind one; a dial-blind check fails all.
+func closedPortReadsStale(t *testing.T, port int, start string) bool {
+	for range 5 {
+		if !scopeAlive(proxy.Scope{Port: port, PID: os.Getpid(), Start: start}) {
+			return true
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port = ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+	}
+	return false
 }
 
 // From a direct Databricks session (serving route, no proxy) an ultra launch drops that base and keeps its own login.

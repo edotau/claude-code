@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -60,12 +61,49 @@ func RepoName(root string) Repo {
 	if top == "" {
 		return Repo{Name: HomeRepo}
 	}
-	url, _ := proc.RunGit(context.Background(), main, "config", "--get", "remote.origin.url")
+	url, ok := originURLFile(main)
+	if !ok {
+		url, _ = proc.RunGit(context.Background(), main, "config", "--get", "remote.origin.url")
+	}
 	if key, owner, name := remoteParts(strings.TrimSpace(url)); name != "" {
 		return Repo{Name: name, Owner: owner, Key: key}
 	}
 	main = Canon(main) // one key per checkout, whichever symlinked spelling reached it
 	return Repo{Name: repoPart(filepath.Base(main)), Owner: repoPart(filepath.Base(filepath.Dir(main))), Key: main}
+}
+
+// originURLFile reads origin's url from main's plain .git/config; ok=false (ask git) for any layout it cannot decide.
+func originURLFile(main string) (url string, ok bool) {
+	raw, err := os.ReadFile(filepath.Join(main, ".git", "config"))
+	if err != nil || bytes.Contains(bytes.ToLower(raw), []byte("include")) {
+		return "", false // a .git file, a missing config, or an include/includeIf git would follow
+	}
+	if _, err := os.Stat(filepath.Join(main, ".git", "reftable")); err == nil {
+		return "", false
+	}
+	return configOriginURL(string(raw))
+}
+
+// configOriginURL is the last url of the [remote "origin"] section; ok=false when git must parse it.
+func configOriginURL(raw string) (url string, ok bool) {
+	in := false
+	for l := range strings.SplitSeq(raw, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "[") {
+			in = l == `[remote "origin"]`
+			if !in && strings.HasPrefix(strings.ToLower(l), "[remote") && !strings.HasPrefix(l, `[remote "`) {
+				return "", false // an old-style or unusual remote section header
+			}
+			continue
+		}
+		if k, v, cut := strings.Cut(l, "="); in && cut && strings.EqualFold(strings.TrimSpace(k), "url") {
+			if v = strings.TrimSpace(v); strings.ContainsAny(v, "\"\\#;") {
+				return "", false // quoting, escapes or a comment: let git parse it
+			}
+			url = v
+		}
+	}
+	return url, url != ""
 }
 
 // remoteParts splits an https, ssh, scp-style or local-path remote URL into a normalized key, owner and repo name.

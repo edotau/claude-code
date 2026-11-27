@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/docs"
@@ -55,9 +56,13 @@ var (
 func promptPath(root string) []check {
 	return []check{
 		hop("H1 CLAUDE.md", claudeMD(root)),
+		softHop("H1 instruction-index shapes", shapeFindings(root, "instruction-index")),
 		hop("H2 rules", rules(root)),
+		softHop("H2 rule shapes", shapeFindings(root, "rule")),
 		hop("H3 skills", skills(root)),
+		softHop("H3 skill shapes", skillShapes(root)),
 		hop("H4 plan template", planTemplate(root)),
+		softHop("H5 command shapes", shapeFindings(root, "command")),
 		hop("H6 agents", agents(root)),
 		hop("H7 session prompts", sessionPrompts(root)),
 	}
@@ -68,6 +73,14 @@ func hop(name string, findings []string) check {
 		return check{Name: name, OK: true, Hard: true, Detail: "ok"}
 	}
 	return check{Name: name, Hard: true, Detail: strings.Join(findings, "\n")}
+}
+
+// softHop is hop for advisory findings: a soft "warn" row, never a doctor failure.
+func softHop(name string, findings []string) check {
+	if len(findings) == 0 {
+		return check{Name: name, OK: true, Detail: "ok"}
+	}
+	return check{Name: name, Detail: fmt.Sprintf("warn %d advisory finding(s)\n%s", len(findings), strings.Join(findings, "\n"))}
 }
 
 func lines(path string) ([]string, error) {
@@ -217,6 +230,47 @@ func skills(root string) []string {
 			continue
 		}
 		out = append(out, frontName(frontMatter(b), rel, dir)...)
+	}
+	return out
+}
+
+// skillShapes checks every skill against the shape table; the name rule is H3's hard row, so it is left out here.
+func skillShapes(root string) []string {
+	shape, ok := assets.ShapeByID("skill")
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, f := range shape.Files(root) {
+		b, err := os.ReadFile(f)
+		if isSymlink(filepath.Dir(f)) || err != nil {
+			continue // a symlinked dir is the user's own skill; an unreadable one is H3's finding
+		}
+		for _, fd := range shape.Validate(f, b) {
+			if rel, _ := filepath.Rel(root, fd.Path); fd.Rule != "fm-stem" { // a companion finding names its own file
+				out = append(out, fmt.Sprintf("%s:1: [%s] %s (fix at %s)", rel, fd.Rule, fd.Msg, rel))
+			}
+		}
+	}
+	return out
+}
+
+// shapeFindings formats advisory checks for a table row; hard rows retain their own checks.
+func shapeFindings(root, id string) []string {
+	shape, ok := assets.ShapeByID(id)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, f := range shape.Files(root) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue // hard rows report unreadable files
+		}
+		for _, fd := range shape.Validate(f, b) {
+			rel, _ := filepath.Rel(root, fd.Path)
+			out = append(out, fmt.Sprintf("%s:1: [%s] %s (fix at %s)", rel, fd.Rule, fd.Msg, rel))
+		}
 	}
 	return out
 }

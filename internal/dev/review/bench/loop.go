@@ -11,6 +11,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -166,11 +167,68 @@ type scorecardRow struct {
 
 func benchRoot() string { return filepath.Join(paths.StateDir(), "bench") }
 
-func pkgDirName(pkg string) string {
+func PkgDirName(pkg string) string {
 	if filepath.Clean(pkg) == "." {
 		return "root"
 	}
 	return strings.ReplaceAll(strings.TrimPrefix(pkg, "internal/"), "/", "-")
+}
+
+// AdoptBaseline returns pkg's baseline dir name; a package moved in git history inherits its old dir by rename.
+func AdoptBaseline(top, pkg string) string {
+	name := PkgDirName(pkg)
+	dst := filepath.Join(benchRoot(), name)
+	if ents, err := os.ReadDir(dst); err != nil && !errors.Is(err, os.ErrNotExist) || len(ents) > 0 {
+		return name // a populated baseline stands; an old one is never merged into it or deleted
+	}
+	for _, old := range movedFrom(top, pkg) {
+		src := filepath.Join(benchRoot(), PkgDirName(old))
+		if _, err := os.Stat(src); err == nil && os.Rename(src, dst) == nil {
+			fmt.Fprintf(os.Stderr, "bench: adopted baseline %s -> %s\n", filepath.Base(src), name)
+			break
+		}
+	}
+	return name
+}
+
+// movedFrom lists pkg's former dirs (git --follow over up to 4 files, most files first) that hold no Go now.
+func movedFrom(top, pkg string) []string {
+	out, err := proc.GitInheritTimeout(top, "ls-tree", "--name-only", "HEAD", filepath.ToSlash(pkg)+"/")
+	if err != nil {
+		return nil
+	}
+	votes := map[string]int{}
+	var order []string
+	files := slices.DeleteFunc(strings.Fields(out), func(f string) bool {
+		return !strings.HasSuffix(f, ".go") || strings.HasSuffix(f, "_test.go")
+	})
+	for _, f := range files[:min(len(files), 4)] {
+		for _, d := range fileDirs(top, f, filepath.ToSlash(pkg)) {
+			if votes[d]++; votes[d] == 1 {
+				order = append(order, d)
+			}
+		}
+	}
+	slices.SortStableFunc(order, func(a, b string) int { return votes[b] - votes[a] })
+	return slices.DeleteFunc(order, func(d string) bool {
+		left, _ := filepath.Glob(filepath.Join(top, filepath.FromSlash(d), "*.go"))
+		return len(left) > 0 || d == "."
+	})
+}
+
+// fileDirs are the distinct dirs other than pkg that file f lived in, per git's rename-following history.
+func fileDirs(top, f, pkg string) []string {
+	hist, err := proc.GitInheritTimeout(top, "log", "--follow", "--name-only", "--format=", "--", f)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for p := range strings.FieldsSeq(hist) {
+		if d := path.Dir(p); d != pkg && !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
 }
 
 const seedCandidates = `{"pkg":"cmd/claude-code","what":"hook process init: lazy sqlexec, anthropic, jsonschema, models, providers","calls_per_day":13000,"est_saving_ms":0.4,"source":"baseline"}

@@ -26,7 +26,7 @@ func TestHookTelemetryChecksSkipsProbeRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := hookTelemetryChecks(time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC))
-	if len(got) != 2 || got[1].Detail != "2 | 0 | 0 | 3.00" || !strings.HasSuffix(got[0].Detail, "(+2 probe rows skipped)") {
+	if len(got) != 2 || got[1].Detail != "2 | 0 | 0 | 3.00 | 3.00" || !strings.HasSuffix(got[0].Detail, "(+2 probe rows skipped)") {
 		t.Fatalf("probe rows not skipped: %+v", got)
 	}
 }
@@ -51,8 +51,8 @@ func TestHookTelemetryChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := hookTelemetryChecks(now)
-	if len(got) != 3 || got[1].Name != "hook gate" || got[1].Detail != "20 | 0 | 0 | 19.00" ||
-		got[2].Name != "hook slow" || got[2].Detail != "2 | 1 | 1 | 200.00" {
+	if len(got) != 3 || got[1].Name != "hook gate" || got[1].Detail != "20 | 0 | 0 | 11.00 | 19.00" ||
+		got[2].Name != "hook slow" || got[2].Detail != "2 | 1 | 1 | 200.00 | 200.00" {
 		t.Fatalf("unexpected telemetry rows: %+v", got)
 	}
 }

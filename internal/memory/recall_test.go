@@ -235,6 +235,7 @@ func TestRecallPicksSemanticQueryUsesTheCtxProfile(t *testing.T) {
 	if _, tr := recallPicks(snap, "", prompt, true, true); tr.Embeddings != "ran" {
 		t.Errorf("snapshot ctx: embeddings = %q, want the semantic query to run on the snapshot's profile", tr.Embeddings)
 	}
+	_ = os.RemoveAll(filepath.Join(paths.MemoryStateDir(), "queryvec")) // a cached vector would answer without a profile
 	if _, tr := recallPicks(context.Background(), "", prompt, true, true); !strings.HasPrefix(tr.Embeddings, "keyword-only") {
 		t.Errorf("no snapshot: embeddings = %q, want keyword-only", tr.Embeddings)
 	}
@@ -261,6 +262,7 @@ func TestRecallFallsBackToKeywordOnTimeout(t *testing.T) {
 	embedRecallWait = 100 * time.Millisecond
 	t.Cleanup(func() { embedRecallWait = prevWait })
 	useEmbedServer(t, slowVecServer(t, 10*time.Second))
+	_ = os.RemoveAll(filepath.Join(paths.MemoryStateDir(), "queryvec")) // the fast run cached this prompt's vector
 	start := time.Now()
 	got := PromptRecall(context.Background(), "slow", prompt, io.Discard)
 	if el := time.Since(start); el > 600*time.Millisecond {

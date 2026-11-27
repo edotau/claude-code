@@ -327,6 +327,14 @@ func embedQuery(parent context.Context, query string) (*semanticQuery, error) {
 	}
 	ctx, cancel := context.WithTimeout(parent, embedRecallWait)
 	defer cancel()
+	if sem, ok := cachedQuery(ctx, query); ok {
+		return sem, nil
+	}
+	return embedQueryLive(ctx, parent, query)
+}
+
+// embedQueryLive is embedQuery's network path; parent tells a caller cancel from a slow endpoint.
+func embedQueryLive(ctx, parent context.Context, query string) (*semanticQuery, error) {
 	ctx = context.WithValue(ctx, linkKey{}, &linkFuture{done: make(chan struct{})})
 	profile, head, rows, err := semanticCache(ctx)
 	if err != nil {
@@ -761,7 +769,9 @@ func within[T any](ctx context.Context, f func() (T, error)) func() (T, error) {
 
 // semanticCache pairs the endpoint profile that will embed the query with the cache's header; the rows load meanwhile.
 func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecord, error), error) {
+	stop := RecallStage("embed-endpoint")
 	profile, err := embedEndpoint(ctx)
+	stop()
 	if err != nil {
 		return "", vectorHead{}, nil, err
 	}
@@ -771,7 +781,9 @@ func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecor
 		}
 	}
 	rows := within(ctx, readEmbedCache)
+	stop = RecallStage("embed-head")
 	head, err := within(ctx, vectorStore().Head)()
+	stop()
 	switch {
 	case ctx.Err() != nil:
 		return "", vectorHead{}, nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
@@ -870,14 +882,18 @@ func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, prima
 
 // querySemantic embeds query with the cache's model, then joins the rows load and checks them against the answer.
 func querySemantic(ctx context.Context, profile, query, model string, rows func() (vectorRecord, error), answered *atomic.Bool) semanticResult {
+	stop := RecallStage("embed-open")
 	c, err := openEmbedClient(ctx, profile, model)
+	stop()
 	if err != nil {
 		return semanticResult{err: err}
 	}
 	if model == "" || c.Model != model { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: fmt.Errorf("%w: built with another model", errEmbedMismatch)}
 	}
+	stop = RecallStage("embed-call")
 	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.EmbedFunc, hedgeFunc(profile, model))
+	stop()
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
 	}
@@ -885,7 +901,10 @@ func querySemantic(ctx context.Context, profile, query, model string, rows func(
 		return semanticResult{err: err}
 	}
 	answered.Store(true)
+	writeQueryVec(model, query, normalize(vecs[0]))
+	stop = RecallStage("embed-rows")
 	cacheRows, bad := joinRows(model, len(vecs[0]), rows)
+	stop()
 	if bad.err != nil {
 		return bad
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -24,8 +25,19 @@ func guardedClient() *http.Client {
 	t.Proxy = egress.Proxy // a /via/<host> request's workspace calls leave through that host's tunnel
 	t.ResponseHeaderTimeout = responseHeaderTimeout
 	t.MaxIdleConnsPerHost = upstreamIdleConns
+	t.TLSClientConfig = withSessionCache(t.TLSClientConfig)
 	// a 3xx goes back to the caller: following it would dial a literal local IP past the guard
 	return &http.Client{Transport: t, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+// withSessionCache clones cfg (nil is fine) with a session cache so a reconnect resumes TLS, not a full handshake.
+func withSessionCache(cfg *tls.Config) *tls.Config {
+	c := cfg.Clone()
+	if c == nil {
+		c = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	c.ClientSessionCache = tls.NewLRUClientSessionCache(64)
+	return c
 }
 
 // upstreamIdleConns is the idle connections kept per workspace host: Go's default of 2 re-handshakes TLS in parallel.

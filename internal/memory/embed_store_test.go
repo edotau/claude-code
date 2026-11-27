@@ -492,7 +492,8 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 		t.Fatalf("a stale marker must be removed on success: %v", err)
 	}
 	midQuery = func() { time.Sleep(30 * time.Millisecond); write(t, marker, "") } // file mtimes tick coarsely
-	if _, err := embedQuery(context.Background(), "q"); err != nil {
+	// "q" is cached by now, so a new text is needed to reach the endpoint
+	if _, err := embedQuery(context.Background(), "q again"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); err != nil {
