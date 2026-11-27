@@ -10,12 +10,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 )
 
@@ -41,6 +45,7 @@ var (
 	ErrDown        = errors.New("jev: server down")
 	ErrTimeout     = errors.New("jev: timeout")
 	ErrBadResponse = errors.New("jev: bad response")
+	errServer      = errors.New("jev: server error")
 )
 
 // Result is one question's pick, its top probability and the call's duration.
@@ -118,12 +123,97 @@ func one(ctx context.Context, state, name string, q json.RawMessage, choices ...
 
 func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Result, []byte, error) {
 	start := time.Now()
-	body, err := post(ctx, timeout, strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL, "/v1/systemone",
+	base := strings.TrimRight(proc.Value(ctx, urlEnv), "/")
+	if base == "off" || base == "" && testing.Testing() {
+		return Result{}, nil, ErrOff
+	}
+	target := cmp.Or(base, defaultURL)
+	if backedOff(target) {
+		return Result{}, nil, ErrDown
+	}
+	body, err := post(ctx, timeout, base, defaultURL, "/v1/systemone",
 		map[string]any{"state": state, "questions": qs})
 	if errors.Is(err, ErrOff) {
 		return Result{}, nil, err
 	}
+	if ctx.Err() == nil { // caller-local cancel/deadline never poisons shared backoff
+		noteOutcome(target, err)
+	}
 	return Result{Ms: time.Since(start).Milliseconds()}, body, err
+}
+
+// Backoff marker: a short cross-process TTL so a down or slow Jev costs one timeout, not one per process.
+const backoffTTL = 30 * time.Second
+
+var (
+	backoffNow  = time.Now
+	backoffPath = func() string {
+		if testing.Testing() {
+			return ""
+		}
+		return filepath.Join(paths.StateDir(), "jev-backoff")
+	}
+)
+
+// readBackoff parses the expiry and target URL from the backoff marker.
+func readBackoff(p string) (int64, string, bool) {
+	if p == "" {
+		return 0, "", false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return 0, "", false
+	}
+	rawExp, url, ok := strings.Cut(string(b), "\t")
+	exp, err := strconv.ParseInt(rawExp, 10, 64)
+	return exp, url, ok && err == nil
+}
+
+// backedOff reports whether an unexpired marker exists for target.
+func backedOff(target string) bool {
+	exp, url, ok := readBackoff(backoffPath())
+	return ok && url == target && backoffNow().UnixNano() < exp
+}
+
+// noteOutcome writes the marker after a down, timeout or 5xx failure and clears it on success.
+func noteOutcome(target string, err error) {
+	p := backoffPath()
+	if p == "" {
+		return
+	}
+	switch {
+	case err == nil:
+		if _, url, ok := readBackoff(p); ok && url == target {
+			_ = os.Remove(p)
+		}
+	case errors.Is(err, ErrDown), errors.Is(err, ErrTimeout), errors.Is(err, errServer):
+		exp := backoffNow().Add(backoffTTL).UnixNano()
+		writeBackoffAtomic(p, []byte(strconv.FormatInt(exp, 10)+"\t"+target))
+	}
+}
+
+func writeBackoffAtomic(p string, data []byte) {
+	dir := filepath.Dir(p)
+	if os.MkdirAll(dir, 0o755) != nil {
+		return
+	}
+	f, err := os.CreateTemp(dir, ".jev-backoff-*")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return
+	}
+	if os.Rename(tmp, p) != nil {
+		_ = os.Remove(tmp)
+	}
 }
 
 func clip(s string) string {
@@ -168,6 +258,9 @@ func post(ctx context.Context, d time.Duration, base, def, path string, payload 
 			return nil, ErrTimeout
 		}
 		return nil, ErrBadResponse
+	}
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("%w: %w: status %d", ErrBadResponse, errServer, resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: status %d", ErrBadResponse, resp.StatusCode)
