@@ -2,6 +2,7 @@ package tailscale
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -50,7 +51,7 @@ func IsLocalHost(ctx context.Context, host string) bool {
 
 // selfTailnetNames lists this node's tailnet IPs and names; an error discards any names.
 func selfTailnetNames(ctx context.Context) ([]string, error) {
-	st, err := Status(ctx)
+	st, err := CachedStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -152,4 +153,52 @@ func CachedMachineNames() []string {
 		return nil
 	}
 	return c.Names
+}
+
+// statusCacheSchema is the status cache's schema version; a mismatch is a miss, never migrated.
+const statusCacheSchema = 1
+
+// statusCacheTTL is how long a Running status is shared across processes before the LocalAPI is asked again.
+const statusCacheTTL = 30 * time.Second
+
+var statusCacheFormat = schemas.Register(schemas.Format{
+	Name: "tailscale-status", Owner: "internal/remote/tailscale", Kind: schemas.Cache, Version: statusCacheSchema,
+	Glob: statusCachePath,
+	New:  func() any { return &statusCache{} },
+	Keep: "rebuildable cache; a version mismatch is a miss",
+})
+
+func statusCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-status.json") }
+
+type statusCache struct {
+	Schema int       `json:"schema"`
+	At     time.Time `json:"at"`
+	Status Local     `json:"status"`
+}
+
+// CachedStatus is Status for read-only lookups, sharing a Running status under 30s old; errors are never cached.
+func CachedStatus(ctx context.Context) (Local, error) {
+	var live Local
+	var liveErr error
+	cache := paths.DiskTTL[Local]{
+		Name: "tailscale-status", Path: statusCachePath(), TTL: statusCacheTTL,
+		Decode: func(raw []byte) (Local, error) {
+			var c statusCache
+			if !schemas.DecodeOK(statusCacheFormat, raw, &c) || paths.Stale(c.At, statusCacheTTL, 0, time.Now()) {
+				return Local{}, os.ErrInvalid
+			}
+			return c.Status, nil
+		},
+		Encode: func(st Local) ([]byte, error) {
+			return json.Marshal(statusCache{Schema: statusCacheSchema, At: time.Now(), Status: st})
+		},
+	}
+	st, err := cache.Get(ctx, func(ctx context.Context) (Local, error) {
+		live, liveErr = Status(ctx)
+		return live, liveErr
+	})
+	if liveErr != nil {
+		return live, liveErr
+	}
+	return st, err
 }

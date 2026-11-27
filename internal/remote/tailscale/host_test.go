@@ -48,9 +48,11 @@ EOF
 func resetSelfCache(t *testing.T) {
 	t.Helper()
 	selfNames.Drop()
+	_ = os.Remove(statusCachePath())
 	oldBackoff := selfFailureBackoff
 	t.Cleanup(func() {
 		selfNames.Drop()
+		_ = os.Remove(statusCachePath())
 		selfFailureBackoff = oldBackoff
 	})
 }
@@ -281,5 +283,46 @@ func TestCachedMachineNamesNeverWaitsOnLock(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestCachedStatus_SecondLookupSkipsFork: a Running status is shared on disk; a failed lookup is never cached.
+func TestCachedStatus_SecondLookupSkipsFork(t *testing.T) {
+	resetSelfCache(t)
+	counter := fakeTailscaleScript(t)
+	ctx := context.Background()
+	if _, err := CachedStatus(ctx); err == nil {
+		t.Fatal("call 1: failed fork returned no error")
+	}
+	for i := range 2 {
+		st, err := CachedStatus(ctx)
+		if err != nil || len(st.IPs) != 1 {
+			t.Fatalf("call %d: st=%+v err=%v", i+2, st, err)
+		}
+	}
+	if calls := readCalls(t, counter); calls != "2\n" {
+		t.Fatalf("invocations = %q, want 2 (1 failed + 1 cached fill)", calls)
+	}
+}
+
+func BenchmarkCachedStatus(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		get  func(context.Context) (Local, error)
+	}{{"uncached", Status}, {"cached", CachedStatus}} {
+		b.Run(tc.name, func(b *testing.B) {
+			_ = os.Remove(statusCachePath())
+			dir := b.TempDir()
+			script := "#!/bin/sh\necho '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"h.ts.net.\",\"TailscaleIPs\":[\"100.1.1.1\"]}}'\n"
+			if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
+				b.Fatal(err)
+			}
+			b.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			for b.Loop() {
+				if _, err := tc.get(context.Background()); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

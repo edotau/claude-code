@@ -527,7 +527,7 @@ func peersByAddr(st Local) map[string]peer {
 
 // machinesFromStatus is the no-credential fallback: self plus every CLI-visible peer.
 func machinesFromStatus(ctx context.Context) ([]Machine, error) {
-	st, err := Status(ctx)
+	st, err := CachedStatus(ctx)
 	if err != nil && !errors.Is(err, errNotRunning) {
 		return nil, err
 	}

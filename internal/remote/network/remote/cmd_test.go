@@ -374,7 +374,7 @@ func TestDispatchStartReportsStdoutFailure(t *testing.T) {
 	}
 	t.Setenv("PATH", bin)
 	hosttest.ClosedStdout(t)
-	if got := dispatchStart(context.Background(), "stdout-test.invalid", "", "claude", "cc-stdout-test", "hello",
+	if got := dispatchStart(context.Background(), "stdout-test.invalid", false, "", "claude", "cc-stdout-test", "hello",
 		false); got == 0 {
 		t.Fatal("dispatch start exit = 0 on closed stdout, want nonzero")
 	}
