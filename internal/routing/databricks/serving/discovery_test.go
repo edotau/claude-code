@@ -262,7 +262,7 @@ func checkScopeRejectedEarly(t *testing.T, p *providers.Provider, f *discoveryFa
 	}
 }
 
-func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
+func TestServingDiscoveryStoresPlainAndSanitizesSnapshot(t *testing.T) {
 	p, _ := discoveryEnv(t)
 	s := discoverForTest(t, p, false)
 	s.CheckedAt = time.Now().UTC()
@@ -275,25 +275,25 @@ func TestServingDiscoverySealsAndSanitizesSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := servingDiscoveryKey(s.Scope)
-	checkSealedRecord(t, name)
+	checkPlainRecord(t, name)
 	want := []CheckResult{{ID: "encrypted-sentinel", Status: "fail", HTTP: 403, LatencyMS: 7}, {ID: "accepted", Status: "ok", HTTP: 200, Tools: "yes"}}
 	checkSavedSnapshot(t, name, s, want)
-	checkVaultBytesOpaque(t)
+	checkVaultBytesSanitized(t)
 	if hit := discoverForTest(t, p, false); !hit.CacheHit || !reflect.DeepEqual(hit.Checks, want) {
-		t.Fatal("encrypted historical checks did not survive authenticated cache read")
+		t.Fatal("historical checks did not survive authenticated cache read")
 	}
 }
 
-// checkSealedRecord checks the snapshot is stored as a sealed record with no plaintext prefix.
-func checkSealedRecord(t *testing.T, name string) {
+// checkPlainRecord checks the snapshot is an unsealed Cache row: no ciphertext, no key id, no prefix.
+func checkPlainRecord(t *testing.T, name string) {
 	t.Helper()
 	if err := vault.View(func(tx *vault.Tx) error {
 		r, found, err := tx.RecordIn(vault.Cache, name)
 		if err != nil {
 			return err
 		}
-		if !found || len(r.Sealed) == 0 || r.Kid == "" || r.Prefix != "" {
-			t.Error("snapshot is not a sealed record with empty prefix")
+		if !found || len(r.Sealed) != 0 || r.Kid != "" || r.Prefix != "" || r.Value == "" {
+			t.Error("snapshot is not a plaintext cache record with empty prefix")
 		}
 		return nil
 	}); err != nil {
@@ -301,7 +301,7 @@ func checkSealedRecord(t *testing.T, name string) {
 	}
 }
 
-// checkSavedSnapshot decrypts the saved snapshot: models and measurements kept, diagnostics dropped.
+// checkSavedSnapshot reads the saved snapshot back: models and measurements kept, diagnostics dropped.
 func checkSavedSnapshot(t *testing.T, name string, s Snapshot, want []CheckResult) {
 	t.Helper()
 	raw, found, err := vault.ReadCache(name)
@@ -317,21 +317,21 @@ func checkSavedSnapshot(t *testing.T, name string, s Snapshot, want []CheckResul
 	}
 	for _, forbidden := range []string{"raw-upstream-body", "synthetic-discovery-token", "private-tool-text", "raw-status-body"} {
 		if strings.Contains(raw, forbidden) {
-			t.Error("decrypted snapshot retains private diagnostics")
+			t.Error("saved snapshot retains private diagnostics")
 		}
 	}
 }
 
-// checkVaultBytesOpaque checks the vault file on disk holds no plaintext snapshot data.
-func checkVaultBytesOpaque(t *testing.T) {
+// checkVaultBytesSanitized checks the vault file holds neither the credential nor the dropped private diagnostics.
+func checkVaultBytesSanitized(t *testing.T) {
 	t.Helper()
 	disk, err := os.ReadFile(vault.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"encrypted-sentinel", "subject-one", "synthetic-discovery-token", "raw-upstream-body"} {
+	for _, forbidden := range []string{"synthetic-discovery-token", "raw-upstream-body", "private-tool-text", "raw-status-body"} {
 		if strings.Contains(string(disk), forbidden) {
-			t.Error("vault bytes contain plaintext snapshot data")
+			t.Error("vault bytes contain the credential or private diagnostics")
 		}
 	}
 }
@@ -376,6 +376,7 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 				t.Fatal(err)
 			}
 			key := servingDiscoveryKey(s.Scope)
+			sealLegacy(t, key)
 			makeUnreadable(t, name, key, ring)
 			if _, _, err := vault.ReadCache(key); err == nil {
 				t.Fatal("negative control: cache should be unreadable")
@@ -395,7 +396,21 @@ func TestServingDiscoveryRefreshCannotBypassUnreadableVault(t *testing.T) {
 	}
 }
 
-// makeUnreadable breaks the vault read of key: corrupt ciphertext, else a locked keyring.
+// sealLegacy rewrites key's plaintext Cache row as a pre-unsealing sealed row, the only kind a key can lock.
+func sealLegacy(t *testing.T, key string) {
+	t.Helper()
+	raw, found, err := vault.ReadCache(key)
+	if err != nil || !found {
+		t.Fatalf("fixture lacks discovery: %v", err)
+	}
+	if err := vault.UpdateSealed(func(tx *vault.Tx, k *vault.Key) error {
+		return tx.PutRecordIn(vault.Cache, key, vault.Record{Sealed: k.Seal(key, raw), Kid: k.Kid, Len: len(raw)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// makeUnreadable breaks the legacy sealed read of key: corrupt ciphertext, else a locked keyring.
 func makeUnreadable(t *testing.T, name, key string, ring *vaulttest.FakeKeyring) {
 	t.Helper()
 	if name == "corrupt-ciphertext" {
@@ -517,7 +532,7 @@ func TestServingDiscoverySidecarExpires(t *testing.T) {
 	}
 }
 
-// A vault that never sealed anything has no key yet: Read is a cache miss; a keyed but locked vault still refuses.
+// Read never needs the master key: an empty or keyed-but-locked vault misses, a saved plaintext snapshot hits.
 func TestServingDiscoveryReadEmptyVaultIsMiss(t *testing.T) {
 	_, ring := vaulttest.UseKeyring(t)
 	scope := Scope{Profile: "discovery-test", SubjectID: "subject-one"}
@@ -528,8 +543,21 @@ func TestServingDiscoveryReadEmptyVaultIsMiss(t *testing.T) {
 		t.Fatal(err)
 	}
 	ring.Down = true
-	if _, _, err := Read(scope, false); err == nil {
-		t.Fatal("keyed vault with a locked keyring read as a miss")
+	if _, found, err := Read(scope, false); err != nil || found {
+		t.Fatalf("keyed vault with a locked keyring: found=%v err=%v, want a miss", found, err)
+	}
+	s := Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: []providers.ModelInfo{{ID: "m-a"}}}
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutCache(servingDiscoveryKey(scope), string(data), "databricks/test", s.DiscoveredAt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := Read(scope, false); err != nil || !found {
+		t.Fatalf("plaintext snapshot under a locked keyring: found=%v err=%v, want a hit", found, err)
 	}
 }
 

@@ -564,12 +564,12 @@ func previewPickerModels(p *providers.Provider, live []providers.ModelInfo) ([]p
 	return pickerNewWithBaseline(p, c.Models, live, providers.OpencodeMenu(), c.Dropped), nil
 }
 
-// AppendPickerModels atomically appends sealed additions without losing concurrent updates.
+// AppendPickerModels atomically appends additions without losing concurrent updates.
 func AppendPickerModels(p *providers.Provider, live []providers.ModelInfo) (added []providers.ModelInfo, err error) {
 	name, scope := pickerKey(p), pickerScope(p)
 	baseline := providers.OpencodeMenu()
-	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		// UpdateSealed may retry after a concurrent key rotation.
+	err = updatePicker(func(tx *vault.Tx, key *vault.Key) error {
+		// updatePicker may rerun fn (legacy sealed record, key rotation).
 		added = nil
 		c, err := txPicker(tx, key, name, scope)
 		if err != nil {
@@ -585,12 +585,24 @@ func AppendPickerModels(p *providers.Provider, live []providers.ModelInfo) (adde
 		if err != nil {
 			return errors.New("cannot encode picker additions")
 		}
-		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(name, string(data), "picker additions", time.Now().UTC())
 	})
 	return added, err
 }
 
-// txPicker opens the sealed record inside a transaction; a missing record is an empty catalog.
+// errPickerSealed marks a legacy sealed picker record met by a keyless transaction; updatePicker reruns it keyed.
+var errPickerSealed = errors.New("picker additions record is sealed")
+
+// updatePicker runs fn in a keyless Update; only a legacy sealed record reruns it under UpdateSealed to open it.
+func updatePicker(fn func(*vault.Tx, *vault.Key) error) error {
+	err := vault.Update(func(tx *vault.Tx) error { return fn(tx, nil) })
+	if errors.Is(err, errPickerSealed) {
+		return vault.UpdateSealed(fn)
+	}
+	return err
+}
+
+// txPicker reads the record inside a transaction; a missing record is an empty catalog, a sealed one needs key.
 func txPicker(tx *vault.Tx, key *vault.Key, name, scope string) (pickerCatalog, error) {
 	record, found, err := tx.RecordIn(vault.Cache, name)
 	if err != nil {
@@ -598,6 +610,12 @@ func txPicker(tx *vault.Tx, key *vault.Key, name, scope string) (pickerCatalog, 
 	}
 	if !found {
 		return pickerCatalog{Schema: 1, Scope: scope}, nil
+	}
+	if len(record.Sealed) == 0 {
+		return decodePicker(record.Value, scope)
+	}
+	if key == nil {
+		return pickerCatalog{}, errPickerSealed
 	}
 	raw, err := key.Open(name, record)
 	if err != nil {
@@ -645,7 +663,7 @@ func EditPickerDrops(p *providers.Provider, ids []string, undrop, write bool) (r
 		return removed, nil
 	}
 	name, scope := pickerKey(p), pickerScope(p)
-	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+	err = updatePicker(func(tx *vault.Tx, key *vault.Key) error {
 		c, err := txPicker(tx, key, name, scope)
 		if err != nil {
 			return err
@@ -660,7 +678,7 @@ func EditPickerDrops(p *providers.Provider, ids []string, undrop, write bool) (r
 		if err != nil {
 			return errors.New("cannot encode picker additions")
 		}
-		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(name, string(data), "picker additions", time.Now().UTC())
 	})
 	return removed, err
 }
@@ -668,8 +686,8 @@ func EditPickerDrops(p *providers.Provider, ids []string, undrop, write bool) (r
 // RecordDropped drops id from p's picker with the reason and date; added is false when it was already dropped.
 func RecordDropped(p *providers.Provider, id, reason string, at time.Time) (added bool, err error) {
 	name, scope := pickerKey(p), pickerScope(p)
-	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		added = false // UpdateSealed may retry
+	err = updatePicker(func(tx *vault.Tx, key *vault.Key) error {
+		added = false // updatePicker may rerun fn
 		c, err := txPicker(tx, key, name, scope)
 		if err != nil || providers.MenuIDSet(c.Dropped)[providers.MenuID(id)] {
 			return err
@@ -685,7 +703,7 @@ func RecordDropped(p *providers.Provider, id, reason string, at time.Time) (adde
 			return errors.New("cannot encode picker additions")
 		}
 		added = true
-		return tx.PutCache(key, name, string(data), "picker additions", time.Now().UTC())
+		return tx.PutCache(name, string(data), "picker additions", time.Now().UTC())
 	})
 	return added, err
 }

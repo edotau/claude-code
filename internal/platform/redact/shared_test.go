@@ -22,8 +22,8 @@ func TestCredentialNamesSkipsLabeledCaches(t *testing.T) {
 	if err := vault.Store("SOME_API_KEY", token); err != nil {
 		t.Fatal("store")
 	}
-	err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutCache(key, "model-discovery/v1/x", `{"route":"`+phrase+`","url":"https://h.example/serving-endpoints"}`, "cache", time.Now())
+	err := vault.Update(func(tx *vault.Tx) error {
+		return tx.PutCache("model-discovery/v1/x", `{"route":"`+phrase+`","url":"https://h.example/serving-endpoints"}`, "cache", time.Now())
 	})
 	if err != nil {
 		t.Fatal("seal")

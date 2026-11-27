@@ -800,3 +800,129 @@ func snapshotRecordsErr(tx *Tx, count int) error {
 	}
 	return nil
 }
+
+// useLockedVault points at a fresh vault with no env key and a dark keyring that records every lookup.
+func useLockedVault(t *testing.T) *specKeyring {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	invalidateKey()
+	ring := &specKeyring{values: make(map[string]string), err: ErrKeyringUnavailable}
+	useSpecKeyring(t, ring)
+	return ring
+}
+
+// Cache snapshots write and read as plaintext with no master key and no keyring lookup, even when locked.
+func TestCachePlaintextNeedsNoMasterKey(t *testing.T) {
+	ring := useLockedVault(t)
+	if _, _, err := MasterKey(); !errors.Is(err, ErrLocked) {
+		t.Fatalf("MasterKey = %v, want ErrLocked", err)
+	}
+	ring.lookups = nil
+	const name, value = "model-discovery/v1/abc", `{"schema":1}`
+	at := time.Now().UTC()
+	if err := Update(func(tx *Tx) error { return tx.PutCache(name, value, "lbl", at) }); err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := ReadCache(name)
+	if err != nil || !found || got != value {
+		t.Fatalf("ReadCache = %q, %v, %v; want %q", got, found, err, value)
+	}
+	if _, found, err := ReadCache("model-discovery/v1/absent"); err != nil || found {
+		t.Fatalf("absent ReadCache = %v, %v; want a miss", found, err)
+	}
+	requirePlainCacheRow(t, name, value)
+	if len(ring.lookups) != 0 || ring.sets != 0 {
+		t.Fatalf("cache round-trip touched the keyring: lookups=%v sets=%d", ring.lookups, ring.sets)
+	}
+}
+
+// requirePlainCacheRow fails unless the Cache row name is an unsealed plaintext record holding value.
+func requirePlainCacheRow(t *testing.T, name, value string) {
+	t.Helper()
+	var rec Record
+	err := View(func(tx *Tx) (err error) { rec, _, err = tx.RecordIn(Cache, name); return err })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Sealed) != 0 || rec.Kid != "" || rec.Value != value || rec.Len != len(value) || rec.Label != "lbl" {
+		t.Fatalf("cache record = %+v, want an unsealed plaintext row", rec)
+	}
+}
+
+// A Cache row sealed before the unsealing still opens through ReadCache with the key, and refuses without it.
+func TestCacheLegacySealedRowFallsBackToKey(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	invalidateKey()
+	const name, value = "picker-additions/v1/x", `{"schema":1}`
+	if err := UpdateSealed(func(tx *Tx, key *Key) error {
+		return tx.PutRecordIn(Cache, name, Record{Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, found, err := ReadCache(name); err != nil || !found || got != value {
+		t.Fatalf("legacy ReadCache = %q, %v, %v; want %q", got, found, err, value)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	invalidateKey()
+	useSpecKeyring(t, &specKeyring{values: make(map[string]string), err: ErrKeyringUnavailable})
+	if _, _, err := ReadCache(name); err == nil {
+		t.Fatal("legacy sealed row read without a master key")
+	}
+}
+
+// Secrets stay sealed: a locked vault refuses Store and a stored secret's plaintext never reaches the file.
+func TestSecretsStillRequireMasterKey(t *testing.T) {
+	useLockedVault(t)
+	if err := Store("LOCKED_TOKEN", "locked-secret-value"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("Store on a locked vault = %v, want ErrLocked", err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	invalidateKey()
+	const secret = "sealed-secret-value-0123"
+	if err := Store("SOME_TOKEN", secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(func(tx *Tx) error { return tx.PutCache("copilot-catalog", "cache-plain-text", "", time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := os.ReadFile(Path())
+	if err != nil || strings.Contains(string(disk), secret) {
+		t.Fatalf("vault file holds the secret in plaintext (read err %v)", err)
+	}
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	invalidateKey()
+	if _, _, err := ReadSecret("SOME_TOKEN"); err == nil {
+		t.Fatal("ReadSecret opened a sealed secret without a master key")
+	}
+	if got, found, err := ReadCache("copilot-catalog"); err != nil || !found || got != "cache-plain-text" {
+		t.Fatalf("ReadCache beside a locked secret = %q, %v, %v", got, found, err)
+	}
+}
+
+// Key rotation skips plaintext Cache rows and still re-seals legacy sealed ones and secrets.
+func TestRotateKeySkipsPlaintextCache(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	useSpecKeyring(t, &specKeyring{values: make(map[string]string)})
+	if _, err := EnsureKey(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(func(tx *Tx) error { return tx.PutCache("copilot-catalog", "plain", "", time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateSealed(func(tx *Tx, key *Key) error {
+		return tx.PutRecordIn(Cache, "picker-additions/v1/y", Record{Sealed: key.Seal("picker-additions/v1/y", "old"), Kid: key.Kid})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RotateKey(false); err != nil {
+		t.Fatal(err)
+	}
+	a, _, aerr := ReadCache("copilot-catalog")
+	b, _, berr := ReadCache("picker-additions/v1/y")
+	if aerr != nil || berr != nil || a != "plain" || b != "old" {
+		t.Fatalf("after rotation: %q %v, %q %v", a, aerr, b, berr)
+	}
+}

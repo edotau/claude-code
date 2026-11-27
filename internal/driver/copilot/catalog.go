@@ -80,17 +80,17 @@ func copilotCapabilities(m SDKModel) string {
 	return strings.Join(parts, " · ")
 }
 
-// saveCatalogSnapshot seals the snapshot under its account's record and catalogRecord.
+// saveCatalogSnapshot stores the plaintext snapshot under its account's record and catalogRecord.
 func saveCatalogSnapshot(s copilotauth.Snapshot[SDKModel]) error {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return errors.New("cannot encode catalog snapshot")
 	}
-	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutCache(key, copilotauth.AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
+	return vault.Update(func(tx *vault.Tx) error {
+		if err := tx.PutCache(copilotauth.AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
 			return err
 		}
-		return tx.PutCache(key, copilotauth.CatalogRecord, string(data), "github/copilot", s.DiscoveredAt)
+		return tx.PutCache(copilotauth.CatalogRecord, string(data), "github/copilot", s.DiscoveredAt)
 	})
 }
 

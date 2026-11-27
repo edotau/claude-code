@@ -27,7 +27,7 @@ const (
 	Env             = "env"
 	Overlay         = "overlay"
 	Secrets         = "secrets"
-	Cache           = "cache" // discovery and catalog snapshots: sealed like secrets, never credentials
+	Cache           = "cache" // discovery and catalog snapshots: plaintext Value, never credentials; legacy rows sealed
 	SettingsBackups = "settings_backups"
 	Meta            = "meta"
 )
@@ -345,6 +345,7 @@ func (t *Tx) Put(bucket, key, val string) error {
 
 type Record struct {
 	Sealed       []byte    `json:"ct"`
+	Value        string    `json:"value,omitempty"` // Cache only: an unsealed non-secret snapshot; Secrets never set it
 	Kid          string    `json:"kid"`
 	Prefix       string    `json:"prefix,omitempty"`
 	Len          int       `json:"len,omitempty"`
@@ -391,9 +392,15 @@ func (t *Tx) PutRecord(name string, r Record) error {
 	return t.PutRecordIn(Secrets, name, r)
 }
 
+// isZero reports a record holding nothing: storing it removes the row.
+func (r Record) isZero() bool {
+	bare := len(r.Sealed) == 0 && r.Value == "" && r.Kid == "" && r.Prefix == "" && r.Len == 0
+	return bare && r.Label == "" && r.SetAt.IsZero() && r.VerifiedAt.IsZero() && r.VerifyStatus == ""
+}
+
 // PutRecordIn stores a record in its collection; a zero record removes it.
 func (t *Tx) PutRecordIn(bucket, name string, r Record) error {
-	if len(r.Sealed) == 0 && r.Kid == "" && r.Prefix == "" && r.Len == 0 && r.Label == "" && r.SetAt.IsZero() && r.VerifiedAt.IsZero() && r.VerifyStatus == "" {
+	if r.isZero() {
 		return t.Put(bucket, name, "")
 	}
 	v, err := json.Marshal(r)

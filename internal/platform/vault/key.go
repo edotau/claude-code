@@ -432,6 +432,9 @@ func resealBucket(t *Tx, bucket string, old, next *Key) error {
 		if !ok {
 			return fmt.Errorf("vault: invalid record %q", name)
 		}
+		if bucket == Cache && len(r.Sealed) == 0 {
+			continue // a plaintext snapshot has nothing to re-seal
+		}
 		plain, e := old.openIn(bucket, name, r)
 		if e != nil {
 			return e

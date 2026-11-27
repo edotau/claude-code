@@ -32,7 +32,7 @@ type Scope struct {
 	GeminiURL    string `json:"gemini_url,omitempty"`
 }
 
-// Snapshot is a sealed snapshot; CacheHit describes this read and is never persisted.
+// Snapshot is a cached discovery snapshot; CacheHit describes this read and is never persisted.
 type Snapshot struct {
 	Schema       int                   `json:"schema"`
 	Scope        Scope                 `json:"scope"`
@@ -60,7 +60,7 @@ func NewScope(p *providers.Provider, subject string) (Scope, error) {
 	}
 	geminiURL := routes[providers.ProtocolGemini]
 	if geminiURL == served.BaseURL(host, providers.ProtocolGemini) {
-		geminiURL = "" // preset-derived default: omitting it preserves existing sealed discovery cache hashes
+		geminiURL = "" // preset-derived default: omitting it preserves existing discovery cache hashes
 	}
 	return Scope{Profile: p.Name, CLIProfile: p.CLIProfile, Host: host,
 		Spelling: p.SpellingRule(), SubjectID: subject, AnthropicURL: routes[providers.ProtocolAnthropic],
@@ -142,7 +142,7 @@ func parseIdentity(body []byte) (string, error) {
 	return identity.ID, nil
 }
 
-// DiscoveryKeyPrefix starts every sealed model-discovery cache record name (vault.CachePrefixes lists it).
+// DiscoveryKeyPrefix starts every model-discovery cache record name (vault.CachePrefixes lists it).
 const DiscoveryKeyPrefix = "model-discovery/v1/"
 
 func servingDiscoveryKey(scope Scope) string {
@@ -150,7 +150,7 @@ func servingDiscoveryKey(scope Scope) string {
 	return DiscoveryKeyPrefix + textutil.SHA256Hex(data)
 }
 
-// SubjectKeyPrefix starts every sealed remembered-subject cache record name.
+// SubjectKeyPrefix starts every remembered-subject cache record name.
 const SubjectKeyPrefix = "model-discovery-subject/v1/"
 
 // identityTag is the credential identity a ctx selects for p (user, sp, auto, or auto's headless SP-first order).
@@ -197,9 +197,6 @@ func RecallSubjectCtx(ctx context.Context, p *providers.Provider) (subject strin
 }
 
 func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
-	if _, _, err := vault.MasterKey(); err != nil && (!errors.Is(err, vault.ErrLocked) || vaultKeyed()) {
-		return Snapshot{}, false, errors.New("discovery vault is unavailable or locked")
-	}
 	raw, found, err := vault.ReadCache(servingDiscoveryKey(scope))
 	if err != nil {
 		return Snapshot{}, false, errors.New("cannot read or decrypt discovery cache; refresh cannot bypass vault access")
@@ -213,13 +210,6 @@ func Read(scope Scope, refresh bool) (Snapshot, bool, error) {
 	}
 	snapshot.Checks = SanitizeChecks(snapshot.Checks)
 	return snapshot, found, nil
-}
-
-// vaultKeyed reports whether the vault records a key id; before its first seal there is no key and so no cache.
-func vaultKeyed() bool {
-	var kid string
-	err := vault.View(func(tx *vault.Tx) error { kid, _ = tx.Get(vault.Meta, "kid"); return nil })
-	return err != nil || kid != "" // an unreadable vault counts as keyed, so Read keeps refusing it
 }
 
 // validCachedSnapshot decodes raw into snapshot and reports whether it is a complete schema-1 snapshot for scope.
@@ -258,7 +248,7 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 
 const identityTTL = 15 * time.Minute
 
-// validated is the sealed sidecar: the SCIM subject validated for the credential whose JWT sub is TokenSub.
+// validated is the cached sidecar: the SCIM subject validated for the credential whose JWT sub is TokenSub.
 type validated struct {
 	Subject  string    `json:"subject"`
 	TokenSub string    `json:"token_sub"`
@@ -282,11 +272,11 @@ func currentSubject(ctx context.Context, p *providers.Provider, refresh bool) (s
 	return subject, nil
 }
 
-// rememberValidated seals the sidecar like Save seals a snapshot; a lost write costs one /Me call later.
+// rememberValidated stores the sidecar like Save stores a snapshot; a lost write costs one /Me call later.
 func rememberValidated(p *providers.Provider, name string, v validated) {
 	b, _ := json.Marshal(v) // only strings and a time
-	_ = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutCache(key, name, string(b), "databricks/"+p.Name, v.At)
+	_ = vault.Update(func(tx *vault.Tx) error {
+		return tx.PutCache(name, string(b), "databricks/"+p.Name, v.At)
 	})
 }
 
@@ -346,7 +336,7 @@ func completeSnapshot(snapshot Snapshot) bool {
 		(len(snapshot.Checks) == 0 || !snapshot.CheckedAt.IsZero())
 }
 
-// Save seals the snapshot; only a provider/profile label and length stay plaintext, and the menu overlay is unchanged.
+// Save stores the non-secret snapshot in vault.Cache (no master key); the menu overlay is unchanged.
 func Save(p *providers.Provider, snapshot Snapshot) error {
 	scope, err := NewScope(p, snapshot.Scope.SubjectID)
 	if err != nil {
@@ -370,18 +360,18 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 		return err
 	}
 	label := "databricks/" + scope.Profile
-	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		if err := tx.PutCache(key, subjectName, scope.SubjectID, label, time.Now().UTC()); err != nil {
+	if err := vault.Update(func(tx *vault.Tx) error {
+		if err := tx.PutCache(subjectName, scope.SubjectID, label, time.Now().UTC()); err != nil {
 			return err
 		}
-		return tx.PutCache(key, name, string(data), label, snapshot.DiscoveredAt)
+		return tx.PutCache(name, string(data), label, snapshot.DiscoveredAt)
 	}); err != nil {
-		return errors.New("cannot seal discovery cache; check vault access")
+		return errors.New("cannot write discovery cache; check vault access")
 	}
 	return nil
 }
 
-// snapshotTTL is the default life of a sealed snapshot; cacheTTLEnv overrides it.
+// snapshotTTL is the default life of a cached snapshot; cacheTTLEnv overrides it.
 const (
 	snapshotTTL = 24 * time.Hour
 	cacheTTLEnv = "HARNESS_MODEL_CACHE_TTL"

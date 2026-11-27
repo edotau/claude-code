@@ -23,8 +23,8 @@ func seal(t *testing.T, s Snapshot[Model]) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
-		return tx.PutCache(key, AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt)
+	err = vault.Update(func(tx *vault.Tx) error {
+		return tx.PutCache(AccountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt)
 	})
 	if err != nil {
 		t.Fatal(err)

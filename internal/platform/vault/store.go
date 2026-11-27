@@ -48,13 +48,26 @@ func (t *Tx) PutStored(key *Key, name, value string) error {
 	})
 }
 
-// PutCache seals a snapshot into Cache under name with a display label and set-time, inside the caller's transaction.
-func (t *Tx) PutCache(key *Key, name, value, label string, at time.Time) error {
-	return t.PutRecordIn(Cache, name, Record{Sealed: key.Seal(name, value), Kid: key.Kid, Len: len(value), Label: label, SetAt: at})
+// PutCache stores a plaintext snapshot in Cache with a label and set-time; it never resolves a master key.
+func (t *Tx) PutCache(name, value, label string, at time.Time) error {
+	return t.PutRecordIn(Cache, name, Record{Value: value, Len: len(value), Label: label, SetAt: at})
 }
 
-// ReadCache opens a Cache snapshot with the same coherent key lookup as ReadSecret.
-func ReadCache(name string) (value string, found bool, err error) { return readSealed(Cache, name) }
+// ReadCache reads a Cache snapshot without a key; only a legacy sealed row falls back to the keyed open.
+func ReadCache(name string) (value string, found bool, err error) {
+	var rec Record
+	if err := View(func(tx *Tx) error {
+		var rerr error
+		rec, found, rerr = tx.RecordIn(Cache, name)
+		return rerr
+	}); err != nil || !found {
+		return "", false, err
+	}
+	if len(rec.Sealed) == 0 {
+		return rec.Value, true, nil
+	}
+	return readSealed(Cache, name) // written before Cache was unsealed; the next refresh rewrites it plaintext
+}
 
 // Delete removes name's vault record without resolving a key and audits it; an absent name is a silent no-op.
 func Delete(name string) error {
