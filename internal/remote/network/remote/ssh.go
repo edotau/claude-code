@@ -81,7 +81,7 @@ func ensurePrivateDir(dir string) bool {
 }
 
 // reuseOpts multiplexes ssh calls to one host over a master kept 10 minutes; nil when opted out or no dir.
-func reuseOpts() []string {
+func reuseOpts(host string) []string {
 	if v := strings.ToLower(os.Getenv(reuseEnv)); v == "0" || v == "off" {
 		return nil
 	}
@@ -89,8 +89,53 @@ func reuseOpts() []string {
 	if dir == "" {
 		return nil
 	}
-	return []string{"-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
+	opts := []string{"-o", "ControlMaster=auto", "-o", "ControlPersist=10m",
 		"-o", "ControlPath=" + filepath.Join(dir, "%C")}
+	checkControlMaster(host, dir, opts)
+	return opts
+}
+
+const controlCheckTimeout = 500 * time.Millisecond
+
+// checkControlMaster never connects: -G expands %C with ssh's config; -O check only talks to the local master.
+func checkControlMaster(host, dir string, opts []string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil || !slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Type()&os.ModeSocket != 0 }) {
+		return // no sockets means no reuse, and no subprocess overhead
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), controlCheckTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ssh", append(append([]string{"-G"}, opts...), "--", host)...)
+	cmd.WaitDelay = 50 * time.Millisecond
+	out, err := proc.OutputCapped(cmd)
+	if err != nil {
+		return // a config/probe failure is not evidence that a socket is stale
+	}
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if path, ok := strings.CutPrefix(line, "controlpath "); ok {
+			path = strings.TrimSpace(path)
+			if filepath.Dir(path) == filepath.Clean(dir) {
+				checkControlSocket(ctx, host, path)
+			}
+			return
+		}
+	}
+}
+
+// checkControlSocket removes only the failed socket we checked, not symlinks, files or a replacement master.
+func checkControlSocket(ctx context.Context, host, path string) {
+	before, err := os.Lstat(path)
+	if err != nil || before.Mode()&os.ModeSocket == 0 || ctx.Err() != nil {
+		return
+	}
+	cmd := exec.CommandContext(ctx, "ssh", "-O", "check", "-o", "BatchMode=yes", "-S", path, "--", host)
+	err = cmd.Run()
+	if _, exited := errors.AsType[*exec.ExitError](err); !exited {
+		return // success or failure to start ssh: neither warrants unlinking
+	}
+	if after, err := os.Lstat(path); err == nil && os.SameFile(before, after) {
+		_ = os.Remove(path) // best effort: the actual ssh command still reports any connection failure
+	}
 }
 
 // sshArgv runs script on host: keepalive, reuse, batch forbids prompts, tty allocates one, "--" ends ssh options.
@@ -98,7 +143,7 @@ func sshArgv(host string, tty, batch bool, script string) ([]string, error) {
 	if err := textutil.ValidHost(host); err != nil {
 		return nil, err
 	}
-	argv := append([]string{"ssh", "-o", "ServerAliveInterval=15"}, reuseOpts()...)
+	argv := append([]string{"ssh", "-o", "ServerAliveInterval=15"}, reuseOpts(host)...)
 	if batch {
 		argv = append(argv, "-o", "BatchMode=yes")
 	}

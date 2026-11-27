@@ -2,15 +2,20 @@ package remote
 
 import (
 	"encoding/base64"
+	"errors"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // decodedScript recovers the shell script hostArgv base64-encoded into ssh's last argument.
@@ -150,5 +155,190 @@ func TestLoginForward(t *testing.T) {
 	i, m := slices.Index(argv, "-L"), slices.Index(argv, "ControlMaster=no")
 	if i < 0 || argv[i+1] != "8030:localhost:8030" || m < 0 || m > slices.Index(argv, "ControlMaster=auto") {
 		t.Errorf("forward must precede the reuse options and \"--\": %q", argv)
+	}
+}
+
+func stubControlSSH(t *testing.T, mode string) (path, log string) {
+	t.Helper()
+	hosttest.SkipOnWindows(t, "unix socket and shell ssh stub")
+	dir, err := os.MkdirTemp("/tmp", "cc-ssh-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path, log = filepath.Join(dir, strings.Repeat("a", 40)), filepath.Join(dir, "calls")
+	orig := controlDir
+	controlDir = func() string { return dir }
+	t.Cleanup(func() { controlDir = orig })
+	t.Setenv(reuseEnv, "")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	script := "#!/bin/sh\npath=" + textutil.ShellQuote(path) + "\nlog=" + textutil.ShellQuote(log) +
+		"\nmode=" + textutil.ShellQuote(mode) + "\n" + `
+printf '%s\n' "$*" >> "$log"
+case "$1" in
+-G)
+  [ "$mode" = config-fail ] && exit 255
+  [ "$mode" = config-hang ] && exec sleep 5
+  printf 'controlpath %s\n' "$path"
+  ;;
+-O)
+  [ "$#" = 8 ] && [ "$2" = check ] && [ "$3" = -o ] && [ "$4" = BatchMode=yes ] &&
+    [ "$5" = -S ] && [ "$6" = "$path" ] && [ "$7" = -- ] && [ "$8" = stub-host ] || exit 99
+  [ "$mode" = live ] && exit 0
+  [ "$mode" = hang ] && exec sleep 5
+  [ "$mode" = replace ] && mv "$path.next" "$path"
+  exit 255
+  ;;
+*)
+  if [ -S "$path" ]; then sleep 0.25; exit 255; fi
+  printf 'fresh master\n'
+  ;;
+esac
+`
+	hosttest.WriteExec(t, filepath.Join(dir, "ssh"), script)
+	return path, log
+}
+
+func controlSocketFixture(t *testing.T, path, kind string) {
+	t.Helper()
+	switch kind {
+	case "absent":
+		return
+	case "regular":
+		hosttest.WriteRel(t, filepath.Dir(path), filepath.Base(path), "not a socket")
+		return
+	case "symlink":
+		if err := os.Symlink(path+".other", path); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetUnlinkOnClose(false)
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSHControlMasterDeadRecovery(t *testing.T) {
+	path, log := stubControlSSH(t, "dead")
+	const samples = 5
+	var baseline, recovered time.Duration
+	for range samples {
+		controlSocketFixture(t, path, "socket")
+		start := time.Now()
+		if err := exec.CommandContext(t.Context(), "ssh", "--", "stub-host", "true").Run(); err == nil {
+			t.Fatal("negative control unexpectedly bypassed the dead socket")
+		}
+		baseline += time.Since(start)
+		start = time.Now()
+		argv, err := StreamArgs("stub-host", "true")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.CommandContext(t.Context(), argv[0], argv[1:]...).Output()
+		recovered += time.Since(start)
+		if err != nil || string(out) != "fresh master\n" {
+			t.Fatalf("recovery = %q, %v", out, err)
+		}
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("dead socket remains: %v", err)
+		}
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "-G -o ControlMaster=auto -o ControlPersist=10m -o ControlPath=" + filepath.Join(filepath.Dir(path), "%C") + " -- stub-host"
+	if strings.Count(string(calls), want) != samples || strings.Count(string(calls), "-O check -o BatchMode=yes -S "+path+" -- stub-host") != samples {
+		t.Fatalf("wrong probe arguments: %s", calls)
+	}
+	t.Logf("stub dead-socket recovery, n=%d: before mean=%s (250ms simulated stall), after mean=%s", samples, baseline/samples, recovered/samples)
+}
+
+func TestSSHControlMasterProbeOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		mode                   string
+		removed, same, checked bool
+	}{
+		{"live", false, true, true}, {"dead", true, false, true}, {"hang", true, false, true},
+		{"config-fail", false, true, false}, {"config-hang", false, true, false}, {"replace", false, false, true},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			path, log := stubControlSSH(t, tc.mode)
+			controlSocketFixture(t, path, "socket")
+			if tc.mode == "replace" {
+				controlSocketFixture(t, path+".next", "socket")
+			}
+			before, err := os.Lstat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			if _, err := StreamArgs("stub-host", "true"); err != nil {
+				t.Fatal(err)
+			}
+			elapsed := time.Since(start)
+			after, err := os.Lstat(path)
+			if errors.Is(err, os.ErrNotExist) != tc.removed {
+				t.Fatalf("removed=%v: stat = %v", tc.removed, err)
+			}
+			if os.SameFile(before, after) != tc.same {
+				t.Fatalf("socket identity changed unexpectedly: %v", err)
+			}
+			if elapsed > controlCheckTimeout+time.Second {
+				t.Fatalf("probe exceeded bounded deadline: %s", elapsed)
+			}
+			calls, err := os.ReadFile(log)
+			if err != nil || strings.Contains(string(calls), "-O check") != tc.checked {
+				t.Fatalf("probe not run: %s, %v", calls, err)
+			}
+			t.Logf("%s probe elapsed=%s", tc.mode, elapsed)
+		})
+	}
+}
+
+func TestSSHControlMasterSkipsUnsafeTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, host, reuse string
+		other, missing, config  bool
+	}{
+		{"empty", "absent", "stub-host", "", false, false, false},
+		{"regular", "regular", "stub-host", "", true, false, true},
+		{"symlink", "symlink", "stub-host", "", true, false, true},
+		{"other-host", "absent", "stub-host", "", true, false, true},
+		{"disabled", "socket", "stub-host", "off", false, false, false},
+		{"invalid-host", "socket", "-oProxyCommand=bad", "", false, false, false},
+		{"missing-ssh", "socket", "stub-host", "", false, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, log := stubControlSSH(t, "dead")
+			controlSocketFixture(t, path, tc.kind)
+			if tc.other {
+				controlSocketFixture(t, path+".other", "socket")
+			}
+			t.Setenv(reuseEnv, tc.reuse)
+			if tc.missing {
+				t.Setenv("PATH", t.TempDir())
+			}
+			_, err := StreamArgs(tc.host, "true")
+			if (err != nil) != (tc.name == "invalid-host") {
+				t.Fatalf("StreamArgs: %v", err)
+			}
+			calls, _ := os.ReadFile(log)
+			if strings.Contains(string(calls), "-O check") {
+				t.Fatalf("unsafe check: %s", calls)
+			}
+			if strings.Contains(string(calls), "-G ") != tc.config {
+				t.Fatalf("unexpected ssh calls: %s", calls)
+			}
+			_, err = os.Lstat(path)
+			if errors.Is(err, os.ErrNotExist) != (tc.kind == "absent") {
+				t.Fatalf("removed non-stale target: %v", err)
+			}
+		})
 	}
 }
