@@ -9,10 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -356,17 +354,7 @@ func ClaimJob(id string) (Record, error) {
 }
 
 func (r *Record) stampProcessGroup() {
-	r.PPID, r.PGID = os.Getppid(), 0
-	if filepath.Separator == '\\' {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if out, err := exec.CommandContext(ctx, "ps", "-o", "pgid=", "-p", strconv.Itoa(r.PID)).Output(); err == nil {
-		if pgid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && pgid > 0 {
-			r.PGID = pgid
-		}
-	}
+	r.PPID, r.PGID = os.Getppid(), processGroup(r.PID)
 }
 
 // RepairDead applies fix to id's record under its lock if it is still a dead running one; false when it is not.

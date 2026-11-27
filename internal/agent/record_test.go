@@ -1274,7 +1274,7 @@ func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 	})
 }
 
-// BenchmarkStampProcessGroupSelf times the `ps -o pgid=` spawn a foreground ask and every ClaimJob pay.
+// BenchmarkStampProcessGroupSelf times the Getpgid call a foreground ask and every ClaimJob pay.
 func BenchmarkStampProcessGroupSelf(b *testing.B) {
 	if runtime.GOOS == "windows" {
 		b.Skip("stampProcessGroup returns before ps on Windows")
