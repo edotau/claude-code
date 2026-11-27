@@ -120,6 +120,28 @@ func TestCreateBaseRefLocalSettingsOverride(t *testing.T) {
 	}
 }
 
+func TestCreateBaseRefHeadFromLinkedWorktree(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	main := originClone(t)
+	writeBaseRef(t, filepath.Join(cfg, "settings.json"), "head")
+	repo := rootFor(t, main)
+	lane, err := Create(repo, "lane1", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitIn(t, lane, "commit", "--allow-empty", "-q", "-m", "collector work")
+	t.Chdir(lane)
+
+	dest, err := Create(repo, "lane2", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := revParse(t, dest, "HEAD"), revParse(t, lane, "HEAD"); got != want {
+		t.Fatalf("lane2 HEAD = %s, want invoking worktree HEAD %s", got, want)
+	}
+}
+
 // Regression for --no-track: a fresh branch has no upstream, so `git branch -d` succeeds after a local merge.
 func TestCleanFreshBranchDeletedAfterMerge(t *testing.T) {
 	cfg := t.TempDir()

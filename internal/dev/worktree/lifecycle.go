@@ -292,7 +292,30 @@ func createBase(main string, log io.Writer) string {
 			return ref
 		}
 	}
-	return "HEAD"
+	return invokingHead(main)
+}
+
+// invokingHead is the HEAD commit of the linked worktree the process runs in, else "HEAD" (the primary's).
+func invokingHead(main string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "HEAD"
+	}
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	mainDir, mainCommon, err := gitDirsOf(ctx, main)
+	if err != nil {
+		return "HEAD"
+	}
+	dir, common, err := gitDirsOf(ctx, cwd)
+	if err != nil || common != mainCommon || dir == mainDir {
+		return "HEAD"
+	}
+	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--verify", "HEAD^{commit}").Output()
+	if err != nil {
+		return "HEAD"
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func branchExists(main, branch string) bool {
