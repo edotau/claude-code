@@ -376,7 +376,7 @@ func (d *driver) openLane(ctx context.Context, it Item) (candidate, error) {
 func (d *driver) nextSlug(pkg string) string {
 	day := time.Now().Format("20060102")
 	for n := 1; ; n++ {
-		slug := fmt.Sprintf("bench-%s-%s-%d", pkgDirName(pkg), day, n)
+		slug := fmt.Sprintf("bench-%s-%s-%d", PkgDirName(pkg), day, n)
 		if _, err := proc.GitInheritTimeout(d.top, "rev-parse", "--verify", "--quiet", "refs/heads/worktree-"+slug); err != nil {
 			return slug
 		}

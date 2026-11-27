@@ -25,7 +25,7 @@ var strikeToken = sync.OnceValue(func() *regexp.Regexp {
 // decidedReason is the strike reason of a decision that names none: the plan no longer applies to the task.
 const decidedReason = "obsolete"
 
-// decidedMark is the count of the session's recorded tag events already read for strikes.
+// decidedMark holds "<count> <size>": the session's tag events already read for strikes and the log's size then.
 func decidedMark(session string) string {
 	return filepath.Join(paths.StateDir(), "plans", "decided", paths.Slug(session, "", 80, "session"))
 }
@@ -35,25 +35,45 @@ func strikeDecided(in *core.Input) []string {
 	if in.SessionID == "" {
 		return nil
 	}
-	events, mark := memory.ReadTagEvents(in.SessionID), decidedMark(in.SessionID)
+	mark := decidedMark(in.SessionID)
 	raw, _ := os.ReadFile(mark)
-	done, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil || done > len(events) { // a missing or rewritten log is read from its start
-		done = 0
+	fields, size := strings.Fields(string(raw)), tagLogSize(in.SessionID)
+	if len(fields) == 2 && fields[1] == strconv.FormatInt(size, 10) {
+		return nil // the log has not changed since the mark was written
 	}
-	if done == len(events) {
-		return nil
-	}
+	events := memory.ReadTagEvents(in.SessionID)
+	done := markedCount(fields, len(events))
 	var notes []string
 	for _, e := range events[done:] {
 		if e.Event == "decision" {
 			notes = append(notes, strikeDecision(in.CWD, in.SessionID, e.Text)...)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(mark), 0o700); err == nil {
-		_ = paths.AtomicWrite(mark, []byte(strconv.Itoa(len(events))+"\n"), 0o600)
+	if line := strconv.Itoa(len(events)) + " " + strconv.FormatInt(size, 10) + "\n"; line != string(raw) {
+		if os.MkdirAll(filepath.Dir(mark), 0o700) == nil {
+			_ = paths.AtomicWrite(mark, []byte(line), 0o600)
+		}
 	}
 	return notes
+}
+
+// tagLogSize is the session's tag log size in bytes, -1 when it does not exist.
+func tagLogSize(session string) int64 {
+	if st, err := os.Stat(memory.TagEventsPath(session)); err == nil {
+		return st.Size()
+	}
+	return -1
+}
+
+// markedCount is the event count a mark holds; 0 (read from the start) when absent, bad or past the log's end.
+func markedCount(fields []string, have int) int {
+	if len(fields) == 0 {
+		return 0
+	}
+	if n, err := strconv.Atoi(fields[0]); err == nil && n <= have {
+		return n
+	}
+	return 0
 }
 
 // strikeDecision strikes every task one decision's tokens name; each skip is a note, never an error.

@@ -908,7 +908,7 @@ func TestBenchCoverageCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := BenchCoverage(context.Background(), dir, 10)
-	want := "last 4 commits: 1 benched, 1 failed, 1 queued, 0 skipped, 1 without benchmarks; latest regression: " +
+	want := "last 4 commits: 1 benched, 1 failed, 1 queued, 0 skipped (unbuildable), 0 never queued, 1 without benchmarks; latest regression: " +
 		"bench abc1234 vs def5678 internal/memory: PromptRecall/bank allocs -12.00% (p=0.000); ns +13.00% (p=0.010)"
 	if got != want || ok {
 		t.Fatalf("coverage = %q ok=%v\nwant %q, not ok", got, ok, want)

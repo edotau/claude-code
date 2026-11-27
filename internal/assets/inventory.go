@@ -132,6 +132,8 @@ var inventory = []struct {
 	{"safety/interpreter-what.txt", "txt", "SafetyInterpreterWhat", func() []byte { return read("safety/interpreter-what.txt") }},
 	{"safety/interpreter-hint.txt", "txt", "SafetyInterpreterHint", func() []byte { return read("safety/interpreter-hint.txt") }},
 	{"safety/path-unresolved.txt", "txt", "SafetyPathUnresolved", func() []byte { return read("safety/path-unresolved.txt") }},
+	{"skill/evals.tmpl", "tmpl", "RenderSkill", func() []byte { return read("skill/evals.tmpl") }},
+	{"skill/skill.tmpl", "tmpl", "RenderSkill", func() []byte { return read("skill/skill.tmpl") }},
 	{"rtk/notes.tmpl", "tmpl", "RtkNote,RtkShadowFound,RtkShadowNone", func() []byte { return read("rtk/notes.tmpl") }},
 	{"rtk/claude-print-hint.txt", "txt", "ClaudePrintHint", func() []byte { return read("rtk/claude-print-hint.txt") }},
 	{"copilot/deny-feedback.txt", "txt", "CopilotDenyFeedback", func() []byte { return read("copilot/deny-feedback.txt") }},

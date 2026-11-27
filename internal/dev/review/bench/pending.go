@@ -146,7 +146,7 @@ func applyPendingRow(top string, row pendingRow) (string, error) {
 	if !maps.Equal(recorded, current) {
 		return "dropped", nil
 	}
-	if err := writeRolling(filepath.Join(benchRoot(), pkgDirName(row.Pkg)), []byte(row.Body)); err != nil {
+	if err := writeRolling(filepath.Join(benchRoot(), PkgDirName(row.Pkg)), []byte(row.Body)); err != nil {
 		return "", err
 	}
 	return "applied", nil

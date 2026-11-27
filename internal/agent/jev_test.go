@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -15,11 +16,13 @@ import (
 func hangJev(t *testing.T) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body) // the server notices a client leaving only once the body is read
 		<-r.Context().Done()
 	}))
 	// cleanups run last-first: close connections before Close waits on the handler, so a failed check never hangs
 	t.Cleanup(srv.Close)
 	t.Cleanup(srv.CloseClientConnections)
+	t.Cleanup(http.DefaultClient.CloseIdleConnections) // a dial cancelled mid-flight parks its conn, which hangs Close
 	t.Setenv("HARNESS_JEV_URL", srv.URL)
 }
 
@@ -49,6 +52,18 @@ func waitGoroutinesAbove(t *testing.T, base int) {
 		}
 	}
 	t.Fatalf("goroutines = %d, never rose above baseline %d: the shadow never started", runtime.NumGoroutine(), base)
+}
+
+// waitGoroutines polls until the count is back to base; a dial cancelled mid-flight parks its conn and goroutines.
+func waitGoroutines(t *testing.T, base int) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		http.DefaultClient.CloseIdleConnections()
+		if runtime.NumGoroutine() <= base {
+			return
+		}
+	}
+	t.Fatalf("goroutines = %d, want <= %d: the run leaked", runtime.NumGoroutine(), base)
 }
 
 // A cancelled dispatch's jev shadow exits with it instead of hanging the local server until its own timeout.

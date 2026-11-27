@@ -21,6 +21,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/remote/egress"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 )
@@ -187,11 +188,26 @@ func jevByTask(ctx context.Context, tasks []batchTask) map[string][]agent.JevPai
 	return out
 }
 
+var ensureTunnel = egress.Ensure
+
+// prewarmTunnel starts the batch's egress tunnel once while setup runs; errors are the real request's to report.
+func prewarmTunnel(ctx context.Context, host string, n int) {
+	if n < 2 || host == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_, _ = ensureTunnel(ctx, host)
+	}()
+}
+
 // runTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
 func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, defaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	prewarmTunnel(bctx, egress.HostContext(bctx), len(tasks))
 	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel, jev: jevByTask(bctx, tasks)}
 	allOK := true
 	emit := func(env wire.Envelope, ok bool) {

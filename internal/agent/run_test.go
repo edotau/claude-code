@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -583,16 +582,6 @@ func streamPrepared(t *testing.T, r Engine) *Prepared {
 	t.Helper()
 	setConfigDir(t)
 	return &Prepared{Opts: RunOptions{Agent: "fake", Prompt: "p"}, Record: ClaimRecord("fake", RunOptions{Prompt: "p"}, time.Now()), Chain: Single(r)}
-}
-
-func waitGoroutines(t *testing.T, base int) {
-	t.Helper()
-	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
-		if runtime.NumGoroutine() <= base {
-			return
-		}
-	}
-	t.Fatalf("goroutines = %d, want <= %d: the run leaked", runtime.NumGoroutine(), base)
 }
 
 // RunOptions.Lead must reach the router pick: a lead naming no registry row is skipped by name.

@@ -68,6 +68,56 @@ func TestH3SkillNameMatchesDir(t *testing.T) {
 	wantOne(t, skills(root), `skills/foo/SKILL.md:1: name "bar" != "foo"`, "(fix at skills/foo/SKILL.md)")
 }
 
+func TestH3SkillShapeFindings(t *testing.T) {
+	root := t.TempDir()
+	sections := "## When to use\nx\n| Step needs | Load |\n| a | `references/a.md` |\n## Workflow\n1. x\n## Verify\n- x\n## Report\n- x\n"
+	good := "---\nname: foo\ndescription: Does x. Use for y.\n---\n" + sections + "## Gotchas\n- Never z because w.\n"
+	hosttest.WriteRel(t, root, "skills/foo/SKILL.md", good)
+	hosttest.WriteRel(t, root, "skills/foo/references/a.md", "a\n")
+	if got := skillShapes(root); len(got) != 0 {
+		t.Fatalf("pass fixture findings = %q", got)
+	}
+	bad := "---\nname: foo\ndescription: " + strings.Repeat("x", 1100) + "\n---\n" + sections
+	hosttest.WriteRel(t, root, "skills/foo/SKILL.md", bad)
+	hosttest.WriteRel(t, root, "skills/foo/references/b.md", "b\n")
+	got := strings.Join(skillShapes(root), "\n")
+	for _, rule := range []string{"[fm-max]", "[fm-wording]", "[sec-required]", "[refs-unlisted]"} {
+		if !strings.Contains(got, rule) {
+			t.Errorf("findings lack %s: %s", rule, got)
+		}
+	}
+	if c := softHop("H3 skill shapes", skillShapes(root)); c.OK || c.Hard {
+		t.Errorf("advisory row = %+v, want soft and not OK", c)
+	}
+}
+
+func TestPromptShapeAdvisories(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	hosttest.WriteRel(t, root, "commands/example.md", "---\ndescription: example\nargument-hint: x\ndisable-model-invocation: true\nallowed-tools: Read\n---\n# example\n")
+	hosttest.WriteRel(t, root, "rules/software/example/nested.md", "# Example\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "## What this repo is\n## Where things live\n## Hard rules (always on)\n## Behavioral guidelines\n## How-to — by area\n")
+	for _, id := range []string{"command", "rule", "instruction-index"} {
+		if got := shapeFindings(root, id); len(got) != 0 {
+			t.Errorf("%s pass fixture findings = %q", id, got)
+		}
+	}
+	hosttest.WriteRel(t, root, "commands/example.md", "---\nargument-hint: x\ndisable-model-invocation: true\nallowed-tools: Read\n---\n")
+	hosttest.WriteRel(t, root, "rules/software/example/nested.md", "# First\n# Second\n")
+	hosttest.WriteRel(t, root, "CLAUDE.md", "## What this repo is\n")
+	for _, tc := range []struct{ id, rule string }{
+		{"command", "[fm-required]"}, {"rule", "[h1-count]"}, {"instruction-index", "[sec-required]"},
+	} {
+		got := shapeFindings(root, tc.id)
+		if !strings.Contains(strings.Join(got, "\n"), tc.rule) {
+			t.Errorf("%s findings = %q, want %s", tc.id, got, tc.rule)
+		}
+		if c := softHop("shape", got); c.Hard || c.OK {
+			t.Errorf("%s advisory row = %+v", tc.id, c)
+		}
+	}
+}
+
 func TestH4PlanTemplateHasEveryHeading(t *testing.T) {
 	root := t.TempDir()
 	heads := docs.PlanTemplateHeadings()

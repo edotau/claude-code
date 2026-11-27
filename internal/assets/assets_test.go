@@ -41,7 +41,7 @@ func readers(t *testing.T) map[string][]string {
 
 // readerDirs maps a template renderer to the directory its first argument is relative to; read takes full paths.
 var readerDirs = map[string]string{
-	"read": "", "renderMemory": "memory/prompts/", "renderAgent": "agent/", "renderHook": "hooks/", "renderBriefText": "brief/", "renderSafety": "safety/", "renderRtk": "rtk/",
+	"read": "", "renderMemory": "memory/prompts/", "renderAgent": "agent/", "renderHook": "hooks/", "renderBriefText": "brief/", "renderSafety": "safety/", "renderRtk": "rtk/", "renderSkill": "skill/",
 }
 
 func readPaths(fn *ast.FuncDecl) []string {
@@ -389,6 +389,12 @@ func briefRenderCases() []renderCase {
 		{"LoopPlanner", "", func() string { return LoopPlanner("goal", 2, 5, 3, 9, digestLimit, two) }},
 		{"ReviewAdversarial", "", func() string { return ReviewAdversarial("clean") }},
 		{"TakeoverBrief", "", func() string { return TakeoverBrief("codex", "cut", "task", 12, two) }},
+		{"RenderSkill", "refs", func() string {
+			return skillCase(SkillInput{Name: "x", Description: "Does x. Use for y.", NotFor: "z", Refs: []string{"r"}})
+		}},
+		{"RenderSkill", "bare", func() string {
+			return skillCase(SkillInput{Name: "x", Description: "Does x.", Triggers: []string{"y"}})
+		}},
 		{"SafetyMessage", "pattern", func() string { return SafetyMessage("BLOCKED", "what", "pat", "cmd", "hint") }},
 		{"SafetyMessage", "nopattern", func() string { return SafetyMessage("ASK", "what", "", "cmd", "hint") }},
 		{"SafetyNoAsk", "", func() string { return SafetyNoAsk("codex") }},
@@ -403,6 +409,11 @@ func briefRenderCases() []renderCase {
 		{"AutofixBrief", "policy", func() string { return autofix(true) }},
 		{"AutofixBrief", "plain", func() string { return autofix(false) }},
 	}
+}
+
+func skillCase(in SkillInput) string {
+	f, err := RenderSkill(in)
+	return mustRender(f.Entry.Body, err)
 }
 
 func benchFix(code bool) string {
@@ -497,7 +508,7 @@ func TestTemplatesRender(t *testing.T) {
 
 // templateSets is every loaded embedded template set.
 func templateSets() []func() map[string]*parse.ListNode {
-	return []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates}
+	return []func() map[string]*parse.ListNode{agentTemplates, hookTemplates, briefTemplates, memoryTemplates, safetyTemplates, rtkTemplates, skillTemplates}
 }
 
 // unrenderedKeys lists every loaded template key (all sets, block keys included) absent from rendered.

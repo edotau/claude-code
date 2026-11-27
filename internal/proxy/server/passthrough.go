@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -157,13 +158,15 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 		if original, ok = readBody(sw, in); !ok {
 			return model, "", p.Name
 		}
+		in = in.WithContext(context.WithValue(in.Context(), passthroughBodyKey{},
+			&passthroughBodyState{original: decodeProxyBody(original)}))
 	}
 	body := original
 	geminiChat := false
 	var err error
 	if in.Method == http.MethodPost {
 		var asked string
-		body, asked, model, geminiChat, err = fixPassthroughBody(original, p, path.Path, model, dialect,
+		body, asked, model, geminiChat, err = fixPassthroughRequestBody(in, original, p, path.Path, model, dialect,
 			googleToolsHeader(in), dbxGemini)
 		if m, _ := in.Context().Value(metaKey{}).(*reqMeta); m != nil {
 			m.asked = modelToken(cmp.Or(geminiPathModel(in.URL.Path, dialect), asked))
@@ -176,16 +179,76 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 	return r.passthroughResponse(sw, in, p, route, path, model, dialect, body, original, geminiChat)
 }
 
+// passthroughBodyState keeps the original map immutable; each hop owns a shallow copy of its raw values.
+type passthroughBodyState struct {
+	original proxyBody
+	outbound proxyBody
+}
+
+type passthroughBodyKey struct{}
+
+func sameBodyBytes(a, b []byte) bool {
+	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+func fixPassthroughRequestBody(in *http.Request, body []byte, p *providers.Provider,
+	path, model, dialect, googleTools string, dbxGemini bool) ([]byte, string, string, bool, error) {
+	state, _ := in.Context().Value(passthroughBodyKey{}).(*passthroughBodyState)
+	if state == nil || !sameBodyBytes(state.original.raw, body) {
+		return fixPassthroughBody(body, p, path, model, dialect, googleTools, dbxGemini)
+	}
+	decoded := state.original
+	if decoded.top != nil {
+		decoded.top = maps.Clone(state.original.top)
+	}
+	out, asked, model, chat, err := decoded.fixPassthrough(p, path, model, dialect, googleTools, dbxGemini)
+	if err == nil {
+		decoded.raw = out
+		decoded.model = wireBodyModel(decoded)
+		if models.Has1M(decoded.model) && !sameBodyBytes(out, body) {
+			// Marker stripping must retain the preceding marshal's HTML escaping.
+			decoded.top = nil
+		}
+		state.outbound = decoded
+	}
+	return out, asked, model, chat, err
+}
+
+// wireBodyModel avoids scanning messages for the usual single, exact string model key.
+func wireBodyModel(b proxyBody) string {
+	if b.top == nil {
+		return passthroughModel(b.raw)
+	}
+	for key := range b.top {
+		if key != "model" && strings.EqualFold(key, "model") {
+			return passthroughModel(b.raw)
+		}
+	}
+	raw, ok := b.top["model"]
+	if !ok {
+		return ""
+	}
+	var model string
+	if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &model) != nil {
+		return passthroughModel(b.raw)
+	}
+	return model
+}
+
 // fixPassthroughBody applies the per-dialect fixes; model is the wire model, asked the one before any rewrite.
 func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect, googleTools string,
 	dbxGemini bool) (out []byte, asked, newModel string, geminiChat bool, err error) {
-	decoded := decodeProxyBody(body)
+	return decodeProxyBody(body).fixPassthrough(p, path, model, dialect, googleTools, dbxGemini)
+}
+
+func (decoded proxyBody) fixPassthrough(p *providers.Provider, path, model, dialect, googleTools string,
+	dbxGemini bool) (out []byte, asked, newModel string, geminiChat bool, err error) {
+	body := decoded.raw
 	var pend pendingMarshal
 	decoded.lazy = &pend
 	model = cmp.Or(decoded.model, model)
 	asked = model
-	if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
-		(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
+	if wire := passthroughWireModel(p, model, dialect); model != "" && wire != model {
 		if decoded.top == nil {
 			_, err := withModel(body, wire)
 			return nil, asked, model, false, err
@@ -209,6 +272,13 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	}
 	out, err = pend.finish(decoded, body)
 	return out, asked, model, geminiChat, err
+}
+
+func passthroughWireModel(p *providers.Provider, model, dialect string) string {
+	if dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses {
+		return models.Strip1M(p.WireModel(model))
+	}
+	return model
 }
 
 // chatFixes applies the chat-completion body fixes; the bool reports a gemini chat body.
@@ -398,7 +468,7 @@ func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, 
 			return passthroughHop{}, err
 		}
 	}
-	body, _, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect,
+	body, _, model, geminiChat, err := fixPassthroughRequestBody(in, original, p, nextPath.Path, model, dialect,
 		googleToolsHeader(in), dbxGemini)
 	return passthroughHop{p, route, &nextPath, body, model, geminiChat}, err
 }

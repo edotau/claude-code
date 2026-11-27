@@ -402,6 +402,9 @@ func rtkSeen(kind, sessionID, key string) (bool, error) {
 	if sessionID == "" {
 		return true, nil
 	}
+	if seen, err := core.SeenHas(kind, sessionID, key); err == nil && seen {
+		return false, nil // read-first: the lock and append are paid only when a note is due
+	}
 	return core.SeenAdd(kind, sessionID, key)
 }
 

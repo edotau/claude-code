@@ -1147,3 +1147,22 @@ func TestLinePickSpreadsABatch(t *testing.T) {
 		t.Errorf("a batch with no counter picked %q, want the shared pick dev", name)
 	}
 }
+
+func TestPrewarmTunnelOncePerBatch(t *testing.T) {
+	calls := make(chan string, 4)
+	orig := ensureTunnel
+	ensureTunnel = func(_ context.Context, host string) (string, error) { calls <- host; return "", nil }
+	t.Cleanup(func() { ensureTunnel = orig })
+	ctx := context.Background()
+	prewarmTunnel(ctx, "box", 1)
+	prewarmTunnel(ctx, "", 3)
+	prewarmTunnel(ctx, "box", 3)
+	if got := recvWithin(t, calls, time.Second, "no prewarm for a 2+ task batch"); got != "box" {
+		t.Fatalf("prewarmed %q, want box", got)
+	}
+	select {
+	case h := <-calls:
+		t.Fatalf("extra prewarm for %q", h)
+	case <-time.After(50 * time.Millisecond):
+	}
+}

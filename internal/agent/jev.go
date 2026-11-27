@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
@@ -94,19 +95,40 @@ type JevPair struct {
 	Error      string  `json:"error,omitempty"`
 }
 
-// JevPairs asks about every ordered pair (i<j) of tasks, one call each, in order.
+// jevPairSlots bounds concurrent pair calls: Jev and the local model share one GPU.
+const jevPairSlots = 4
+
+// JevPairs asks about every ordered pair (i<j) of tasks and returns the ones that dialed, in that order.
 func JevPairs(ctx context.Context, tasks []string) []JevPair {
-	var out []JevPair
+	var idx [][2]int
 	for i := range tasks {
 		for j := i + 1; j < len(tasks); j++ {
-			if ctx.Err() != nil {
-				return out
-			}
-			res, err := jev.Needs(ctx, tasks[i], tasks[j])
-			out = append(out, JevPair{A: i, B: j, Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Error: jev.Class(err)})
+			idx = append(idx, [2]int{i, j})
 		}
 	}
-	return out
+	type asked struct {
+		pair JevPair
+		ran  bool
+	}
+	// A down or off dial returns its error so Map cancels the rest: one failed dial, not N.
+	out, _ := parallel.Map(ctx, idx, jevPairSlots, func(ctx context.Context, p [2]int) (asked, error) {
+		if ctx.Err() != nil {
+			return asked{}, nil // cancelled before dialing: not on the record, as in the serial early return
+		}
+		res, err := jev.Needs(ctx, tasks[p[0]], tasks[p[1]])
+		pair := JevPair{A: p[0], B: p[1], Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Error: jev.Class(err)}
+		if pair.Error != jev.ClassDown && pair.Error != jev.ClassOff {
+			err = nil
+		}
+		return asked{pair: pair, ran: true}, err
+	})
+	var answered []JevPair
+	for _, a := range out {
+		if a.ran {
+			answered = append(answered, a.pair)
+		}
+	}
+	return answered
 }
 
 var (

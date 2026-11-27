@@ -19,7 +19,7 @@ import (
 var remotePage = helptext.Page{
 	Usage: "claude-code network remote --host <name> [flags] \"<task>\"\n" +
 		"claude-code network remote --host <name> --list [flags]\n" +
-		"claude-code network remote --host <name> --attach <session> [--forward <port,...>]",
+		"claude-code network remote --host <name> --attach <session> [flags]",
 	About: "Start an agent CLI in a detached tmux session on a tailnet host over ssh, then\n" +
 		"list its cc-* sessions (--list) or attach to one (--attach <session>).\n" +
 		"An attach reconnects when the connection drops and re-opens its --forward ports.",

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1236,5 +1237,140 @@ func TestWritePassthroughSendErrorClientGone(t *testing.T) {
 	writePassthroughSendError(rec, httptest.NewRequest(http.MethodPost, "/", nil), p, errors.New("dial"))
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("live client got %d, want %d", rec.Code, http.StatusBadGateway)
+	}
+}
+
+// bodyOnceTransport keeps the two-hop benchmark entirely in memory.
+type bodyOnceTransport struct{ hops int }
+
+func (t *bodyOnceTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	_, _ = io.Copy(io.Discard, req.Body)
+	t.hops++
+	status := http.StatusOK
+	if t.hops%2 == 1 {
+		status = http.StatusTooManyRequests
+	}
+	return &http.Response{StatusCode: status, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)), Request: req}, nil
+}
+
+func BenchmarkPassthroughTwoHops(b *testing.B) {
+	vaulttest.Use(b)
+	b.Setenv("PT_FIRST", "fake-first")
+	b.Setenv("PT_SECOND", "fake-second")
+	vaulttest.Put(b, vault.Overlay, "providers", ptWorkspaceOverlay("https://workspace.example.test", "https://workspace.example.test"))
+	for _, size := range []int{200 << 10, 4 << 20} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			body := bytes.Replace(benchChatBody, []byte("claude-x"), []byte("databricks-test-model"), 1)
+			body = bytes.Replace(body, []byte("package main"), []byte(strings.Repeat("agent history ", (size-len(body))/14)+"package main"), 1)
+			b.SetBytes(int64(len(body)))
+			b.ReportAllocs()
+			for b.Loop() {
+				r := newRouter(secret)
+				r.log = io.Discard
+				transport := &bodyOnceTransport{}
+				r.client = &http.Client{Transport: transport}
+				req := httptest.NewRequest(http.MethodPost, "/p/first/openai/chat/completions", bytes.NewReader(body))
+				rec := httptest.NewRecorder()
+				r.passthrough(rec, req, "first", "openai", "chat/completions")
+				r.bg.Wait()
+				if rec.Code != http.StatusOK || transport.hops != 2 {
+					b.Fatalf("status %d, hops %d: %s", rec.Code, transport.hops, rec.Body)
+				}
+			}
+		})
+	}
+}
+
+func TestPassthroughBodyStateIsolatesHops(t *testing.T) {
+	bodies := []string{
+		string(benchChatBody),
+		`{"model":"gemini-4-pro","stream_options":{},"tool_choice":{"type":"custom"},` +
+			`"tools":[{"type":"custom"}],"messages":[{"tool_calls":[{"id":"a","function":{"name":"read"}}]}]}`,
+		`{"model":"claude-sonnet-5-5[1m]","max_tokens":999999,"n":1.20e+06,"html":"<&>"}`,
+		`{"model":"gemini-4-pro","generationConfig":{"thinkingConfig":{"thinkingBudget":0,"includeThoughts":true}}}`,
+		`{"model":"gemini-4-pro[1m]","generationConfig":{"thinkingConfig":{"thinkingBudget":0,"includeThoughts":true}},"html":"<&>"}`,
+		`{"model":"claude-x[1m]","model":null}`, `{"MODEL":"claude-x[1m]","model":"m"}`,
+		`{"model":"m","MODEL":"claude-x[1m]"}`, `{"model":123}`, `{"model":"x","model":true}`,
+		`{"mo\u0064el":"claude-x[1m]"}`, `{"model":"claude-x[1m]","data":"` + string([]byte{0xff}) + `"}`,
+		`{"model":"claude-x[1m]","messages": [`, `null`, `[]`, ``,
+	}
+	for i, body := range bodies {
+		for _, dialect := range []string{providers.ProtocolOpenAI, providers.ProtocolResponses, providers.ProtocolGemini} {
+			t.Run(fmt.Sprintf("%d/%s", i, dialect), func(t *testing.T) {
+				raw := []byte(body)
+				state := &passthroughBodyState{original: decodeProxyBody(raw)}
+				in := httptest.NewRequest(http.MethodPost, "/", nil)
+				in = in.WithContext(context.WithValue(in.Context(), passthroughBodyKey{}, state))
+				original, _ := json.Marshal(state.original.top)
+				for _, prefix := range []string{models.DatabricksPrefix, "", models.DatabricksPrefix} {
+					assertPassthroughBodyState(t, in, raw, dialect, &providers.Provider{ModelPrefix: prefix}, state)
+				}
+				if after, _ := json.Marshal(state.original.top); !bytes.Equal(original, after) {
+					t.Fatal("a hop mutated the original map")
+				}
+			})
+		}
+	}
+}
+
+func assertPassthroughBodyState(t *testing.T, in *http.Request, raw []byte, dialect string,
+	p *providers.Provider, state *passthroughBodyState) {
+	t.Helper()
+	gemini := dialect == providers.ProtocolGemini
+	want, asked, model, chat, err := fixPassthroughBody(raw, p, "chat/completions", "gemini-4-pro", dialect, "", gemini)
+	got, gotAsked, gotModel, gotChat, gotErr := fixPassthroughRequestBody(in, raw, p,
+		"chat/completions", "gemini-4-pro", dialect, "", gemini)
+	if !bytes.Equal(got, want) || gotAsked != asked || gotModel != model || gotChat != chat || fmt.Sprint(gotErr) != fmt.Sprint(err) {
+		t.Fatalf("cached fix differs: body %q/%q asked %q/%q model %q/%q chat %t/%t err %v/%v",
+			got, want, gotAsked, asked, gotModel, model, gotChat, chat, gotErr, err)
+	}
+	if err != nil {
+		return
+	}
+	wire, wireErr := (proxyBody{raw: want, model: passthroughModel(want)}).stripWireMarker()
+	cached, cachedErr := state.outbound.stripWireMarker()
+	if !bytes.Equal(cached, wire) || fmt.Sprint(cachedErr) != fmt.Sprint(wireErr) {
+		t.Fatalf("wire bytes differ: %q/%q, err %v/%v", cached, wire, cachedErr, wireErr)
+	}
+}
+
+func TestPassthroughBodyStateSkipsModelRescan(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("PT_KEY", "fake-credential")
+	vaulttest.Put(t, vault.Overlay, "providers", ptOverlay("https://unused.invalid"))
+	r := newRouter(secret)
+	r.log = io.Discard
+	transport := &bodyOnceTransport{hops: 1}
+	r.client = &http.Client{Transport: transport}
+	t.Cleanup(r.bg.Wait)
+	decode := passthroughModel
+	var rescans int
+	passthroughModel = func(raw []byte) string { rescans++; return decode(raw) }
+	t.Cleanup(func() { passthroughModel = decode })
+	in := httptest.NewRequest(http.MethodPost, "/p/pt/openai/chat/completions", bytes.NewReader(benchChatBody))
+	rec := httptest.NewRecorder()
+	r.passthrough(rec, in, "pt", "openai", "chat/completions")
+	if rec.Code != http.StatusOK || rescans != 0 {
+		t.Fatalf("status %d, model rescans %d", rec.Code, rescans)
+	}
+	assertPassthroughChangedBodyRescans(t, r, &rescans)
+}
+
+func assertPassthroughChangedBodyRescans(t *testing.T, r *Router, rescans *int) {
+	t.Helper()
+	body := []byte(`{"model":"m","reasoning_effort":"high"}`)
+	changed, _ := withEffortNone(body)
+	state := &passthroughBodyState{outbound: decodeProxyBody(body)}
+	in := httptest.NewRequest(http.MethodPost, "/", nil)
+	in = in.WithContext(context.WithValue(in.Context(), passthroughBodyKey{}, state))
+	p := &providers.Provider{Auth: providers.Auth{Type: providers.AuthKey, Env: "PT_KEY"}}
+	resp, err := r.sendRequest(in, in.Method, p, "https://unused.invalid", changed, func(http.Header) {}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if *rescans != 1 {
+		t.Fatalf("changed body used stale cached model: rescans %d, want 1", *rescans)
 	}
 }

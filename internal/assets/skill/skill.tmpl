@@ -1,0 +1,43 @@
+{{/* fields: Description Intro Name Principles Sections Title */}}---
+name: {{.Name}}
+description: {{.Description}}
+---
+
+# {{.Title}}
+
+{{if .Intro}}{{.Intro}}{{else}}<One or two lines: what the skill is for and what it never does (for example "never commits").>{{end}}
+{{if .Principles}}
+Core principles:
+
+{{range .Principles}}- {{.}}
+{{end}}{{end}}
+{{.Sections}}{{- define "when-to-use"}}{{/* fields: NotFor Refs */}}- <Situation that routes here; name the inputs you expect.>
+{{if .NotFor}}- **Not for:** {{.NotFor}}
+{{else}}- **Not for:** <task that belongs to another skill, agent or verb, with its name>.
+{{end}}{{if .Refs}}
+| Step needs | Load |
+| --- | --- |
+{{range .Refs}}| <Detail the main path does not need> | `references/{{.}}.md` |
+{{end}}{{end}}{{end}}
+
+{{- define "workflow"}}{{/* fields: Heuristics */}}{{if .Heuristics}}{{range .Heuristics}}- {{.}}
+{{end}}{{else}}1. <Scope: what to read or run first, as a command in its rtk form.>
+2. <Act: the smallest change or check that does the job.>
+3. <Name each assumption before a cut or a claim; no stated assumption means a flag, not a fix.>
+{{end}}{{end}}
+
+{{- define "verify"}}{{/* fields: - */}}- <Observable check: a command, a test or a number that must pass before and after.>
+- <Say which checks ran and which did not.>
+{{end}}
+
+{{- define "report"}}{{/* fields: - */}}- Lead with the outcome; then what changed (`/absolute/path:line`), what was skipped and why.
+{{end}}
+
+{{- define "gotchas"}}{{/* fields: Gotchas */}}{{if .Gotchas}}{{range .Gotchas}}- {{.}}
+{{end}}{{else}}- <What not to do> — <why it breaks or misleads>.
+{{end}}{{end}}
+
+{{- define "ref-stub"}}{{/* fields: Name */}}# {{.Name}}
+
+<What this reference holds that the main path does not need.>
+{{end}}

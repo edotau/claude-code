@@ -216,7 +216,7 @@ func recordEvidence(l loopOpts, at time.Time) error {
 	if l.benchmark == "" {
 		return nil
 	}
-	return appendHistory(filepath.Join(benchRoot(), pkgDirName(l.pkg)), []observation{{
+	return appendHistory(filepath.Join(benchRoot(), PkgDirName(l.pkg)), []observation{{
 		At: at, Pkg: l.pkg, Benchmark: l.benchmark, Epoch: l.epoch,
 		Decisive:       l.verdict == "kept" || l.verdict == "reverted",
 		ProductionPath: l.productionPath, Subject: l.subject,

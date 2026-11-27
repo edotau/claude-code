@@ -261,6 +261,9 @@ func ResolvePaths(in *core.Input) core.Result {
 	if core.AutomatedDelivery(in.Prompt) {
 		return core.Result{}
 	}
+	if !strings.ContainsAny(in.Prompt, `/\`) { // every token pattern holds a "/" or a "\"
+		return core.Result{}
+	}
 	win, posix := scanWinTokens(in.Prompt), scanPosixTokens(in.Prompt)
 	if len(win)+len(posix) == 0 {
 		return core.Result{}

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,12 @@ var oneShotClient = httpx.NewClient(0, func() http.RoundTripper {
 	t.ResponseHeaderTimeout = 2 * time.Minute
 	t.MaxIdleConnsPerHost = 16
 	t.Proxy = egress.Proxy
+	tlsCfg := t.TLSClientConfig.Clone()
+	if tlsCfg == nil {
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	tlsCfg.ClientSessionCache = tls.NewLRUClientSessionCache(64) // a reconnect resumes TLS instead of a full handshake
+	t.TLSClientConfig = tlsCfg
 	return t
 }(), httpx.SameOriginRedirect)
 

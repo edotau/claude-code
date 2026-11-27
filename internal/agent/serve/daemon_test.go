@@ -113,6 +113,17 @@ func TestAdmitRefusedWhenWaiterSlotsFullFreesConnSlot(t *testing.T) {
 		if rq.Op == "admit" && !strings.Contains(r.Reason, "waiter") {
 			t.Fatalf("admit refused for %q, not the full waiter slots", r.Reason)
 		}
+		waitConnSlotFree(t, d, rq.Op)
+	}
+}
+
+// waitConnSlotFree waits for the handler to free its slot after replying, so the next dial cannot race it.
+func waitConnSlotFree(t *testing.T, d *daemon, op string) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); len(d.conns) != 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("%s reply left the connection slot held", op)
+		}
 	}
 }
 

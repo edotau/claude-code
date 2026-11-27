@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -29,10 +30,8 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	}
 	lane := leafCheckout(in, top)
 	dirtyTop := cmp.Or(lane, top)
-	dirtyc := make(chan []string, 1)
-	go func() { dirtyc <- core.DirtyPaths(dirtyTop) }() // git status overlaps the plan parse
+	dirtyOf := sync.OnceValue(func() []string { return core.DirtyPaths(dirtyTop) }) // git status only when a plan applies
 	planPath, active, hasActive := plans.Active(plans.Home(top), plans.WorktreeName(dirtyTop), plans.MirrorDests())
-	dirty := <-dirtyc
 	recTask := recordPlanTask(loadRecords(lr.ids))
 	named, task, isNamed, ok := docs.NamedPlanTask(lr.scan.brief, recTask)
 	if isNamed {
@@ -41,11 +40,11 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 		}
 		planPath = named
 	} else if task, ok = docs.PlanBriefTask(active, lr.scan.brief, recTask); !hasActive || !ok {
-		if task, ok = untiedTask(active, dirty); !ok {
+		if task, ok = untiedTask(active, dirtyOf()); !ok {
 			return nil
 		}
 	}
-	id := cmp.Or(task.ID, task.Title)
+	id, dirty := cmp.Or(task.ID, task.Title), dirtyOf()
 	files := dirtyOwned(dirty, plans.OwnedPaths(task))
 	commit := commitLine(lane, id, planPath, files, dirty)
 	if lane == "" && len(files) == 0 { // no lane and no owned edit in the checkout: nothing shows where the leaf worked

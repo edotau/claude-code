@@ -185,7 +185,7 @@ func runPrompts(o *doctorOpts) int {
 	checks := promptPath(paths.ConfigDir())
 	ok := true
 	for _, c := range checks {
-		ok = ok && c.OK
+		ok = ok && (c.OK || !c.Hard)
 	}
 	use := usageReport(filepath.Join(paths.ConfigDir(), "projects"), time.Now(), usageBudget)
 	if *o.format == helptext.JSON {
