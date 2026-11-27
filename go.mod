@@ -3,10 +3,10 @@ module github.com/edotau/claude-code
 go 1.27.4
 
 require (
-	github.com/github/copilot-sdk/go v1.0.28
+	github.com/github/copilot-sdk/go v1.0.35
 	go.etcd.io/bbolt v1.5.0
-	go.yaml.in/yaml/v4 v4.0.0-rc.2
-	golang.org/x/sys v0.49.0
+	go.yaml.in/yaml/v4 v4.0.0
+	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.63.0
 )
 
@@ -14,10 +14,10 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
-	github.com/ebitengine/purego v0.10.1 // indirect
+	github.com/ebitengine/purego v0.11.3 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
