@@ -926,3 +926,50 @@ func TestHedgedEmbedSecondWinsFirstCancelled(t *testing.T) {
 		t.Fatal("first request was not cancelled")
 	}
 }
+
+// Given the budget left cannot fit a second answer, When the primary stalls or fails, Then no second request goes out.
+func TestHedgedEmbedSkipsSecondWithoutBudget(t *testing.T) {
+	ok := func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }
+	for name, primary := range map[string]embedFn{
+		"stalls then answers": func(ctx context.Context, _ []string) ([][]float32, error) {
+			time.Sleep(30 * time.Millisecond)
+			return [][]float32{{2}}, nil
+		},
+		"fails": func(context.Context, []string) ([][]float32, error) { return nil, errors.New("503") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var second atomic.Int32
+			secondary := func(ctx context.Context, texts []string) ([][]float32, error) { second.Add(1); return ok(ctx, texts) }
+			ctx, cancel := context.WithTimeout(context.Background(), embedHedgeFloor/2)
+			defer cancel()
+			_, err := hedgedEmbed(ctx, 5*time.Millisecond, []string{"q"}, primary, secondary)
+			if (name == "fails") != (err != nil) {
+				t.Fatalf("err = %v", err)
+			}
+			if n := second.Load(); n != 0 {
+				t.Fatalf("second workspace got %d requests with no budget left", n)
+			}
+		})
+	}
+}
+
+// Given budget for a second answer, When the primary fails or stalls, Then the second workspace answers.
+func TestHedgedEmbedFallsBackWithBudget(t *testing.T) {
+	fast := func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }
+	for name, primary := range map[string]embedFn{
+		"fails": func(context.Context, []string) ([][]float32, error) { return nil, errors.New("503") },
+		"stalls": func(ctx context.Context, _ []string) ([][]float32, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*embedHedgeFloor)
+			defer cancel()
+			v, err := hedgedEmbed(ctx, 5*time.Millisecond, []string{"q"}, primary, fast)
+			if err != nil || len(v) != 1 || v[0][0] != 1 {
+				t.Fatalf("got %v, %v", v, err)
+			}
+		})
+	}
+}

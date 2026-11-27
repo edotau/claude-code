@@ -813,6 +813,18 @@ func (r semanticResult) endpointFault() bool {
 // embedHedgeDelay is how long the first workspace may stay silent before a second one gets the same request.
 var embedHedgeDelay = 300 * time.Millisecond
 
+// embedHedgeFloor is the least a second workspace needs to answer; with less budget left a hedge only adds a 499.
+var embedHedgeFloor = 300 * time.Millisecond
+
+// hedgeRoom reports whether a second request launched wait from now still has embedHedgeFloor before ctx ends.
+func hedgeRoom(ctx context.Context, wait time.Duration) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	dl, ok := ctx.Deadline()
+	return !ok || time.Until(dl)-wait >= embedHedgeFloor
+}
+
 type embedFn = func(ctx context.Context, texts []string) ([][]float32, error)
 
 // hedgeFunc embeds with the next Databricks workspace after profile, or is nil when there is none.
@@ -851,17 +863,22 @@ func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, prima
 		parallel.Go(func() { v, err := f(ctx, texts); ch <- result{v, err} }, func(err error) { ch <- result{err: err} })
 	}
 	launch(primary)
-	pending := 1
+	pending, hedged := 1, false
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
-	tick := timer.C
+	var tick <-chan time.Time // nil when the budget cannot fit a second answer, so a stall never fires the hedge
+	if hedgeRoom(ctx, delay) {
+		tick = timer.C
+	}
 	var firstErr error
 	for pending > 0 {
 		select {
 		case <-tick:
-			tick = nil
-			launch(secondary)
-			pending++
+			tick, hedged = nil, true
+			if hedgeRoom(ctx, 0) {
+				launch(secondary)
+				pending++
+			}
 		case r := <-ch:
 			pending--
 			if r.err == nil {
@@ -870,8 +887,8 @@ func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, prima
 			if firstErr == nil {
 				firstErr = r.err
 			}
-			if tick != nil { // primary failed early: hedge now
-				tick = nil
+			if !hedged && hedgeRoom(ctx, 0) { // primary failed early: hedge now
+				tick, hedged = nil, true
 				launch(secondary)
 				pending++
 			}
