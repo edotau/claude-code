@@ -252,10 +252,8 @@ func validateParts(parts []loopPart) error {
 func ownsDisjoint(p loopPart, before []loopPart) error {
 	for _, q := range before {
 		for _, a := range p.Owns {
-			for _, b := range q.Owns {
-				if plans.OwnsOverlap(a, b) {
-					return fmt.Errorf("parts %q and %q both own %s (%s)", q.ID, p.ID, a, b)
-				}
+			if i := slices.IndexFunc(q.Owns, func(b string) bool { return plans.OwnsOverlap(a, b) }); i >= 0 {
+				return fmt.Errorf("parts %q and %q both own %s (%s)", q.ID, p.ID, a, q.Owns[i])
 			}
 		}
 	}

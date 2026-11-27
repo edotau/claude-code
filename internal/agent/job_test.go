@@ -442,7 +442,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
 	t.Parallel()
 	oldGrace, oldKillWait := cancelGrace, killWait
-	cancelGrace, killWait = 100*time.Millisecond, 100*time.Millisecond
+	cancelGrace, killWait = 25*time.Millisecond, 25*time.Millisecond
 	t.Cleanup(func() { cancelGrace, killWait = oldGrace, oldKillWait })
 	shortenPoll(t)
 	prevConfigDir, hadConfigDir := os.LookupEnv("CLAUDE_CONFIG_DIR")

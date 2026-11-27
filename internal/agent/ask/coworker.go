@@ -141,10 +141,11 @@ func autoProviderProfile(ctx context.Context, reg *providers.Registry, provider,
 			if ag != "" && !agent.CanServe(ag, p) {
 				return []agent.Finding{{Profile: p.Name, Check: "agent", Detail: p.Name + " cannot serve " + ag}}
 			}
-			if ag != "" && typedModel(m) {
-				if _, why := agent.ProfileServes(ag, p, m); why != "" {
-					return []agent.Finding{{Profile: p.Name, Check: "model", Detail: why}}
-				}
+			if ag == "" || !typedModel(m) {
+				return nil
+			}
+			if _, why := agent.ProfileServes(ag, p, m); why != "" {
+				return []agent.Finding{{Profile: p.Name, Check: "model", Detail: why}}
 			}
 			return nil
 		},

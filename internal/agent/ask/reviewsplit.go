@@ -166,10 +166,8 @@ func splitHunks(body []string, room int) []string {
 	pushHunk := func() {
 		for t := h.String(); t != ""; {
 			n := min(len(t), room)
-			if n < len(t) {
-				if i := strings.LastIndex(t[:n], "\n"); i >= 0 {
-					n = i + 1
-				}
+			if i := strings.LastIndex(t[:n], "\n"); n < len(t) && i >= 0 {
+				n = i + 1
 			}
 			hunks, t = append(hunks, t[:n]), t[n:]
 		}

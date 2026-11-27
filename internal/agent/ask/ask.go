@@ -3,7 +3,6 @@ package ask
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/serve"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/remote/network/remote"
@@ -423,11 +420,8 @@ func (r *askRun) checkArm() (int, bool) {
 		fallback, f.fallback = route.FallbackNone, route.FallbackNone
 	}
 	moves := r.typedStart(value, fallback)
-	nativeCtx := r.ctx
+	before := r.ctx
 	ownUnit := r.origins().Of("unit") == agentconfig.OriginFlag
-	if ownUnit { // a unit typed as a flag is the run's own route: --native meets only the resolved inherited fence
-		nativeCtx = withValues(r.ctx, proc.Values{route.OverlayVar: r.inherited.Doc()})
-	}
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
 	ctx, err := ApplyRouteOverlay(r.ctx, value, f.profile, agentName, f.model, fallback)
 	if err != nil {
@@ -438,16 +432,21 @@ func (r *askRun) checkArm() (int, bool) {
 	if r.ctx, err = withEndpoint(r.ctx, r.ov.Route()); err != nil {
 		return r.fail(err, 2)
 	}
-	if !ownUnit {
-		nativeCtx = r.ctx
-	}
-	if err := cmp.Or(checkNative(nativeCtx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
+	if err := cmp.Or(checkNative(r.nativeFenceCtx(ownUnit, before), f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
 	if !batchLines {
 		r.confined = confineLead(r.ctx, r.ag, f) || r.confined
 	}
 	return 0, false
+}
+
+// nativeFenceCtx is the context --native checks against: the inherited fence alone when a flag typed the run's unit.
+func (r *askRun) nativeFenceCtx(ownUnit bool, before context.Context) context.Context {
+	if ownUnit {
+		return withValues(before, proc.Values{route.OverlayVar: r.inherited.Doc()})
+	}
+	return r.ctx
 }
 
 // markAuto records an auto-picked workspace, including a replay that keeps the recorded route rather than a new fence.
@@ -593,94 +592,6 @@ func recordConfinement(own, rec route.Route) (route.Route, error) {
 	return rec, nil
 }
 
-// dispatchMode handles --batch, which ends the run before a single task is built.
-func (r *askRun) dispatchMode() (int, bool) {
-	f := r.f
-	if code, done := r.loopMode(); done {
-		return code, true
-	}
-	if f.batchSrc != "" { // --batch picks once from base flags; a single task checks after its record
-		if code, done := r.checkArm(); done {
-			return code, true
-		}
-		return r.runBatch()
-	}
-	if err := batchOnlyFlags(r.fs); err != nil {
-		return r.fail(err, 2)
-	}
-	return 0, false
-}
-
-// batchInputs is what --batch and --loop need from the flags: the pool options and the base request.
-func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done bool) {
-	f := r.f
-	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
-		return o, base, code, true
-	}
-	if err := googleToolsCheck(f); err != nil { // batchBase reads the list without a parse error; check it here
-		code, done = r.fail(err, 2)
-		return o, base, code, done
-	}
-	o = r.batchOpts()
-	if r.auto != "" {
-		o.Reg, _ = providers.Load() // a failed load keeps the batch's shared pick
-	}
-	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
-	if err != nil {
-		code, done = r.fail(err, 2)
-		return o, base, code, done
-	}
-	if code, done := r.export(); done {
-		return o, base, code, true
-	}
-	base, err = r.batchBase()
-	if err != nil {
-		code, done = r.fail(err, 2)
-		return o, base, code, done
-	}
-	return o, base.ApplyOverlay(r.ctx, ov), 0, false
-}
-
-// batchOpts is the pool options the flags give --batch and --loop; TimeoutHeld is read from them, never re-derived.
-func (r *askRun) batchOpts() batchOpts {
-	f := r.f
-	return batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as,
-		Swap: r.swap, Pending: map[string]int{}, TimeoutHeld: timeoutHeld(r.fs, r.ov)}
-}
-
-// runBatch runs --batch to completion; every path ends the run.
-func (r *askRun) runBatch() (int, bool) {
-	o, base, code, done := batchInputs(r)
-	if done {
-		return code, true
-	}
-	return runAskBatch(r.ctx, r.fs, r.f.batchSrc, o, base), true
-}
-
-// batchOnlyFlags refuses the first --batch-only flag typed without --batch.
-func batchOnlyFlags(fs *flag.FlagSet) error {
-	for _, name := range []string{"jobs", "fail-fast"} {
-		if helptext.Explicit(fs, name) {
-			return fmt.Errorf("--%s needs --batch", name)
-		}
-	}
-	return nil
-}
-
-func (r *askRun) batchBase() (agent.RunOptions, error) {
-	f := r.f
-	googleTools, err := googleToolNames(f.googleTools)
-	if err != nil {
-		return agent.RunOptions{}, err
-	}
-	_, values := agent.RunValues(r.ctx, nil)
-	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, NoTools: f.noTools, HTTPDirect: !f.tools && r.fs != nil && helptext.Explicit(r.fs, "tools"),
-		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, Codemode: f.codemode, CodemodeReason: f.codemodeReason, Runner: cmp.Or(f.runner, r.ov.Runner), GoogleTools: googleTools, EnableMemory: f.enableMemory, Direct: f.direct,
-		NoPersist: f.noPersist, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
-		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Values: values, Rotated: r.replayed.Rotated, FallbackDefaulted: r.fallbackDefaulted(),
-		FenceTyped: r.fenceTyped(), TypedFlags: r.f.cli, InheritedOverlay: r.inherited.Doc()}, nil
-}
-
 // fenceTyped: a typed --overlay or route flag confined the run; a --job relaunch keeps what its record says.
 func (r *askRun) fenceTyped() bool {
 	if r.jobRec != nil {
@@ -708,51 +619,6 @@ func resumeModel(f *askFlags) {
 	}
 }
 
-// resolveRecord reads the task and applies a --job or --retry record over the flags.
-func (r *askRun) resolveRecord() (int, bool) {
-	f := r.f
-	r.prompt = strings.Join(r.pos, " ")
-	r.state = r.askState()
-	typedTools := f.googleTools
-	if rc, done := r.applyRecord(); done {
-		return rc, true
-	}
-	f.googleTools = cmp.Or(typedTools, f.googleTools) // a typed list beats the record's
-	var err error
-	markTyped(r.fs, f) // again: applyRecord loaded the record's flag; a --model on this line beats it
-	resumeModel(f)
-	if rc, done := r.guardResubmit(); done {
-		return rc, true
-	}
-	if err := recordTools(f); err != nil {
-		return r.fail(err, 2)
-	}
-	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
-		return r.fail(err, 2)
-	}
-	if err := resolveAskHost(r.ov, f); err != nil {
-		return r.fail(err, 2)
-	}
-	r.ov.Runner = cmp.Or(f.runner, r.ov.Runner) // a replayed record's runner reaches the chain too
-	if err := cmp.Or(finalGoogleTools(f, typedTools), r.replayCodemode()); err != nil {
-		return r.fail(err, 2)
-	}
-	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
-		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
-			return r.fail(err, 2)
-		}
-	}
-	return 0, false
-}
-
-// replayCodemode rechecks --codemode after a --retry/--job record replaced the agent, route and mode.
-func (r *askRun) replayCodemode() error {
-	if r.f.retry == "" && r.f.job == "" {
-		return nil
-	}
-	return resolveCodemode(r.f, r.codemodeRoute())
-}
-
 // codemodeRoute is the unit the run will apply: the overlay's, or the confinement a --retry/--job record restores.
 func (r *askRun) codemodeRoute() route.Route {
 	rt := r.ov.Route()
@@ -770,76 +636,6 @@ func resolveCodemode(f *askFlags, rt route.Route) (err error) {
 	return err
 }
 
-// recordTools refuses the tools pair a --job/--retry record completes.
-func recordTools(f *askFlags) error {
-	if err := askExclusive(f.background, f.job, f.tools, f.noTools); err != nil {
-		return fmt.Errorf("%w: the replayed record sets one; type it off (--tools=false or --no-tools=false)", err)
-	}
-	return nil
-}
-
-// resumes reports whether a retry by agent name may reuse rec's session: its own, and one the agent saved.
-func resumes(rec agent.Record, name string) bool {
-	own := (rec.RanAs == "" || rec.RanAs == rec.Agent) && name == rec.Agent // never another agent's session
-	return own && (rec.Agent != "pi" || rec.Request.SessionID != "")        // pi runs --no-session unless one was named
-}
-
-// applyRecord applies a --job record, else a --retry record under the overlay's fold.
-func (r *askRun) applyRecord() (int, bool) {
-	f := r.f
-	var rc int
-	var done bool
-	if r.jobRec, rc, done = loadAskJob(f.job, f.format, r.state, &r.prompt); done {
-		return rc, true
-	}
-	if r.jobRec != nil {
-		r.ctx = jobRetried(r.ctx, *r.jobRec)
-		return r.takeRecordFence(r.jobRec.Request) // a --job record already holds the fold
-	}
-	if r.ctx, rc, done = loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
-		return rc, true
-	}
-	if f.recover {
-		if rc, done := r.recoverRetry(); done {
-			return rc, true
-		}
-	}
-	if f.retry != "" {
-		rec, err := agent.LoadRecord(f.retry)
-		if err != nil {
-			return r.fail(err, 1)
-		}
-		if err := r.mergeRecordOverlay(rec); err != nil {
-			return r.fail(err, 2)
-		}
-		r.ctx = retryLineage(r.ctx, rec)
-		if resumes(rec, f.name) && !f.recover && !helptext.Explicit(r.fs, "session") {
-			f.session = cmp.Or(rec.SessionID, f.session)
-		}
-	}
-	r.ov.Fold(r.fs) // the overlay beats a --retry record
-	return 0, false
-}
-
-// takeRecordFence restores a --job relaunch's typed flags, stored overlay limits, and parent document.
-func (r *askRun) takeRecordFence(req agent.RunOptions) (int, bool) {
-	if r.jobRec != nil {
-		if err := r.mergeRecordOverlay(*r.jobRec); err != nil {
-			return r.fail(err, 2)
-		}
-	}
-	r.f.cli, r.inherited = req.TypedFlags, agentconfig.Overlay{}
-	if req.InheritedOverlay == "" { // never the env: a relaunch's own context holds the parent's route, not its fence
-		return 0, false
-	}
-	inherited, err := agentconfig.LoadOverlayFrom(r.ctx, req.InheritedOverlay, nil, false)
-	if err != nil {
-		return r.fail(fmt.Errorf("--job record: inherited overlay: %w", err), 2)
-	}
-	r.inherited = inherited
-	return 0, false
-}
-
 // origins computes where each key of the run's overlay came from; nothing stores the result.
 func (r *askRun) origins() agentconfig.Provenance {
 	typed := agentconfig.Overlay{}
@@ -847,41 +643,6 @@ func (r *askRun) origins() agentconfig.Provenance {
 		typed = r.typedOv
 	}
 	return agentconfig.Origins(r.flagOverlayKeys(), typed, r.inherited, r.ov)
-}
-
-// resolveAskHost re-checks the overlay against --host and resolves it; a --retry/--job record may carry a --host.
-func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
-	if err := overlayLocal(ov, f.live, f.host); err != nil {
-		return err
-	}
-	var err error
-	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
-		return fmt.Errorf("%s %w", remote.Flag, err)
-	}
-	if remote.IsSelf(f.host) { // --host naming this machine runs here
-		f.host = ""
-	}
-	return nil
-}
-
-func (r *askRun) askState() *askState {
-	f := r.f
-	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, timeoutTyped: &f.timeoutTyped, Effort: &f.effort,
-		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, NoTools: &f.noTools,
-		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
-		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
-		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
-		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Runner: &f.runner, GoogleTools: &f.googleTools, Verify: &f.verify,
-		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed,
-		retype: func() {
-			if r.ovTyped {
-				typeOverlay(r.fs, r.typedOv, r.projected, true)
-			}
-			typeInherited(r.fs, r.ov, r.projected) // the parent's fence keys beat the record; typed flags beat both
-			if r.ov.Timeout != "" && !r.origins().Typed("timeout") {
-				r.f.timeoutTyped = false // an inherited deadline replaced the record's, typed or not
-			}
-		}}
 }
 
 // request is batchBase plus the single-task fields.
@@ -898,132 +659,6 @@ func (r *askRun) request(prompt string) (agent.RunOptions, error) {
 	o.Persona, o.Fallback, o.Native, o.Host, o.Rubric, o.Background = r.persona, f.fallback, f.native, f.host, f.rubric, f.background
 	o.AutoArm, o.Verify = r.auto != "", f.verify
 	return o, nil
-}
-
-// askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.
-func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
-	rc := askPrepare(ctx, fs, req, jobRec, doc, env, keepEnv, as, format, save, name, background, native, run, out)
-	releaseRecover(ctx)
-	return rc
-}
-
-// overlayedReq applies the resolved overlay to req and checks the agent can run it.
-func overlayedReq(ctx context.Context, req agent.RunOptions, doc agentconfig.Overlay, env, keepEnv []string, name string,
-	background bool) (agent.RunOptions, error) {
-	ov, err := resolveOverlay(doc, env, keepEnv, background)
-	if err != nil {
-		return req, err
-	}
-	req = req.ApplyOverlay(ctx, ov)
-	return req, agent.CheckCapabilities(name, req)
-}
-
-// askPrepare is askPrepareAndRun's body.
-func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
-	req, err := overlayedReq(ctx, req, doc, env, keepEnv, name, background)
-	if err != nil {
-		return failAskCode(format, name, err, 2)
-	}
-	cl := newClient()
-	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
-	req.Identity = cmp.Or(as, req.Identity)                                   // recorded: replay/reboot keeps a typed --as
-	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
-		return dryRun(ctx, req, dry, format, out)
-	}
-	if err := claimRecover(ctx); err != nil {
-		return failAsk(format, name, err)
-	}
-	prepared, err := prepareAdmitted(ctx, cl, req, jobRec, run)
-	if err != nil {
-		return failAskCode(format, name, err, prepareExitCode(err))
-	}
-	if err := takeClaim(jobRec, prepared.Record.ID); err != nil {
-		if jobRec != nil {
-			agent.RecordRefusal(jobRec.Agent, req, jobRec, err)
-		}
-		return failAsk(format, name, err)
-	}
-	finishRecover(ctx, prepared.Record.ID)
-	if err := startAsk(ctx, jobRec, &prepared.Record); err != nil {
-		return failAsk(format, name, err)
-	}
-	markRetryOf(ctx, &prepared.Record, background)
-	saveErr := startPrepared(cl, prepared, background)
-	if background {
-		return spawnHeld(ctx, fs, prepared, native, format, name, saveErr)
-	}
-	if code, unsaved := unsavedHeld(ctx, prepared.Record, format, saveErr); unsaved {
-		return code
-	}
-	return runSettled(ctx, cl, prepared, req, run, jobRec != nil, format, save, out)
-}
-
-// takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.
-func takeClaim(jobRec *agent.Record, id string) error {
-	claim := os.Getenv(agent.DispatchClaimEnv)
-	if err := proc.Unsetenv(agent.DispatchClaimEnv); err != nil {
-		return err
-	}
-	if jobRec != nil {
-		return nil
-	}
-	return agent.ClaimDispatchID(claim, id)
-}
-
-// markRetryOf names the retried run on a background retry's record, for its --job child.
-func markRetryOf(ctx context.Context, rec *agent.Record, background bool) {
-	if r, ok := agent.RetriedOf(ctx); ok && background {
-		rec.RetryOf = r.ID
-	}
-}
-
-// jobRetried makes a background retry's child replay the plan its parent took from the retried run.
-func jobRetried(ctx context.Context, rec agent.Record) context.Context {
-	if rec.RetryOf == "" {
-		return ctx
-	}
-	return agent.WithRetried(ctx, agent.Retried{ID: rec.RetryOf, Plan: rec.RoutePlan})
-}
-
-// startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.
-func startPrepared(cl *agent.Client, p *agent.Prepared, background bool) error {
-	for _, l := range p.Chain.Preflight.Lines() {
-		fmt.Fprintln(os.Stderr, "preflight:", l)
-	}
-	cl.Notify = quietPrinted(cl.Notify, p.Chain.Preflight)
-	err := p.Record.Save()
-	if err != nil && !background {
-		fmt.Fprintf(os.Stderr, "ask: warning: dispatch record not saved, --retry may not find it: %v\n", err)
-	}
-	return err
-}
-
-// quietPrinted drops the skip entries notify would repeat after pf's preflight: lines; other messages pass.
-func quietPrinted(notify func(string), pf *agent.Preflight) func(string) {
-	if notify == nil || pf == nil || len(pf.Failed) == 0 {
-		return notify
-	}
-	return func(s string) {
-		rest, ok := strings.CutPrefix(s, agent.SkippedLead)
-		if !ok {
-			notify(s)
-			return
-		}
-		kept := slices.DeleteFunc(strings.Split(rest, "; "), func(e string) bool {
-			return slices.ContainsFunc(pf.Failed, func(f agent.Finding) bool { return strings.HasSuffix(e, ": preflight "+f.String()) })
-		})
-		if len(kept) > 0 {
-			notify(agent.SkippedLead + strings.Join(kept, "; "))
-		}
-	}
-}
-
-func warnAskMemory(ag string, enableMemory bool) {
-	if s, ok := agent.LookupSchema(ag); enableMemory && ok && s.CLI.Caps.Memory == agent.None {
-		fmt.Fprintf(os.Stderr, "ask: --enable-memory has no effect on the %s agent (copilot only)\n", ag)
-	}
 }
 
 // routesItself: a record (no route flag typed), the --host end, or no profile/provider leaves the lead to Prepare.
@@ -1069,126 +704,4 @@ func narrowLead(ag string, f *askFlags, routed bool, fenced string) (string, err
 	}
 	f.profile = provider
 	return lead, nil
-}
-
-// prepareExitCode is the code a Prepare error names, else 1.
-func prepareExitCode(err error) int {
-	if _, ok := errors.AsType[*agent.UnacceptedError](err); ok || errors.Is(err, providers.ErrModelSpec) {
-		return 2
-	}
-	if usage, ok := errors.AsType[interface {
-		error
-		ExitCode() int
-	}](err); ok {
-		return usage.ExitCode()
-	}
-	return 1
-}
-
-// admitJob is serve.Admit; a test seam.
-var admitJob = serve.Admit
-
-// admitPending holds a detached job (jobRec set) until `agents serve` admits its pool; with no daemon it runs at once.
-func admitPending(ctx context.Context, jobRec *agent.Record) {
-	if jobRec != nil {
-		agent.NoteQueued(jobRec.ID, serve.PoolOf(*jobRec), os.Stderr)
-		defer agent.NoteQueued(jobRec.ID, "", os.Stderr)
-		admitJob(ctx, *jobRec, os.Stderr)
-	}
-}
-
-func prepareAdmitted(ctx context.Context, cl *agent.Client, req agent.RunOptions, jobRec *agent.Record, run *armRetry) (*agent.Prepared, error) {
-	admitPending(ctx, jobRec)
-	err := ctx.Err()
-	var prepared *agent.Prepared
-	if err == nil {
-		go warmMask() // resolve the vault key while Prepare runs
-		prepared, err = run.prepare(ctx, cl, req, jobRec)
-	}
-	if err != nil && jobRec != nil {
-		agent.RecordRefusal(jobRec.Agent, req, jobRec, err)
-	}
-	return prepared, err
-}
-
-// askSpawn detaches a prepared dispatch as a background job; its child starts from the run values it was prepared with.
-func askSpawn(ctx context.Context, fs *flag.FlagSet, prepared *agent.Prepared, native bool, format, name string) int {
-	if prepared.Opts.Values != nil {
-		ctx = proc.WithValues(ctx, prepared.Opts.Values)
-	}
-	if err := agent.SpawnContext(ctx, &prepared.Record, backgroundExtraFlags(fs, prepared.Opts.Fallback, native)); err != nil {
-		return failAsk(format, name, failSpawn(&prepared.Record, err))
-	}
-	if err := reportBackgroundStart(format, prepared.Record); err != nil {
-		return helptext.Fail("%s: job %s started; write job id: %v", name, prepared.Record.ID, err)
-	}
-	return 0
-}
-
-// stdoutSink is the sink behind stdout for format: streamed text, nothing (json prints one envelope), or NDJSON.
-func stdoutSink(format, dispatchID string) wire.Sink { return sinkTo(os.Stdout, format, dispatchID) }
-
-// sinkTo is stdoutSink writing to out.
-func sinkTo(out io.Writer, format, dispatchID string) wire.Sink {
-	switch format {
-	case helptext.JSON:
-		return wire.Discard
-	case agent.FormatStreamJSON:
-		return maskedEvents{wire.NewJSONLSink(out, dispatchID)}
-	}
-	return wire.NewTextSink(out)
-}
-
-// backgroundExtraFlags carries explicit routing and identity flags over to the spawned --job child.
-func backgroundExtraFlags(fs *flag.FlagSet, fallback string, native bool) []string {
-	var extra []string
-	fs.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "as":
-			extra = append(extra, "--as", f.Value.String())
-		case "fallback":
-			extra = append(extra, "--fallback", fallback)
-		case "native":
-			if native {
-				extra = append(extra, "--native")
-			}
-		}
-	})
-	return extra
-}
-
-// reportBackgroundStart tells the caller how to track a detached job.
-func reportBackgroundStart(format string, rec agent.Record) error {
-	if format == helptext.JSON {
-		return json.NewEncoder(os.Stdout).Encode(struct {
-			ID  string `json:"id"`
-			Log string `json:"log"`
-		}{rec.ID, rec.Log})
-	}
-	_, err := fmt.Printf("job %s started — claude-code agents status|result|cancel %s\n", rec.ID, rec.ID)
-	return err
-}
-
-// failAsk reports a pre-run failure; with --format json it prints the same envelope a run would.
-func failAsk(format, agentName string, err error) int { return failAskCode(format, agentName, err, 1) }
-
-// failAskCode is failAsk exiting with code (2 for a usage error).
-func failAskCode(format, agentName string, err error, code int) int {
-	printAskFailure(format, agentName, err)
-	helptext.Fail("ask: %v", err)
-	return code
-}
-
-// printAskFailure prints the typed failure envelope on stdout when format is json; a lost write is noted on stderr.
-func printAskFailure(format, agentName string, err error) {
-	var werr error
-	switch format {
-	case helptext.JSON:
-		werr = writeEnvelope(os.Stdout, wire.FailureEnvelope(agentName, err))
-	case agent.FormatStreamJSON:
-		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
-	}
-	if werr != nil {
-		fmt.Fprintf(os.Stderr, "ask: failure envelope not written to stdout: %v\n", werr)
-	}
 }

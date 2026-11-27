@@ -111,15 +111,22 @@ func JevPairs(ctx context.Context, tasks []string) []JevPair {
 
 var (
 	jevRecallRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<memory-recall>.*?</memory-recall>`) })
-	jevMetaRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*(?:Workdir|HARD CAP):.*$`) })
-	jevBlankRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n{3,}`) })
+	jevTailRe   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\n\s*(?:## Leaf rules|Review loop|Before reporting)`)
+	})
+	jevMetaRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?m)^[ \t]*(?:Tier|Workdir|Owned|Verify|Report|HARD CAP):.*$`)
+	})
+	jevBlankRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n{3,}`) })
 )
 
-// jevBrief keeps only the task text Open-Jev judges: no memory-recall, metadata headers, leaf rules or boilerplate.
+// jevBrief mirrors clean_brief in the router's finetune_jev.py so Open-Jev sees what it trained on; code spans stay.
 func jevBrief(prompt string) string {
-	text := jevRecallRe().ReplaceAllString(WithoutReviewLoop(prompt), "")
-	text, _, _ = strings.Cut(text, "\n## Leaf rules")
-	text = jevMetaRe().ReplaceAllString(boilerRe().ReplaceAllString(text, ""), "")
+	text := jevRecallRe().ReplaceAllString(prompt, "")
+	if loc := jevTailRe().FindStringIndex(text); loc != nil {
+		text = text[:loc[0]]
+	}
+	text = jevMetaRe().ReplaceAllString(text, "")
 	return strings.TrimSpace(jevBlankRe().ReplaceAllString(text, "\n\n"))
 }
 

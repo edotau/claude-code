@@ -1,17 +1,27 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	usagepkg "github.com/edotau/claude-code/internal/dev/usage"
+	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/remote/network/remote"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
 )
 
@@ -78,4 +88,578 @@ var RouteRefresh = usagepkg.RefreshAccount
 func newClient() *agent.Client {
 	return agent.NewClient(router.RuleClassifier{}.Alias, RouteRefresh,
 		func(s string) { fmt.Fprintln(os.Stderr, "ask:", s) })
+}
+
+// askTarget bundles the ask flag pointers that a logged dispatch's request overwrites on --job/--retry.
+type askTarget struct {
+	Name, Provider, Model, Effort, Workdir, Session           *string
+	Tools, NoTools, Autonomous, Fleet, EnableMemory, Direct   *bool
+	NoPersist, Native                                         *bool
+	DebugFile, SystemPrompt, AppendSystemPrompt, OutputSchema *string
+	Host, Fallback, Codemode, Runner, Verify                  *string
+	Coworker                                                  *route.Route
+	GoogleTools                                               *string
+	Timeout                                                   *time.Duration
+	Persona                                                   **agent.Schema
+	Pack                                                      **pack.Spec
+	Attach, KeepEnv                                           *[]string
+}
+
+// Apply copies a logged dispatch's request onto this ask invocation's flags via ReplayOverlay; env notes go to errw.
+func (t *askTarget) Apply(rec agent.Record, errw io.Writer) error {
+	ov, _, err := rec.ReplayOverlay(nil, agentconfig.Overlay{})
+	if err != nil {
+		return err
+	}
+	u := ov.Route()
+	*t.Name, *t.Provider, *t.Model, *t.Effort = rec.Agent, replayedProfile(rec.Request.Provider, u), cmp.Or(ov.Model, rec.Request.Model), rec.Request.Effort
+	*t.Workdir, *t.Session, *t.Tools, *t.Timeout = rec.Request.WorkDir, rec.Request.SessionID, rec.Request.Tools, rec.Request.Timeout
+	*t.Attach, *t.Autonomous, *t.Fleet, *t.EnableMemory = rec.Request.Attach, rec.Request.Autonomous, rec.Request.Fleet, rec.Request.EnableMemory
+	*t.KeepEnv, *t.Direct, *t.NoTools = rec.Request.KeepEnv, rec.Request.Direct, rec.Request.NoTools
+	*t.NoPersist, *t.DebugFile = rec.Request.NoPersist, rec.Request.DebugFile
+	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
+	*t.Host, *t.Codemode = rec.Host, rec.Request.Codemode
+	if rec.Request.Runner != "" { // records from before the field keep this run's runner
+		*t.Runner = rec.Request.Runner
+	}
+	if len(rec.Request.GoogleTools) > 0 && t.GoogleTools != nil {
+		*t.GoogleTools = strings.Join(rec.Request.GoogleTools, ",")
+	}
+	if t.Verify != nil { // a retried or replayed run repeats its spec's verify
+		*t.Verify = rec.Request.Verify
+	}
+	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
+	if fb := cmp.Or(ov.Fallback, rec.FallbackPolicy); fb != "" { // records from before the field keep this run's default
+		*t.Fallback = fb
+	}
+	if !u.IsZero() { // the workspace the run was confined to; an overlay provider still wins (checkArm)
+		*t.Coworker = u
+	}
+	if len(rec.Request.EnvNames) > 0 {
+		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
+	}
+	return nil
+}
+
+// replayedProfile is the profile a replay leads on: a recorded one follows the unit that answered, unset stays unset.
+func replayedProfile(recorded string, u route.Route) string {
+	if recorded == "" || u.Profile == "" || u.Profile == route.AutoArm {
+		return recorded
+	}
+	return u.Profile
+}
+
+// piRunnerTyped: this line typed runner pi, which cannot carry a recorded --as identity.
+func (r *askRun) piRunnerTyped() bool {
+	return r.f.runner == route.RunnerPi && (helptext.Explicit(r.fs, "runner") || r.typedOv.Runner != "")
+}
+
+// mergeRecordOverlay replays rec's stored overlay limits and unit under any keys typed on this command line.
+func (r *askRun) mergeRecordOverlay(rec agent.Record) error {
+	typed := agentconfig.Overlay{}
+	if r.ovTyped {
+		typed = r.typedOv
+	}
+	ov, _, err := rec.ReplayOverlay(r.flagOverlayKeys(), typed)
+	if err != nil {
+		return err
+	}
+	limits := agentconfig.Overlay{MaxChildren: ov.MaxChildren, MaxTreeTokens: ov.MaxTreeTokens,
+		MaxDepth: ov.MaxDepth, BudgetUSD: ov.BudgetUSD, BudgetCredits: ov.BudgetCredits}
+	if r.ov, err = r.ov.Derive(limits, agentconfig.HopFallback); err != nil {
+		return err
+	}
+	if !r.flagRoute && (!r.ovTyped || r.typedOv.Route().IsZero()) {
+		r.ov.Endpoint = cmp.Or(r.ov.Endpoint, ov.Endpoint)
+		r.ov.Account = cmp.Or(r.ov.Account, ov.Account)
+	}
+	if !helptext.Explicit(r.fs, "as") { // --as is what reaches the credentials: a typed overlay's beats the record's
+		r.f.as = cmp.Or(typed.Identity, rec.Request.Identity)
+		if !r.flagRoute && !r.piRunnerTyped() { // a typed route is a new unit; a typed pi runner takes no recorded identity
+			r.f.as = cmp.Or(r.f.as, ov.Identity)
+		}
+	}
+	return nil
+}
+
+func (r *askRun) flagOverlayKeys() []string {
+	var keys []string
+	for _, name := range r.f.cli {
+		if k, ok := askKeys[name]; ok {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+// askState is the askTarget plus the flag pointers --retry resets or --job clears.
+type askState struct {
+	askTarget
+	rubric       *string
+	env          *[]string
+	modelTyped   *bool   // --model typed on this command line or in the --job/--retry record
+	timeoutTyped *bool   // --timeout typed on this command line or in the --job/--retry record
+	lead         *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	retype       func()  // sets the typed --overlay's keys again: a --retry re-parse put the record's values there
+	// the --job/--retry record's request: its rotation and fallback-default marks
+	replayed *agent.RunOptions
+}
+
+func (r *askRun) askState() *askState {
+	f := r.f
+	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, timeoutTyped: &f.timeoutTyped, Effort: &f.effort,
+		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, NoTools: &f.noTools,
+		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
+		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist,
+		DebugFile: &f.debugFile, SystemPrompt: &f.systemPrompt, AppendSystemPrompt: &f.appendSystemPrompt,
+		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback, Codemode: &f.codemode, Runner: &f.runner, GoogleTools: &f.googleTools, Verify: &f.verify,
+		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead, replayed: &r.replayed,
+		retype: func() {
+			if r.ovTyped {
+				typeOverlay(r.fs, r.typedOv, r.projected, true)
+			}
+			typeInherited(r.fs, r.ov, r.projected) // the parent's fence keys beat the record; typed flags beat both
+			if r.ov.Timeout != "" && !r.origins().Typed("timeout") {
+				r.f.timeoutTyped = false // an inherited deadline replaced the record's, typed or not
+			}
+		}}
+}
+
+// resolveRecord reads the task and applies a --job or --retry record over the flags.
+func (r *askRun) resolveRecord() (int, bool) {
+	f := r.f
+	r.prompt = strings.Join(r.pos, " ")
+	r.state = r.askState()
+	typedTools := f.googleTools
+	if rc, done := r.applyRecord(); done {
+		return rc, true
+	}
+	f.googleTools = cmp.Or(typedTools, f.googleTools) // a typed list beats the record's
+	var err error
+	markTyped(r.fs, f) // again: applyRecord loaded the record's flag; a --model on this line beats it
+	resumeModel(f)
+	if rc, done := r.guardResubmit(); done {
+		return rc, true
+	}
+	if err := recordTools(f); err != nil {
+		return r.fail(err, 2)
+	}
+	if r.ref, r.ag, err = askReselect(r.ref, r.ag, &f.name, &r.persona, r.defs); err != nil {
+		return r.fail(err, 2)
+	}
+	if err := resolveAskHost(r.ov, f); err != nil {
+		return r.fail(err, 2)
+	}
+	r.ov.Runner = cmp.Or(f.runner, r.ov.Runner) // a replayed record's runner reaches the chain too
+	if err := cmp.Or(finalGoogleTools(f, typedTools), r.replayCodemode()); err != nil {
+		return r.fail(err, 2)
+	}
+	if f.outputSchema != "" { // re-resolve: a --retry/--job record may hold a resolved schema
+		if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
+			return r.fail(err, 2)
+		}
+	}
+	return 0, false
+}
+
+// replayCodemode rechecks --codemode after a --retry/--job record replaced the agent, route and mode.
+func (r *askRun) replayCodemode() error {
+	if r.f.retry == "" && r.f.job == "" {
+		return nil
+	}
+	return resolveCodemode(r.f, r.codemodeRoute())
+}
+
+// recordTools refuses the tools pair a --job/--retry record completes.
+func recordTools(f *askFlags) error {
+	if err := askExclusive(f.background, f.job, f.tools, f.noTools); err != nil {
+		return fmt.Errorf("%w: the replayed record sets one; type it off (--tools=false or --no-tools=false)", err)
+	}
+	return nil
+}
+
+// resumes reports whether a retry by agent name may reuse rec's session: its own, and one the agent saved.
+func resumes(rec agent.Record, name string) bool {
+	own := (rec.RanAs == "" || rec.RanAs == rec.Agent) && name == rec.Agent // never another agent's session
+	return own && (rec.Agent != "pi" || rec.Request.SessionID != "")        // pi runs --no-session unless one was named
+}
+
+// applyRecord applies a --job record, else a --retry record under the overlay's fold.
+func (r *askRun) applyRecord() (int, bool) {
+	f := r.f
+	var rc int
+	var done bool
+	if r.jobRec, rc, done = loadAskJob(f.job, f.format, r.state, &r.prompt); done {
+		return rc, true
+	}
+	if r.jobRec != nil {
+		r.ctx = jobRetried(r.ctx, *r.jobRec)
+		return r.takeRecordFence(r.jobRec.Request) // a --job record already holds the fold
+	}
+	if r.ctx, rc, done = loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
+		return rc, true
+	}
+	if f.recover {
+		if rc, done := r.recoverRetry(); done {
+			return rc, true
+		}
+	}
+	if rc, done := r.applyRetryRecord(); done {
+		return rc, true
+	}
+	r.ov.Fold(r.fs) // the overlay beats a --retry record
+	return 0, false
+}
+
+func (r *askRun) applyRetryRecord() (int, bool) {
+	f := r.f
+	if f.retry == "" {
+		return 0, false
+	}
+	rec, err := agent.LoadRecord(f.retry)
+	if err != nil {
+		return r.fail(err, 1)
+	}
+	if err := r.mergeRecordOverlay(rec); err != nil {
+		return r.fail(err, 2)
+	}
+	r.ctx = retryLineage(r.ctx, rec)
+	if resumes(rec, f.name) && !f.recover && !helptext.Explicit(r.fs, "session") {
+		f.session = cmp.Or(rec.SessionID, f.session)
+	}
+	return 0, false
+}
+
+// jobRetried makes a background retry's child replay the plan its parent took from the retried run.
+func jobRetried(ctx context.Context, rec agent.Record) context.Context {
+	if rec.RetryOf == "" {
+		return ctx
+	}
+	return agent.WithRetried(ctx, agent.Retried{ID: rec.RetryOf, Plan: rec.RoutePlan})
+}
+
+// takeRecordFence restores a --job relaunch's typed flags, stored overlay limits, and parent document.
+func (r *askRun) takeRecordFence(req agent.RunOptions) (int, bool) {
+	if r.jobRec != nil {
+		if err := r.mergeRecordOverlay(*r.jobRec); err != nil {
+			return r.fail(err, 2)
+		}
+	}
+	r.f.cli, r.inherited = req.TypedFlags, agentconfig.Overlay{}
+	if req.InheritedOverlay == "" { // never the env: a relaunch's own context holds the parent's route, not its fence
+		return 0, false
+	}
+	inherited, err := agentconfig.LoadOverlayFrom(r.ctx, req.InheritedOverlay, nil, false)
+	if err != nil {
+		return r.fail(fmt.Errorf("--job record: inherited overlay: %w", err), 2)
+	}
+	r.inherited = inherited
+	return 0, false
+}
+
+// resolveAskHost re-checks the overlay against --host and resolves it; a --retry/--job record may carry a --host.
+func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
+	if err := overlayLocal(ov, f.live, f.host); err != nil {
+		return err
+	}
+	var err error
+	if f.host, err = remote.ResolveAuto(f.host); err != nil { // here: a --retry re-parse may have typed auto again
+		return fmt.Errorf("%s %w", remote.Flag, err)
+	}
+	if remote.IsSelf(f.host) { // --host naming this machine runs here
+		f.host = ""
+	}
+	return nil
+}
+
+// loadAskJob loads a --job record for a background run continuation; rc/done are set only on an early return.
+func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Record, rc int, done bool) {
+	if job == "" {
+		return nil, 0, false
+	}
+	r, err := agent.ClaimJob(job) // claims the record for this process
+	if errors.Is(err, agent.ErrJobNotFresh) {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
+	if err != nil {
+		return nil, failAsk(format, *s.Name, err), true
+	}
+	if err := s.Apply(r, os.Stderr); err != nil {
+		return nil, failAskCode(format, *s.Name, err, 2), true
+	}
+	*s.modelTyped, *s.timeoutTyped = r.Request.ModelTyped, r.Request.TimeoutTyped
+	*s.lead, *s.replayed = r.Request.Lead, r.Request // the detached child leads with the profile the parent resolved
+	*prompt, *s.rubric = r.Request.Prompt, ""
+	return &r, 0, false
+}
+
+// loadAskRetry loads a --retry record, re-applies flags typed here, and marks ctx with the retried id and plan.
+func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, format string, s *askState,
+	prompt *string) (_ context.Context, rc int, done bool) {
+	if retry == "" {
+		return ctx, 0, false
+	}
+	rec, err := agent.LoadRecord(retry)
+	if err != nil {
+		return ctx, failAsk(format, *s.Name, err), true
+	}
+	// The logged request wins; only flags typed on this command line override it.
+	if err := s.Apply(rec, os.Stderr); err != nil {
+		return ctx, failAskCode(format, *s.Name, err, 2), true
+	}
+	*s.modelTyped, *s.timeoutTyped = rec.Request.ModelTyped, rec.Request.TimeoutTyped
+	*s.lead, *s.replayed = replayedProfile(rec.Request.Lead, *s.Coworker), rec.Request // the routed lead is not a flag: the replay leads with it
+	clearTyped(fs, s)
+	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
+		return ctx, failAskCode(format, *s.Name, err, 2), true
+	}
+	if s.retype != nil { // before the cut-off move and the plan read them, like the flags just re-parsed
+		s.retype()
+	}
+	if err := retryWorkdir(fs, s.Workdir, *s.Host, rec); err != nil {
+		return ctx, failAskCode(format, *s.Name, err, 2), true
+	}
+	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
+	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	moved := moveOffCutoff(fs, s, rec, os.Stderr, "")
+	ctx = withPlanTask(ctx, cmp.Or(planTaskOf(ctx), rec.PlanTask)) // the retry counts against the same task
+	return agent.WithRetried(ctx, agent.Retried{ID: rec.ID, Plan: replayPlan(fs, rec, moved)}), 0, false
+}
+
+// replayPlan is rec's plan for its retry: a cut-off workspace never leads, a claude move is its runner (D5).
+func replayPlan(fs *flag.FlagSet, rec agent.Record, moved bool) *agent.RoutePlan {
+	if rec.RoutePlan == nil {
+		return nil // a record from before route_plan replays as today
+	}
+	p := *rec.RoutePlan // PlanRoute reads only the replayed fields; slices are replaced, never mutated
+	if rec.CutOff() {
+		p.Pool, p.Admitted = nil, nil
+	}
+	if moved {
+		p.Agent, p.Barred = agentid.Claude, "a cut-off retry runs claude's own CLI"
+		p.Runners = []agent.Runner{{Kind: agent.RunnerCLI, Agent: agentid.Claude}}
+	}
+	if helptext.Explicit(fs, "runner") {
+		p.Runners = nil
+	}
+	if helptext.Explicit(fs, "fallback") {
+		p.Fallback = router.Policy{}
+	}
+	if helptext.Explicit(fs, "profile") || helptext.Explicit(fs, "provider") {
+		p.Pool, p.Admitted, p.Fence, p.Fenced = nil, nil, route.Fence{}, false
+	}
+	return &p
+}
+
+// retryWorkdir pins a retry to the directory the run used (its cwd, tree, else repo) and checks it exists.
+func retryWorkdir(fs *flag.FlagSet, workdir *string, host string, rec agent.Record) error {
+	if helptext.Explicit(fs, "workdir") || host != "" { // a remote path is not checkable here
+		return nil
+	}
+	dir := cmp.Or(rec.Cwd, rec.Request.WorkDir, rec.Tree, rec.Repo) // Cwd is absolute; a logged --workdir may be relative
+	if dir == "" {
+		return nil
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("--retry %s: the logged directory %s no longer exists; pass --workdir <dir> on the retry", rec.ID, dir)
+	}
+	*workdir = dir
+	return nil
+}
+
+// keepReason names why a retry stays on its cut-off route, "" when it may move.
+func keepReason(typedModel, noFallback bool, ran string) string {
+	switch {
+	case typedModel:
+		return "a typed model; drop --model or add --agent claude to move it"
+	case noFallback:
+		return "--fallback none; add --agent claude to move it"
+	case ran == "claude":
+		return "claude failed; add --agent <other> to move it"
+	}
+	return ""
+}
+
+// moveOffCutoff sends a cut-off run's retry to claude when nothing typed pins the route, else says how to move.
+func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) (moved bool) {
+	ran := cmp.Or(rec.RanAs, rec.Agent)
+	if !rec.CutOff() || rec.BudgetKind != "" || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent; a budget end never moves
+		return false
+	}
+	auto := agent.IsAuto(*s.Model) // typed auto asks for rotation, not a pin
+	typed, none := *s.modelTyped || helptext.Explicit(fs, "model") && !auto, *s.Fallback == route.FallbackNone
+	id := rec.ID + ago
+	if why := keepReason(typed, none, ran); why != "" {
+		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)
+		return false
+	}
+	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", route.Route{}
+	force := "--agent " + ran + " forces the original"
+	if ago != "" {
+		force = "--model or --fallback none keeps the original"
+	}
+	fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; retrying on claude (%s)\n", id, rec.Cutoff, ran, force)
+	return true
+}
+
+// guardResubmit reads a plain ask's task early (stdin once) so a resubmit of a recent cutoff can leave its route.
+func (r *askRun) guardResubmit() (int, bool) {
+	f := r.f
+	if f.retry != "" || f.job != "" || f.stdinFramed || f.live || r.persona != nil {
+		return 0, false
+	}
+	prompt, err := resolveAskPrompt(r.prompt)
+	if err != nil {
+		return failAsk(f.format, f.name, err), true
+	}
+	r.prompt = prompt // stdin is read once; execute takes it from here
+	guardResubmit(r.fs, r.state, prompt, os.Stderr, time.Now())
+	return 0, false
+}
+
+// retryLineage rejoins the retried run's parent only within the caller's own tree, or top-level while it still runs.
+func retryLineage(ctx context.Context, rec agent.Record) context.Context {
+	if rec.Parent == "" {
+		return ctx
+	}
+	_, values := agent.RunValues(ctx, nil)
+	caller := values[proc.DispatchIDEnv]
+	if caller == rec.ID { // agents send resumes a run as its own child
+		return ctx
+	}
+	p, err := agent.LoadRecord(rec.Parent)
+	if err != nil || (caller == "" && !p.Alive()) || (caller != "" && !inLineage(caller, rec.Parent)) {
+		return ctx
+	}
+	// The parent's own depth, not the caller's, so the rerun lands at parent depth+1.
+	depth := strconv.Itoa(p.Depth)
+	return proc.WithValues(ctx, values.Merge(proc.Values{proc.DispatchIDEnv: rec.Parent, proc.DispatchDepthEnv: depth}))
+}
+
+// inLineage reports whether id is caller or one of its recorded ancestors.
+func inLineage(caller, id string) bool {
+	for n := 0; caller != "" && n < 64; n++ { // bounded so a corrupt parent cycle cannot spin
+		if caller == id {
+			return true
+		}
+		rec, err := agent.LoadRecord(caller)
+		if err != nil {
+			return false
+		}
+		caller = rec.Parent
+	}
+	return false
+}
+
+// guardResubmit applies moveOffCutoff to a plain ask whose agent, model and task cut off within the last hour.
+func guardResubmit(fs *flag.FlagSet, s *askState, prompt string, errw io.Writer, now time.Time) {
+	e, ok := agent.RecentCutoff(agent.CutoffKey(*s.Name, *s.Model, prompt), now)
+	if !ok {
+		return
+	}
+	moveOffCutoff(fs, s, agent.Record{ID: e.ID, Agent: e.Agent, Cutoff: e.Kind}, errw, " ("+now.Sub(e.Time).Truncate(time.Second).String()+" ago)")
+}
+
+// clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.
+func clearTyped(fs *flag.FlagSet, s *askState) {
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "profile", "provider": // an explicit route on this command line replaces the logged lead
+			*s.lead = ""
+		case "attach":
+			*s.Attach = nil
+		case "keep-env":
+			*s.KeepEnv = nil
+		case "env":
+			*s.env = nil
+		}
+	})
+}
+
+// recoverKey carries a *recoverClaim: the dispatch a --recover targets and whether this run holds its marker.
+type recoverKey struct{}
+
+type recoverClaim struct {
+	from  string
+	nonce string // the claim's attempt: this run's own, or the watchdog's, handed down in ResumeNonceEnv
+	held  bool
+	err   error // a failed adoption: the run must not start (startAsk reads it)
+}
+
+func recoverOf(ctx context.Context) *recoverClaim {
+	c, _ := ctx.Value(recoverKey{}).(*recoverClaim)
+	return c
+}
+
+// claimRecover takes the one recovery claim on a dispatch, or joins the watchdog's launching one by its nonce.
+func claimRecover(ctx context.Context) error {
+	c := recoverOf(ctx)
+	if c == nil {
+		return nil
+	}
+	rec, err := agent.LoadRecord(c.from)
+	if err != nil {
+		return err
+	}
+	if nonce := os.Getenv(agent.ResumeNonceEnv); nonce != "" {
+		_ = proc.Unsetenv(agent.ResumeNonceEnv) // this run adopts it once; its children never inherit it
+		if !rec.ClaimedBy(nonce) {
+			return fmt.Errorf("dispatch %s: the watchdog's claim is gone", c.from)
+		}
+		c.nonce, c.held = nonce, true
+		return nil
+	}
+	got, nonce, err := agent.ClaimResend(rec.ID) // gate and claim in one record-lock section (10.4)
+	if errors.Is(err, agent.ErrHolderLive) {
+		return cmp.Or(checkResumable(got), err)
+	}
+	if err != nil {
+		return err
+	}
+	c.nonce, c.held = nonce, true
+	return nil
+}
+
+// finishRecover adopts the claim as the new dispatch id before anything starts; a failure is kept in c.err.
+func finishRecover(ctx context.Context, id string) {
+	if c := recoverOf(ctx); c != nil && c.held {
+		c.err = agent.AdoptResend(c.from, c.nonce, id)
+	}
+}
+
+// releaseRecover drops a --recover claim this run took and never adopted, so a failed start can be retried.
+func releaseRecover(ctx context.Context) {
+	if c := recoverOf(ctx); c != nil && c.held {
+		_ = agent.ReleaseResend(c.from, c.nonce) // an adopted or watchdog-launching claim is not this run's to drop
+	}
+}
+
+// recoverRetry turns a --retry into a recovery: swap in RecoveryPrompt and start a fresh session; the claim is later.
+func (r *askRun) recoverRetry() (int, bool) {
+	f := r.f
+	if f.retry == "" {
+		return r.fail(errors.New("--recover needs --retry <id>"), 2)
+	}
+	rec, err := agent.LoadRecord(f.retry)
+	if err != nil {
+		return r.fail(err, 1)
+	}
+	if rec.Alive() {
+		return r.fail(checkResumable(rec), 1)
+	}
+	r.ctx = context.WithValue(r.ctx, recoverKey{}, &recoverClaim{from: rec.ID})
+	if !helptext.Explicit(r.fs, "session") {
+		f.session = "" // never inherit the cut-off turn's session
+	}
+	if r.prompt != rec.Request.Prompt { // a typed task replaces the logged one: nothing to recover into
+		return 0, false
+	}
+	p, err := agent.RecoveryPrompt(rec, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: --recover: %v; plain retry\n", err)
+		return 0, false
+	}
+	r.prompt = p
+	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
+	return 0, false
 }

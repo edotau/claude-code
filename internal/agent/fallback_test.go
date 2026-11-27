@@ -612,6 +612,7 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 
 // An auth.command whose credential was issued for another host fails the hop as auth, and fallback moves on.
 func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
+	fastDefaultBackoff(t)
 	name := fmt.Sprintf("hmm%d", time.Now().UnixNano())
 	stubHostMismatch(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"`+name+`","providers":{"databricks":{"`+name+`":{"preset":"databricks",`+

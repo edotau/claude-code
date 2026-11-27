@@ -111,6 +111,9 @@ func canonTemp(t *testing.T, p string) string {
 // isolatedConfig isolates CLAUDE_CONFIG_DIR, HOME and XDG_CONFIG_HOME under fresh temp dirs.
 func isolatedConfig(t *testing.T) (cfg, home string) {
 	t.Helper()
+	prevRtk := readDreamRtk
+	readDreamRtk = func() ([]rtkMiss, error) { return nil, nil }
+	t.Cleanup(func() { readDreamRtk = prevRtk })
 	cfg = canonTemp(t, t.TempDir())
 	home = canonTemp(t, t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

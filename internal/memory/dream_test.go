@@ -315,16 +315,44 @@ func TestDreamPruneKeepsNamedLogs(t *testing.T) {
 	}
 }
 
+type dreamBatchCase struct {
+	name, answer string
+	changed      []string
+	fail, race   bool
+}
+
+func (tc dreamBatchCase) prepare(t *testing.T, sharedCfg, sharedHome, progress, conventions string) {
+	t.Helper()
+	shortBankWait(t)
+	if len(tc.changed) > 0 || tc.race {
+		isolatedConfig(t)
+		initTypedStore(t)
+		dreamTestFixture(t)
+		write(t, Path("progress.md"), progress)
+		write(t, Path("conventions.md"), conventions)
+		return
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", sharedCfg)
+	t.Setenv("HOME", sharedHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sharedHome, ".config"))
+	_ = os.RemoveAll(paths.MemoryStateDir())
+}
+
 // A canned typed answer applies outside the runner's lock scope and records only successful batches.
 func TestDreamAppliesTypedBatch(t *testing.T) {
 	t.Run("post-commit result", dreamTestPostCommit)
 	t.Run("mechanical archive", dreamTestArchive)
 	t.Run("snapshot limits and ambiguity", dreamTestSnapshot)
-	cases := []struct {
-		name, answer string
-		changed      []string
-		fail, race   bool
-	}{
+	oldExport := OpenExportDB
+	OpenExportDB = nil
+	t.Cleanup(func() { OpenExportDB = oldExport })
+	sharedCfg, sharedHome := isolatedConfig(t)
+	initTypedStore(t)
+	progress, conventions := dreamTestFixture(t)
+	write(t, Path("progress.md"), progress)
+	write(t, Path("conventions.md"), conventions)
+	refs := dreamTestRefs(t, progress, conventions)
+	for _, tc := range []dreamBatchCase{
 		{"apply", `{"ops":[{"op":"update","id":"UPDATE","read":"UPDATE","text":"Keep the verified next step"},{"op":"close","id":"CLOSE","read":"CLOSE","reason":"done"},{"op":"supersede","id":"1234abcd","read":"RULE","text":"Prefer the verified workflow"},{"op":"noop"}]}`, []string{"conventions.md", "progress.md"}, false, false},
 		{"identical update", `{"ops":[{"op":"update","id":"UPDATE","text":"Pending work"}]}`, nil, false, false},
 		{"add rejected", `{"ops":[{"op":"add","target":"conventions","text":"Unrequested addition"}]}`, nil, true, false},
@@ -342,19 +370,11 @@ func TestDreamAppliesTypedBatch(t *testing.T) {
 		{"trailing object", `{"ops":[]} {}`, nil, true, false},
 		{"atomic failure", `{"ops":[{"op":"close","id":"CLOSE","reason":"done"},{"op":"update","id":"UPDATE","text":"bad\n~~~"}]}`, nil, true, false},
 		{"changed since read", `{"ops":[{"op":"update","id":"UPDATE","text":"Overwrite concurrent work"}]}`, nil, true, true},
-	}
-	for _, tc := range cases {
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			isolatedConfig(t)
-			shortBankWait(t)
-			initTypedStore(t)
-			progress, conventions := dreamTestFixture(t)
-			write(t, Path("progress.md"), progress)
-			write(t, Path("conventions.md"), conventions)
-			refs := dreamTestRefs(t, progress, conventions)
+			tc.prepare(t, sharedCfg, sharedHome, progress, conventions)
 			answer := strings.NewReplacer("UPDATE", refs[0], "CLOSE", refs[1], "RULE", refs[2]).Replace(tc.answer)
-			run := dreamTestRunner(t, answer, refs, tc.race)
-			err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Trigger: "manual", Forced: true})
+			err := dream(dreamOptions{CWD: t.TempDir(), Run: dreamTestRunner(t, answer, refs, tc.race), Trigger: "manual", Forced: true})
 			if (err != nil) != tc.fail {
 				t.Fatalf("%s: dream = %v, want failure %t", tc.name, err, tc.fail)
 			}
@@ -584,6 +604,7 @@ func dreamTestListingText(t *testing.T, listing string) {
 // initTypedStore makes a temp store with the current layout stamp.
 func initTypedStore(t *testing.T) {
 	t.Helper()
+	initStore(t)
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}

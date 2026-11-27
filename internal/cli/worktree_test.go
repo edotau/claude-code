@@ -369,15 +369,16 @@ type worktreeLandCase struct {
 	landed   bool // g.txt holds the lane's content uncommitted in main
 	dirty    bool // main has its own untracked g.txt first; the land keeps both its lines and the lane's
 	kept     bool // the worktree is still on disk afterwards
+	readOnly bool // case exits before mutating main or the worktree; shares a pre-built fixture
 }
 
 var featureEdit = [2]string{"g.txt", "feature only\n"}
 
 var worktreeLandCases = []worktreeLandCase{
 	{name: "dry-run shows the clean plan", commit: featureEdit, args: []string{"--dry-run"}, ok: true,
-		out: []string{"clean"}, kept: true},
+		out: []string{"clean"}, kept: true, readOnly: true},
 	{name: "the retired --merge flag is an unknown flag", commit: featureEdit, args: []string{"--no-verify", "--merge"},
-		exit: 2, stderr: "merge", kept: true},
+		exit: 2, stderr: "merge", kept: true, readOnly: true},
 	{name: "no-verify lands uncommitted, removes the worktree, keeps the branch", commit: featureEdit,
 		args: []string{"--no-verify"}, ok: true, out: []string{"landed feature: 1 files uncommitted", "branch worktree-feature kept"},
 		landed: true},
@@ -390,18 +391,50 @@ var worktreeLandCases = []worktreeLandCase{
 		args: []string{"--verify", `test -f Makefile && [ "$(pwd -P)" = "{wt}" ]`}, ok: true,
 		out: []string{"verify: passed (flag)", "landed feature"}},
 	{name: "pipefail fails a failing first stage", commit: featureEdit, args: []string{"--verify", "false | cat"},
-		notOut: []string{"landed"}, stderr: "verify failed", kept: true},
+		notOut: []string{"landed"}, stderr: "verify failed", kept: true, readOnly: true},
 	{name: "no detectable gate refuses", commit: featureEdit, notOut: []string{"integrated", "landed"},
-		stderr: "no verification gate found", kept: true},
-	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true},
-	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true},
+		stderr: "no verification gate found", kept: true, readOnly: true},
+	{name: "unknown resolve-agent value", args: []string{"--resolve-agent", "gpt5"}, stderr: "unknown", kept: true, readOnly: true},
+	{name: "target mismatch", args: []string{"--target", "some-other-branch"}, out: []string{"target-mismatch"}, kept: true, readOnly: true},
 	{name: "dry-run resume needs an operation", args: []string{"--dry-run", "--resume"}, exit: 1,
-		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true},
+		notOut: []string{"clean"}, stderr: "no in-progress --resolve-agent operation", kept: true, readOnly: true},
+}
+
+type sharedLandFixture struct{ home, cfg, repo string }
+
+func (s sharedLandFixture) activate(t *testing.T, tc worktreeLandCase) (string, string) {
+	t.Helper()
+	if s.repo != "" {
+		t.Setenv("HOME", s.home)
+		t.Setenv("CLAUDE_CONFIG_DIR", s.cfg)
+		t.Chdir(s.repo)
+		return s.repo, landFixtureCLIWorktreePath(t, s.repo)
+	}
+	repo := landFixtureCLISetup(t)
+	wt := landFixtureCLIWorktreePath(t, repo)
+	if tc.commit[0] != "" {
+		landFixtureCLIWrite(t, wt, tc.commit[0], tc.commit[1], "feature advances")
+	}
+	return repo, wt
 }
 
 func TestCmdWorktreeLand(t *testing.T) {
+	noCommitRepo := landFixtureCLISetup(t)
+	sharedNoCommit := sharedLandFixture{home: os.Getenv("HOME"), cfg: os.Getenv("CLAUDE_CONFIG_DIR"), repo: noCommitRepo}
+	featRepo := landFixtureCLISetup(t)
+	landFixtureCLIWrite(t, landFixtureCLIWorktreePath(t, featRepo), featureEdit[0], featureEdit[1], "feature advances")
+	sharedFeature := sharedLandFixture{home: os.Getenv("HOME"), cfg: os.Getenv("CLAUDE_CONFIG_DIR"), repo: featRepo}
 	for _, tc := range worktreeLandCases {
-		t.Run(tc.name, func(t *testing.T) { runWorktreeLandCase(t, tc) })
+		t.Run(tc.name, func(t *testing.T) {
+			var shared sharedLandFixture
+			if tc.readOnly {
+				shared = sharedNoCommit
+				if tc.commit == featureEdit {
+					shared = sharedFeature
+				}
+			}
+			runWorktreeLandCase(t, tc, shared)
+		})
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -413,12 +446,8 @@ func TestCmdWorktreeLand(t *testing.T) {
 	}
 }
 
-func runWorktreeLandCase(t *testing.T, tc worktreeLandCase) {
-	repo := landFixtureCLISetup(t)
-	wt := landFixtureCLIWorktreePath(t, repo)
-	if tc.commit[0] != "" {
-		landFixtureCLIWrite(t, wt, tc.commit[0], tc.commit[1], "feature advances")
-	}
+func runWorktreeLandCase(t *testing.T, tc worktreeLandCase, shared sharedLandFixture) {
+	repo, wt := shared.activate(t, tc)
 	if tc.conflict {
 		landFixtureCLIWrite(t, repo, "f.txt", "main line\n", "main edits f")
 	}

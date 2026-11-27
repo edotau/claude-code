@@ -340,7 +340,7 @@ func errKind(e map[string]any) string {
 func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
-	pathstest.FakeNativeClaude(t, `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
+	pathstest.FakeNativeClaude(t, `p=$(cat); case "$p" in *SLOW*) sleep 0.05;; esac`+"\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
 	file := batchFile(t, cliTask(t, "slow", "SLOW task"), cliTask(t, "fast", "quick task"),

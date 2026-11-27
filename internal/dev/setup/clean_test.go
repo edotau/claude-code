@@ -10,12 +10,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/driver/copilot"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/platform/paths"
@@ -869,18 +869,47 @@ func TestCleanCopilotRegistryTargetKeepsLivePid(t *testing.T) {
 	}
 }
 
+var (
+	sandboxBaseTmp = os.TempDir()
+	sandboxTmpl    = sync.OnceValues(func() (string, error) {
+		res, err := memory.Sandbox(memory.SandboxOptions{Empty: true})
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(res.Dir)
+		dir, err := os.MkdirTemp(sandboxBaseTmp, "sandbox-tmpl-")
+		if err != nil {
+			return "", err
+		}
+		return dir, os.CopyFS(dir, os.DirFS(res.Dir))
+	})
+)
+
 // makeSandbox creates a real `memory sandbox` dir under TMPDIR (empty banks) and ages it.
 func makeSandbox(t *testing.T, age time.Duration) string {
 	t.Helper()
-	res, err := memory.Sandbox(memory.SandboxOptions{Empty: true})
+	tmpl, err := sandboxTmpl()
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-age)
-	if err := filepath.WalkDir(res.Dir, func(p string, _ os.DirEntry, _ error) error { return os.Chtimes(p, old, old) }); err != nil {
+	dir, err := os.MkdirTemp("", sandboxPrefix)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return res.Dir
+	if dir, err = filepath.Abs(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(dir, os.DirFS(tmpl)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memory.UpdateSandboxRegistry(dir); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-age)
+	if err := filepath.WalkDir(dir, func(p string, _ os.DirEntry, _ error) error { return os.Chtimes(p, old, old) }); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // sandboxFixture is a TMPDIR holding aged and young sandboxes plus look-alikes that must survive.
@@ -974,6 +1003,9 @@ func TestCleanListNamesMemorySandboxesAndDefaultSweeps(t *testing.T) {
 }
 
 func TestContractCleanSweeps(t *testing.T) {
+	origKeep := dispatchKeep
+	dispatchKeep = func() int { return 3 }
+	t.Cleanup(func() { dispatchKeep = origKeep })
 	for _, f := range schemas.All() {
 		if f.Clean == "" {
 			continue
@@ -989,7 +1021,7 @@ func TestContractCleanSweeps(t *testing.T) {
 				t.Fatalf("empty tree already reports a removal: %s", got)
 			}
 			if f.Clean == "dispatch-log" { // clean keeps the newest records at any age: bury the fixture below them
-				for i := range agent.DispatchKeep() {
+				for i := range dispatchKeep() {
 					writeOldCleanFixture(t, filepath.Join(filepath.Dir(path), fmt.Sprintf("zz-%04d.json", i)))
 				}
 			}

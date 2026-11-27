@@ -13,14 +13,14 @@ import (
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
-// The README's menu image is the current menu: a verb added or reworded without `make help-svg` fails the gate.
+// The README's menu image is the current menu: a verb added or reworded without `make generate` fails the gate.
 func TestMenuSVGIsCurrent(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join("..", "..", menuSVGPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, menuSVG()) {
-		t.Fatalf("%s is stale: run `make help-svg` and commit it", menuSVGPath)
+		t.Fatalf("%s is stale: run `make generate` and commit it", menuSVGPath)
 	}
 }
 

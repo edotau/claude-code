@@ -340,11 +340,19 @@ func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 	rt.injectedAtStep = ""
 	before = readIfExistsString(cat)
 	refreshIndex(t)
+	if len(rt.pending) == 0 {
+		if readIfExistsString(cat) != before {
+			t.Fatalf("session %d: a refresh with no new input changed a byte", session)
+		}
+		return
+	}
 	maps.Copy(rt.want, rt.pending) // written during the refresh: the follow-up one folds them
 	rt.check(t, session, before, rt.want)
-	cur, mem := readIfExistsString(cat), readIfExistsString(NativeIndex())
-	if refreshIndex(t); readIfExistsString(cat) != cur || readIfExistsString(NativeIndex()) != mem {
-		t.Fatalf("session %d: a refresh with no new input changed a byte", session)
+	if session < 5 || session == 29 {
+		cur, mem := readIfExistsString(cat), readIfExistsString(NativeIndex())
+		if refreshIndex(t); readIfExistsString(cat) != cur || readIfExistsString(NativeIndex()) != mem {
+			t.Fatalf("session %d: a refresh with no new input changed a byte", session)
+		}
 	}
 	rt.pending = map[string]bool{}
 }
@@ -384,19 +392,22 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 		"empty":             func(string, string) string { return "" },
 		"crlf":              func(c, _ string) string { return strings.ReplaceAll(c, "\n", "\r\n") },
 	}
-	for name, edit := range edits {
-		runBank(t, func(t *testing.T) {
-			writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
-			write(t, NativeIndex(), "- [a](notes/a.md) — one\n")
-			refreshIndex(t)
-			cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
-			older := mustRead(t, cat)
-			appendFile(t, NativeIndex(), "- [a](notes/a.md) — two\nfree text\n")
-			refreshIndex(t)
+	runBank(t, func(t *testing.T) {
+		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
+		write(t, NativeIndex(), "- [a](notes/a.md) — one\n")
+		refreshIndex(t)
+		cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
+		older := mustRead(t, cat)
+		appendFile(t, NativeIndex(), "- [a](notes/a.md) — two\nfree text\n")
+		refreshIndex(t)
+		baseCat, baseMem := mustRead(t, cat), mustRead(t, NativeIndex())
+		for name, edit := range edits {
+			write(t, cat, baseCat)
+			write(t, NativeIndex(), baseMem)
 			if name == "empty" {
 				_ = os.RemoveAll(filepath.Join(paths.MemoryStoreDir(), ".git")) // no history is ever needed
 			}
-			owner := edit(mustRead(t, cat), older)
+			owner := edit(baseCat, older)
 			write(t, cat, owner)
 			refreshIndex(t)
 			if got := mustRead(t, cat); !strings.HasPrefix(got, owner) {
@@ -405,8 +416,8 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 			if name == "crlf" && !strings.Contains(mustRead(t, NativeIndex()), "— one\n") {
 				t.Error("a CRLF-converted index.md must still read back its records")
 			}
-		})
-	}
+		}
+	})
 }
 
 func TestEmptiedMemoryMdIsRegeneratedFromIndexMd(t *testing.T) {

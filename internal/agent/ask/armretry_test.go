@@ -91,11 +91,7 @@ func askAuto(t *testing.T, profile, fallback string) (int, map[string]any, strin
 	t.Helper()
 	ov := `{"provider":"databricks","profile":"` + profile + `","fallback":"` + fallback + `"}`
 	code, out, stderr := runCLI(t, "ask", "--agent", "codex", "--overlay", ov, "--format", "json", "go")
-	var env map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &env); err != nil {
-		t.Fatalf("exit %d: stdout is not one envelope: %v\n%s\n%s", code, err, out, stderr)
-	}
-	return code, env, stderr
+	return code, decodeEnvelope(t, out), stderr
 }
 
 func hopProfiles(env map[string]any) []string {

@@ -108,8 +108,8 @@ func TestStopJevReleasesASpawnedJobsShadow(t *testing.T) {
 }
 
 func TestJevBriefStripsRecallAndMeta(t *testing.T) {
-	in := "<memory-recall>\nsecret old context\n</memory-recall>\nTier: deep\nWorkdir: /tmp/x\nHARD CAP: 5\nFix typo in README.md\nInvestigate race under concurrent writes\n\n## Leaf rules\nNever commit"
-	want := "Fix typo in README.md\nInvestigate race under concurrent writes"
+	in := "<memory-recall>\nsecret old context\n</memory-recall>\nTier: deep\nWorkdir: /tmp/x\nHARD CAP: 5\nFix typo in `README.md`\nInvestigate race under concurrent writes\n\n## Leaf rules\nNever commit"
+	want := "Fix typo in `README.md`\nInvestigate race under concurrent writes"
 	if got := jevBrief(in); got != want {
 		t.Fatalf("jevBrief = %q, want %q", got, want)
 	}

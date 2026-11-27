@@ -57,7 +57,7 @@ func rtkMissWord(cmd string) string {
 }
 
 // readDreamRtk lists the top commands run without rtk over the last 7 days.
-func readDreamRtk() ([]rtkMiss, error) {
+var readDreamRtk = func() ([]rtkMiss, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dreamRtkTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "rtk", "discover", "--all", "--since", "7", "--format", "json")

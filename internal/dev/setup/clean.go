@@ -77,7 +77,7 @@ func stateTargets() []target {
 	s := statePath
 	return []target{
 		{
-			name: "dispatch-log", doc: fmt.Sprintf("dispatch records past the newest %d, their logs and diffs", agent.DispatchKeep()),
+			name: "dispatch-log", doc: fmt.Sprintf("dispatch records past the newest %d, their logs and diffs", dispatchKeep()),
 			globs: func() []string {
 				return []string{s("dispatch", "*.json"), s("dispatch", "*.log"),
 					s("dispatch", "*"+paths.DispatchEventsSuffix), s("dispatch", "review-*.diff")}
@@ -463,7 +463,9 @@ func keepFreshOverlay(p string) bool {
 	return err != nil || !fi.Mode().IsRegular() || time.Since(fi.ModTime()) < overlayFreshWindow
 }
 
-// dispatchKeeper protects the files of the newest agent.DispatchKeep() records; an unreadable dir protects all.
+var dispatchKeep = agent.DispatchKeep
+
+// dispatchKeeper protects the files of the newest dispatchKeep() records; an unreadable dir protects all.
 func dispatchKeeper() func(string) bool {
 	var keep map[string]bool
 	var readable, checked bool
@@ -476,7 +478,7 @@ func dispatchKeeper() func(string) bool {
 	}
 }
 
-// newestDispatches returns the stems of the newest agent.DispatchKeep() records in dir; false when dir is unreadable.
+// newestDispatches returns the stems of the newest dispatchKeep() records in dir; false when dir is unreadable.
 func newestDispatches(dir string) (map[string]bool, bool) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -493,7 +495,7 @@ func newestDispatches(dir string) (map[string]bool, bool) {
 	}
 	sort.Strings(names) // ids lead with a UTC timestamp, so name order is age order
 	keep := map[string]bool{}
-	for i := len(names) - 1; i >= 0 && len(keep) < agent.DispatchKeep(); i-- {
+	for i := len(names) - 1; i >= 0 && len(keep) < dispatchKeep(); i-- {
 		keep[dispatchStem(names[i])] = true
 	}
 	return keep, true

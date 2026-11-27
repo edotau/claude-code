@@ -208,16 +208,16 @@ func TestTailFollowLateLines(t *testing.T) {
 		res <- tailRes{r, err}
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, _ = f.WriteString("late one\n")
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 	_, _ = f.WriteString("late two\n")
 	_ = f.Close()
-	if err := <-finishLater(rec, 50*time.Millisecond); err != nil {
+	if err := <-finishLater(rec, 15*time.Millisecond); err != nil {
 		t.Fatalf("finish Save: %v", err)
 	}
 

@@ -1227,10 +1227,10 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 		{"missing prompt", []string{"ask", "--format", "json"}, 2},
 		{"retry of unknown id", []string{"ask", "--format", "json", "--retry", "no-such-id"}, 1},
 	}
+	cliEnv(t)
+	cliFakes(t)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cliEnv(t)
-			cliFakes(t)
 			code, out, stderr := runCLI(t, c.argv...)
 			if code != c.code {
 				t.Fatalf("exit = %d, want %d\nstdout: %s\nstderr: %s", code, c.code, out, stderr)
@@ -1263,10 +1263,10 @@ func TestPrepareExitCodePrefixedPin(t *testing.T) {
 
 // An unknown --profile is a caller error: all five agents report an error envelope of kind usage, not fatal.
 func TestUnknownProfileErrorEnvelopeIsUsageKindForAllAgents(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
 	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
 		t.Run(name, func(t *testing.T) {
-			cliEnv(t)
-			cliFakes(t)
 			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", "nosuch", "--fallback", "none", "--format", "json", "x")
 			if code != 1 {
 				t.Errorf("exit = %d, want 1\nstderr: %s", code, stderr)

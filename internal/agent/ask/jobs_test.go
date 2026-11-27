@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/redact"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
-	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/route"
 )
 
@@ -220,7 +219,8 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 		if mode == "job" {
 			job = &agent.Record{Request: req}
 		}
-		return askPrepareAndRun(context.Background(), fs, req, job, agentconfig.Overlay{}, nil, nil, "", "json", "", "codex", mode == "background", false, nil, io.Discard)
+		r := &askRun{fs: fs, f: &askFlags{name: "codex", format: "json", background: mode == "background"}, jobRec: job, out: io.Discard}
+		return r.prepareAndRun(context.Background(), req)
 	})
 	if code != 2 || !strings.Contains(stderr, "--no-tools") {
 		t.Fatalf("%s refusal = %d, %s", mode, code, stderr)
@@ -280,7 +280,7 @@ func runResult(t *testing.T, o ResultOptions) (code int, stdout, stderr string) 
 func TestResultFollowStreamsLogThenTrailer(t *testing.T) {
 	jobsEnv(t)
 	rec := seedJob(t, time.Minute, "running", "first\n", os.Getpid())
-	done := finishAfter(rec, 100*time.Millisecond, "second\n", nil)
+	done := finishAfter(rec, 25*time.Millisecond, "second\n", nil)
 	code, out, stderr := runResult(t, ResultOptions{Agent: "codex", Follow: true})
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestResultFollowErroredAndLost(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	jobsEnv(t)
 	rec := seedJob(t, time.Minute, "running", "work\n", os.Getpid())
-	done := finishAfter(rec, 50*time.Millisecond, "", errors.New("boom"))
+	done := finishAfter(rec, 25*time.Millisecond, "", errors.New("boom"))
 	code, _, stderr := runResult(t, ResultOptions{Agent: "codex", Follow: true})
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -322,7 +322,7 @@ func TestResultFollowErroredAndLost(t *testing.T) {
 func TestResultFollowJSONPrintsOnlyEnvelope(t *testing.T) {
 	jobsEnv(t)
 	rec := seedJob(t, time.Minute, "running", "first\n", os.Getpid())
-	done := finishAfter(rec, 50*time.Millisecond, "second\n", nil)
+	done := finishAfter(rec, 25*time.Millisecond, "second\n", nil)
 	code, out, _ := runResult(t, ResultOptions{Agent: "codex", Follow: true, Format: "json"})
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -366,11 +366,7 @@ func TestResultEventsForwardsChildLines(t *testing.T) {
 		t.Fatalf("exit %d stderr %q", code, stderr)
 	}
 	var got []string
-	for ln := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		var ev wire.Event
-		if err := json.Unmarshal([]byte(ln), &ev); err != nil {
-			t.Fatalf("bad line %q: %v", ln, err)
-		}
+	for _, ev := range decodeEvents(t, out) {
 		got = append(got, ev.Type+"@"+ev.Via)
 	}
 	want := []string{"tool_use@" + child.ID, "takeover@" + pi.ID, "text@" + pi.ID, "result@"}

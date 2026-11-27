@@ -131,7 +131,7 @@ func TestLocalHopTakesOver(t *testing.T) {
 		want   bool // the local hop ran
 	}{
 		{name: "up", o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
-		{name: "slot wait debited", wait: 300 * time.Millisecond, o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
+		{name: "slot wait debited", wait: 25 * time.Millisecond, o: RunOptions{Prompt: "p", Timeout: time.Minute}, want: true},
 		{name: "down", o: RunOptions{Prompt: "p"}, refuse: true},
 		{name: "pinned backend", o: RunOptions{Prompt: "p", Provider: "databricks:dev"}},
 		{name: "repicks spent", herr: "503 Service Unavailable", o: RunOptions{Prompt: "p", Timeout: time.Minute, Repicks: MaxAutoRepicks}, want: true},

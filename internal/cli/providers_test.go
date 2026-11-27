@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/driver/claude"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -304,6 +304,9 @@ func TestSwitchWarmsMissingServedCache(t *testing.T) {
 
 // a listing failure prints the warning and still exits 0 with the pin written.
 func TestSwitchRefreshFailurePrintsAndExitsZero(t *testing.T) {
+	origSleep := textutil.RetrySleep
+	textutil.RetrySleep = func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
+	t.Cleanup(func() { textutil.RetrySleep = origSleep })
 	srv, n := statusServer(t, http.StatusInternalServerError)
 	qaProfile(t, srv.URL, true)
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa"}) })
@@ -648,7 +651,7 @@ func credSourceFixture(t *testing.T) (map[string]providers.Auth, string) {
 	if err := vault.Store("SOURCE_VAULT_KEY", credSourceValue); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(t.TempDir(), "fake-token")
+	file := t.TempDir() + "/fake-token"
 	if err := os.WriteFile(file, []byte(credSourceValue), 0o600); err != nil {
 		t.Fatal(err)
 	}

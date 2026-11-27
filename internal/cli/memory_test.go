@@ -936,15 +936,24 @@ func TestMemoryFeedbackParity(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Setenv("CLAUDE_MEMORY_DREAM_CHILD", "")
 	dir, _ := os.Getwd()
+	baseSnap := memCfg(t)
+	memInit(t)
+	feedbackSeed(t, dir)
+	approvedSnap := memCfg(t)
+	memMust(t, os.CopyFS(approvedSnap, os.DirFS(baseSnap)))
+	t.Chdir(t.TempDir())
+	memCLIOK(t, "feedback", "approve", "fc-b")
 	cases := feedbackParityCases()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			memCfg(t)
-			memInit(t)
+			cfg, src, pre := memCfg(t), baseSnap, tc.pre
+			if len(pre) > 0 && pre[0] == "approve fc-b" {
+				src, pre = approvedSnap, pre[1:]
+			}
+			memMust(t, os.CopyFS(cfg, os.DirFS(src)))
 			t.Chdir(t.TempDir())
-			feedbackSeed(t, dir)
-			for _, pre := range tc.pre {
-				memCLIOK(t, append([]string{"feedback"}, strings.Fields(pre)...)...)
+			for _, p := range pre {
+				memCLIOK(t, append([]string{"feedback"}, strings.Fields(p)...)...)
 			}
 			code, out, stderr := memCLI(t, tc.args...)
 			out = feedbackCwdRE.ReplaceAllString(out, `"cwd":"@CWD@"`)
