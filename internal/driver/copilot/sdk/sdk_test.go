@@ -866,3 +866,37 @@ func TestTruncationErrorLengthIsOutputBudget(t *testing.T) {
 		t.Fatalf("content filter is policy, not a budget: %v", err)
 	}
 }
+
+// Armed BYOK options scrub inherited GitHub logins while retaining the routed credentials and offline flag.
+func TestBuildClientOptionsArmedBYOK(t *testing.T) {
+	names := proc.OwnLoginEnv["copilot"]
+	for _, name := range names {
+		t.Setenv(name, "planted-gh-token")
+	}
+	o := Options{
+		CLIPath: "/bin/true", ChildUnset: names,
+		Env: []string{
+			proc.EnvCopilotProviderBaseURL + "=http://127.0.0.1:12345/p/fixture",
+			proc.EnvCopilotProviderBearerToken + "=fixture-session-token",
+			"COPILOT_OFFLINE=true",
+		},
+	}
+	co, err := buildClientOptions(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := proc.ValuesFromEnv(co.Connection.(copilot.StdioConnection).Env)
+	for _, name := range names {
+		if _, ok := child[name]; ok {
+			t.Errorf("inherited login %s reached the child", name)
+		}
+	}
+	for name, want := range proc.ValuesFromEnv(o.Env) {
+		if child[name] != want {
+			t.Errorf("child env %s = %q, want %q", name, child[name], want)
+		}
+	}
+	if co.GitHubToken != "" || co.UseLoggedInUser == nil || *co.UseLoggedInUser {
+		t.Error("armed BYOK must not use a GitHub login")
+	}
+}

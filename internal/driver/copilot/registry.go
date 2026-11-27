@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/driver/copilot/sdk"
-
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -49,7 +47,7 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 // copilotRegistryRoute is the multi-provider SDK wiring for one run: in-memory providers, a session token, no file.
 type copilotRegistryRoute struct {
 	providers []copilotRegistryProvider
-	models    []sdk.RegistryModel
+	models    []RegistryModel
 	ref       string
 	token     string
 	home      copilotPrivateHome
@@ -88,10 +86,10 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 }
 
 // apply puts the route on opts; the token reaches the SDK only as a callback result.
-func (rt *copilotRegistryRoute) apply(o *sdk.Options) {
-	o.Providers = make([]sdk.Provider, len(rt.providers))
+func (rt *copilotRegistryRoute) apply(o *Options) {
+	o.Providers = make([]Provider, len(rt.providers))
 	for i, p := range rt.providers {
-		o.Providers[i] = sdk.Provider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI, BaseURL: p.BaseURL, Headers: p.Headers}
+		o.Providers[i] = Provider{Name: p.Name, Type: p.Type, WireAPI: p.WireAPI, BaseURL: p.BaseURL, Headers: p.Headers}
 	}
 	o.Models, o.Model = rt.models, rt.ref
 	o.Token = func() (string, error) { return rt.token, nil }
@@ -115,7 +113,7 @@ type copilotRegistry struct {
 	Profile   string
 	Base      string // router base the registry was built on
 	Providers []copilotRegistryProvider
-	Models    []sdk.RegistryModel
+	Models    []RegistryModel
 	// one line naming the endpoints dropped because the profile has no route for them; "" when none
 	Note string
 }
@@ -149,10 +147,10 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 			r.Providers = append(r.Providers, newCopilotRegistryProvider(name, wire, base, p))
 		}
 		window, output := copilotCaps(providers.Window(p, ep.ID), ep.ID)
-		r.Models = append(r.Models, sdk.RegistryModel{
+		r.Models = append(r.Models, RegistryModel{
 			// the full endpoint name, so the picker shows it is Databricks
 			ID: canonical, Provider: name, WireModel: ep.ID, Name: ep.ID,
-			ModelID:         runtimeModelID(sdk.WellKnownModel(canonical), ep.ID),
+			ModelID:         runtimeModelID(WellKnownModel(canonical), ep.ID),
 			MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window, MaxOutputTokens: output,
 		})
 	}
@@ -269,11 +267,11 @@ func (r copilotRegistry) defaultRef() string {
 func (r copilotRegistry) find(s string, miss error) (string, error) {
 	s = strings.TrimSpace(s)
 	canonical, _, _ := models.Resolve(s)
-	for _, match := range []func(sdk.RegistryModel) bool{
-		func(m sdk.RegistryModel) bool { return m.Ref() == s },
-		func(m sdk.RegistryModel) bool { return m.ID == s },
-		func(m sdk.RegistryModel) bool { return m.WireModel == s },
-		func(m sdk.RegistryModel) bool { return canonical != "" && m.ID == canonical },
+	for _, match := range []func(RegistryModel) bool{
+		func(m RegistryModel) bool { return m.Ref() == s },
+		func(m RegistryModel) bool { return m.ID == s },
+		func(m RegistryModel) bool { return m.WireModel == s },
+		func(m RegistryModel) bool { return canonical != "" && m.ID == canonical },
 	} {
 		var hits []string
 		for _, m := range r.Models {

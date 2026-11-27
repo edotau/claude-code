@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/driver/copilot/sdk"
-
 	"github.com/edotau/claude-code/internal/driver/copilotauth"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
@@ -42,9 +40,9 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	old := sdkListModels
 	t.Cleanup(func() { sdkListModels = old })
 	calls := 0
-	sdkListModels = func(context.Context, sdk.Options) ([]sdk.Model, error) {
+	sdkListModels = func(context.Context, Options) ([]Model, error) {
 		calls++
-		return []sdk.Model{{ID: "account-b-model"}}, nil
+		return []Model{{ID: "account-b-model"}}, nil
 	}
 	got, err := refreshCatalog(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
@@ -61,9 +59,9 @@ func TestCatalogRefreshesAfterEnvironmentTokenChange(t *testing.T) {
 	old := sdkListModels
 	t.Cleanup(func() { sdkListModels = old })
 	calls := 0
-	sdkListModels = func(_ context.Context, opts sdk.Options) ([]sdk.Model, error) {
+	sdkListModels = func(_ context.Context, opts Options) ([]Model, error) {
 		calls++
-		return []sdk.Model{{ID: opts.GitHubToken + "-model"}}, nil
+		return []Model{{ID: opts.GitHubToken + "-model"}}, nil
 	}
 	assertCatalogModel(t, "fixture-token-a-model")
 	assertCatalogModel(t, "fixture-token-a-model")

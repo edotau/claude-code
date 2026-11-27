@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/cli"
+	_ "github.com/edotau/claude-code/internal/driver/copilot/sdk"
 	_ "github.com/edotau/claude-code/internal/memory/shadow"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"

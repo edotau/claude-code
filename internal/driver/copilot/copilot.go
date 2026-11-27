@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/driver/copilot/sdk"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/driver/copilotauth"
@@ -119,7 +117,7 @@ func liveUsage(sink wire.Sink) func(wire.Usage) {
 }
 
 // emptyText settles a run with no text: a placeholder answer after tool work, else the empty-answer failure.
-func emptyText(res wire.Result, out sdk.Result, sink wire.Sink) (wire.Result, error) {
+func emptyText(res wire.Result, out Result, sink wire.Sink) (wire.Result, error) {
 	res, err := agent.EmptyOrWorked("copilot", res, out.ToolRan)
 	if err != nil {
 		return res, err
@@ -138,7 +136,7 @@ func initialResult(cs agent.Schema, t providers.Target) (wire.Result, error) {
 }
 
 // runCredentials are the run's secrets to mask: route env credentials, secret-named --env values, the registry token.
-func runCredentials(opts sdk.Options, env []string, req agent.RunOptions) []string {
+func runCredentials(opts Options, env []string, req agent.RunOptions) []string {
 	creds := credentialValues(slices.Concat(env, req.Env))
 	if opts.Token != nil {
 		if tok, err := opts.Token(); err == nil && tok != "" {
@@ -155,7 +153,7 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 
 // options builds the SDK options for target t; env is the BYOK route env.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
-) (opts sdk.Options, env []string, err error) {
+) (opts Options, env []string, err error) {
 	st, err := agent.PrepareLaunch(ctx, e, req, t, nil)
 	if err != nil {
 		return opts, nil, copilotFatal(err)
@@ -181,7 +179,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 }
 
 // routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.
-func routeOptions(opts *sdk.Options, rt *copilotRegistryRoute, env []string, req agent.RunOptions) error {
+func routeOptions(opts *Options, rt *copilotRegistryRoute, env []string, req agent.RunOptions) error {
 	if rt != nil {
 		rt.apply(opts)
 	}
@@ -201,7 +199,7 @@ func macOSDatabricks(t providers.Target) bool {
 }
 
 // armBYOK keeps the GitHub login off an armed BYOK hop's model traffic; the CLI can still read its Keychain login.
-func armBYOK(o *sdk.Options) {
+func armBYOK(o *Options) {
 	o.GitHubToken, o.UseLoggedInUser, o.ChildUnset = "", false, copilotStripEnv
 }
 
@@ -217,7 +215,7 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 }
 
 // newSDKOptions builds the SDK options for one run from the CLI path, route env, request and resolved settings.
-func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdk.Options, error) {
+func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (Options, error) {
 	var model string
 	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
 		// no BYOK block: the catalog id itself, [1m] dropped
@@ -228,11 +226,11 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		// the session runs in an explicit directory
 		var err error
 		if workDir, err = os.Getwd(); err != nil {
-			return sdk.Options{}, fmt.Errorf("resolve working directory: %w", err)
+			return Options{}, fmt.Errorf("resolve working directory: %w", err)
 		}
 	}
 	effort, note := modelEffort(s)
-	o := sdk.Options{
+	o := Options{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, BudgetCredits: req.BudgetCredits,
 		// --effort over the record; there is no per-call --context, so the record decides it
 		ReasoningEffort: effort,
@@ -308,7 +306,7 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 }
 
 // markToolRan marks progress when the SDK run approved a tool, so a run that acted is not replayed.
-func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
+func markToolRan(out Result, sink wire.Sink, err error) error {
 	if out.ToolRan {
 		err = errors.Join(err, sink.Emit(wire.Event{Type: wire.EventProgress}))
 	}
@@ -316,7 +314,7 @@ func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
 }
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
-func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) (wire.Result, error) {
+func copilotPartial(res wire.Result, out Result, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage, res.Written = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage, out.Written
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
@@ -330,7 +328,7 @@ func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) 
 var errNoResponse = errors.New(agent.NoResponse)
 
 // noResponse types a run that produced nothing as errNoResponse (fatal); any other outcome passes err through.
-func noResponse(out sdk.Result, err error) error {
+func noResponse(out Result, err error) error {
 	if strings.TrimSpace(out.Text) != "" || out.ToolRan {
 		return err
 	}
@@ -348,10 +346,15 @@ func copilotFatal(err error) error {
 }
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
-var copilotAsk = sdk.Ask
+var copilotAsk = func(ctx context.Context, o Options, prompt string, images []string) (Result, error) {
+	if SDKAsk == nil {
+		return Result{}, errNoSDK
+	}
+	return SDKAsk(ctx, o, prompt, images)
+}
 
 // applyCopilotToken puts the harness account's env token on the SDK's token field.
-func applyCopilotToken(opts *sdk.Options, env []string) {
+func applyCopilotToken(opts *Options, env []string) {
 	// the harness's chosen account rides the SDK's own token field, not the stored login
 	for _, kv := range env {
 		if tok, ok := strings.CutPrefix(kv, providers.CopilotTokenEnv+"="); ok && tok != "" {
@@ -520,7 +523,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-	MinVersion: sdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
+	MinVersion: MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},

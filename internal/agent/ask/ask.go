@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	_ "github.com/edotau/claude-code/internal/driver/copilot/sdk"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/remote/network/remote"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
