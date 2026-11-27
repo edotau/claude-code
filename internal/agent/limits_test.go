@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -262,5 +263,59 @@ func TestTreeBudgetRefusalIsTokensBudget(t *testing.T) {
 	_, err := claimLimitedRecord(ctx, "codex", Record{ID: "kid", Parent: limitParent, Status: "running", Time: time.Now()})
 	if retry.BudgetOf(err) != retry.BudgetTokens || retry.MayRedispatch(err) {
 		t.Fatalf("tree cap: budget %q err %v", retry.BudgetOf(err), err)
+	}
+}
+
+func TestLiveDispatchChildrenPrunesDeletedAndShortKeys(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"a", "b"} {
+		rec := Record{ID: id, Parent: limitParent, Status: "running", PID: os.Getpid(), Time: time.Now()}
+		body, err := rec.encode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := liveDispatchChildren(dir, limitParent); n != 2 {
+		t.Fatalf("children = %d, want 2", n)
+	}
+	if err := os.Remove(filepath.Join(dir, "a.json")); err != nil {
+		t.Fatal(err)
+	}
+	if n := liveDispatchChildren(dir, limitParent); n != 1 {
+		t.Fatalf("children after delete = %d, want 1", n)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, childIndexFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var idx map[string]childEntry
+	if err := json.Unmarshal(raw, &idx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := idx["b"]; !ok || len(idx) != 1 {
+		t.Fatalf("index keys = %v, want only b", idx)
+	}
+}
+
+func TestRecordSaveSkipsIdenticalBytes(t *testing.T) {
+	setConfigDir(t)
+	rec := benchAskRecord(time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC), 0)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(paths.DispatchDir(), rec.ID+".json")
+	b := &testing.B{}
+	if n := countReplaces(b, path, func() { _ = rec.Save() }); n != 0 {
+		t.Fatalf("identical Save replaced the file %d times", n)
+	}
+	rec.Model = "changed"
+	if n := countReplaces(b, path, func() { _ = rec.Save() }); n != 1 {
+		t.Fatalf("changed Save replaced the file %d times, want 1", n)
+	}
+	if got, err := LoadRecord(rec.ID); err != nil || got.Model != "changed" {
+		t.Fatalf("loaded %q, %v", got.Model, err)
 	}
 }

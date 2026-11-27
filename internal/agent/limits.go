@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -110,13 +111,14 @@ func liveDispatchChildren(dir, parent string) int {
 	changed := len(old) != len(names)
 	count := 0
 	for _, n := range names {
-		e, ok := childEntryFor(filepath.Join(dir, n), old[n])
+		key := strings.TrimSuffix(n, ".json") // short keys keep the multi-MB index small to decode
+		e, ok := childEntryFor(filepath.Join(dir, n), old[key])
 		if !ok {
 			changed = true
 			continue
 		}
-		changed = changed || e != old[n]
-		next[n] = e
+		changed = changed || e != old[key]
+		next[key] = e
 		if e.Parent == parent && inflight.DispatchAlive(e.Status, e.PID, e.Time) {
 			count++
 		}

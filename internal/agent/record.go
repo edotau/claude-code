@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -504,9 +505,9 @@ func (r Record) saveLocked() error {
 		return err
 	}
 	path := filepath.Join(dir, r.ID+".json")
-	_, statErr := os.Lstat(path)
-	if r.Report == "" && statErr == nil { // a stale snapshot never drops the report `memory report --job` stored
-		if cur, err := readRecord(path); err == nil {
+	old, readErr := os.ReadFile(path)
+	if r.Report == "" && readErr == nil { // a stale snapshot never drops the report `memory report --job` stored
+		if cur, err := decodeRecord(old); err == nil {
 			r.Report = cur.Report
 		}
 	}
@@ -514,10 +515,13 @@ func (r Record) saveLocked() error {
 	if err != nil {
 		return err
 	}
+	if readErr == nil && bytes.Equal(old, b) {
+		return nil // identical bytes on disk: skip the temp write, fsync and rename
+	}
 	if err := paths.AtomicWrite(path, b, 0o600); err != nil {
 		return err
 	}
-	if errors.Is(statErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
+	if errors.Is(readErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
 		pruneDispatches(dir, r.ID)
 	}
 	return nil

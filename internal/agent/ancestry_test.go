@@ -165,7 +165,7 @@ func TestAncestryRecordsUseChildIndex(t *testing.T) {
 			garbleKeepingStat(t, filepath.Join(dir, other.ID+".json"))
 		}
 	}
-	if idx := readChildIndex(dir); len(idx) != 2 || idx[other.ID+".json"].PID != other.PID {
+	if idx := readChildIndex(dir); len(idx) != 2 || idx[other.ID].PID != other.PID {
 		t.Fatalf("index = %+v", idx)
 	}
 }

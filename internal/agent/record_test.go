@@ -1251,8 +1251,8 @@ func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 	for _, s := range steps {
 		writes += countReplaces(b, path, s.run)
 	}
-	if writes != 2 {
-		b.Fatalf("pre-exec sequence made %d AtomicWrite replacements, want 2", writes)
+	if writes != 1 { // Save of the unchanged claimed record is coalesced away
+		b.Fatalf("pre-exec sequence made %d AtomicWrite replacements, want 1", writes)
 	}
 	for _, s := range steps {
 		b.Run(s.name, func(b *testing.B) {
@@ -1260,7 +1260,7 @@ func BenchmarkUpdateRecordAskPreExec(b *testing.B) {
 			for b.Loop() {
 				s.run()
 			}
-			b.ReportMetric(1, "atomicwrites/op")
+			b.ReportMetric(float64(countReplaces(b, path, s.run)), "atomicwrites/op")
 		})
 	}
 	b.Run("All", func(b *testing.B) {

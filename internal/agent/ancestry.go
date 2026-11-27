@@ -116,12 +116,13 @@ func scanAncestors(dir string, chain map[int]int) (map[string]childEntry, []Reco
 	changed := false
 	var recs []Record
 	for _, n := range names {
-		e, rec, ok := pidEntry(filepath.Join(dir, n), old[n], chain)
+		key := strings.TrimSuffix(n, ".json")
+		e, rec, ok := pidEntry(filepath.Join(dir, n), old[key], chain)
 		if !ok {
 			continue
 		}
-		changed = changed || e != old[n]
-		next[n] = e
+		changed = changed || e != old[key]
+		next[key] = e
 		if _, hit := chain[rec.PID]; hit && rec.ID != "" {
 			recs = append(recs, rec)
 		}
@@ -141,12 +142,12 @@ func readChildIndex(dir string) map[string]childEntry {
 func indexedAncestors(dir string, next map[string]childEntry) {
 	cur := readChildIndex(dir)
 	changed := false
-	for n, e := range next {
-		c, ok := cur[n]
-		if c == e || ok && (c.Mod != e.Mod || c.Size != e.Size) && !statIs(filepath.Join(dir, n), e) {
+	for k, e := range next {
+		c, ok := cur[k]
+		if c == e || ok && (c.Mod != e.Mod || c.Size != e.Size) && !statIs(filepath.Join(dir, k+".json"), e) {
 			continue
 		}
-		cur[n], changed = e, true
+		cur[k], changed = e, true
 	}
 	if !changed {
 		return
