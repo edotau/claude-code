@@ -32,6 +32,10 @@ import (
 
 type geminiEngine struct{ agent.BaseEngine }
 
+var geminiAgent = geminiEngine{agent.NewBaseEngine("gemini").WithRouteCaps(agent.RouteCaps{
+	FallbackLogin: agent.LoginFallback{Provider: "google", Note: "gemini (Google login via agy)"},
+})}
+
 var (
 	_ agent.HeadlessDriver = geminiEngine{}
 	_ agent.Authenticator  = geminiEngine{}
@@ -84,17 +88,16 @@ func (geminiEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headle
 	return geminiGateway(ctx, r.Provider, r.Target.Model, h) // always routed: router fixes agy's Databricks requests
 }
 
+// FallbackTarget probes before registry selection so an unreadable marker always emits its diagnostic.
 func (e geminiEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
 	present, perr := geminiLoginProbe()
 	if perr != nil {
 		fmt.Fprintf(os.Stderr, "gemini: agy login marker unreadable, Google-login fallback dropped: %v\n", perr)
 	}
-	if p, ok := reg.LoginProfile("google", e.Name()); ok && present {
-		// the GEMINI_MODEL pin beats the registry's bare slot id
-		t := agent.PinnedTarget(ctx, e.Name(), providers.Target{Provider: p, Model: p.Models[models.Opus]})
-		return t, "gemini (Google login via agy)", true
+	if !present {
+		return providers.Target{}, "", false
 	}
-	return providers.Target{}, "", false
+	return e.BaseEngine.FallbackTarget(ctx, reg)
 }
 
 // AuthStatus is agy's cached Google login from disk: AuthNone when absent, Err when unreadable.
@@ -1017,7 +1020,7 @@ func (b *agyLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text st
 }
 
 func init() {
-	agent.Register(agent.Agent{Row: row, Driver: geminiEngine{agent.NewBaseEngine("gemini")}})
+	agent.Register(agent.Agent{Row: row, Driver: geminiAgent})
 }
 
 // row is gemini's roster entry: binary, dialects, capabilities, events and launch hints.

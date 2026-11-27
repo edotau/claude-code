@@ -35,7 +35,9 @@ import (
 type copilotEngine struct{ agent.BaseEngine }
 
 // copilotAgent is the one copilot engine, shared by the driver registry and the agent roster.
-var copilotAgent = copilotEngine{agent.NewBaseEngine("copilot")}
+var copilotAgent = copilotEngine{agent.NewBaseEngine("copilot").WithRouteCaps(agent.RouteCaps{
+	ResolveFallback: describeCopilotRoute, RequireFallback: true,
+})}
 
 var (
 	_ agent.Driver        = copilotAgent
@@ -390,14 +392,6 @@ func (copilotEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headles
 	return copilotWire(r, h)
 }
 
-func (e copilotEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
-	return agent.RouteFallback(reg, e.DescribeRoute(ctx, reg))
-}
-
-func (copilotEngine) DescribeRoute(ctx context.Context, reg *providers.Registry) agent.RouteInfo {
-	return describeCopilotRoute(ctx, reg)
-}
-
 func (copilotEngine) Gate(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
 	t, err := overlayAccount(ctx, reg, t, req)
 	if err != nil {
@@ -458,10 +452,6 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 		t.Model = cmp.Or(tierModel(t.Provider, resumeAlias(req.Model)), t.Model)
 	}
 	return t, note, err
-}
-
-func (e copilotEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
-	return agent.RouteErr(e.DescribeRoute(ctx, reg))
 }
 
 // FallbackNote keeps the Databricks fallback's own notice: the gate already names the account and the profile.

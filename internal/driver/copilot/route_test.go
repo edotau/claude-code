@@ -476,13 +476,68 @@ func TestUnpinnedOwnLoginRoute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if ri := describeCopilotRoute(t.Context(), reg); ri.Route != c.want {
+			ri := copilotSchema().Eng().DescribeRoute(t.Context(), reg)
+			if ri.Route != c.want {
 				t.Errorf("route = %s (%s), want %s", ri.Route, ri.Reason, c.want)
+			}
+			ft, note, ok := copilotSchema().Eng().FallbackTarget(t.Context(), reg)
+			if !ok || ft.Provider != reg.Providers[ri.Provider] || ft.Model != ri.Model || note != ri.Reason {
+				t.Errorf("fallback = %+v, %q, %v; route = %+v", ft, note, ok, ri)
 			}
 			got, _, err := copilotGate(t.Context(), reg, providers.Target{Provider: reg.Providers["copilot"]}, false, "")
 			if kept := err == nil && got.Provider == reg.Providers["copilot"]; kept != (c.login != "") {
 				t.Errorf("gate kept the github row = %v (err %v), want %v", kept, err, c.login != "")
 			}
 		})
+	}
+}
+
+func TestCopilotRouteCapsFallbackParity(t *testing.T) {
+	macFallbackScratch(t)
+	vaulttest.SetRecord(t, "copilot", "profile", "dbx")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", "fixture-key")
+	byok := &providers.Registry{Providers: map[string]*providers.Provider{"fixture": {
+		Name: "fixture", Provider: "anthropic", Auth: providers.Auth{Type: "key", Env: "ANTHROPIC_API_KEY"},
+		Models: map[string]string{"opus": "claude-opus-5.5"},
+	}}}
+	for _, tc := range []struct {
+		reg   *providers.Registry
+		route string
+	}{{nil, agent.RouteNone}, {&providers.Registry{}, agent.RouteNone}, {reg, agent.RouteDatabricks},
+		{byok, agent.RouteByokAnthropic}} {
+		r, d := tc.reg, copilotSchema().Eng()
+		want := describeCopilotRoute(t.Context(), r)
+		if want.Route != tc.route {
+			t.Fatalf("route = %+v, want %s", want, tc.route)
+		}
+		if got := d.DescribeRoute(t.Context(), r); got != want {
+			t.Errorf("DescribeRoute = %+v, want %+v", got, want)
+		}
+		wt, wn, wok := agent.RouteFallback(r, want)
+		got, note, ok := d.FallbackTarget(t.Context(), r)
+		if got.Provider != wt.Provider || got.Model != wt.Model || note != wn || ok != wok {
+			t.Errorf("FallbackTarget = %+v, %q, %v; want %+v, %q, %v", got, note, ok, wt, wn, wok)
+		}
+		err := d.NoRoute(t.Context(), r, providers.Target{})
+		if want.OK && err != nil || !want.OK && (err == nil || err.Error() != want.Reason) {
+			t.Errorf("NoRoute = %v, route = %+v", err, want)
+		}
+	}
+}
+
+func TestCopilotRouteCapsDefaults(t *testing.T) {
+	d := copilotSchema().Eng()
+	for _, p := range []*providers.Provider{nil, {}, {Provider: "github"}, {Auth: providers.Auth{Login: "copilot"}}} {
+		want := p != nil && p.Auth.Login == "copilot"
+		if d.LoginServes(p) != want || !d.FollowsPin(p) {
+			t.Errorf("login/pin policy changed for %+v", p)
+		}
+	}
+	if env := d.LaunchEnv(); env != nil {
+		t.Errorf("LaunchEnv = %q, want nil", env)
 	}
 }
