@@ -494,3 +494,13 @@ func BenchmarkLoadSharedFresh(b *testing.B) {
 		}
 	}
 }
+
+func TestParseOrderFollowsDocument(t *testing.T) {
+	base := []byte(`{"providers":{"openai":{"zeta":{},"alpha":{}},"local":{"mid":{}}}}`)
+	overlay := []byte(`{"providers":{"openai":{"zeta":{},"beta":{}},"local":{"first":{}}}}`)
+	reg, _ := Parse(base, overlay)
+	want := []string{"zeta", "alpha", "mid", "beta", "first"}
+	if got := reg.order; !slices.Equal(got, want) {
+		t.Fatalf("order = %v, want %v", got, want)
+	}
+}

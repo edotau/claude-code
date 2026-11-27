@@ -467,31 +467,80 @@ func rawOrNull(raw json.RawMessage) json.RawMessage {
 
 // decodeRows reads a nested {provider: {profile: row}} value and rejects a profile that appears under two providers.
 func decodeRows(raw json.RawMessage, known map[string]string) (map[string]rawRow, error) {
+	rows, _, err := decodeRowsOrdered(raw, known)
+	return rows, err
+}
+
+// decodeRowsOrdered is decodeRows plus the profile names in document order, from the same single walk.
+func decodeRowsOrdered(raw json.RawMessage, known map[string]string) (map[string]rawRow, []string, error) {
 	out := map[string]rawRow{}
 	if len(raw) == 0 || IsNull(raw) {
-		return out, nil
+		return out, nil, nil
 	}
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &top); err != nil {
-		return nil, err
+	docKeys, top, err := walkObject(raw)
+	if err != nil {
+		return nil, nil, err
 	}
+	profiles := map[string][]string{}
 	for _, key := range slices.Sorted(maps.Keys(top)) {
 		entry := top[key]
 		if IsNull(entry) {
 			if err := removeEntry(out, key, known); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			continue
 		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(entry, &fields); err != nil {
-			return nil, fmt.Errorf("%s: %w", key, err)
+		names, fields, err := walkObject(entry)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", key, err)
 		}
+		profiles[key] = names
 		if err := addNested(out, key, fields); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return out, nil
+	return out, orderFromWalk(docKeys, profiles), nil
+}
+
+// orderFromWalk lists the profile names of every non-null provider entry in document order.
+func orderFromWalk(docKeys []string, profiles map[string][]string) []string {
+	var order []string
+	for _, key := range docKeys {
+		order = append(order, profiles[key]...)
+	}
+	return order
+}
+
+// walkObject is one token pass over an object (keys in order); bad input falls back to Unmarshal for its error.
+func walkObject(raw json.RawMessage) ([]string, map[string]json.RawMessage, error) {
+	if keys, vals, ok := tokenWalk(raw); ok {
+		return keys, vals, nil
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return nil, nil, err
+	}
+	return ObjectKeys(raw), top, nil
+}
+
+// tokenWalk is the Decoder walk behind walkObject; ok is false for anything but a well-formed object.
+func tokenWalk(raw json.RawMessage) (keys []string, vals map[string]json.RawMessage, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, nil, false
+	}
+	vals = map[string]json.RawMessage{}
+	for dec.More() {
+		k, err := dec.Token()
+		name, isStr := k.(string)
+		var v json.RawMessage
+		if err != nil || !isStr || dec.Decode(&v) != nil {
+			return nil, nil, false
+		}
+		keys, vals[name] = append(keys, name), v
+	}
+	end, err := dec.Token()
+	return keys, vals, err == nil && end == json.Delim('}')
 }
 
 // removeEntry handles `"provider": null`: it drops that provider's built-in profiles.
@@ -646,11 +695,11 @@ func profileOrder(raw json.RawMessage) []string {
 }
 
 // declaredOrder is the defaults' profile order then the overlay's new names, limited to rows still registered.
-func declaredOrder(reg *Registry, base, overlay []byte) []string {
+func declaredOrder(reg *Registry, orders ...[]string) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, doc := range [][]byte{base, overlay} {
-		for _, n := range profileOrder(providersField(doc)) {
+	for _, order := range orders {
+		for _, n := range order {
 			if _, ok := reg.Providers[n]; ok && !seen[n] {
 				seen[n] = true
 				out = append(out, n)

@@ -342,7 +342,7 @@ func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 }
 
 // writeBenchDispatchLog writes n records (the running newest, the rest ok) without Save's per-record prune.
-func writeBenchDispatchLog(b *testing.B, n, running int) []string {
+func writeBenchDispatchLog(b testing.TB, n, running int) []string {
 	b.Helper()
 	dir := paths.DispatchDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -556,5 +556,24 @@ func TestQueuedRowShowsWait(t *testing.T) {
 	pools := map[string]serve.PoolRow{"databricks:qa": {Pool: "databricks:qa", Running: 2, Cap: 4}}
 	if cells := jobCells(d, now, pools); d.Quiet || jobMarker(d) != "○" || cells[4] != "queued 1m10s (pool databricks:qa 2/4)" {
 		t.Errorf("queued: quiet=%v marker=%q cells=%q", d.Quiet, jobMarker(d), cells)
+	}
+}
+
+// TestReapRepeatedDryRunStable: the stat-keyed settled skip must not change what a second Reap reports.
+func TestReapRepeatedDryRunStable(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	orig := listProcs
+	listProcs = func(string) ([]proc.Info, error) { return nil, nil }
+	t.Cleanup(func() { listProcs = orig })
+	writeBenchDispatchLog(t, 40, 5)
+	var first, second strings.Builder
+	if code := Reap(true, &first, io.Discard); code != 0 {
+		t.Fatalf("first Reap = %d", code)
+	}
+	if code := Reap(true, &second, io.Discard); code != 0 {
+		t.Fatalf("second Reap = %d", code)
+	}
+	if first.String() != second.String() {
+		t.Fatalf("repeat differs:\n%s\nvs\n%s", first.String(), second.String())
 	}
 }

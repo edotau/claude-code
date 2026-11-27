@@ -272,13 +272,19 @@ type regFile struct {
 
 // decodeRegistry reads one registry document; a profile set to null maps to a nil *Provider (a removal).
 func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
+	reg, _, err := decodeRegistryOrdered(doc, known)
+	return reg, err
+}
+
+// decodeRegistryOrdered is decodeRegistry plus the profile names in document order, from the same decode.
+func decodeRegistryOrdered(doc []byte, known map[string]string) (*Registry, []string, error) {
 	var f regFile
 	if err := json.Unmarshal(doc, &f); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rows, err := decodeRows(f.Providers, known)
+	rows, order, err := decodeRowsOrdered(f.Providers, known)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	reg := f.Registry
 	reg.Providers = map[string]*Provider{}
@@ -289,12 +295,12 @@ func decodeRegistry(doc []byte, known map[string]string) (*Registry, error) {
 		}
 		p := &Provider{}
 		if err := json.Unmarshal(r.raw, p); err != nil {
-			return nil, fmt.Errorf("%s: %w", n, err)
+			return nil, nil, fmt.Errorf("%s: %w", n, err)
 		}
 		p.Provider = r.provider
 		reg.Providers[n] = p
 	}
-	return &reg, nil
+	return &reg, order, nil
 }
 
 // Parse merges base with an optional overlay; the Registry is never nil, even on an error, so callers can fall back.
@@ -303,12 +309,12 @@ func Parse(base, overlay []byte) (*Registry, error) {
 }
 
 func parse(base, overlay []byte, warn bool) (*Registry, error) {
-	reg, err := decodeRegistry(base, nil)
+	reg, baseOrder, err := decodeRegistryOrdered(base, nil)
 	if err != nil {
 		return &Registry{Providers: map[string]*Provider{}}, fmt.Errorf("providers defaults: %w", err)
 	}
-	mergeErr := mergeOverlay(reg, overlay)
-	order := declaredOrder(reg, base, overlay)
+	overlayOrder, mergeErr := mergeOverlay(reg, overlay)
+	order := declaredOrder(reg, baseOrder, overlayOrder)
 	order = renameAll(order, nameGithubRows(reg, warn))
 	for n, p := range reg.Providers {
 		p.Name = n
@@ -324,22 +330,22 @@ func parse(base, overlay []byte, warn bool) (*Registry, error) {
 }
 
 // mergeOverlay applies overlay onto reg; on an error reg keeps the base, still named, ordered and expanded by Parse.
-func mergeOverlay(reg *Registry, overlay []byte) error {
+func mergeOverlay(reg *Registry, overlay []byte) ([]string, error) {
 	if len(overlay) == 0 {
-		return nil
+		return nil, nil
 	}
 	known := map[string]string{}
 	for n, p := range reg.Providers {
 		known[n] = p.Provider
 	}
-	o, err := decodeRegistry(overlay, known)
+	o, order, err := decodeRegistryOrdered(overlay, known)
 	if err == nil {
 		err = applyOverlay(reg, o)
 	}
 	if err != nil {
-		return fmt.Errorf("vault overlay/providers: %w", err)
+		return profileOrder(providersField(overlay)), fmt.Errorf("vault overlay/providers: %w", err)
 	}
-	return nil
+	return order, nil
 }
 
 // applyOverlay merges overlay fields o into base, cell by cell for routes and whole-value for scalars.
