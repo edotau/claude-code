@@ -279,18 +279,20 @@ func parse(body []byte, name string, choices ...string) (answer, error) {
 	if err := json.Unmarshal(out.Answers[name], &a); err != nil {
 		return answer{}, ErrBadResponse
 	}
-	if !slices.Contains(choices, a.Choice) || len(a.Probabilities) == 0 {
-		return answer{}, ErrBadResponse
-	}
-	sum := 0.0
-	for _, p := range a.Probabilities {
-		if p < 0 || p > 1 {
-			return answer{}, ErrBadResponse
-		}
-		sum += p
-	}
-	if sum > 1.02 || topProb(a)-a.Probabilities[a.Choice] > 1e-6 {
+	if !slices.Contains(choices, a.Choice) || !normalized(a) {
 		return answer{}, ErrBadResponse
 	}
 	return a, nil
+}
+
+// normalized reports whether a's probabilities are each in [0,1], sum to 1±0.02 and peak at its Choice.
+func normalized(a answer) bool {
+	sum := 0.0
+	for _, p := range a.Probabilities {
+		if p < 0 || p > 1 {
+			return false
+		}
+		sum += p
+	}
+	return sum >= 0.98 && sum <= 1.02 && topProb(a)-a.Probabilities[a.Choice] <= 1e-6
 }

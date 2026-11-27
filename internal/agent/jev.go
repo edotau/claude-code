@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
@@ -99,7 +100,9 @@ func jevTierAnswer(ctx context.Context, brief string) JevShadow {
 		res, err := jev.Tier(ctx, text)
 		j := JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
 		if res.Confidence < jev.Confident && j.Error != jev.ClassTimeout { // a timed-out Jev means a busy machine: keywords now
-			j.Helper, _ = jev.Helper(ctx, text)
+			if row := providers.LastResort(loadRegistryWarn()); row != nil {
+				j.Helper, _ = jev.Helper(ctx, row.BaseURL, row.Models["haiku"], text)
+			}
 		}
 		return j
 	})

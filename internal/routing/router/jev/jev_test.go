@@ -79,6 +79,7 @@ func TestJevMalformed(t *testing.T) {
 		`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":1.5}}}}`,
 		`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.2,"standard":0.3,"deep":0.5}}}}`,
 		`{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.5,"standard":0.5,"deep":0.6}}}}`,
+		`{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.1,"standard":0.1,"deep":0.3}}}}`,
 		`{"answers":{}}`} {
 		serve(t, reply(body))
 		if _, err := Tier(context.Background(), "x"); Class(err) != ClassBadResponse {
@@ -130,7 +131,7 @@ func TestJevHelper(t *testing.T) {
 	s := httptest.NewServer(reply(`{"choices":[{"message":{"content":"{\"tier\":\"fast\"}"}}]}`))
 	t.Cleanup(s.Close)
 	t.Setenv(qwenEnv, s.URL)
-	if got, err := Helper(context.Background(), "rename x"); err != nil || got != "fast" {
+	if got, err := Helper(context.Background(), "http://unused", "m", "rename x"); err != nil || got != "fast" {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
@@ -144,7 +145,7 @@ func TestJevBackoff(t *testing.T) {
 			w.WriteHeader(status)
 			return
 		}
-		reply(`{"answers":{"tier":{"choice":"deep","probabilities":{"deep":0.7}}}}`)(w, r)
+		reply(`{"answers":{"tier":{"choice":"deep","probabilities":{"deep":0.7,"standard":0.3}}}}`)(w, r)
 	})
 	target := os.Getenv(urlEnv)
 	ctx := context.Background()

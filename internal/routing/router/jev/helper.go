@@ -12,16 +12,15 @@ import (
 )
 
 const (
-	qwenURL   = "http://127.0.0.1:10100/inference/v1/chat/completions"
 	qwenEnv   = "HARNESS_JEV_QWEN_URL"
-	qwenModel = "qwen3.8-27b:gguf:q6"
 	Confident = 0.85 // Open-Jev's own pick stands at or above this; below it the helper is asked
 )
 
-// Helper asks the local Qwen (thinking off) for a tier on a brief Open-Jev was unsure of.
-func Helper(ctx context.Context, brief string) (string, error) {
-	body, err := post(ctx, timeout, strings.TrimSpace(proc.Value(ctx, qwenEnv)), qwenURL, "", map[string]any{
-		"model": qwenModel, "reasoning_effort": "none", "max_tokens": 64,
+// Helper asks the local model (thinking off) at OpenAI base URL base for a tier on a brief Open-Jev was unsure of.
+func Helper(ctx context.Context, base, model, brief string) (string, error) {
+	url := strings.TrimRight(base, "/") + "/chat/completions"
+	body, err := post(ctx, timeout, strings.TrimSpace(proc.Value(ctx, qwenEnv)), url, "", map[string]any{
+		"model": model, "reasoning_effort": "none", "max_tokens": 64,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        []map[string]string{{"role": "system", "content": helperPrompt()}, {"role": "user", "content": clip(brief)}},
 	})
@@ -60,7 +59,7 @@ func helperPrompt() string {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	b.WriteString("You route coding-agent tasks to a model tier. " + q.Instructions + "\n")
+	fmt.Fprintf(&b, "You route coding-agent tasks to a model tier. %s\n", q.Instructions)
 	for _, k := range keys {
 		fmt.Fprintf(&b, "- %s: %s\n", k, q.Criteria[k])
 	}

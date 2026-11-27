@@ -176,12 +176,12 @@ func TestJevAgentPicksConfidentKnownVendor(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Setenv("HARNESS_JEV_URL", srv.URL)
 
-	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.92}}}}`
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.92,"claude":0.08}}}}`
 	if got := JevAgent("review security boundary in auth"); got != "gemini" {
 		t.Fatalf("JevAgent confident gemini = %q, want gemini", got)
 	}
 	jevMemo.Clear()
-	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.70}}}}`
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.70,"claude":0.30}}}}`
 	if got := JevAgent("review security boundary in auth"); got != "" {
 		t.Fatalf("JevAgent low-conf = %q, want empty", got)
 	}
