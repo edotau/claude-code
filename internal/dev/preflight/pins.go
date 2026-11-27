@@ -59,6 +59,7 @@ func (p Pin) Line() string {
 
 // Check resolves cached pins from ctx's run snapshot with no network or writes; an unreadable vault is one StatusError.
 func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
+	resetCreds(reg)
 	pins, err := agent.AgentPinsContext(ctx)
 	var recs map[string]vault.AgentRecord
 	if err == nil {
@@ -221,7 +222,7 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 		return p
 	}
 	p.Status = StatusOK
-	if !providers.CredentialPresent(prov) {
+	if !credentialPresent(reg, prov) {
 		p.Status, p.Served, p.Detail = statusUnserved, "unknown", "no credential for "+p.Profile
 		p.Fix = "claude-code vault ls providers " + p.Profile
 		return p
@@ -279,7 +280,7 @@ func profiles(reg *providers.Registry, ps []Pin) []*providers.Provider {
 	for _, p := range ps {
 		for _, name := range append([]string{p.Profile}, p.Also...) {
 			prov := reg.Providers[name]
-			if prov == nil || prov.Preset != providers.PresetDatabricks || seen[name] || !providers.CredentialPresent(prov) {
+			if prov == nil || prov.Preset != providers.PresetDatabricks || seen[name] || !credentialPresent(reg, prov) {
 				continue
 			}
 			seen[name] = true
