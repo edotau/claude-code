@@ -1,15 +1,18 @@
 package agent
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
 	"regexp"
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
-// JevShadow is what Open-Jev would pick for a dispatch's brief beside TaskTier's keyword pick; it routes nothing.
+// JevShadow is Open-Jev's answer for a dispatch's brief beside the keyword pick; Final is the tier TaskTier acts on.
 type JevShadow struct {
 	Pick       string  `json:"pick,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
@@ -30,22 +33,17 @@ type jevCall struct {
 
 var jevPending sync.Map // record id -> *jevCall, taken by Record.Finish
 
-// startJev asks Open-Jev about prompt in the background so the launch never waits on it.
+// startJev records Open-Jev's answers for prompt in the background, sharing the calls TaskTier and JevAgent make.
 func startJev(ctx context.Context, id, prompt string) {
-	text := jevBrief(prompt)
-	if id == "" || text == "" {
+	if id == "" || jevBrief(prompt) == "" {
 		return
 	}
 	call := &jevCall{keyword: tierName(prompt), done: make(chan JevShadow, 1)}
 	ctx, call.cancel = context.WithCancel(ctx) // the shadow dies with the dispatch, and takeJev/stopJev stop it sooner
 	jevPending.Store(id, call)
 	go func() {
-		res, err := jev.Tier(ctx, text)
-		j := JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Agent: res.Agent, AgentConf: res.AgentConfidence, Keyword: call.keyword, Error: jev.Class(err)}
-		if res.Confidence < jev.Confident {
-			j.Helper, _ = jev.Helper(ctx, text)
-		}
-		j.Final = j.final()
+		j, a := jevTierAnswer(ctx, prompt), jevAgentAnswer(ctx, prompt)
+		j.Agent, j.AgentConf, j.Final = a.Pick, a.Confidence, j.final()
 		call.done <- j
 	}()
 }
@@ -73,15 +71,71 @@ func stopJev(id string) {
 	}
 }
 
-// tierName is TaskTier's pick for brief as a tier name ("" for none).
+// tierName is the keyword classifier's pick for brief as a tier name ("" for none).
 func tierName(brief string) string {
-	alias, _ := TaskTier(brief)
+	alias, _ := keywordTier(brief)
 	for name, a := range tierAliases {
 		if a == alias {
 			return name
 		}
 	}
 	return ""
+}
+
+var jevMemo sync.Map // sha256(kind, brief) -> func() T: concurrent askers share one call
+
+// jevOnce asks once per (kind, brief) in this process; the first asker's context bounds the shared call.
+func jevOnce[T any](kind, brief string, ask func() T) T {
+	key := sha256.Sum256([]byte(kind + "\x00" + brief))
+	f, _ := jevMemo.LoadOrStore(key, sync.OnceValue(ask))
+	return f.(func() T)()
+}
+
+// jevTierAnswer is Open-Jev's tier for brief, plus the Qwen helper's when Open-Jev is unsure.
+func jevTierAnswer(ctx context.Context, brief string) JevShadow {
+	return jevOnce("tier", brief, func() JevShadow {
+		text := jevBrief(brief)
+		res, err := jev.Tier(ctx, text)
+		j := JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
+		if res.Confidence < jev.Confident && j.Error != jev.ClassTimeout { // a timed-out Jev means a busy machine: keywords now
+			j.Helper, _ = jev.Helper(ctx, text)
+		}
+		return j
+	})
+}
+
+// jevAgentAnswer is Open-Jev's agent pick for brief; the zero Result when it did not answer.
+func jevAgentAnswer(ctx context.Context, brief string) jev.Result {
+	return jevOnce("agent", brief, func() jev.Result {
+		res, err := jev.Agent(ctx, jevBrief(brief))
+		if err != nil {
+			return jev.Result{}
+		}
+		return res
+	})
+}
+
+// JevAgent asks Open-Jev for brief's agent vendor when confident; "" falls back to the default agent.
+func JevAgent(brief string) string {
+	if jevBrief(brief) == "" {
+		return ""
+	}
+	if res := jevAgentAnswer(context.Background(), brief); res.Confidence >= jev.Confident && agentid.Known(res.Pick) {
+		return res.Pick
+	}
+	return ""
+}
+
+// jevTier is the tier Open-Jev, or the Qwen helper when it is unsure, picks for brief; "" falls back to keywords.
+func jevTier(brief string) (alias, signal string) {
+	if jevBrief(brief) == "" {
+		return "", ""
+	}
+	tier, source := jevTierAnswer(context.Background(), brief).routed()
+	if a := tierAliases[tier]; a != "" {
+		return a, source + ":" + tier
+	}
+	return "", ""
 }
 
 // JevPair is Open-Jev's shadow answer to "does B need A's result first?"; it changes no dispatch order.
@@ -130,13 +184,19 @@ func jevBrief(prompt string) string {
 	return strings.TrimSpace(jevBlankRe().ReplaceAllString(text, "\n\n"))
 }
 
-// final is the pick R5's rule would act on: a confident Open-Jev, else fast on Qwen's say-so, else the keywords.
-func (j JevShadow) final() string {
+// routed is the tier a confident Open-Jev or the Qwen helper decides, and which did; a helper never turns deep to fast.
+func (j JevShadow) routed() (tier, source string) {
 	switch {
 	case j.Error == "" && j.Confidence >= jev.Confident:
-		return j.Pick
-	case j.Helper == "fast":
-		return "fast"
+		return j.Pick, "jev"
+	case j.Helper == "" || j.Helper == "fast" && j.Keyword == "deep":
+		return "", ""
 	}
-	return j.Keyword
+	return j.Helper, "jev-qwen"
+}
+
+// final is the tier TaskTier acts on: routed's, else the keywords'.
+func (j JevShadow) final() string {
+	tier, _ := j.routed()
+	return cmp.Or(tier, j.Keyword)
 }

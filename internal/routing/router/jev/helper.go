@@ -18,10 +18,10 @@ const (
 	Confident = 0.85 // Open-Jev's own pick stands at or above this; below it the helper is asked
 )
 
-// Helper asks the local Qwen (thinking off) for a tier on a brief Open-Jev was unsure of; only "fast" is acted on.
+// Helper asks the local Qwen (thinking off) for a tier on a brief Open-Jev was unsure of.
 func Helper(ctx context.Context, brief string) (string, error) {
-	body, err := post(ctx, strings.TrimSpace(proc.Value(ctx, qwenEnv)), qwenURL, "", map[string]any{
-		"model": qwenModel, "reasoning_effort": "none", "max_tokens": 20,
+	body, err := post(ctx, timeout, strings.TrimSpace(proc.Value(ctx, qwenEnv)), qwenURL, "", map[string]any{
+		"model": qwenModel, "reasoning_effort": "none", "max_tokens": 64,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        []map[string]string{{"role": "system", "content": helperPrompt()}, {"role": "user", "content": clip(brief)}},
 	})
@@ -64,6 +64,19 @@ func helperPrompt() string {
 	for _, k := range keys {
 		fmt.Fprintf(&b, "- %s: %s\n", k, q.Criteria[k])
 	}
-	b.WriteString(`Answer only JSON: {"tier":"fast|standard|deep"}`)
+	b.WriteString("Boundary rules and frontier-jury exemplars:\n" +
+		"- fast: mechanical single-step work or predetermined edits with exact text given.\n" +
+		"  Example: \"Edit only these two files with the exact text below; do not commit.\" -> " +
+		`{"reason":"Predetermined edits in named files with exact text.","tier":"fast"}` + "\n" +
+		"- standard: routine engineering in a known scope — implement/fix in 1-3 files, bounded worktree/lane diff review " +
+		"(\"Open only the diff's files and direct callers\", \"HARD CAP 15 minutes\", or \"Review only, no edits\" on a named " +
+		"branch/worktree, EVEN IF the diff touches redaction, HTTP, or auth), memory bank consolidation/update, or resuming an interrupted task.\n" +
+		"  Example: \"HARD CAP 15 minutes. Open only the diff's files and direct callers. Review redact-model-label / http-hardening worktree diff.\" -> " +
+		`{"reason":"Bounded worktree diff review of named files and direct callers.","tier":"standard"}` + "\n" +
+		"  Example: \"Background update/consolidation of the memory bank files.\" -> " +
+		`{"reason":"Routine memory bank update following structured rules.","tier":"standard"}` + "\n" +
+		"- deep: ONLY when the scope is open-ended or the root cause is unknown (investigating a mystery flaky test/race/deadlock " +
+		"from scratch, multi-package architecture design, or an unbounded security/concurrency audit).\n" +
+		`Write reason BEFORE tier. Answer only JSON: {"reason":"<=12 words","tier":"fast|standard|deep"}`)
 	return b.String()
 }

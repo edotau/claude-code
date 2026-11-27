@@ -51,7 +51,10 @@ func TestJevTimeout(t *testing.T) {
 
 func TestJevMalformed(t *testing.T) {
 	for _, body := range []string{`nope`, `{"answers":{"tier":{"choice":"huge","probabilities":{"huge":1}}}}`,
-		`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":1.5}}}}`, `{"answers":{}}`} {
+		`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":1.5}}}}`,
+		`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.2,"standard":0.3,"deep":0.5}}}}`,
+		`{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.5,"standard":0.5,"deep":0.6}}}}`,
+		`{"answers":{}}`} {
 		serve(t, reply(body))
 		if _, err := Tier(context.Background(), "x"); Class(err) != ClassBadResponse {
 			t.Errorf("%s: class %q, err %v", body, Class(err), err)
@@ -80,17 +83,16 @@ func TestJevNeeds(t *testing.T) {
 
 func TestJevAgent(t *testing.T) {
 	serve(t, reply(`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.9,"standard":0.1}},"agent":{"choice":"pi","probabilities":{"pi":0.8,"claude":0.2}}}}`))
-	r, err := Tier(context.Background(), "rename x")
-	if err != nil || r.Agent != "pi" || r.AgentConfidence != 0.8 {
+	r, err := Agent(context.Background(), "rename x")
+	if err != nil || r.Pick != "pi" || r.Confidence != 0.8 {
 		t.Fatalf("got %+v, %v", r, err)
 	}
 }
 
-func TestJevBadAgentKeepsTier(t *testing.T) {
+func TestJevBadAgent(t *testing.T) {
 	serve(t, reply(`{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.9}},"agent":{"choice":42}}}`))
-	r, err := Tier(context.Background(), "x")
-	if err != nil || r.Pick != "fast" || r.Agent != "" {
-		t.Fatalf("got %+v, %v", r, err)
+	if _, err := Agent(context.Background(), "x"); Class(err) != ClassBadResponse {
+		t.Fatalf("class %q, err %v", Class(err), err)
 	}
 }
 

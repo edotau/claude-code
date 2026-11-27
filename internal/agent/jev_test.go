@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
@@ -112,5 +113,61 @@ func TestJevBriefStripsRecallAndMeta(t *testing.T) {
 	want := "Fix typo in `README.md`\nInvestigate race under concurrent writes"
 	if got := jevBrief(in); got != want {
 		t.Fatalf("jevBrief = %q, want %q", got, want)
+	}
+}
+
+func TestTaskTierUsesConfidentJev(t *testing.T) {
+	var body, qwenBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	t.Cleanup(srv.Close)
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	qsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(qwenBody)) }))
+	t.Cleanup(qsrv.Close)
+
+	hi := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.02,"standard":0.08,"deep":0.90}}}}`
+	lo := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.10,"standard":0.20,"deep":0.70}}}}`
+	for _, tc := range []struct {
+		jev, qwen, brief, wantAlias, wantSig string
+	}{
+		{hi, "", "update the config loader", models.Opus, "jev:deep"},
+		{hi, "", "Tier: fast\nupdate the config loader", models.Haiku, "Tier: fast"},
+		{lo, "", "update the config loader", models.Sonnet, "standard"},
+		{lo, `{"choices":[{"message":{"content":"{\"reason\":\"Scoped\",\"tier\":\"deep\"}"}}]}`, "update the config loader", models.Opus, "jev-qwen:deep"},
+		{lo, `{"choices":[{"message":{"content":"{\"reason\":\"Trivial\",\"tier\":\"fast\"}"}}]}`, "design the multi-file architecture for auth", models.Opus, "deep:auth"},
+	} {
+		body, qwenBody = tc.jev, tc.qwen
+		jevMemo.Clear()
+		if tc.qwen != "" {
+			t.Setenv("HARNESS_JEV_QWEN_URL", qsrv.URL)
+		}
+		if got, sig := TaskTier(tc.brief); got != tc.wantAlias || sig != tc.wantSig {
+			t.Fatalf("TaskTier(%q): got (%q, %q), want (%q, %q)", tc.brief, got, sig, tc.wantAlias, tc.wantSig)
+		}
+	}
+}
+
+func TestJevShadowFinalHelperSafety(t *testing.T) {
+	if got := (JevShadow{Pick: "standard", Confidence: 0.60, Helper: "deep", Keyword: "standard"}).final(); got != "deep" {
+		t.Fatalf("helper deep = %q, want deep", got)
+	}
+	if got := (JevShadow{Pick: "standard", Confidence: 0.60, Helper: "fast", Keyword: "deep"}).final(); got != "deep" {
+		t.Fatalf("helper fast on deep keyword = %q, want deep", got)
+	}
+}
+
+func TestJevAgentPicksConfidentKnownVendor(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	t.Cleanup(srv.Close)
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.92}}}}`
+	if got := JevAgent("review security boundary in auth"); got != "gemini" {
+		t.Fatalf("JevAgent confident gemini = %q, want gemini", got)
+	}
+	jevMemo.Clear()
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.70}}}}`
+	if got := JevAgent("review security boundary in auth"); got != "" {
+		t.Fatalf("JevAgent low-conf = %q, want empty", got)
 	}
 }

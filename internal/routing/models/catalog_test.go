@@ -51,6 +51,11 @@ func TestSameModel(t *testing.T) {
 			t.Errorf("SameModel(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
 		}
 	}
+	for _, id := range []string{"qwen3.8-27b:gguf:q6", "qwen3-8-27b", "qwen3.8-flash", "qwen3-8-flash"} {
+		if l, ok := Limits(id); !ok || Window(id) != 262144 || l.Output != 32768 {
+			t.Errorf("Limits/Window(%q) = %+v / %d, want 262144 / 32768", id, l, Window(id))
+		}
+	}
 }
 
 // Each description form yields its numbers; anything else is unknown, never a guess.

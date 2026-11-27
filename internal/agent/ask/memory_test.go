@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -332,5 +334,30 @@ func TestSchemaRejectedSendsAFatalAnswerToTheFallback(t *testing.T) {
 	validText := `{"ops":[{"op":"noop"}]}`
 	if _, err := answerJob(ctx, opts, wire.Result{Answer: validText}, fatal); err != nil || calls != 1 || !strings.Contains(*answer, `"note"`) {
 		t.Fatalf("err %v, calls %d, answer %q: a schema-rejected answer must take the fallback even when it decodes", err, calls, *answer)
+	}
+}
+
+// A confident jev.Needs "yes" holds task b until task a finishes, without holding a concurrency slot while waiting.
+func TestRunTasksOrdersConfidentJevNeeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"answers":{"needs":{"choice":"yes","probabilities":{"yes":0.95,"no":0.05}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	var aDone, bSawADone atomic.Bool
+	tasks := []batchTask{
+		{ID: "a", Agent: "x", Req: agent.RunOptions{Prompt: "step 1"}, Prepare: func(context.Context) (*agent.Prepared, error) {
+			time.Sleep(25 * time.Millisecond)
+			aDone.Store(true)
+			return nil, errors.New("done a")
+		}},
+		{ID: "b", Agent: "x", Req: agent.RunOptions{Prompt: "step 2"}, Prepare: func(context.Context) (*agent.Prepared, error) {
+			bSawADone.Store(aDone.Load())
+			return nil, errors.New("done b")
+		}},
+	}
+	runTasks(t.Context(), tasks, poolOptions{ID: "batch-jev", Jobs: 2, Out: &bytes.Buffer{}})
+	if !bSawADone.Load() {
+		t.Fatal("task b started before task a finished despite confident jev.Needs=yes")
 	}
 }

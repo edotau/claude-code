@@ -302,8 +302,20 @@ var (
 	})
 )
 
-// TaskTier is the model alias a brief's work needs: its `Tier:` line, else deep, fast or standard; "" for no text.
+// TaskTier is the model alias a brief's work needs: its `Tier:` line, else confident Open-Jev, else keyword rules.
 func TaskTier(brief string) (alias, signal string) {
+	brief = WithoutReviewLoop(brief)
+	if m := tierLineRe().FindStringSubmatch(brief); m != nil {
+		return tierAliases[strings.ToLower(m[1])], "Tier: " + strings.ToLower(m[1])
+	}
+	if alias, signal := jevTier(brief); alias != "" {
+		return alias, signal
+	}
+	return keywordTier(brief)
+}
+
+// keywordTier classifies brief by its `Tier:` line or keyword rules alone, without calling Open-Jev.
+func keywordTier(brief string) (alias, signal string) {
 	brief = WithoutReviewLoop(brief)
 	if m := tierLineRe().FindStringSubmatch(brief); m != nil {
 		return tierAliases[strings.ToLower(m[1])], "Tier: " + strings.ToLower(m[1])

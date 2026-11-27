@@ -25,12 +25,21 @@ func FitOutcomes(recs []Record) []catalog.Outcome {
 	return out
 }
 
+// fitTier is the tier r was routed at, else the keywords' for an old record; a fit never asks Open-Jev about history.
+func fitTier(r Record) string {
+	if r.RoutePlan != nil && r.RoutePlan.Tier.Asked != "" {
+		return r.RoutePlan.Tier.Asked
+	}
+	alias, _ := keywordTier(r.Request.Prompt)
+	return alias
+}
+
 func fitOutcome(r Record) (catalog.Outcome, bool) {
 	ok := r.Status == "ok"
 	if !ok && (!r.Failed() || r.FailKind != FailQuality) {
 		return catalog.Outcome{}, false
 	}
-	alias, _ := TaskTier(r.Request.Prompt)
+	alias := fitTier(r)
 	match := ""
 	for _, m := range []string{r.Invoked, r.Model} {
 		if _, bare, found := strings.Cut(m, ":"); found {

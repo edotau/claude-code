@@ -457,7 +457,7 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}
-	hint := router.RuleClassifier{}.Alias(task)
+	hint := agentpkg.HopAlias(task, router.RuleClassifier{}.Alias)
 	hop, note, err := run.runHop(ctx, reg, q, hint)
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)

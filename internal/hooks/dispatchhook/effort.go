@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -172,13 +173,21 @@ func (e *effortPlan) retyped(st string) bool {
 	return got != st
 }
 
-// effortFixType is the type to retype to: a stale name's, or code mode's ("" for none); an unknown type passes.
+// effortFixType is the type to retype to: a stale name's, code mode's, or confident Open-Jev's; "" for none.
 func effortFixType(in *core.Input) string {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
 	if to := staleTypeTarget(st); to != "" { // a bare "pi" or the old "code-mode" is the coworker type now
 		return cmp.Or(codemodeTarget(to, prompt), to)
 	}
-	return codemodeTarget(st, prompt)
+	if to := codemodeTarget(st, prompt); to != "" {
+		return to
+	}
+	if st == "" && !explicitModel(in) && !agentLineRe().MatchString(briefHeader(prompt)) {
+		if to := agentid.SubagentType(agentpkg.JevAgent(prompt)); to != "" && slices.Contains(dispatchTypes(), to) {
+			return to
+		}
+	}
+	return ""
 }
 
 func spawnTask(in *core.Input) (field, task string) {

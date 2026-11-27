@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/schemas"
@@ -96,7 +97,7 @@ func codexSpawnCell(in *core.Input, task string) (router.Cell, string, bool) {
 	if err != nil {
 		return router.Cell{}, "", false
 	}
-	cell := table.Rows["codex"][router.RuleClassifier{}.Alias(task)]
+	cell := table.Rows["codex"][agentpkg.HopAlias(task, router.RuleClassifier{}.Alias)]
 	cell.Model = p.WireModel(cell.Model)
 	if !providers.ServesResponses(p, cell.Model) || !codexListedModel(cell.Model) {
 		return router.Cell{}, "", false

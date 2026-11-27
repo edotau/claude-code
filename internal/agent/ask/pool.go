@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
 // hostBatchProxy gives a bare batch its own phase proxy; a batch whose lines or env name a group already has one.
@@ -161,14 +162,15 @@ type batchDone struct {
 
 // batchRun is the state shared by a batch's workers: the serialized log writer, the limiter.
 type batchRun struct {
-	o    poolOptions
-	logM sync.Mutex
-	lim  *retry.Limiter
-	stop func() // cancels the batch
-	jev  map[string][]agent.JevPair
+	o        poolOptions
+	logM     sync.Mutex
+	lim      *retry.Limiter
+	stop     func() // cancels the batch
+	jev      map[string][]agent.JevPair
+	finished []chan struct{}
 }
 
-// jevByTask logs Open-Jev's shadow "does B need A" answers on both tasks' records; it orders nothing, 2s at most.
+// jevByTask logs Open-Jev's "does B need A" answers on both tasks' records; confident yes answers order B after A.
 func jevByTask(ctx context.Context, tasks []batchTask) map[string][]agent.JevPair {
 	if len(tasks) < 2 {
 		return nil
@@ -187,12 +189,30 @@ func jevByTask(ctx context.Context, tasks []batchTask) map[string][]agent.JevPai
 	return out
 }
 
+// waitDeps waits for every earlier task a < i that Open-Jev says i confidently needs before i claims a slot.
+func (b *batchRun) waitDeps(ctx context.Context, t batchTask, i int) error {
+	for _, p := range b.jev[t.ID] {
+		if p.B == i && p.Error == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
+			select {
+			case <-b.finished[p.A]:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return nil
+}
+
 // runTasks streams one envelope per task to o.Out as each finishes; true only if every task was ok.
 func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	jobs := max(cmp.Or(o.Jobs, defaultJobs()), 1)
 	bctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel, jev: jevByTask(bctx, tasks)}
+	finished := make([]chan struct{}, len(tasks))
+	for i := range finished {
+		finished[i] = make(chan struct{})
+	}
+	b := &batchRun{o: o, lim: retry.NewBatchLimiter(jobs), stop: cancel, jev: jevByTask(bctx, tasks), finished: finished}
 	allOK := true
 	emit := func(env wire.Envelope, ok bool) {
 		env.BatchID = o.ID
@@ -211,6 +231,7 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	var queue []int
 	for i, t := range tasks {
 		if t.Err != nil {
+			close(finished[i])
 			emit(taskFailure(t, t.Err), false)
 			continue
 		}
@@ -223,13 +244,35 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	return allOK
 }
 
-// feed claims the queue in input order; it closes done once every claimed task has finished.
+// feed claims the queue in input order; tasks with confident dependencies wait in their own goroutine before claiming.
 func (b *batchRun) feed(ctx context.Context, tasks []batchTask, queue []int, done chan<- batchDone) {
 	var wg sync.WaitGroup
 	defer func() { wg.Wait(); close(done) }()
 	for _, i := range queue {
-		b.claim(ctx, &wg, tasks[i], i, done)
+		t := tasks[i]
+		if b.hasDeps(t, i) {
+			wg.Go(func() { b.waitAndClaim(ctx, &wg, t, i, done) })
+			continue
+		}
+		b.claim(ctx, &wg, t, i, done)
 	}
+}
+
+func (b *batchRun) hasDeps(t batchTask, i int) bool {
+	for _, p := range b.jev[t.ID] {
+		if p.B == i && p.Error == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *batchRun) waitAndClaim(ctx context.Context, wg *sync.WaitGroup, t batchTask, i int, done chan<- batchDone) {
+	if err := b.waitDeps(ctx, t, i); err != nil {
+		b.failBeforeStart(ctx, ctx, t, i, err, done, false)
+		return
+	}
+	b.claim(ctx, wg, t, i, done)
 }
 
 // claim reserves a slot for t, then prepares and runs it in its own goroutine.
@@ -250,6 +293,7 @@ func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done c
 		b.failBeforeStart(ctx, sctx, t, i, err, done, true)
 		return
 	}
+	defer close(b.finished[i])
 	defer retry.Settle(sctx)
 	env, ok := b.run(sctx, t, prepared)
 	done <- batchDone{i, env, ok}
@@ -285,6 +329,7 @@ func (b *batchRun) failBeforeStart(ctx, sctx context.Context, t batchTask, i int
 		retry.Settle(sctx)
 		stop()
 	}
+	close(b.finished[i])
 	done <- batchDone{i, taskFailure(t, err), false}
 }
 

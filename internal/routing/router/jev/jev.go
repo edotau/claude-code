@@ -1,4 +1,4 @@
-// Package jev asks the local Open-Jev classifier which model tier a brief needs; a shadow signal, never a router input.
+// Package jev asks the local Open-Jev classifier which model tier and agent a brief needs; callers fail open on error.
 package jev
 
 import (
@@ -23,7 +23,7 @@ const (
 	defaultURL = "http://127.0.0.1:11401"
 	urlEnv     = "HARNESS_JEV_URL"
 	maxBrief   = 3500
-	timeout    = 15 * time.Second // shadow only: never delays a launch; a loaded Mac answers in 4-6 s
+	timeout    = 3 * time.Second // one question: ~0.5 s idle, 1.7-1.9 s measured while MPS trains; hooks fail open
 	maxBody    = 1 << 16
 )
 
@@ -43,13 +43,11 @@ var (
 	ErrBadResponse = errors.New("jev: bad response")
 )
 
-// Result is the tier Open-Jev picked, its top probability, the call's duration and, when it answered, the agent type.
+// Result is one question's pick, its top probability and the call's duration.
 type Result struct {
-	Pick            string
-	Confidence      float64
-	Ms              int64
-	Agent           string
-	AgentConfidence float64
+	Pick       string
+	Confidence float64
+	Ms         int64
 }
 
 // Class is the short error class of err, "" for nil.
@@ -88,42 +86,39 @@ const needsQuestion = `{"type":"choice","instructions":"Does task B need the res
 	`"yes":"B reads, builds on or edits what A produces, or must run after A finishes.",` +
 	`"no":"B can start now: it touches different files and needs nothing A produces."}}`
 
-// Tier classifies the first 3500 characters of brief: tier, plus the agent type when answered.
+// Tier classifies the 3-way tier of the first 3500 characters of brief.
 func Tier(ctx context.Context, brief string) (Result, error) {
-	qs := map[string]json.RawMessage{"tier": assets.JevTier(), "agent": json.RawMessage(agentQuestion)}
-	res, body, err := ask(ctx, clip(brief), qs)
-	if err != nil {
-		return res, err
-	}
-	a, err := parse(body, "tier", "fast", "standard", "deep")
-	if err != nil {
-		return res, err
-	}
-	res.Pick, res.Confidence = a.Choice, topProb(a)
-	if g, err := parse(body, "agent", Agents...); err == nil {
-		res.Agent, res.AgentConfidence = g.Choice, topProb(g)
-	}
-	return res, nil
+	return one(ctx, clip(brief), "tier", assets.JevTier(), "fast", "standard", "deep")
+}
+
+// Agent classifies only the agent type of brief (7 candidates); Pick is one of Agents.
+func Agent(ctx context.Context, brief string) (Result, error) {
+	return one(ctx, clip(brief), "agent", json.RawMessage(agentQuestion), Agents...)
 }
 
 // Needs asks whether task b needs task a's result first; Pick is "yes" or "no".
 func Needs(ctx context.Context, a, b string) (Result, error) {
 	state := "Task A:\n" + clip(a) + "\n\nTask B:\n" + clip(b)
-	res, body, err := ask(ctx, state, map[string]json.RawMessage{"needs": json.RawMessage(needsQuestion)})
+	return one(ctx, state, "needs", json.RawMessage(needsQuestion), "yes", "no")
+}
+
+// one asks the single question name about state and returns its pick and top probability.
+func one(ctx context.Context, state, name string, q json.RawMessage, choices ...string) (Result, error) {
+	res, body, err := ask(ctx, state, map[string]json.RawMessage{name: q})
 	if err != nil {
 		return res, err
 	}
-	n, err := parse(body, "needs", "yes", "no")
+	a, err := parse(body, name, choices...)
 	if err != nil {
 		return res, err
 	}
-	res.Pick, res.Confidence = n.Choice, topProb(n)
+	res.Pick, res.Confidence = a.Choice, topProb(a)
 	return res, nil
 }
 
 func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Result, []byte, error) {
 	start := time.Now()
-	body, err := post(ctx, strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL, "/v1/systemone",
+	body, err := post(ctx, timeout, strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL, "/v1/systemone",
 		map[string]any{"state": state, "questions": qs})
 	if errors.Is(err, ErrOff) {
 		return Result{}, nil, err
@@ -146,12 +141,12 @@ func topProb(a answer) float64 {
 	return top
 }
 
-// post sends payload as JSON to base (def when "") plus path within timeout; "off", or "" under test, is ErrOff.
-func post(ctx context.Context, base, def, path string, payload any) ([]byte, error) {
+// post sends payload as JSON to base (def when "") plus path within d; "off", or "" under test, is ErrOff.
+func post(ctx context.Context, d time.Duration, base, def, path string, payload any) ([]byte, error) {
 	if base == "off" || base == "" && testing.Testing() { // a test binary never reaches the real server
 		return nil, ErrOff
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 	b, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cmp.Or(base, def)+path, bytes.NewReader(b))
@@ -194,10 +189,15 @@ func parse(body []byte, name string, choices ...string) (answer, error) {
 	if !slices.Contains(choices, a.Choice) || len(a.Probabilities) == 0 {
 		return answer{}, ErrBadResponse
 	}
+	sum := 0.0
 	for _, p := range a.Probabilities {
 		if p < 0 || p > 1 {
 			return answer{}, ErrBadResponse
 		}
+		sum += p
+	}
+	if sum > 1.02 || topProb(a)-a.Probabilities[a.Choice] > 1e-6 {
+		return answer{}, ErrBadResponse
 	}
 	return a, nil
 }

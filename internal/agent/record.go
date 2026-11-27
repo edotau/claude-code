@@ -107,7 +107,7 @@ type Record struct {
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`  // files changed in a tree another dispatch shared; Wrote is then nil
 	TakeoverOf     string      `json:"takeover_of,omitempty"`   // a --carry takeover: the cut-off child dispatch this run finished
 	Report         string      `json:"report,omitempty"`        // absolute path of the report `memory report --job` stored
-	Jev            *JevShadow  `json:"jev,omitempty"`           // shadow tier pick of Open-Jev beside the keyword one; routes nothing
+	Jev            *JevShadow  `json:"jev,omitempty"`           // Open-Jev's tier and agent answers beside the keyword pick; Final is what routed
 	JevPairs       []JevPair   `json:"jev_pairs,omitempty"`     // shadow "does B need A" answers for a batch's tasks; orders nothing
 
 	Parent        string         `json:"parent,omitempty"`

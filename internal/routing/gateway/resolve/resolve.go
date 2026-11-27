@@ -77,7 +77,7 @@ var runQuery = agent.RunQuery
 func FirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task string,
 ) (agent.ModelRoute, *agent.AutoChoice, error) {
 	ctx = agent.PeekContext(ctx)
-	hop, note, err := runQuery(ctx, reg, q, router.RuleClassifier{}.Alias(task))
+	hop, note, err := runQuery(ctx, reg, q, agent.HopAlias(task, router.RuleClassifier{}.Alias))
 	if err != nil {
 		return agent.ModelRoute{}, nil, err
 	}
