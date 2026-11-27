@@ -658,3 +658,17 @@ func TestHopAliasTierLineBeatsClassifier(t *testing.T) {
 		t.Errorf("empty brief = %q, want the classifier's", got)
 	}
 }
+
+// A record pin the catalog does not know gains databricks- only where the fresh listing serves it, never runs bare.
+func TestPinnedTargetSpellsOnlyServedPin(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	vaulttest.SetRecord(t, "copilot", "model", "gemini-4-neon")
+	tgt := providers.Target{Provider: reg.Row("qa"), Model: "databricks-gemini-3-8-flash"}
+	if got := PinnedTarget(context.Background(), "copilot", tgt).Model; got != tgt.Model {
+		t.Errorf("unserved pin ran as %q; want the row's %q", got, tgt.Model)
+	}
+	saveListing(t, "qa", []string{"databricks-gemini-3-8-flash", "databricks-gemini-4-neon"})
+	if got := PinnedTarget(context.Background(), "copilot", tgt).Model; got != "databricks-gemini-4-neon" {
+		t.Errorf("served pin = %q; want databricks-gemini-4-neon", got)
+	}
+}

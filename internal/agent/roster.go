@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/agentid"
@@ -406,10 +407,11 @@ func agentModelPinContext(ctx context.Context, agent string) string {
 	return vault.GetAgentRecord(agent).Model
 }
 
-// PinnedTarget is t with the agent's pin as its model, spelled for t's provider, when it has one.
+// PinnedTarget is t with the agent's pin as its model, spelled for t's provider, when it has one and the row serves it.
 func PinnedTarget(ctx context.Context, agent string, t providers.Target) providers.Target {
 	if pin := agentModelPinContext(ctx, agent); pin != "" {
-		if m := providers.SpellPin(t.Provider, pin); m != "" {
+		now := time.Now()
+		if m := router.SpellServed(t.Provider, pin, now); m != "" && !router.PinMisfit(t.Provider, m, now) {
 			t.Model = m
 		}
 	}

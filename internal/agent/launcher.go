@@ -675,7 +675,8 @@ func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Reg
 		}
 		target = PinnedTarget(ctx, name, target)
 		if gateway && agentModelPinContext(ctx, name) != "" {
-			if _, err := AcceptModel(name, target.Provider, target.Model, time.Now()); err != nil {
+			pin := router.SpellServed(target.Provider, agentModelPinContext(ctx, name), time.Now()) // PinnedTarget skips an unserved pin
+			if _, err := AcceptModel(name, target.Provider, pin, time.Now()); err != nil {
 				return target, note, err
 			}
 		}
