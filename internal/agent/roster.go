@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -411,12 +412,20 @@ func agentModelPinContext(ctx context.Context, agent string) string {
 func PinnedTarget(ctx context.Context, agent string, t providers.Target) providers.Target {
 	if pin := agentModelPinContext(ctx, agent); pin != "" {
 		now := time.Now()
-		if m := router.SpellServed(t.Provider, pin, now); m != "" && !router.PinMisfit(t.Provider, m, now) {
+		switch m := router.SpellServed(t.Provider, pin, now); {
+		case m != "" && !router.PinMisfit(t.Provider, m, now):
 			t.Model = m
+		case t.Provider != nil:
+			if _, seen := pinMisfitNoted.LoadOrStore(agent+"\x00"+t.Provider.Name, true); !seen {
+				fmt.Fprintf(os.Stderr, "%s: record model %s does not fit %s; used %s\n", agent, pin, t.Provider.Name, t.Model)
+			}
 		}
 	}
 	return t
 }
+
+// pinMisfitNoted keeps PinnedTarget's skip note to once per agent and row per process (R8: no silent swaps).
+var pinMisfitNoted sync.Map
 
 // VaultAgentNames is claude, then the other roster agents alphabetically, then extra overlay agent names.
 func VaultAgentNames(vs map[string]any) []string {
