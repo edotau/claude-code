@@ -5,8 +5,11 @@ package worktree
 import (
 	"bufio"
 	"bytes"
+	"compress/zlib"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -222,12 +225,309 @@ func flattenClaims(byPath map[string]map[string]int64) map[string][]ClaimHit {
 
 // ReadDirty is top's dirty paths (absolute, untracked included; a rename source too), limited to scope when given.
 func ReadDirty(ctx context.Context, top string, scope ...string) (string, map[string]bool, error) {
+	if ctx.Err() == nil && cleanScopedIndex(top, scope) {
+		return top, map[string]bool{}, nil
+	}
 	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
 	raw, err := proc.RunGit(ctx, top, args...)
 	if err != nil {
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
 	}
 	return top, DirtyMap(top, proc.StatusEntries(raw)), nil
+}
+
+// cleanScopedIndex proves a literal regular file clean; every unsupported state goes through git status.
+func cleanScopedIndex(top string, scope []string) bool {
+	if hasGitOverrideEnv() {
+		return false
+	}
+	if len(scope) == 2 && scope[0] == "--" {
+		scope = scope[1:]
+	}
+	if len(scope) != 1 || strings.ContainsAny(scope[0], "*?[:\\") || strings.HasPrefix(scope[0], "-") {
+		return false
+	}
+	file := scope[0]
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(top, file)
+	}
+	rel, err := filepath.Rel(top, file)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	top, err = filepath.EvalSymlinks(top)
+	if err != nil {
+		return false
+	}
+	file = filepath.Join(top, rel)
+	gitDir, err := gitDirFromPath(top)
+	if err != nil {
+		return false
+	}
+	common := dirtyCommonDir(gitDir)
+	headTree := looseHeadTree(gitDir, common)
+	if headTree == "" || !dirtyConfigSafe(gitDir, common) || !dirtyAttrsAbsent(top, common, rel) {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(gitDir, "index"))
+	index, statErr := os.Stat(filepath.Join(gitDir, "index"))
+	if err != nil || statErr != nil {
+		return false
+	}
+	entry, tree := scopedIndexEntry(raw, filepath.ToSlash(rel))
+	if entry == nil || tree == "" || tree != headTree {
+		return false
+	}
+	return cleanIndexFile(file, entry, index.ModTime())
+}
+
+func hasGitOverrideEnv() bool {
+	for _, k := range []string{"GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} {
+		if os.Getenv(k) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func dirtyCommonDir(gitDir string) string {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return gitDir
+	}
+	common := strings.TrimSpace(string(raw))
+	if filepath.IsAbs(common) {
+		return common
+	}
+	return filepath.Join(gitDir, common)
+}
+
+// scopedIndexEntry accepts checksummed SHA-1 v2/v3 indexes with a valid root cache-tree and no mandatory extensions.
+func scopedIndexEntry(raw []byte, path string) (entry []byte, tree string) {
+	if len(raw) < 32 || string(raw[:4]) != "DIRC" {
+		return nil, ""
+	}
+	version, count := binary.BigEndian.Uint32(raw[4:8]), binary.BigEndian.Uint32(raw[8:12])
+	sum := sha1.Sum(raw[:len(raw)-20])
+	if (version != 2 && version != 3) || !bytes.Equal(sum[:], raw[len(raw)-20:]) {
+		return nil, ""
+	}
+	rest := raw[12 : len(raw)-20]
+	for range count {
+		if len(rest) < 63 || binary.BigEndian.Uint16(rest[60:62])&0xf000 != 0 {
+			return nil, ""
+		}
+		n := bytes.IndexByte(rest[62:], 0)
+		if n < 0 || (62+n+8)&^7 > len(rest) {
+			return nil, ""
+		}
+		name := string(rest[62 : 62+n])
+		if filepath.Base(name) == ".gitattributes" {
+			return nil, ""
+		}
+		if name == path {
+			entry = rest[:62]
+		}
+		rest = rest[(62+n+8)&^7:]
+	}
+	return entry, indexRootTree(rest, count)
+}
+
+func indexRootTree(rest []byte, count uint32) string {
+	tree := ""
+	for len(rest) >= 8 {
+		name, size := string(rest[:4]), uint64(binary.BigEndian.Uint32(rest[4:8]))
+		if size > uint64(len(rest)-8) || rest[0] < 'A' || rest[0] > 'Z' {
+			return ""
+		}
+		data := rest[8 : 8+int(size)]
+		if name == "TREE" && len(data) > 0 && data[0] == 0 {
+			n := bytes.IndexByte(data, '\n')
+			fields := strings.Fields(string(data[1:max(1, n)]))
+			if n < 0 || n+21 > len(data) || len(fields) != 2 || fields[0] != strconv.FormatUint(uint64(count), 10) {
+				return ""
+			}
+			tree = hex.EncodeToString(data[n+1 : n+21])
+		}
+		rest = rest[8+int(size):]
+	}
+	if len(rest) != 0 {
+		return ""
+	}
+	return tree
+}
+
+// looseHeadTree deliberately leaves packed objects, symbolic chains and non-SHA-1 repositories to git.
+func looseHeadTree(gitDir, common string) string {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	head := strings.TrimSpace(string(raw))
+	if ref, ok := strings.CutPrefix(head, "ref: "); ok {
+		if !strings.HasPrefix(ref, "refs/heads/") || !filepath.IsLocal(ref) {
+			return ""
+		}
+		raw, err = os.ReadFile(filepath.Join(common, ref))
+		head = strings.TrimSpace(string(raw))
+	}
+	id, decodeErr := hex.DecodeString(head)
+	if err != nil || decodeErr != nil || len(id) != 20 {
+		return ""
+	}
+	f, err := os.Open(filepath.Join(common, "objects", head[:2], head[2:]))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	z, err := zlib.NewReader(f)
+	if err != nil {
+		return ""
+	}
+	defer z.Close()
+	raw, err = io.ReadAll(io.LimitReader(z, 1<<20))
+	sum := sha1.Sum(raw)
+	_, body, ok := bytes.Cut(raw, []byte{0})
+	if err != nil || !bytes.Equal(sum[:], id) || !ok || !bytes.HasPrefix(raw, []byte("commit ")) || len(body) < 46 {
+		return ""
+	}
+	if !bytes.HasPrefix(body, []byte("tree ")) || body[45] != '\n' {
+		return ""
+	}
+	return string(body[5:45])
+}
+
+func cleanIndexFile(file string, entry []byte, indexTime time.Time) bool {
+	st, err := os.Lstat(file)
+	if err != nil || !st.Mode().IsRegular() || st.Size() > 16<<20 || st.Size() != int64(binary.BigEndian.Uint32(entry[36:40])) {
+		return false
+	}
+	mode := binary.BigEndian.Uint32(entry[24:28])
+	if mode != 0100644 && mode != 0100755 || (mode == 0100755) != (st.Mode()&0111 != 0) {
+		return false
+	}
+	mtime := time.Unix(int64(binary.BigEndian.Uint32(entry[8:12])), int64(binary.BigEndian.Uint32(entry[12:16])))
+	if !mtime.Equal(st.ModTime()) || mtime.Unix() >= indexTime.Unix() {
+		return false
+	}
+	if real, err := filepath.EvalSymlinks(file); err != nil || filepath.Clean(real) != filepath.Clean(file) {
+		return false
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil || int64(len(raw)) != st.Size() {
+		return false
+	}
+	h := sha1.New()
+	fmt.Fprintf(h, "blob %d%c", len(raw), 0)
+	_, _ = h.Write(raw)
+	return bytes.Equal(h.Sum(nil), entry[40:60])
+}
+
+func dirtyConfigSafe(gitDir, common string) bool {
+	home, _ := os.UserHomeDir()
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	files := []string{filepath.Join(common, "config"), filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config")}
+	files = append(files, "/etc/gitconfig", "/usr/local/etc/gitconfig", "/opt/homebrew/etc/gitconfig")
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil && !os.IsNotExist(err) {
+			return false
+		}
+		if !plainDirtyConfig(string(raw)) {
+			return false
+		}
+	}
+	_, err := os.Lstat(filepath.Join(gitDir, "config.worktree"))
+	return os.IsNotExist(err)
+}
+
+// plainDirtyConfig accepts only simple settings whose meaning cannot alter content or checkout discovery.
+func plainDirtyConfig(raw string) bool {
+	section := ""
+	for line := range strings.Lines(raw) {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			section = line
+			if !plainDirtySection(section) {
+				return false
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if !ok || section == "" || !plainDirtyKey(key) || strings.ContainsAny(value, "\"\\#;") {
+			return false
+		}
+		if section == "[core]" && !plainDirtyCore(key, value) {
+			return false
+		}
+	}
+	return true
+}
+
+func plainDirtySection(section string) bool {
+	if section == "[core]" || section == "[user]" || section == "[credential]" {
+		return true
+	}
+	for _, prefix := range []string{"[remote \"", "[branch \""} {
+		if name, ok := strings.CutPrefix(section, prefix); ok && strings.HasSuffix(name, "\"]") {
+			return !strings.ContainsAny(strings.TrimSuffix(name, "\"]"), "\"\\[]")
+		}
+	}
+	return false
+}
+
+func plainDirtyKey(key string) bool {
+	if key == "" || key[0] < 'a' || key[0] > 'z' {
+		return false
+	}
+	for _, c := range key {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func plainDirtyCore(key, value string) bool {
+	switch key {
+	case "repositoryformatversion":
+		return value == "0"
+	case "bare", "fsmonitor":
+		return value == "false"
+	case "filemode", "logallrefupdates", "ignorecase", "precomposeunicode", "untrackedcache", "symlinks", "trustctime":
+		return value == "true" || value == "false"
+	default:
+		return false
+	}
+}
+
+func dirtyAttrsAbsent(top, common, rel string) bool {
+	home, _ := os.UserHomeDir()
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	files := []string{filepath.Join(common, "info", "attributes"), filepath.Join(xdg, "git", "attributes"),
+		"/etc/gitattributes", "/usr/local/etc/gitattributes", "/opt/homebrew/etc/gitattributes"}
+	for dir := filepath.Dir(rel); ; dir = filepath.Dir(dir) {
+		files = append(files, filepath.Join(top, dir, ".gitattributes"))
+		if dir == "." {
+			break
+		}
+	}
+	for _, f := range files {
+		if _, err := os.Lstat(f); !os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
 }
 
 // DirtyMap is the entries' absolute paths; a rename or copy source is dirty too.

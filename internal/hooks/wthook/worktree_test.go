@@ -631,3 +631,66 @@ func TestBusyManyFailuresCost(t *testing.T) {
 	}
 	t.Logf("busy steady-state runs: %v", ds)
 }
+
+func TestDivergedAtMemoSkipsAllGit(t *testing.T) {
+	repo := divergedClone(t)
+	first, err := divergedAt(t.Context(), repo)
+	if err != nil || first == nil {
+		t.Fatalf("initial divergence = %+v, %v", first, err)
+	}
+	want := *first
+	first.ahead = 999
+	t.Setenv("PATH", t.TempDir())
+	again, err := divergedAt(t.Context(), repo)
+	if err != nil || again == nil || *again != want {
+		t.Fatalf("cached divergence = %+v, %v; want %+v", again, err, want)
+	}
+}
+
+func TestDivergedAtMemoInvalidatesUpstreamAndNames(t *testing.T) {
+	repo := divergedClone(t)
+	if d, err := divergedAt(t.Context(), repo); d == nil || err != nil {
+		t.Fatalf("initial divergence = %+v, %v", d, err)
+	}
+	hosttest.In(t, repo, "update-ref", "refs/remotes/origin/other", "refs/remotes/origin/main")
+	hosttest.In(t, repo, "config", "branch.main.merge", "refs/heads/other")
+	if d, err := divergedAt(t.Context(), repo); err != nil || d == nil || d.upName != "origin/other" {
+		t.Fatalf("renamed upstream = %+v, %v", d, err)
+	}
+	hosttest.In(t, repo, "update-ref", "refs/remotes/origin/other", "HEAD")
+	if d, err := divergedAt(t.Context(), repo); d != nil || err != nil {
+		t.Fatalf("advanced upstream = %+v, %v", d, err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if d, err := divergedAt(t.Context(), repo); d != nil || err != nil {
+		t.Fatalf("cached nil = %+v, %v", d, err)
+	}
+}
+
+func TestDivergedAtMemoInvalidatesHead(t *testing.T) {
+	repo := divergedClone(t)
+	if d, err := divergedAt(t.Context(), repo); d == nil || err != nil {
+		t.Fatalf("initial divergence = %+v, %v", d, err)
+	}
+	tree := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD^{tree}"))
+	head := strings.TrimSpace(hosttest.In(t, repo, "commit-tree", tree, "-p", "HEAD", "-m", "later"))
+	hosttest.In(t, repo, "update-ref", "HEAD", head)
+	if d, err := divergedAt(t.Context(), repo); err != nil || d == nil || d.ahead != 2 || d.head != head {
+		t.Fatalf("advanced HEAD = %+v, %v", d, err)
+	}
+}
+
+func TestDivergedAtMemoLinkedPackedRefs(t *testing.T) {
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "branch", "up")
+	linked := filepath.Join(t.TempDir(), "linked")
+	hosttest.In(t, repo, "worktree", "add", "-q", "--track", "-b", "side", linked, "up")
+	hosttest.In(t, repo, "pack-refs", "--all")
+	if d, err := divergedAt(t.Context(), linked); d != nil || err != nil {
+		t.Fatalf("initial linked result = %+v, %v", d, err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if d, err := divergedAt(t.Context(), linked); d != nil || err != nil {
+		t.Fatalf("cached linked result = %+v, %v", d, err)
+	}
+}

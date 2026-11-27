@@ -1,6 +1,8 @@
 package worktree
 
 import (
+	"crypto/sha1"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
+	"github.com/edotau/claude-code/internal/platform/paths"
 
 	"github.com/edotau/claude-code/internal/platform/proc"
 )
@@ -293,5 +296,197 @@ func TestDrainOversizeLeaderDoesNotHideQueue(t *testing.T) {
 	got, err := DrainErr("big-lead")
 	if err != nil || len(got) != 2 || !strings.HasSuffix(got[0].Text, truncatedMark) || len(got[0].Text) > drainBytes+len(truncatedMark) || got[1].Text != "2 more queued" {
 		t.Fatalf("drain = %d notices, %v; want one truncated notice then 2 more queued", len(got), err)
+	}
+}
+
+func BenchmarkReadDirtyCleanScoped2000TrackedFiles(b *testing.B) {
+	b.Setenv("HOME", b.TempDir())
+	b.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	repo, scoped := readDirtyBenchmarkRepo(b)
+	for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		b.Setenv(key, "benchmark")
+	}
+	for _, key := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		b.Setenv(key, "benchmark@example.invalid")
+	}
+	git := func(args ...string) string {
+		out, err := proc.RunGit(b.Context(), repo, args...)
+		if err != nil {
+			b.Fatal(err)
+		}
+		return strings.TrimSpace(out)
+	}
+	git("add", ".")
+	tree := git("write-tree")
+	git("update-ref", "HEAD", git("commit-tree", tree, "-m", "fixture"))
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(scoped, old, old); err != nil {
+		b.Fatal(err)
+	}
+	git("update-index", "--refresh")
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, dirty, err := ReadDirty(b.Context(), repo, "--", scoped); err != nil || len(dirty) != 0 {
+			b.Fatalf("dirty = %v, %v", dirty, err)
+		}
+	}
+}
+
+func cleanScopedRepo(t *testing.T) (string, string) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repo := paths.Real(hosttest.Repo(t))
+	file := filepath.Join(repo, "tracked.txt")
+	hosttest.WriteRel(t, repo, "tracked.txt", "clean\n")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, repo, "add", ".")
+	tree := strings.TrimSpace(hosttest.In(t, repo, "write-tree"))
+	commit := strings.TrimSpace(hosttest.In(t, repo, "commit-tree", tree, "-m", "fixture"))
+	hosttest.In(t, repo, "update-ref", "HEAD", commit)
+	return repo, file
+}
+
+func TestReadDirtyCleanScopedNoGit(t *testing.T) {
+	repo, file := cleanScopedRepo(t)
+	if !cleanScopedIndex(repo, []string{"--", file}) {
+		t.Fatal("clean index was not proved")
+	}
+	t.Setenv("PATH", t.TempDir())
+	for _, scope := range [][]string{{"--", file}, {"tracked.txt"}} {
+		top, dirty, err := ReadDirty(t.Context(), repo, scope...)
+		if err != nil || top != repo || len(dirty) != 0 {
+			t.Fatalf("ReadDirty = %s, %v, %v", top, dirty, err)
+		}
+	}
+}
+
+func TestReadDirtyScopedNegativeControls(t *testing.T) {
+	for _, kind := range []string{"modified", "same-stat", "staged", "untracked", "symlink", "mode", "racy", "attributes", "filter", "v4", "missing-index"} {
+		t.Run(kind, func(t *testing.T) {
+			repo, file := cleanScopedRepo(t)
+			file = dirtyScopedFixture(t, repo, file, kind)
+			if cleanScopedIndex(repo, []string{"--", file}) {
+				t.Fatal("undecided/dirty file was proved clean")
+			}
+			raw, err := proc.RunGit(t.Context(), repo, "status", "--porcelain", "-z", "--untracked-files=all", "--", file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, got, err := ReadDirty(t.Context(), repo, "--", file)
+			if want := DirtyMap(repo, proc.StatusEntries(raw)); err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("dirty = %v, %v; want %v", got, err, want)
+			}
+		})
+	}
+}
+
+func dirtyScopedFixture(t *testing.T, repo, file, kind string) string {
+	t.Helper()
+	switch kind {
+	case "modified", "same-stat", "staged":
+		st, _ := os.Stat(file)
+		hosttest.WriteRel(t, repo, "tracked.txt", "dirty\n")
+		if kind == "same-stat" {
+			if err := os.Chtimes(file, st.ModTime(), st.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if kind == "staged" {
+			hosttest.In(t, repo, "add", ".")
+			hosttest.In(t, repo, "write-tree")
+		}
+	case "untracked":
+		hosttest.WriteRel(t, repo, "new.txt", "new\n")
+		return filepath.Join(repo, "new.txt")
+	case "symlink":
+		if err := os.Remove(file); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("missing", file); err != nil {
+			t.Fatal(err)
+		}
+	case "mode":
+		if err := os.Chmod(file, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	case "racy":
+		st, _ := os.Stat(file)
+		if err := os.Chtimes(filepath.Join(repo, ".git", "index"), st.ModTime(), st.ModTime()); err != nil {
+			t.Fatal(err)
+		}
+	case "attributes":
+		hosttest.WriteRel(t, repo, ".gitattributes", "*.txt text\n")
+	case "filter":
+		hosttest.In(t, repo, "config", "filter.demo.clean", "cat")
+	case "v4":
+		hosttest.In(t, repo, "update-index", "--index-version", "4")
+	case "missing-index":
+		if err := os.Remove(filepath.Join(repo, ".git", "index")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return file
+}
+
+func TestReadDirtyCleanLinkedWorktree(t *testing.T) {
+	repo, _ := cleanScopedRepo(t)
+	linked := filepath.Join(paths.Real(t.TempDir()), "linked")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "side", linked)
+	file := filepath.Join(linked, "tracked.txt")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, linked, "update-index", "--refresh")
+	if !cleanScopedIndex(linked, []string{"--", file}) {
+		t.Fatal("linked worktree was not proved clean")
+	}
+	t.Setenv("PATH", t.TempDir())
+	if _, dirty, err := ReadDirty(t.Context(), linked, "--", file); err != nil || len(dirty) != 0 {
+		t.Fatalf("linked dirty = %v, %v", dirty, err)
+	}
+}
+
+func TestScopedIndexVersionsAndCorruption(t *testing.T) {
+	repo, _ := cleanScopedRepo(t)
+	raw, err := os.ReadFile(filepath.Join(repo, ".git", "index"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []uint32{2, 3, 4} {
+		data := append([]byte(nil), raw...)
+		binary.BigEndian.PutUint32(data[4:8], version)
+		sum := sha1.Sum(data[:len(data)-20])
+		copy(data[len(data)-20:], sum[:])
+		entry, tree := scopedIndexEntry(data, "tracked.txt")
+		if (entry != nil && tree != "") != (version != 4) {
+			t.Errorf("index v%d: entry=%x, tree=%s", version, entry, tree)
+		}
+	}
+	for _, data := range [][]byte{nil, raw[:20], raw[:len(raw)-1], append([]byte("FAIL"), raw[4:]...)} {
+		if entry, tree := scopedIndexEntry(data, "tracked.txt"); entry != nil || tree != "" {
+			t.Fatal("corrupt index was accepted")
+		}
+	}
+}
+
+func TestPlainDirtyConfigFallsBackOnUncertainSettings(t *testing.T) {
+	for _, cfg := range []string{
+		"[core]\nbare=true\n", "[core]\nbare\n", "[core]\nautocrlf=true\n",
+		"[core]\nattributesFile=/custom/attrs\n", "[include]\npath=extra\n",
+		"[filter \"demo\"]\nclean=cat\n", "[core]\nfilemode=bogus\n", "not a config\n",
+	} {
+		if plainDirtyConfig(cfg) {
+			t.Errorf("accepted uncertain config %q", cfg)
+		}
+	}
+	if !plainDirtyConfig("[core]\n bare = false\n filemode = true\n[remote \"origin\"]\n url = /repo\n") {
+		t.Fatal("plain config was rejected")
 	}
 }

@@ -101,7 +101,7 @@ func attributionVerdict(in *core.Input) (core.Decision, string, string) {
 // settingsVerdict denies a command a settings.json deny rule covers; a fuzzy interpreter write asks.
 func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
 	p, cwd := livePolicy(), in.CWD
-	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, p.twin); {
+	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWriteGlobs(cmd, cwd, func() []string { return p.edit.at(cwd) }); {
 	case rule != "":
 		return core.Block, core.SafetyMessage(in, core.Block, assets.SafetyDenyWhat(), rule,
 			assets.SafetyDenyHint()+ownerRoute), "settings deny"
@@ -346,11 +346,15 @@ func dropInertHeredocs(cmd string) string {
 
 // protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
 func protectedWrite(cmd, cwd string, raw []string, twin map[string]string) string {
+	return protectedWriteGlobs(cmd, cwd, func() []string { return foldedGlobs(raw, cwd, twin) })
+}
+
+func protectedWriteGlobs(cmd, cwd string, load func() []string) string {
 	var globs []string
 	folded := false
 	fold := func() []string {
 		if !folded {
-			globs, folded = foldedGlobs(raw, cwd, twin), true
+			globs, folded = load(), true
 		}
 		return globs
 	}

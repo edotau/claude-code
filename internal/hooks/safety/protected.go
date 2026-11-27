@@ -23,7 +23,7 @@ func protectedEdit(in *core.Input) core.Result {
 	}
 	p := livePolicy()
 	allowed := func(f string) bool { return tempWriteAllowed("", f) }
-	if f, _ := pathHit(editPaths(in), foldedGlobs(p.editDeny, in.CWD, p.twin), allowed); f != "" {
+	if f, _ := pathHit(editPaths(in), p.edit.at(in.CWD), allowed); f != "" {
 		return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
 			assets.SafetyProtectedWhat(), f, assets.SafetyProtectedHint())}
 	}
@@ -40,12 +40,7 @@ func protectedTool(in *core.Input) core.Result {
 	if pathTools[tool] {
 		return protectedRead(in, tool, p)
 	}
-	var rules []permission.Rule
-	for _, r := range p.toolDeny {
-		if r.Tool == tool {
-			rules = append(rules, r)
-		}
-	}
+	rules := p.tools[tool]
 	if len(rules) == 0 {
 		return core.Result{}
 	}
@@ -79,20 +74,15 @@ func toolArg(in *core.Input, tool string) (arg, problem string) {
 
 // protectedRead judges a Read, Grep or Glob call's own path against the tool's anchored deny globs.
 func protectedRead(in *core.Input, tool string, p policy) core.Result {
-	var raw []string
-	for _, r := range p.pathDeny {
-		if r.tool == tool {
-			raw = append(raw, r.glob)
-		}
-	}
-	if len(raw) == 0 {
+	globs := p.read[tool]
+	if len(globs.fixed) == 0 && len(globs.relative) == 0 {
 		return core.Result{}
 	}
 	forms, problem := toolPaths(in, tool)
 	if problem != "" {
 		return toolBlock(in, problem, tool)
 	}
-	hit, resolved := pathHit(forms, foldedGlobs(raw, in.CWD, p.twin), func(string) bool { return false })
+	hit, resolved := pathHit(forms, globs.at(in.CWD), func(string) bool { return false })
 	if hit != "" {
 		return toolBlock(in, assets.SafetyDenyWhat(), tool+" "+hit)
 	}

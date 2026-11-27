@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
@@ -98,6 +99,7 @@ func baselineParsePolicy(l settings.PermissionLists) policy {
 		}
 	}
 	p.twin = canonTwins(p)
+	p.compileGlobs()
 	return p
 }
 
@@ -186,5 +188,52 @@ func TestBareEditDenyMatchesEveryPath(t *testing.T) {
 	globs := foldedGlobs(pol.editDeny, "/w", pol.twin)
 	if !matchesProtected("/anywhere/deep/file.txt", globs) {
 		t.Errorf("bare Edit deny globs %q miss an arbitrary path", globs)
+	}
+}
+
+func TestCompiledPolicyGlobsConcurrent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := parsePolicy([]string{"Edit(~/private/**)", "Edit(**/.env)", "Read(~/private/**)", "WebFetch(example.invalid)"})
+	want := foldedGlobs(p.editDeny, "/repo", p.twin)
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			for range 100 {
+				if got := p.edit.at("/repo"); !slices.Equal(got, want) {
+					t.Errorf("compiled = %v; want %v", got, want)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if n := testing.AllocsPerRun(100, func() { _ = p.edit.at("/repo") }); n != 0 {
+		t.Fatalf("fixed globs allocated %g times", n)
+	}
+}
+
+func TestCompiledRelativeGlobFollowsSymlinkEdits(t *testing.T) {
+	root := paths.Real(t.TempDir())
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for _, dir := range []string{a, b} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(root, "alias")
+	if err := os.Symlink(a, link); err != nil {
+		t.Fatal(err)
+	}
+	p := parsePolicy([]string{"Edit(alias/**)"})
+	if !matchesProtected(filepath.Join(a, "file"), p.edit.at(root)) {
+		t.Fatal("original symlink target was not protected")
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(b, link); err != nil {
+		t.Fatal(err)
+	}
+	if !matchesProtected(filepath.Join(b, "file"), p.edit.at(root)) {
+		t.Fatal("new symlink target was not protected")
 	}
 }

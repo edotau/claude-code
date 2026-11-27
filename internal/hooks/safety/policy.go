@@ -24,6 +24,9 @@ type policy struct {
 	editDeny []string
 	pathDeny []pathRule        // Read, Grep and Glob rows, raw globs
 	toolDeny []permission.Rule // every other tool: WebFetch, WebSearch, MCP…
+	edit     policyGlobs
+	read     map[string]policyGlobs
+	tools    map[string][]permission.Rule
 	twin     map[string]string // raw absolute glob -> its folded symlink-resolved glob, when that differs
 }
 
@@ -40,15 +43,34 @@ func rowGlob(row string, r permission.Rule) string {
 }
 
 var (
-	policyCache    = paths.NewStampCache[policy]("safety.policy")
-	templatePolicy = sync.OnceValue(func() policy {
+	policyCache  = paths.NewStampCache[policy]("safety.policy")
+	templateDeny = sync.OnceValue(func() []string {
 		var doc struct {
 			Permissions settings.PermissionLists `json:"permissions"`
 		}
 		_ = json.Unmarshal(settings.Template(), &doc) // the embedded template is tested
-		return parsePolicy(doc.Permissions.Deny)
+		return doc.Permissions.Deny
 	})
 )
+
+var templateCache = struct {
+	sync.Mutex
+	key   string
+	value policy
+}{}
+
+// templatePolicy recompiles if the home or config anchor changes, without mutating any previously loaded policy.
+func templatePolicy() policy {
+	home, _ := os.UserHomeDir()
+	key := home + "\x00" + paths.ConfigDir()
+	templateCache.Lock()
+	defer templateCache.Unlock()
+	if templateCache.key != key {
+		templateCache.value = parsePolicy(templateDeny())
+		templateCache.key = key
+	}
+	return templateCache.value
+}
 
 // livePolicy is the user settings policy; a missing or broken settings.json falls back to the template's.
 func livePolicy() policy {
@@ -133,7 +155,53 @@ func parsePolicy(deny []string) policy {
 		}
 	}
 	p.twin = canonTwins(p)
+	p.compileGlobs()
 	return p
+}
+
+// policyGlobs holds immutable fixed globs; relative paths still resolve symlinks on every use.
+type policyGlobs struct {
+	fixed, relative []string
+}
+
+func compilePolicyGlobs(raw []string, twin map[string]string) policyGlobs {
+	var g policyGlobs
+	for _, r := range raw {
+		if a := anchorGlob(r, ""); a != "" {
+			g.fixed = append(g.fixed, a)
+			if c := twin[r]; c != "" && c != a {
+				g.fixed = append(g.fixed, c)
+			}
+		} else {
+			g.relative = append(g.relative, r)
+		}
+	}
+	return g
+}
+
+func (g policyGlobs) at(cwd string) []string {
+	if len(g.relative) == 0 || cwd == "" {
+		return g.fixed
+	}
+	return append(foldedGlobs(g.relative, cwd, nil), g.fixed...)
+}
+
+func (p *policy) compileGlobs() {
+	p.edit = compilePolicyGlobs(p.editDeny, p.twin)
+	p.read = make(map[string]policyGlobs)
+	p.tools = make(map[string][]permission.Rule)
+	for tool := range pathTools {
+		var raw []string
+		for _, r := range p.pathDeny {
+			if r.tool == tool {
+				raw = append(raw, r.glob)
+			}
+		}
+		p.read[tool] = compilePolicyGlobs(raw, p.twin)
+	}
+	for _, r := range p.toolDeny {
+		p.tools[r.Tool] = append(p.tools[r.Tool], r)
+	}
 }
 
 // canonTwins resolves each absolute path glob's symlinks once, at parse time.

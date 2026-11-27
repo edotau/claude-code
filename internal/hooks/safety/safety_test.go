@@ -1010,3 +1010,26 @@ func scratchOutsideTemp(t *testing.T) string {
 	t.Fatalf("no writable dir outside the temp roots among %v", cands)
 	return ""
 }
+
+// BenchmarkPermissionGate measures this checkout's edit permission gate, protectedEdit (no separate PermissionGate).
+func BenchmarkPermissionGate(b *testing.B) {
+	cfg := benchSettings(b)
+	target := filepath.Join(cfg, "ordinary.txt")
+	if err := os.WriteFile(target, []byte("text"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	link := filepath.Join(cfg, "alias.txt")
+	if err := os.Symlink(target, link); err != nil {
+		b.Fatal(err)
+	}
+	b.Run("readonly/edit-symlink", func(b *testing.B) {
+		raw, _ := json.Marshal(map[string]any{"tool_name": "Edit", "cwd": cfg,
+			"tool_input": map[string]string{"file_path": link}})
+		in := core.ParseInputFor(bytes.NewReader(raw), core.AgentGemini)
+		benchSink = protectedEdit(in)
+		b.ReportAllocs()
+		for b.Loop() {
+			benchSink = protectedEdit(in)
+		}
+	})
+}

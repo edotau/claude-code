@@ -305,8 +305,58 @@ func divergedCheckDue(session string) bool {
 	return true
 }
 
-// divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
+type divergenceMemo struct {
+	key   string
+	value *divergence
+}
+
+var divergenceCache = struct {
+	sync.Mutex
+	byDir map[string]divergenceMemo
+}{byDir: make(map[string]divergenceMemo)}
+
+// divergenceKey includes ref names because equal commits can belong to differently named tracking branches.
+func divergenceKey(dir string) (string, bool) {
+	key, branch, up, ok := namedRefPair(dir)
+	return key + "\t" + branch + "\t" + up, ok
+}
+
+// divergedAt reuses the full result only while refs, tracking names and ancestry safety checks hold.
 func divergedAt(ctx context.Context, dir string) (*divergence, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	key, keyed := divergenceKey(dir)
+	if keyed {
+		divergenceCache.Lock()
+		memo, found := divergenceCache.byDir[dir]
+		divergenceCache.Unlock()
+		if found && memo.key == key {
+			return cloneDivergence(memo.value), nil
+		}
+	}
+	d, err := readDivergence(ctx, dir)
+	if again, ok := divergenceKey(dir); keyed && ok && again == key && err == nil {
+		divergenceCache.Lock()
+		if len(divergenceCache.byDir) >= 128 {
+			clear(divergenceCache.byDir)
+		}
+		divergenceCache.byDir[dir] = divergenceMemo{key, cloneDivergence(d)}
+		divergenceCache.Unlock()
+	}
+	return d, err
+}
+
+func cloneDivergence(d *divergence) *divergence {
+	if d == nil {
+		return nil
+	}
+	copy := *d
+	return &copy
+}
+
+// readDivergence reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
+func readDivergence(ctx context.Context, dir string) (*divergence, error) {
 	a, b, err := aheadBehind(ctx, dir)
 	if err != nil || a == 0 || b == 0 {
 		return nil, err
@@ -376,23 +426,28 @@ func cachedCounts(cache, key string) (ahead, behind int, ok bool) {
 
 // refPair is "<checkout>\t<HEAD sha>\t<upstream sha>" read from the ref files; ok=false leaves it to git.
 func refPair(dir string) (string, bool) {
+	key, _, _, ok := namedRefPair(dir)
+	return key, ok
+}
+
+func namedRefPair(dir string) (key, branchName, upstream string, ok bool) {
 	top, gitDir, common, ok := keyableCheckout(dir)
 	if !ok {
-		return "", false
+		return "", "", "", false
 	}
 	raw, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
 	ref, symbolic := strings.CutPrefix(strings.TrimSpace(string(raw)), "ref: ")
 	branch, isBranch := strings.CutPrefix(ref, "refs/heads/")
 	if err != nil || !symbolic || !isBranch {
-		return "", false
+		return "", "", "", false
 	}
 	upRef, ok := upstreamRef(common, branch)
 	head, headOK := refSha(common, ref)
 	up, upOK := refSha(common, upRef)
 	if !ok || !headOK || !upOK {
-		return "", false
+		return "", "", "", false
 	}
-	return top + "\t" + head + "\t" + up, true
+	return top + "\t" + head + "\t" + up, branch, upRef, true
 }
 
 // keyableCheckout finds dir's checkout as git would; ok=false when env or repo state makes file-read counts unsafe.
@@ -450,33 +505,23 @@ func stableAncestry(gitDir, common string) bool {
 	return !globalBranchConfig()
 }
 
-// globalBranchConfig reports branch config from git's env or global file; system config and includes go unread.
+// globalBranchConfig rejects external tracking overrides; proc.RunGit scrubs GIT_CONFIG_* environment overrides.
 func globalBranchConfig() bool {
-	if strings.Contains(strings.ToLower(os.Getenv("GIT_CONFIG_PARAMETERS")), "branch.") {
-		return true
-	}
-	if n := os.Getenv("GIT_CONFIG_COUNT"); n != "" {
-		count, err := strconv.Atoi(n)
-		if err != nil {
+	home, _ := os.UserHomeDir()
+	xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
+	files := []string{filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config"),
+		"/etc/gitconfig", "/usr/local/etc/gitconfig", "/opt/homebrew/etc/gitconfig"}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil && !os.IsNotExist(err) {
 			return true
 		}
-		for i := range count {
-			if strings.HasPrefix(strings.ToLower(os.Getenv("GIT_CONFIG_KEY_"+strconv.Itoa(i))), "branch.") {
-				return true
-			}
-		}
-	}
-	home, _ := os.UserHomeDir()
-	files := []string{os.Getenv("GIT_CONFIG_GLOBAL")}
-	if files[0] == "" {
-		xdg := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
-		files = []string{filepath.Join(home, ".gitconfig"), filepath.Join(xdg, "git", "config")}
-	}
-	for _, f := range files {
-		raw, _ := os.ReadFile(f)
 		for line := range strings.Lines(string(raw)) {
-			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "[branch") {
-				return true
+			line = strings.ToLower(strings.TrimSpace(line))
+			for _, prefix := range []string{"[branch", "[remote", "[include", "[extensions"} {
+				if strings.HasPrefix(line, prefix) {
+					return true
+				}
 			}
 		}
 	}
