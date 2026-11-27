@@ -3,6 +3,8 @@ package memory
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -890,5 +892,73 @@ func TestRecallTimingOffIsSilent(t *testing.T) {
 	}
 	if n := testing.AllocsPerRun(100, FlushRecallTiming); n != 0 {
 		t.Fatalf("disabled FlushRecallTiming allocs = %v, want 0", n)
+	}
+}
+
+// Strong unseen lexical hits skip embedQuery; weak or seen hits still invoke embedQuery.
+func TestRecallLexicalShortCircuit(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "decisionLog.md", "# D\n\n"+
+		"## 2026-10-20 — Zebra quota limiter primary <!-- id:aaaa0001 -->\n\nzebra quota limiter fallback primary\n\n"+
+		"## 2026-10-19 — Zebra quota limiter secondary <!-- id:aaaa0002 -->\n\nzebra quota limiter fallback secondary\n\n"+
+		"## 2026-10-18 — Quokka burrow gamma choice <!-- id:aaaa0003 -->\n\nquokka burrow gamma gamma\n")
+	cwd := t.TempDir()
+	var calls int
+	c := fakeEmbedServer(t, &calls)
+	if _, _, err := embedChanged(context.Background(), cwd, c); err != nil {
+		t.Fatal(err)
+	}
+	prev := openEmbedClient
+	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
+	t.Cleanup(func() { openEmbedClient = prev })
+	calls = 0
+
+	// (a) strong unseen lexical hits skip embedQuery (0 calls).
+	got := PromptRecall(context.Background(), "s-lex", "zebra quota limiter fallback", io.Discard)
+	if !strings.Contains(got, "aaaa0001") || !strings.Contains(got, "aaaa0002") || calls != 0 {
+		t.Fatalf("strong unseen hits: calls=%d, got:\n%s", calls, got)
+	}
+	// (c) already-seen lexical hits still invoke embedQuery.
+	_ = PromptRecall(context.Background(), "s-lex", "zebra quota limiter fallback", io.Discard)
+	if calls != 1 {
+		t.Fatalf("seen lexical hits must fall through to embedQuery: calls=%d, want 1", calls)
+	}
+	// (b) weak/no lexical hits still invoke embedQuery.
+	calls = 0
+	semGot := PromptRecall(context.Background(), "s-weak", "hello world foo bar gamma", io.Discard)
+	if calls != 1 || !strings.Contains(semGot, "aaaa0003") {
+		t.Fatalf("weak lexical hits must invoke embedQuery: calls=%d, got:\n%s", calls, semGot)
+	}
+}
+
+// readQueryVec normalizes case/whitespace and updates mtime for LRU eviction.
+func TestQueryVecNormalizedKeyAndLRU(t *testing.T) {
+	recallEnv(t)
+	writeQueryVec("m1", "  Zebra   Quota\nLimiter\tFallback  ", []float32{0.5, -0.5})
+	path := queryVecFile("m1", "zebra quota limiter fallback")
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	vec, ok := readQueryVec("m1", "zebra quota   limiter fallback")
+	if !ok || len(vec) != 2 || vec[0] != 0.5 || vec[1] != -0.5 {
+		t.Fatalf("normalized readQueryVec = %v, %v", vec, ok)
+	}
+	st, err := os.Stat(path)
+	if err != nil || !st.ModTime().After(old.Add(time.Hour)) {
+		t.Fatalf("readQueryVec did not refresh mtime: mod=%v old=%v err=%v", st.ModTime(), old, err)
+	}
+}
+
+// The cache key is versioned: a pre-canonical raw-key file never aliases a v2 entry.
+func TestQueryVecKeyVersionedAndCanonical(t *testing.T) {
+	recallEnv(t)
+	q := "  Zebra   Quota\tLimiter "
+	if got, want := queryVecFile("m1", q), queryVecFile("m1", "zebra quota limiter"); got != want {
+		t.Fatalf("equivalent queries keyed apart: %s vs %s", got, want)
+	}
+	old := sha256.Sum256([]byte("m1\x00zebra quota limiter"))
+	if strings.Contains(queryVecFile("m1", q), hex.EncodeToString(old[:])) {
+		t.Fatal("v2 key aliases the old unversioned key")
 	}
 }

@@ -42,7 +42,6 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
-	ready := startSemantic(ctx, q, semantic)
 	type boosts struct {
 		counts  map[string]int
 		weights map[string]float64
@@ -55,21 +54,45 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	trace.seen = seen
 	ranked, files, segs := searchRecallTerms(terms, 0, true)
 	ranked = followReplaced(ranked, files, segs)
+	b := <-boosted
+	parallel.Rethrow(b.err)
 	var sem *semanticQuery
 	semSeen := false
 	if semantic {
-		res := <-ready
-		trace.Degraded = res.err
-		ranked, sem, semSeen, trace.Embeddings = recallSemantic(res, files, segs, seen, recallNeed(terms), ranked, tr)
+		if !explain && lexicalSufficient(seen, terms, ranked, b.counts, b.weights) {
+			trace.Embeddings = "skipped: strong lexical hits"
+		} else {
+			res := <-startSemantic(ctx, q, true)
+			trace.Degraded = res.err
+			ranked, sem, semSeen, trace.Embeddings = recallSemantic(res, files, segs, seen, recallNeed(terms), ranked, tr)
+		}
 	}
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	b := <-boosted
-	parallel.Rethrow(b.err)
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, b.counts, tr, b.weights)
 	trace.Silent = len(picks) == 0
 	return picks, trace
+}
+
+// lexicalSufficient reports whether current unseen lexical hits already cover every query term at full strength.
+func lexicalSufficient(seen map[string]bool, terms []string, ranked []SearchHit, counts map[string]int, weights map[string]float64) bool {
+	if len(terms) == 0 {
+		return false
+	}
+	picks, _ := pickTier(ranked, false, recallNeed(terms), seen, nil, counts, nil, weights)
+	if len(picks) == 0 {
+		return false
+	}
+	full := distinctCount(terms, 0)
+	bodies := 0
+	for _, p := range picks {
+		if p.Hit.Matched < full {
+			return false
+		}
+		bodies++
+	}
+	return bodies >= recallBodies || (bodies == 1 && len(picks) == 1)
 }
 
 func skipRecallQuery(query string, tokens []string, semantic bool) bool {
@@ -84,8 +107,9 @@ type semanticReady struct {
 func startSemantic(ctx context.Context, query string, enabled bool) <-chan semanticReady {
 	ready := make(chan semanticReady, 1)
 	if enabled {
+		canon := normalizeQueryVecKey(query) // the embedded text and the cache key share one canonical form
 		parallel.Go(func() {
-			sem, err := embedQuery(ctx, query)
+			sem, err := embedQuery(ctx, canon)
 			ready <- semanticReady{sem, err}
 		}, func(err error) { ready <- semanticReady{err: err} })
 	}
@@ -204,9 +228,14 @@ const (
 	queryVecAge = 24 * time.Hour // a cached vector older than this is a miss
 )
 
-// queryVecFile is the cache file for one (model, query) pair; the model id is part of the key.
+// normalizeQueryVecKey lowercases and collapses whitespace so equivalent queries share one cache entry.
+func normalizeQueryVecKey(query string) string {
+	return strings.Join(strings.Fields(strings.ToLower(query)), " ")
+}
+
+// queryVecFile is the cache file for one (model, query) pair; the "v2" prefix keeps raw-key files from aliasing.
 func queryVecFile(model, query string) string {
-	sum := sha256.Sum256([]byte(model + "\x00" + query))
+	sum := sha256.Sum256([]byte("v2\x00" + model + "\x00" + normalizeQueryVecKey(query)))
 	return filepath.Join(paths.MemoryStateDir(), "queryvec", hex.EncodeToString(sum[:])+".vec")
 }
 
@@ -221,6 +250,8 @@ func readQueryVec(model, query string) ([]float32, bool) {
 	if err != nil || len(b) == 0 || len(b)%4 != 0 {
 		return nil, false
 	}
+	now := time.Now()
+	_ = os.Chtimes(path, now, now)
 	vec := make([]float32, len(b)/4)
 	for i := range vec {
 		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[4*i:]))
