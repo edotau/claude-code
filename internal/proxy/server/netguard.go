@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,6 +28,8 @@ func guardedClient() *http.Client {
 	t.ResponseHeaderTimeout = responseHeaderTimeout
 	t.MaxIdleConnsPerHost = upstreamIdleConns
 	t.TLSClientConfig = withSessionCache(t.TLSClientConfig)
+	// a silently dropped idle conn is pinged after 30s and closed if silent 10s more, before a request stalls on it
+	t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 30 * time.Second, PingTimeout: 10 * time.Second}
 	// a 3xx goes back to the caller: following it would dial a literal local IP past the guard
 	return &http.Client{Transport: t, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
@@ -39,6 +43,86 @@ func withSessionCache(cfg *tls.Config) *tls.Config {
 	c.ClientSessionCache = tls.NewLRUClientSessionCache(64)
 	return c
 }
+
+// prewarmBudget bounds the startup pre-warm; it runs in the background and fails silently.
+const prewarmBudget = 2 * time.Second
+
+// prewarm handshakes the Anthropic route of each recently used provider so its first request resumes TLS.
+func (r *Router) prewarm(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, prewarmBudget)
+	defer cancel()
+	t, ok := r.client.Transport.(*http.Transport)
+	reg, err := r.registry()
+	if !ok || err != nil {
+		return
+	}
+	var addrs []string
+	for _, n := range r.recentlyUsed() {
+		if p := reg.Providers[n]; p != nil {
+			if addr, ok := upstreamAddr(p); ok {
+				addrs = append(addrs, addr)
+			}
+		}
+	}
+	slices.Sort(addrs)
+	warmHosts(ctx, t, slices.Compact(addrs))
+}
+
+// upstreamAddr is host:port of p's Anthropic route; false when the route is not https.
+func upstreamAddr(p *providers.Provider) (string, bool) {
+	raw, ok := p.Route(providers.ProtocolAnthropic)
+	u, err := url.Parse(raw)
+	if !ok || err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return "", false
+	}
+	return net.JoinHostPort(u.Hostname(), cmp.Or(u.Port(), "443")), true
+}
+
+// warmHosts handshakes each addr once and keeps only its session; no request leaves, proxied routes skip.
+func warmHosts(ctx context.Context, t *http.Transport, addrs []string) {
+	var wg sync.WaitGroup
+	for _, addr := range addrs {
+		if !proxied(t, addr) {
+			wg.Go(func() { warmOne(ctx, t.TLSClientConfig, addr) })
+		}
+	}
+	wg.Wait()
+}
+
+// proxied reports whether the transport would send addr through a proxy, or cannot tell (then skip).
+func proxied(t *http.Transport, addr string) bool {
+	if t.Proxy == nil {
+		return false
+	}
+	u, err := t.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: addr}})
+	return err != nil || u != nil
+}
+
+// warmOne handshakes addr with cfg's session cache; errors are ignored, the first request just pays the full handshake.
+func warmOne(ctx context.Context, cfg *tls.Config, addr string) {
+	conn, err := guardedDial(ctx, "tcp", addr)
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }()
+	c := cfg.Clone()
+	if c == nil {
+		c = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	c.ServerName, _, _ = net.SplitHostPort(addr)
+	c.NextProtos = []string{"h2", "http/1.1"}
+	tc := tls.Client(conn, c)
+	if tc.HandshakeContext(ctx) != nil {
+		return
+	}
+	// TLS 1.3 session tickets arrive after the handshake and are read only on Read; drain briefly to cache them
+	_ = tc.SetReadDeadline(time.Now().Add(warmTicketWait))
+	var b [1]byte
+	_, _ = tc.Read(b[:])
+}
+
+// warmTicketWait is how long a pre-warm waits for the server's session ticket after the handshake.
+const warmTicketWait = 300 * time.Millisecond
 
 // upstreamIdleConns is the idle connections kept per workspace host: Go's default of 2 re-handshakes TLS in parallel.
 const upstreamIdleConns = 32

@@ -3,8 +3,12 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -318,5 +322,77 @@ func BenchmarkGuardedClientReconnect(b *testing.B) {
 				b.Fatalf("resumed %d of %d reconnects", resumed, b.N-1)
 			}
 		})
+	}
+}
+
+// The upstream transport carries the HTTP/2 health-ping timings.
+func TestGuardedClientHTTP2Pings(t *testing.T) {
+	h2 := guardedClient().Transport.(*http.Transport).HTTP2
+	if h2 == nil || h2.SendPingTimeout != 30*time.Second || h2.PingTimeout != 10*time.Second {
+		t.Fatalf("HTTP2 = %+v, want SendPingTimeout 30s and PingTimeout 10s", h2)
+	}
+}
+
+// Pre-warm turns the first request's full TLS handshake into a resumed one; no request is sent.
+func TestPrewarmResumesFirstRequest(t *testing.T) {
+	var requests, full, resumed atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(204)
+	}))
+	srv.StartTLS()
+	defer srv.Close()
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+	addr := srv.Listener.Addr().String()
+	for _, warm := range []bool{false, true} {
+		requests.Store(0)
+		full.Store(0)
+		resumed.Store(0)
+		c := guardedClient()
+		tr := c.Transport.(*http.Transport)
+		tr.TLSClientConfig.RootCAs = pool
+		tr.TLSClientConfig.VerifyConnection = func(cs tls.ConnectionState) error {
+			if cs.DidResume {
+				resumed.Add(1)
+			} else {
+				full.Add(1)
+			}
+			return nil
+		}
+		if warm {
+			warmHosts(context.Background(), tr, []string{addr})
+		}
+		start := time.Now()
+		resp, err := c.Do(testRequest(t, http.MethodGet, srv.URL, nil))
+		if err != nil {
+			t.Fatalf("warm=%v: %v", warm, err)
+		}
+		_ = resp.Body.Close()
+		t.Logf("warm=%v first request %s: full handshakes=%d resumed=%d", warm, time.Since(start), full.Load(), resumed.Load())
+		if wantResumed := int32(0); warm {
+			wantResumed = 1
+			if resumed.Load() != wantResumed || full.Load() != 1 || requests.Load() != 1 {
+				t.Errorf("warm: full=%d resumed=%d requests=%d, want full 1, resumed 1", full.Load(), resumed.Load(), requests.Load())
+			}
+		} else if resumed.Load() != 0 {
+			t.Errorf("cold: resumed=%d, want 0", resumed.Load())
+		}
+	}
+}
+
+// A dead upstream fails the pre-warm silently and within its budget.
+func TestWarmHostsFailsSilently(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), prewarmBudget)
+	defer cancel()
+	warmHosts(ctx, guardedClient().Transport.(*http.Transport), []string{addr, "bad"})
+	if ctx.Err() != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatal(ctx.Err())
 	}
 }

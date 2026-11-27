@@ -54,6 +54,7 @@ func Serve(ctx context.Context, port int) error {
 	}
 	defer stopRefresh()
 	defer r.startKeepalive(ctx)()
+	go r.prewarm(ctx) // background, bounded by prewarmBudget; never blocks startup
 	srv := &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	serveListening()
 	fmt.Fprintf(os.Stderr, "proxy: listening on %s (pid %d)\n", proxy.Base(st.Port), st.PID)
