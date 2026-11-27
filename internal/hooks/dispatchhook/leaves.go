@@ -57,7 +57,9 @@ func Effort(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
 	}
-	ctx := prefetchRecall(context.Background(), in) // the hook entry: no caller context
+	ctx, cancel := withJevHookBudget(context.Background()) // the hook entry has no caller context
+	defer cancel()
+	ctx = prefetchRecall(ctx, in)
 	defer waitRecall(ctx)
 	owner := inflight.SessionOwner()
 	if owner == 0 {

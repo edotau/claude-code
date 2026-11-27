@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
+	"github.com/edotau/claude-code/internal/routing/router/jev"
 	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
@@ -621,6 +623,17 @@ func proxyNote() string {
 		return ""
 	}
 	return "proxy not running: the launch starts it (claude-code gateway proxy --status)"
+}
+
+// jevNote probes Open-Jev with a short TCP dial; when down it seeds backoff and notes keyword fallback.
+func jevNote(ctx context.Context) string {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := jev.Probe(ctx); err != nil && !errors.Is(err, jev.ErrOff) {
+		return "open-jev not running: routing via keywords"
+	}
+	return ""
 }
 
 // explicitFinding is the first failed preflight check of an explicit Databricks backend, nil when it passes.

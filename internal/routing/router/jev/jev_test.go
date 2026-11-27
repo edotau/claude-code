@@ -4,12 +4,16 @@ import (
 	_ "github.com/edotau/claude-code/internal/platform/nonet"
 
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 func TestMain(m *testing.M) {
@@ -190,5 +194,191 @@ func TestJevBackoffIgnoresCallerCancel(t *testing.T) {
 	}
 	if backedOff(os.Getenv(urlEnv)) {
 		t.Fatalf("caller deadline must not set shared backoff")
+	}
+}
+
+const phase11Answers = `{"answers":{"tier":{"choice":"fast","probabilities":{"fast":0.9,"deep":0.1}},"agent":{"choice":"pi","probabilities":{"pi":0.95,"codex":0.05}}}}`
+
+// phase11RequestOK reports whether r is the one combined tier+agent request for "rename x".
+func phase11RequestOK(r *http.Request) bool {
+	var in struct {
+		State     string                     `json:"state"`
+		Questions map[string]json.RawMessage `json:"questions"`
+	}
+	if json.NewDecoder(r.Body).Decode(&in) != nil || len(in.Questions) != 2 {
+		return false
+	}
+	return string(in.Questions["agent"]) == agentQuestion && len(in.Questions["tier"]) != 0 &&
+		in.State == "rename x" && r.URL.Path == "/v1/systemone"
+}
+
+func TestPhase11ClassifyOneRequest(t *testing.T) {
+	isolate(t)
+	var hits atomic.Int32
+	serve(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if !phase11RequestOK(r) {
+			t.Errorf("unexpected request at %s", r.URL.Path)
+		}
+		reply(phase11Answers)(w, r)
+	})
+	tier, agent, err := Classify(context.Background(), "rename x")
+	if err != nil || hits.Load() != 1 || tier.Pick != "fast" || tier.Confidence != 0.9 ||
+		agent.Pick != "pi" || agent.Confidence != 0.95 || tier.Ms != agent.Ms {
+		t.Fatalf("tier=%+v agent=%+v err=%v hits=%d", tier, agent, err, hits.Load())
+	}
+}
+
+func TestPhase11ProbeAddrIPv6(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://[::1]":         "[::1]:80",
+		"https://[::1]":        "[::1]:443",
+		"http://[::1]:11401":   "[::1]:11401",
+		"http://127.0.0.1:9":   "127.0.0.1:9",
+		"http://localhost":     "localhost:80",
+		"https://example.test": "example.test:443",
+		"nohost":               "",
+	} {
+		if got := probeAddr(in); got != want {
+			t.Errorf("probeAddr(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestPhase11PendingLocalBackoffSurvivesLockFailure(t *testing.T) {
+	isolate(t)
+	const target, other = "http://pending.test", "http://other.test"
+	p := backoffPath()
+	backoffMemory.Lock()
+	clear(backoffMemory.pendingLocal)
+	backoffMemory.Unlock()
+	if err := os.WriteFile(p, []byte(`{"`+other+`":{"until":1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ran, err := paths.TryFileLock(p+".lock", time.Second, func() error {
+		noteOutcome(target, ErrDown, 0) // lock is held elsewhere: this update stays local
+		return nil
+	})
+	if !ran || err != nil {
+		t.Fatalf("lock: ran=%v err=%v", ran, err)
+	}
+	if !backedOff(target) {
+		t.Fatal("older disk map discarded newer unsaved local backoff")
+	}
+	noteOutcome(other, ErrDown, 0) // persisted now: pending is cleared and the disk keeps both
+	backoffMemory.Lock()
+	clear(backoffMemory.states)
+	backoffMemory.Unlock()
+	if !backedOff(target) || !backedOff(other) {
+		t.Fatal("persisted merge lost a target")
+	}
+}
+
+func TestPhase11SlowBackoffShared(t *testing.T) {
+	now := isolate(t)
+	var hits atomic.Int32
+	serve(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		time.Sleep(slowThreshold + 5*time.Millisecond)
+		reply(phase11Answers)(w, r)
+	})
+	target := os.Getenv(urlEnv)
+	for i := range 2 {
+		if _, _, err := Classify(context.Background(), "rename x"); err != nil {
+			t.Fatal(err)
+		}
+		backoffMemory.Lock()
+		clear(backoffMemory.states) // emulate a fresh hook process between live calls
+		backoffMemory.Unlock()
+		if got := backedOff(target); got != (i == 1) {
+			t.Fatalf("after call %d: backedOff=%v", i+1, got)
+		}
+	}
+	if _, _, err := Classify(context.Background(), "rename y"); Class(err) != ClassDown || hits.Load() != 2 {
+		t.Fatalf("backoff: %v hits=%d", err, hits.Load())
+	}
+	*now = now.Add(backoffTTL + time.Second)
+	if backedOff(target) {
+		t.Fatal("slow backoff did not expire")
+	}
+}
+
+func TestPhase11SlowStreakResetAndTargets(t *testing.T) {
+	isolate(t)
+	const classifier, helper = "classifier", "helper"
+	slow := slowThreshold + time.Nanosecond
+	noteOutcome(classifier, nil, slow)
+	noteOutcome(classifier, nil, time.Millisecond)
+	noteOutcome(classifier, nil, slow)
+	if backedOff(classifier) {
+		t.Fatal("fast success did not reset the streak")
+	}
+	noteOutcome(classifier, nil, slow)
+	noteOutcome(helper, nil, slow)
+	if !backedOff(classifier) || backedOff(helper) {
+		t.Fatal("targets share health incorrectly")
+	}
+	noteOutcome(helper, nil, slow)
+	if !backedOff(classifier) || !backedOff(helper) {
+		t.Fatal("helper slow state did not persist alongside classifier backoff")
+	}
+	noteOutcome(helper, nil, time.Millisecond)
+	if !backedOff(classifier) || backedOff(helper) {
+		t.Fatal("helper recovery cleared classifier backoff")
+	}
+}
+
+func TestPhase11HelperBackoff(t *testing.T) {
+	now := isolate(t)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	t.Setenv(qwenEnv, srv.URL)
+	if _, err := Helper(context.Background(), "unused", "m", "x"); Class(err) != ClassBadResponse {
+		t.Fatal(err)
+	}
+	if _, err := Helper(context.Background(), "unused", "m", "x"); Class(err) != ClassDown || hits.Load() != 1 {
+		t.Fatalf("helper did not back off: %v hits=%d", err, hits.Load())
+	}
+	*now = now.Add(backoffTTL + time.Second)
+	if _, err := Helper(context.Background(), "unused", "m", "x"); Class(err) != ClassBadResponse || hits.Load() != 2 {
+		t.Fatalf("helper did not recover: %v hits=%d", err, hits.Load())
+	}
+}
+
+func TestPhase11BackoffMemoryFallback(t *testing.T) {
+	isolate(t)
+	if err := os.Mkdir(backoffPath(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const target = "unwritable-marker"
+	noteOutcome(target, nil, slowThreshold+time.Nanosecond)
+	if backedOff(target) {
+		t.Fatal("first slow call backed off")
+	}
+	noteOutcome(target, nil, slowThreshold+time.Nanosecond)
+	if !backedOff(target) {
+		t.Fatal("in-process backoff lost when marker could not be written")
+	}
+}
+
+func TestJevProbeDownSeedsBackoff(t *testing.T) {
+	isolate(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Setenv(urlEnv, srv.URL)
+	if err := Probe(context.Background()); err != nil {
+		t.Fatalf("Probe on live server = %v, want nil", err)
+	}
+	srv.Close()
+	if err := Probe(context.Background()); err != ErrDown {
+		t.Fatalf("Probe on closed server = %v, want ErrDown", err)
+	}
+	if !backedOff(srv.URL) {
+		t.Fatal("Probe down did not seed backoff")
 	}
 }

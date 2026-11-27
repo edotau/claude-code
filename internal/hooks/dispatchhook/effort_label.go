@@ -215,13 +215,17 @@ func briefExternal(task string) string {
 
 // pinModel fills an unset updated["model"] from the classifier; returns the note and visible reason ("" = no pin).
 func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
+	return pinModelCtx(context.Background(), run, in, updated, task)
+}
+
+func pinModelCtx(ctx context.Context, run *dispatchRun, in *core.Input, updated map[string]any, task string) (note, systemMessage string) {
 	// never override an explicit model or a roster pin; `inherit` means unset (honoring it ran on the parent's model)
 	if explicitModel(in) || task == "" || agentPinsModel(run, effectiveType(updated)) {
 		return "", ""
 	}
 	model, signal := lookupPin(effectiveType(updated), task)
 	if model == "" {
-		model, signal = agentpkg.TaskTier(task)
+		model, signal = agentpkg.TaskTierCtx(hookJevContext(ctx), task)
 	}
 	if model == "" {
 		return "", ""
@@ -365,12 +369,23 @@ func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
 
 // labelQuery is the resolver query for the dispatch: leaf type, model pin and --profile.
 func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
+	return labelQueryCtx(context.Background(), run, updated, st, task)
+}
+
+// pinnedModel is the exact dispatch model an ask would run, "" when the pin is an alias or inherit.
+func pinnedModel(updated map[string]any) string {
+	m, _ := updated["model"].(string)
+	if m == "" || m == "inherit" || slices.Contains(models.AliasNames, models.Strip1M(m)) {
+		return ""
+	}
+	return m
+}
+
+func labelQueryCtx(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
 	agent := workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Profile: run.profile}
 	q.Provider, q.Profile = askRoute(agent, q.Profile)
-	if m, _ := updated["model"].(string); m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
-		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
-	}
+	q.Model = pinnedModel(updated)
 	if q.Model == "" && agent != "" && run.model != "inherit" {
 		q.Model = run.model // the verb's --model is the ask's, an alias included
 	}
@@ -379,7 +394,7 @@ func labelQuery(run *dispatchRun, updated map[string]any, st, task string) (agen
 	}
 	q.Task = task
 	if q.Model == "" {
-		q.Default, _ = agentpkg.TaskTier(q.Task) // the ask runs its pin, else the task tier
+		q.Default, _ = agentpkg.TaskTierCtx(hookJevContext(ctx), q.Task) // the ask runs its pin, else the task tier
 	}
 	return q, true
 }
@@ -454,7 +469,7 @@ func quotedFields(line string) []string {
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
 // auto is true when the run picks its own model.
 func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (r agentpkg.ModelRoute, ok, auto bool, err error) {
-	q, ok := labelQuery(run, updated, st, task)
+	q, ok := labelQueryCtx(ctx, run, updated, st, task)
 	if !ok {
 		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, false, nil
 	}
@@ -465,7 +480,10 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}
-	hint := agentpkg.HopAlias(task, router.RuleClassifier{}.Alias)
+	hint, _ := agentpkg.TaskTierCtx(hookJevContext(ctx), task)
+	if hint == "" {
+		hint = router.RuleClassifier{}.Alias(agentpkg.WithoutReviewLoop(task))
+	}
 	hop, note, err := run.runHop(ctx, reg, q, hint)
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)

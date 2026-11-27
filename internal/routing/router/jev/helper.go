@@ -1,11 +1,14 @@
 package jev
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/platform/proc"
@@ -19,14 +22,30 @@ const (
 // Helper asks the local model (thinking off) at OpenAI base URL base for a tier on a brief Open-Jev was unsure of.
 func Helper(ctx context.Context, base, model, brief string) (string, error) {
 	url := strings.TrimRight(base, "/") + "/chat/completions"
-	body, err := post(ctx, timeout, strings.TrimSpace(proc.Value(ctx, qwenEnv)), url, "", map[string]any{
+	override := strings.TrimSpace(proc.Value(ctx, qwenEnv))
+	if override == "off" || override == "" && testing.Testing() {
+		return "", ErrOff
+	}
+	target := cmp.Or(override, url)
+	if backedOff(target) {
+		return "", ErrDown
+	}
+	start := time.Now()
+	body, err := post(ctx, timeout, override, url, "", map[string]any{
 		"model": model, "reasoning_effort": "none", "max_tokens": 64,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        []map[string]string{{"role": "system", "content": helperPrompt()}, {"role": "user", "content": clip(brief)}},
 	})
+	if ctx.Err() == nil {
+		noteOutcome(target, err, time.Since(start))
+	}
 	if err != nil {
 		return "", err
 	}
+	return parseHelper(body)
+}
+
+func parseHelper(body []byte) (string, error) {
 	var out struct {
 		Choices []struct {
 			Message struct {

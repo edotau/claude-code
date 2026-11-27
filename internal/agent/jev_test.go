@@ -2,14 +2,17 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
@@ -139,8 +142,8 @@ func TestTaskTierUsesConfidentJev(t *testing.T) {
 	qsrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(qwenBody)) }))
 	t.Cleanup(qsrv.Close)
 
-	hi := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.02,"standard":0.08,"deep":0.90}}}}`
-	lo := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.10,"standard":0.20,"deep":0.70}}}}`
+	hi := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.02,"standard":0.08,"deep":0.90}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`
+	lo := `{"answers":{"tier":{"choice":"deep","probabilities":{"fast":0.10,"standard":0.20,"deep":0.70}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`
 	for _, tc := range []struct {
 		jev, qwen, brief, wantAlias, wantSig string
 	}{
@@ -176,13 +179,178 @@ func TestJevAgentPicksConfidentKnownVendor(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Setenv("HARNESS_JEV_URL", srv.URL)
 
-	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.92,"claude":0.08}}}}`
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":1}},"agent":{"choice":"gemini","probabilities":{"gemini":0.92,"claude":0.08}}}}`
 	if got := JevAgent("review security boundary in auth"); got != "gemini" {
 		t.Fatalf("JevAgent confident gemini = %q, want gemini", got)
 	}
 	jevMemo.Clear()
-	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.9}},"agent":{"choice":"gemini","probabilities":{"gemini":0.70,"claude":0.30}}}}`
+	body = `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":1}},"agent":{"choice":"gemini","probabilities":{"gemini":0.70,"claude":0.30}}}}`
 	if got := JevAgent("review security boundary in auth"); got != "" {
 		t.Fatalf("JevAgent low-conf = %q, want empty", got)
+	}
+}
+
+func TestPhase11HelperGuard(t *testing.T) {
+	if providers.LastResort(loadRegistryWarn()) == nil {
+		t.Fatal("fixture needs a helper provider to test the guard")
+	}
+	var helperHits atomic.Int32
+	helper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		helperHits.Add(1)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"{\"tier\":\"fast\"}"}}]}`)
+	}))
+	defer helper.Close()
+	t.Setenv("HARNESS_JEV_QWEN_URL", helper.URL)
+	for _, class := range []string{jev.ClassDown, jev.ClassOff, jev.ClassTimeout, jev.ClassBadResponse, "backoff"} {
+		t.Run(class, func(t *testing.T) {
+			checkPhase11HelperGuard(t, class)
+			if helperHits.Load() != 0 {
+				t.Fatalf("helper called on %s", class)
+			}
+		})
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.7,"fast":0.3}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	j, _ := askJevClassify(context.Background(), "positive helper control")
+	if helperHits.Load() != 1 || j.Helper != "fast" {
+		t.Fatalf("healthy low-confidence helper never ran: %+v hits=%d", j, helperHits.Load())
+	}
+}
+
+func checkPhase11HelperGuard(t *testing.T, class string) {
+	t.Helper()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		switch class {
+		case jev.ClassTimeout:
+			<-release
+		case "backoff":
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			_, _ = io.WriteString(w, "malformed")
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	switch class {
+	case jev.ClassDown:
+		srv.Close()
+	case jev.ClassOff:
+		t.Setenv("HARNESS_JEV_URL", "off")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	if class == "backoff" {
+		_, _ = askJevClassify(ctx, "prime backoff")
+		class = jev.ClassDown
+	}
+	j, _ := askJevClassify(ctx, "helper guard "+class)
+	if j.Error != class || j.Helper != "" {
+		t.Fatalf("got %+v, want error %s without helper", j, class)
+	}
+}
+
+const phase11DeepCodex = `{"answers":{"tier":{"choice":"deep","probabilities":{"deep":1}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`
+
+func phase11Combined(r *http.Request) bool {
+	var in struct {
+		Questions map[string]json.RawMessage `json:"questions"`
+	}
+	return json.NewDecoder(r.Body).Decode(&in) == nil && len(in.Questions) == 2
+}
+
+func TestPhase11SharedClassification(t *testing.T) {
+	jevMemo.Clear()
+	t.Cleanup(jevMemo.Clear)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if !phase11Combined(r) {
+			t.Error("classification did not combine questions")
+		}
+		_, _ = io.WriteString(w, phase11DeepCodex)
+	}))
+	defer srv.Close()
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	const brief = "implement phase 1.1 shared classification"
+	const id = "phase11-shared"
+	startJev(context.Background(), id, brief)
+	defer stopJev(id)
+	checkPhase11Shared(t, brief)
+	v, _ := jevPending.Load(id)
+	j := <-v.(*jevCall).done
+	if j.Agent != "codex" || j.Final != "deep" || hits.Load() != 1 {
+		t.Fatalf("shadow=%+v hits=%d", j, hits.Load())
+	}
+}
+
+func checkPhase11Shared(t *testing.T, brief string) {
+	t.Helper()
+	if got := JevAgentCtx(context.Background(), brief); got != "codex" {
+		t.Fatalf("agent=%q", got)
+	}
+	if alias, signal := TaskTierCtx(context.Background(), brief); alias != models.Opus || signal != "jev:deep" {
+		t.Fatalf("tier=%s %s", alias, signal)
+	}
+	if alias, _ := TaskTier(brief); alias != models.Opus || JevAgent(brief) != "codex" {
+		t.Fatal("legacy wrappers lost shared classification")
+	}
+}
+
+func TestPhase11SlowHelperDoesNotDelayAgent(t *testing.T) {
+	jevMemo.Clear()
+	t.Cleanup(jevMemo.Clear)
+	release := make(chan struct{})
+	helper := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer helper.Close()
+	defer close(release)
+	t.Setenv("HARNESS_JEV_QWEN_URL", helper.URL)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"answers":{"tier":{"choice":"standard","probabilities":{"standard":0.5,"fast":0.5}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if got := JevAgentCtx(ctx, "slow helper brief"); got != "codex" || time.Since(start) > time.Second {
+		t.Fatalf("agent=%q after %s: blocked on the helper", got, time.Since(start))
+	}
+	tctx, tcancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer tcancel()
+	if j := jevTierAnswer(tctx, "slow helper brief"); j.Error != jev.ClassTimeout {
+		t.Fatalf("tier should wait on its own deadline for the helper: %+v", j)
+	}
+}
+
+func TestPhase11SharedWaiterDeadline(t *testing.T) {
+	jevMemo.Clear()
+	t.Cleanup(jevMemo.Clear)
+	started, release := make(chan struct{}), make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(started)
+		<-release
+		_, _ = io.WriteString(w, `{"answers":{"tier":{"choice":"deep","probabilities":{"deep":1}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("HARNESS_JEV_URL", srv.URL)
+	owner := make(chan struct{})
+	go func() { defer close(owner); JevAgent("shared waiter deadline") }()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	got := JevAgentCtx(ctx, "shared waiter deadline")
+	close(release)
+	<-owner
+	if got != "" || time.Since(start) > 250*time.Millisecond {
+		t.Fatalf("waiter ignored deadline: %q, %s", got, time.Since(start))
 	}
 }

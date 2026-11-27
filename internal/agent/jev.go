@@ -44,7 +44,7 @@ func startJev(ctx context.Context, id, prompt string) {
 	ctx, call.cancel = context.WithCancel(ctx) // the shadow dies with the dispatch, and takeJev/stopJev stop it sooner
 	jevPending.Store(id, call)
 	go func() {
-		j, a := jevTierAnswer(ctx, prompt), jevAgentAnswer(ctx, prompt)
+		j, a := jevClassify(ctx, prompt)
 		j.Agent, j.AgentConf, j.Final = a.Pick, a.Confidence, j.final()
 		call.done <- j
 	}()
@@ -93,53 +93,130 @@ func jevOnce[T any](kind, brief string, ask func() T) T {
 	return f.(func() T)()
 }
 
-// jevTierAnswer is Open-Jev's tier for brief, plus the Qwen helper's when Open-Jev is unsure.
-func jevTierAnswer(ctx context.Context, brief string) JevShadow {
-	return jevOnce("tier", brief, func() JevShadow {
-		text := jevBrief(brief)
-		res, err := jev.Tier(ctx, text)
-		j := JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
-		if res.Confidence < jev.Confident && j.Error != jev.ClassTimeout { // a timed-out Jev means a busy machine: keywords now
-			if row := providers.LastResort(loadRegistryWarn()); row != nil {
-				j.Helper, _ = jev.Helper(ctx, row.BaseURL, row.Models["haiku"], text)
-			}
-		}
-		return j
+type jevClassification struct {
+	ctx        context.Context
+	agentReady chan struct{} // closed once Open-Jev has answered (agent is set)
+	done       chan struct{} // closed after the optional helper too (shadow is set)
+	shadow     JevShadow
+	agent      jev.Result
+}
+
+// jevShared starts or joins the one request for brief; the first asker's context bounds it.
+func jevShared(ctx context.Context, brief string) *jevClassification {
+	return jevOnce("classify", brief, func() *jevClassification {
+		c := &jevClassification{ctx: ctx, agentReady: make(chan struct{}), done: make(chan struct{})}
+		go c.run(brief)
+		return c
 	})
 }
 
-// jevAgentAnswer is Open-Jev's agent pick for brief; the zero Result when it did not answer.
-func jevAgentAnswer(ctx context.Context, brief string) jev.Result {
-	return jevOnce("agent", brief, func() jev.Result {
-		res, err := jev.Agent(ctx, jevBrief(brief))
-		if err != nil {
-			return jev.Result{}
+func (c *jevClassification) run(brief string) {
+	defer close(c.done)
+	text := jevBrief(brief)
+	res, a, err := jev.Classify(c.ctx, text)
+	c.shadow = JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
+	if err == nil {
+		c.agent = a
+	}
+	close(c.agentReady) // the agent answer never waits on the optional helper
+	if c.shadow.Error == "" && res.Confidence < jev.Confident {
+		if row := providers.LastResort(loadRegistryWarn()); row != nil {
+			c.shadow.Helper, _ = jev.Helper(c.ctx, row.BaseURL, row.Models["haiku"], text)
 		}
-		return res
-	})
+	}
+}
+
+// askJevClassify runs one unshared classification to completion.
+func askJevClassify(ctx context.Context, brief string) (JevShadow, jev.Result) {
+	c := &jevClassification{ctx: ctx, agentReady: make(chan struct{}), done: make(chan struct{})}
+	c.run(brief)
+	return c.shadow, c.agent
+}
+
+// wait reports whether ch closed before ctx or the shared call's own context ended.
+func (c *jevClassification) wait(ctx context.Context, ch chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+	}
+	select {
+	case <-ch:
+		return true
+	case <-ctx.Done():
+	case <-c.ctx.Done():
+	}
+	return false
+}
+
+// jevClassify shares one request per brief; each waiter can leave on its own deadline.
+func jevClassify(ctx context.Context, brief string) (JevShadow, jev.Result) {
+	brief = WithoutReviewLoop(brief)
+	c := jevShared(ctx, brief)
+	if c.wait(ctx, c.done) {
+		return c.shadow, c.agent
+	}
+	return JevShadow{Keyword: tierName(brief), Error: jev.ClassTimeout}, jev.Result{}
+}
+
+// jevTierAnswer is the shared tier answer and any low-confidence helper opinion.
+func jevTierAnswer(ctx context.Context, brief string) JevShadow {
+	j, _ := jevClassify(ctx, brief)
+	return j
+}
+
+// jevAgentAnswer returns as soon as Open-Jev answers, without waiting for the optional helper.
+func jevAgentAnswer(ctx context.Context, brief string) jev.Result {
+	brief = WithoutReviewLoop(brief)
+	c := jevShared(ctx, brief)
+	if c.wait(ctx, c.agentReady) {
+		return c.agent
+	}
+	return jev.Result{}
 }
 
 // JevAgent asks Open-Jev for brief's agent vendor when confident; "" falls back to the default agent.
 func JevAgent(brief string) string {
+	return JevAgentCtx(context.Background(), brief)
+}
+
+// JevAgentCtx bounds the shared classifier by the caller's deadline.
+func JevAgentCtx(ctx context.Context, brief string) string {
 	if jevBrief(brief) == "" {
 		return ""
 	}
-	if res := jevAgentAnswer(context.Background(), brief); res.Confidence >= jev.Confident && agentid.Known(res.Pick) {
+	if res := jevAgentAnswer(ctx, brief); res.Confidence >= jev.Confident && agentid.Known(res.Pick) {
 		return res.Pick
 	}
 	return ""
 }
 
-// jevTier is the tier Open-Jev, or the Qwen helper when it is unsure, picks for brief; "" falls back to keywords.
+// jevTier is the shared tier pick; "" falls back to keywords.
 func jevTier(brief string) (alias, signal string) {
+	return jevTierCtx(context.Background(), brief)
+}
+
+func jevTierCtx(ctx context.Context, brief string) (alias, signal string) {
 	if jevBrief(brief) == "" {
 		return "", ""
 	}
-	tier, source := jevTierAnswer(context.Background(), brief).routed()
+	tier, source := jevTierAnswer(ctx, brief).routed()
 	if a := tierAliases[tier]; a != "" {
 		return a, source + ":" + tier
 	}
 	return "", ""
+}
+
+// TaskTierCtx preserves explicit tier and keyword precedence while bounding the shared Jev call.
+func TaskTierCtx(ctx context.Context, brief string) (alias, signal string) {
+	brief = WithoutReviewLoop(brief)
+	if tierLineRe().MatchString(brief) {
+		return keywordTier(brief)
+	}
+	if alias, signal := jevTierCtx(ctx, brief); alias != "" {
+		return alias, signal
+	}
+	return keywordTier(brief)
 }
 
 // JevPair is Open-Jev's shadow answer to "does B need A's result first?"; it changes no dispatch order.

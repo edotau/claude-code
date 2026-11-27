@@ -9,12 +9,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,12 +27,52 @@ import (
 )
 
 const (
-	defaultURL = "http://127.0.0.1:11401"
-	urlEnv     = "HARNESS_JEV_URL"
-	maxBrief   = 3500
-	timeout    = 3 * time.Second // one question: ~0.5 s idle, 1.7-1.9 s measured while MPS trains; hooks fail open
-	maxBody    = 1 << 16
+	defaultURL   = "http://127.0.0.1:11401"
+	urlEnv       = "HARNESS_JEV_URL"
+	maxBrief     = 3500
+	timeout      = 3 * time.Second // offline/CLI budget; hook callers supply a tighter context
+	probeTimeout = 50 * time.Millisecond
+	maxBody      = 1 << 16
 )
+
+// probeAddr is the host:port Probe dials for target; "" when target has no host.
+func probeAddr(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if u.Scheme == "https" {
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(u.Hostname(), port)
+}
+
+// Probe checks whether Open-Jev's TCP port is listening within 50 ms, seeding backoff immediately when down.
+func Probe(ctx context.Context) error {
+	base := strings.TrimRight(proc.Value(ctx, urlEnv), "/")
+	if base == "off" || base == "" && testing.Testing() {
+		return ErrOff
+	}
+	target := cmp.Or(base, defaultURL)
+	addr := probeAddr(target)
+	if backedOff(target) || addr == "" {
+		return ErrDown
+	}
+	d := net.Dialer{Timeout: probeTimeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		if ctx.Err() == nil {
+			noteOutcome(target, ErrDown, 0)
+		}
+		return ErrDown
+	}
+	_ = conn.Close()
+	return nil
+}
 
 // Error classes recorded on a dispatch; never a URL or body.
 const (
@@ -101,6 +144,21 @@ func Agent(ctx context.Context, brief string) (Result, error) {
 	return one(ctx, clip(brief), "agent", json.RawMessage(agentQuestion), Agents...)
 }
 
+// Classify asks tier and agent together in one request.
+func Classify(ctx context.Context, brief string) (tier Result, agent Result, err error) {
+	res, body, err := ask(ctx, clip(brief), map[string]json.RawMessage{
+		"tier": assets.JevTier(), "agent": json.RawMessage(agentQuestion),
+	})
+	if err != nil {
+		return res, res, err
+	}
+	t, terr := parse(body, "tier", "fast", "standard", "deep")
+	a, aerr := parse(body, "agent", Agents...)
+	tier = Result{Pick: t.Choice, Confidence: topProb(t), Ms: res.Ms}
+	agent = Result{Pick: a.Choice, Confidence: topProb(a), Ms: res.Ms}
+	return tier, agent, errors.Join(terr, aerr)
+}
+
 // Needs asks whether task b needs task a's result first; Pick is "yes" or "no".
 func Needs(ctx context.Context, a, b string) (Result, error) {
 	state := "Task A:\n" + clip(a) + "\n\nTask B:\n" + clip(b)
@@ -137,13 +195,29 @@ func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Resu
 		return Result{}, nil, err
 	}
 	if ctx.Err() == nil { // caller-local cancel/deadline never poisons shared backoff
-		noteOutcome(target, err)
+		noteOutcome(target, err, time.Since(start))
 	}
 	return Result{Ms: time.Since(start).Milliseconds()}, body, err
 }
 
 // Backoff marker: a short cross-process TTL so a down or slow Jev costs one timeout, not one per process.
-const backoffTTL = 30 * time.Second
+const (
+	backoffTTL    = 30 * time.Second
+	slowThreshold = 800 * time.Millisecond
+)
+
+type backoffState struct {
+	Until int64 `json:"until,omitempty"`
+	Slow  int   `json:"slow,omitempty"`
+}
+
+var backoffMemory = struct {
+	sync.Mutex
+	path   string
+	states map[string]backoffState
+	// pendingLocal holds updates that could not take the file lock; they win over older disk state until expiry.
+	pendingLocal map[string]backoffState
+}{states: make(map[string]backoffState), pendingLocal: make(map[string]backoffState)}
 
 var (
 	backoffNow  = time.Now
@@ -155,41 +229,116 @@ var (
 	}
 )
 
-// readBackoff parses the expiry and target URL from the backoff marker.
-func readBackoff(p string) (int64, string, bool) {
-	if p == "" {
-		return 0, "", false
-	}
+// readBackoffs accepts both the shared target map and the original single-target marker.
+func readBackoffs(p string) map[string]backoffState {
+	states := make(map[string]backoffState)
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return 0, "", false
+		return nil
 	}
+	if json.Unmarshal(b, &states) == nil && states != nil {
+		return states
+	}
+	states = make(map[string]backoffState)
 	rawExp, url, ok := strings.Cut(string(b), "\t")
-	exp, err := strconv.ParseInt(rawExp, 10, 64)
-	return exp, url, ok && err == nil
+	if exp, err := strconv.ParseInt(rawExp, 10, 64); ok && err == nil {
+		states[url] = backoffState{Until: exp}
+	}
+	return states
 }
 
-// backedOff reports whether an unexpired marker exists for target.
+// backedOff checks the shared state when available, otherwise the process-local state.
 func backedOff(target string) bool {
-	exp, url, ok := readBackoff(backoffPath())
-	return ok && url == target && backoffNow().UnixNano() < exp
+	backoffMemory.Lock()
+	defer backoffMemory.Unlock()
+	return backoffNow().UnixNano() < backoffStates(backoffPath())[target].Until
 }
 
-// noteOutcome writes the marker after a down, timeout or 5xx failure and clears it on success.
-func noteOutcome(target string, err error) {
+// backoffStates prefers shared state and falls back to memory if the marker is unavailable; the mutex is held.
+func backoffStates(p string) map[string]backoffState {
+	if backoffMemory.path != p {
+		backoffMemory.path = p
+		backoffMemory.states = make(map[string]backoffState)
+		backoffMemory.pendingLocal = make(map[string]backoffState)
+	}
+	states := backoffMemory.states
+	if p != "" {
+		if disk := readBackoffs(p); disk != nil {
+			states = disk
+		}
+	}
+	return mergePending(states)
+}
+
+// mergePending overlays unexpired unsaved local backoff on states and drops expired entries; the mutex is held.
+func mergePending(states map[string]backoffState) map[string]backoffState {
+	now := backoffNow().UnixNano()
+	for t, s := range backoffMemory.pendingLocal {
+		switch {
+		case s.Until != 0 && now >= s.Until:
+			delete(backoffMemory.pendingLocal, t)
+		case s.Until > states[t].Until || s.Until == states[t].Until && s.Slow > states[t].Slow:
+			states[t] = s
+		}
+	}
+	return states
+}
+
+// noteOutcome records live calls only; caller-local cancellation must not poison shared health.
+func noteOutcome(target string, err error, elapsed time.Duration) {
+	backoffMemory.Lock()
+	defer backoffMemory.Unlock()
 	p := backoffPath()
+	update := func() error {
+		states := backoffStates(p)
+		next := nextBackoff(states[target], err, elapsed)
+		delete(states, target)
+		if next != (backoffState{}) {
+			states[target] = next
+		}
+		backoffMemory.states = states
+		if p != "" {
+			if len(states) == 0 {
+				_ = os.Remove(p)
+			} else if b, e := json.Marshal(states); e == nil {
+				writeBackoffAtomic(p, b)
+			}
+			clear(backoffMemory.pendingLocal)
+		}
+		return nil
+	}
 	if p == "" {
+		_ = update()
 		return
 	}
-	switch {
-	case err == nil:
-		if _, url, ok := readBackoff(p); ok && url == target {
-			_ = os.Remove(p)
-		}
-	case errors.Is(err, ErrDown), errors.Is(err, ErrTimeout), errors.Is(err, errServer):
-		exp := backoffNow().Add(backoffTTL).UnixNano()
-		writeBackoffAtomic(p, []byte(strconv.FormatInt(exp, 10)+"\t"+target))
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	if ran, _ := paths.TryFileLock(p+".lock", 10*time.Millisecond, update); !ran {
+		states := backoffStates(p)
+		next := nextBackoff(states[target], err, elapsed)
+		states[target] = next
+		backoffMemory.pendingLocal[target] = next
+		backoffMemory.states = states
 	}
+}
+
+func nextBackoff(s backoffState, err error, elapsed time.Duration) backoffState {
+	if s.Until != 0 && backoffNow().UnixNano() >= s.Until {
+		s = backoffState{}
+	}
+	switch {
+	case errors.Is(err, ErrDown), errors.Is(err, ErrTimeout), errors.Is(err, errServer):
+		s = backoffState{Until: backoffNow().Add(backoffTTL).UnixNano()}
+	case elapsed > slowThreshold:
+		s.Slow++
+		if s.Slow >= 2 {
+			s = backoffState{Until: backoffNow().Add(backoffTTL).UnixNano()}
+		}
+	case err == nil:
+		s = backoffState{}
+	default:
+		s.Slow = 0
+	}
+	return s
 }
 
 func writeBackoffAtomic(p string, data []byte) {

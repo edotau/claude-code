@@ -33,6 +33,26 @@ var (
 	blankLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n[ \t\r]*\n\s*`) })
 )
 
+const jevHookBudget = 450 * time.Millisecond
+
+type jevHookKey struct{}
+
+// withJevHookBudget caps Jev only; recall and other hook operations retain their caller context.
+func withJevHookBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Value(jevHookKey{}) != nil {
+		return ctx, func() {}
+	}
+	jevCtx, cancel := context.WithTimeout(ctx, jevHookBudget)
+	return context.WithValue(ctx, jevHookKey{}, jevCtx), cancel
+}
+
+func hookJevContext(ctx context.Context) context.Context {
+	if jevCtx, ok := ctx.Value(jevHookKey{}).(context.Context); ok {
+		return jevCtx
+	}
+	return ctx
+}
+
 // dispatchRun memoizes one hook run's agent-file and provider-registry reads; session is the session's model id.
 type dispatchRun struct {
 	session  func() string
@@ -108,7 +128,9 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
-	fixType := effortFixType(in)
+	ctx, cancel := withJevHookBudget(ctx)
+	defer cancel()
+	fixType := effortFixType(ctx, in)
 	if fixType != "" && mode == modeDeferred {
 		mode = modeToday // the host validates the type before agent.spawn, so only this hook can retype
 	}
@@ -127,6 +149,9 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	e := &effortPlan{updated: updated, run: newDispatchRun(session), mode: mode}
 	e.retype(in, fixType)
 	task = e.keepPiAgent(in, fixType, promptField, task)
+	if !explicitModel(in) && !fixedModelTypes[in.Nested("tool_input", "subagent_type")] {
+		go agentpkg.TaskTierCtx(hookJevContext(ctx), task)
+	}
 	return e.finish(ctx, in, promptField, task)
 }
 
@@ -139,7 +164,7 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 		return core.Result{Context: extraNote}
 	}
 	if !fixedModelTypes[st] {
-		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
+		pinNote, pinMsg := pinModelCtx(ctx, e.run, in, e.updated, task)
 		e.fix(pinNote)
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || pinNote != ""
@@ -174,7 +199,7 @@ func (e *effortPlan) retyped(st string) bool {
 }
 
 // effortFixType is the type to retype to: a stale name's, code mode's, or confident Open-Jev's; "" for none.
-func effortFixType(in *core.Input) string {
+func effortFixType(ctx context.Context, in *core.Input) string {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
 	if to := staleTypeTarget(st); to != "" { // a bare "pi" is the coworker type now
 		return cmp.Or(codemodeTarget(to, prompt), to)
@@ -183,7 +208,7 @@ func effortFixType(in *core.Input) string {
 		return to
 	}
 	if st == "" && !explicitModel(in) && !agentLineRe().MatchString(briefHeader(prompt)) {
-		if to := agentid.SubagentType(agentpkg.JevAgent(prompt)); to != "" && slices.Contains(dispatchTypes(), to) {
+		if to := agentid.SubagentType(agentpkg.JevAgentCtx(hookJevContext(ctx), prompt)); to != "" && slices.Contains(dispatchTypes(), to) {
 			return to
 		}
 	}

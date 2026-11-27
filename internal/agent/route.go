@@ -282,8 +282,11 @@ func (rc routeCtx) finishChain(c Chain, pick router.PickResult) Chain {
 			return slices.ContainsFunc(pick.Skipped, func(k router.Skip) bool { return k.Outside() && s == k.Agent+": "+k.Reason })
 		})
 	}
-	if len(c.Dispatches) > 0 && databricksDispatch(rc.reg, c.Dispatches[0]) {
-		rc.pf.note(proxyNote())
+	if len(c.Dispatches) > 0 {
+		if databricksDispatch(rc.reg, c.Dispatches[0]) {
+			rc.pf.note(proxyNote())
+		}
+		rc.pf.note(jevNote(rc.ctx))
 	}
 	if c.Preflight != nil {
 		for _, note := range c.Preflight.Notes {

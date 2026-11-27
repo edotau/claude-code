@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -423,5 +427,68 @@ func TestLabelBriefHeaderMatchesSplit(t *testing.T) {
 	}
 	if got := briefHeader(" \r\n\t"); got != "" {
 		t.Errorf("whitespace header = %q", got)
+	}
+}
+
+func TestPhase11HookDeadline(t *testing.T) {
+	effortHome(t)
+	var hits atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+	t.Setenv("HARNESS_"+"JEV_URL", srv.URL)
+	in := core.ParseInputFor(strings.NewReader(`{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in phase11 deadline help text"}}`), "")
+	ctx, cancel := withJevHookBudget(context.Background())
+	defer cancel()
+	_, task := spawnTask(in)
+	p := &recallPrefetch{task: task, done: make(chan struct{})}
+	close(p.done)
+	ctx = context.WithValue(ctx, recallKey{}, p)
+	start := time.Now()
+	res := agentEffortResult(ctx, in)
+	elapsed := time.Since(start)
+	if elapsed < jevHookBudget-50*time.Millisecond || elapsed > jevHookBudget+250*time.Millisecond {
+		t.Fatalf("hook Jev budget was not 450 ms: %s", elapsed)
+	}
+	if hits.Load() != 1 || res.UpdatedInput["model"] != "haiku" {
+		t.Fatalf("no clean single-call keyword fallback: hits=%d result=%+v", hits.Load(), res)
+	}
+	if typ, _ := res.UpdatedInput["subagent_type"].(string); typ != "" {
+		t.Fatalf("timeout changed agent type to %q", typ)
+	}
+}
+
+func TestPhase11HookJevOverlapsRecall(t *testing.T) {
+	effortHome(t)
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(started)
+		_, _ = io.WriteString(w, `{"answers":{"tier":{"choice":"deep","probabilities":{"deep":1}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("HARNESS_"+"JEV_URL", srv.URL)
+	in := core.ParseInputFor(strings.NewReader(`{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"implement phase11 overlapped recall classification"}}`), "")
+	_, task := spawnTask(in)
+	p := &recallPrefetch{task: task, done: make(chan struct{})}
+	ctx := context.WithValue(context.Background(), recallKey{}, p)
+	done := make(chan core.Result, 1)
+	go func() { done <- agentEffortResult(ctx, in) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		close(p.done)
+		<-done
+		t.Fatal("Jev waited for recall before starting")
+	}
+	close(p.done)
+	res := <-done
+	if res.UpdatedInput["model"] != "opus" {
+		t.Fatalf("healthy classification lost: %+v", res)
 	}
 }
