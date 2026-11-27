@@ -694,3 +694,62 @@ func TestDivergedAtMemoLinkedPackedRefs(t *testing.T) {
 		t.Fatalf("cached linked result = %+v, %v", d, err)
 	}
 }
+
+func BenchmarkWorktreeBusy(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv(worktreeModeEnv, "lanes")
+	cwd := benchRepo(b)
+	in := &core.Input{SessionID: "bench", CWD: cwd, Prompt: "hello"}
+	Busy(in)
+	b.ReportAllocs()
+	for b.Loop() {
+		Busy(in)
+	}
+}
+
+func benchRepo(b *testing.B) string {
+	b.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		b.Skip("git executable unavailable")
+	}
+	repo := b.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"}, {"config", "user.name", "B"}, {"config", "user.email", "b@example.invalid"},
+		{"config", "commit.gpgsign", "false"}, {"commit", "-q", "--allow-empty", "-m", "initial"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	return repo
+}
+
+func BenchmarkWorktreeBusyColdSession(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv(worktreeModeEnv, "lanes")
+	cwd := benchRepo(b)
+	b.ReportAllocs()
+	n := 0
+	for b.Loop() {
+		n++
+		Busy(&core.Input{SessionID: fmt.Sprintf("cold%d", n), CWD: cwd, Prompt: "hello"})
+	}
+}
+
+// Busy stays silent and allows for a non-git dir, a clean repo and a dirty repo (no notices pending).
+func TestBusyQuietControls(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(worktreeModeEnv, "lanes")
+	dirty := hosttest.Repo(t)
+	if err := os.WriteFile(filepath.Join(dirty, "scratch.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, cwd := range map[string]string{"non-git": t.TempDir(), "clean": hosttest.Repo(t), "dirty": dirty} {
+		got := Busy(&core.Input{SessionID: "q-" + name, CWD: cwd, Prompt: "hi"})
+		if got.Decision != core.Allow || got.Context != "" {
+			t.Fatalf("%s: got %+v, want silent allow", name, got)
+		}
+	}
+}

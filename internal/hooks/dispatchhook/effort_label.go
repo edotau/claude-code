@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -36,18 +37,19 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	if i := strings.LastIndex(orig, tail); tail != "" && i >= 0 {
 		oldHead = orig[:i] // the leading labels replaced; "" when none was stripped
 	}
-	out := lowerFirst(tail)
+	text := lowerFirst(tail)
+	out := text
 	if label != "" {
 		if head, _, _ := cutHead(orig); keepsHead(head, label) { // else it stacks
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
-		out = label + ": " + lowerFirst(tail)
+		out = label + ": " + text
 	}
 	if out == orig {
 		return false, note
 	}
 	updated["description"] = out
-	newHead := strings.TrimSuffix(out, lowerFirst(tail)) // the whole new prefix; both heads quoted exactly, no rune slice
+	newHead := strings.TrimSuffix(out, text) // the whole new prefix; both heads quoted exactly, no rune slice
 	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", oldHead, newHead))
 }
 
@@ -150,12 +152,15 @@ func (r *dispatchRun) inheritedID(session string) string {
 
 // servingRow is the run's profile (--profile, else the session's routed one) when it is a databricks-serving row.
 func (r *dispatchRun) servingRow() (*providers.Registry, *providers.Provider, string) {
-	name, routed := providers.SessionName()
-	if r.profile != "" {
-		name, routed = r.profile, true
+	name, routed := r.profile, r.profile != ""
+	if !routed && os.Getenv("ANTHROPIC_BASE_URL") != "" {
+		name, routed = providers.SessionName()
+	}
+	if !routed {
+		return nil, nil, ""
 	}
 	reg, err := r.registry()
-	if err != nil || !routed {
+	if err != nil {
 		return nil, nil, ""
 	}
 	if p := reg.Row(name); p != nil && p.SpellingRule() == "databricks-serving" {
@@ -166,8 +171,11 @@ func (r *dispatchRun) servingRow() (*providers.Registry, *providers.Provider, st
 
 // databricksID is a Claude alias or id spelled as its `databricks-` id on a Databricks-routed session; else m as is.
 func (r *dispatchRun) databricksID(m string) string {
+	if m == "" || os.Getenv("ANTHROPIC_BASE_URL") == "" {
+		return m // without a proxy URL, SessionName's stored-profile fallback is never routed
+	}
 	name, routed := providers.SessionName() // routed comes from a loopback ANTHROPIC_BASE_URL /p/<name>
-	if !routed || m == "" {
+	if !routed {
 		return m
 	}
 	reg, err := r.registry()

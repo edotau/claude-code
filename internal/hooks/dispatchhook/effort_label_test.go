@@ -373,3 +373,55 @@ func TestLabelModelAutoIsPickNotPin(t *testing.T) {
 		}
 	}
 }
+
+func TestLabelServingFastPathsMatchSessionRouting(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.SetRecord(t, "claude", "profile", "fixture")
+	t.Setenv("CLAUDE_PROFILE", "fixture")
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"fixture": {Preset: providers.PresetDatabricks}, "direct": {Provider: "anthropic"}}}
+	for _, base := range []string{"", "https://api.anthropic.com", ":bad", "http://localhost:1/p/fixture",
+		"http://127.0.0.1:1/p/fixture/v1", "http://127.0.0.1:1/p/direct", "http://elsewhere/p/fixture"} {
+		t.Run(base, func(t *testing.T) {
+			t.Setenv("ANTHROPIC_BASE_URL", base)
+			name, routed := providers.SessionName()
+			loads := 0
+			run := newDispatchRun(nil)
+			run.registry = func() (*providers.Registry, error) { loads++; return reg, nil }
+			want := "sonnet"
+			if p := reg.Row(name); routed && p != nil && p.SpellingRule() == "databricks-serving" {
+				want = p.WireModel(want)
+			}
+			if got := run.databricksID("sonnet"); got != want {
+				t.Fatalf("label = %q, want %q", got, want)
+			}
+			_, p, _ := run.servingRow()
+			if (p != nil) != (want != "sonnet") || (!routed && loads != 0) {
+				t.Fatalf("serving row = %v, loads = %d, routed = %v", p, loads, routed)
+			}
+			loads = 0
+			if got := run.databricksID(""); got != "" || loads != 0 {
+				t.Fatalf("empty model = %q, loads = %d", got, loads)
+			}
+			run.profile = "fixture"
+			if _, p, name := run.servingRow(); p != reg.Row("fixture") || name != "fixture" {
+				t.Fatalf("explicit profile lost: %v, %q", p, name)
+			}
+		})
+	}
+}
+
+func TestLabelBriefHeaderMatchesSplit(t *testing.T) {
+	for _, head := range []string{"", "Agent: pi", " Agent: codex\nCodemode: off", "body\u00a0"} {
+		for _, gap := range []string{"", "\n", "\n\n", "\n \t\r\n\t", "\r\n\r\n", "\n\u00a0\n"} {
+			brief := head + gap + "Agent: claude\n\nTask: example 1\n\nmore body\n"
+			want := blankLineRe().Split(strings.TrimSpace(brief), 2)[0]
+			if got := briefHeader(brief); got != want {
+				t.Errorf("header of %q = %q, want %q", brief, got, want)
+			}
+		}
+	}
+	if got := briefHeader(" \r\n\t"); got != "" {
+		t.Errorf("whitespace header = %q", got)
+	}
+}

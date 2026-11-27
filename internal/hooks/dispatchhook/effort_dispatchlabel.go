@@ -40,7 +40,11 @@ func briefAgents(task string) []string {
 
 // briefHeader is the brief's header block: the lines before its first blank line.
 func briefHeader(task string) string {
-	return blankLineRe().Split(strings.TrimSpace(task), 2)[0]
+	task = strings.TrimSpace(task)
+	if at := blankLineRe().FindStringIndex(task); at != nil {
+		return task[:at[0]]
+	}
+	return task
 }
 
 // LabelInput is one dispatch to label: leaf type, model pin ("" = unset), ask --profile, brief and session model id.

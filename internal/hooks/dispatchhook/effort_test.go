@@ -738,25 +738,54 @@ func TestDispatchRunHopSeesOtherProcessMark(t *testing.T) {
 	}
 }
 
+// BenchmarkDispatchEffort measures parsing, recall, pinning, notices and emission with an offline local fixture.
 func BenchmarkDispatchEffort(b *testing.B) {
-	payloads := map[string]string{
-		"codexRun":    `{"session_id":"bench1","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"claude","description":"sonnet: fix parser","prompt":"Run: claude-code agents ask --agent codex --tools -- \"fix the parser\"\nOwned: internal/x/a.go\n\nTask: fix the parser bug in a.go"}}`,
-		"claudePlain": `{"session_id":"bench1","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"claude","description":"fix typo","prompt":"Fix the typo in the help text of internal/x/a.go and report."}}`,
-	}
-	cfg := b.TempDir()
-	if err := os.MkdirAll(filepath.Join(cfg, "agents"), 0o755); err != nil {
-		b.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg, "agents", "claude.md"), []byte("---\nname: claude\n---\n"), 0o644); err != nil {
-		b.Fatal(err)
-	}
-	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	for name, p := range payloads {
-		b.Run(name, func(b *testing.B) {
+	repo := dispatchEffortFixture(b)
+	for _, tc := range []struct{ name, fields string }{
+		{"claudePlain", `"subagent_type":"claude","description":"fix typo","prompt":"Fix the typo in the help text and report."`},
+		{"ownedBrief", `"subagent_type":"claude","description":"sonnet: fix parser","prompt":"Owned: internal/alpha/sub/sub.go\n\nTask: fix the parser bug and add regression coverage"`},
+		{"explicit", `"subagent_type":"claude","model":"sonnet","description":"sonnet: fix parser","prompt":"Fix the parser bug and add regression coverage"`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			payload := fmt.Sprintf(`{"cwd":%q,"session_id":"bench1","tool_name":"Agent","tool_input":{%s}}`, repo, tc.fields)
+			var out bytes.Buffer
+			if code := runEffortHook(strings.NewReader(payload), &out); code != core.ExitProceed {
+				b.Fatalf("fixture: exit %d, output %q", code, out.String())
+			}
 			b.ReportAllocs()
 			for b.Loop() {
-				effortResult(p)
+				out.Reset()
+				runEffortHook(strings.NewReader(payload), &out)
 			}
 		})
 	}
+}
+
+func dispatchEffortFixture(b *testing.B) string {
+	b.Helper()
+	cfg := vaulttest.Use(b)
+	b.Setenv("HOME", b.TempDir())
+	b.Setenv("ANTHROPIC_BASE_URL", "")
+	b.Setenv("HARNESS_HOOK_AGENT", "")
+	b.Setenv(route.OverlayVar, "")
+	repo := writeBenchRepoFixture(b)
+	b.Setenv("CLAUDE_PROJECT_DIR", repo)
+	b.Chdir(repo)
+	files := map[string]string{
+		filepath.Join(cfg, "agents", "claude.md"):               "---\nname: claude\n---\n",
+		filepath.Join(paths.MemoryStoreDir(), "conventions.md"): "# Conventions\n\n- parser bug regression coverage requires a focused test <!-- id:00000001 -->\n",
+	}
+	for path, body := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			b.Fatal(err)
+		}
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return repo
 }
