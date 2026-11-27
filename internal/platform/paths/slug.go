@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/platform/proc"
 )
@@ -144,8 +145,85 @@ func repoPart(s string) string {
 	return strings.TrimLeft(Slug(strings.TrimSuffix(s, ".git"), "._-", 0, ""), ".-")
 }
 
+// gitTops memoizes successful GitTop answers per cleaned cwd for this process.
+var gitTops sync.Map // string -> gitTopEntry
+
+type gitTopEntry struct {
+	cwd os.FileInfo // cwd's stat when resolved; a replaced or touched dir no longer matches
+	top string
+}
+
 // GitTop is cwd's `git rev-parse --show-toplevel`, "" when git fails or prints nothing (not a repo).
 func GitTop(ctx context.Context, cwd string) string {
+	if cwd == "" || ctx.Err() != nil {
+		return gitTop(ctx, cwd)
+	}
+	key, err := filepath.Abs(cwd)
+	if err != nil {
+		return gitTop(ctx, cwd)
+	}
+	if real, err := filepath.EvalSymlinks(key); err == nil {
+		key = real
+	}
+	fi, err := os.Stat(key)
+	if err != nil {
+		return gitTop(ctx, cwd)
+	}
+	if v, ok := gitTops.Load(key); ok {
+		if e := v.(gitTopEntry); gitTopFresh(key, e, fi) {
+			return e.top
+		}
+	}
+	top := gitTop(ctx, cwd)
+	if top != "" {
+		gitTops.Store(key, gitTopEntry{cwd: fi, top: top})
+	}
+	return top
+}
+
+// gitTopFresh verifies cwd, intermediate dirs, and top's .git (including worktree gitdir target) are intact.
+func gitTopFresh(key string, e gitTopEntry, fi os.FileInfo) bool {
+	if !os.SameFile(e.cwd, fi) || !e.cwd.ModTime().Equal(fi.ModTime()) {
+		return false
+	}
+	for cur := key; cur != e.top; {
+		if _, err := os.Lstat(filepath.Join(cur, ".git")); err == nil {
+			return false
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return false
+		}
+		cur = parent
+	}
+	return gitDirIntact(filepath.Join(e.top, ".git"))
+}
+
+func gitDirIntact(dotGit string) bool {
+	fi, err := os.Lstat(dotGit)
+	if err != nil {
+		return false
+	}
+	if fi.IsDir() {
+		return true
+	}
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return false
+	}
+	target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if !ok {
+		return false
+	}
+	target = strings.TrimSpace(target)
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(dotGit), target)
+	}
+	_, err = os.Stat(target)
+	return err == nil
+}
+
+func gitTop(ctx context.Context, cwd string) string {
 	out, err := proc.RunGit(ctx, cwd, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""

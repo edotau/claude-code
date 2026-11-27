@@ -312,3 +312,71 @@ func BenchmarkGitTopRepeatedCwd(b *testing.B) {
 		}
 	}
 }
+
+func gitInitDir(t testing.TB, dir string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+}
+
+func TestGitTopMemoSeesRepoCreatedAndRemoved(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	if got := GitTop(ctx, dir); got != "" {
+		t.Fatalf("GitTop before init = %q, want empty", got)
+	}
+	gitInitDir(t, dir)
+	want, _ := filepath.EvalSymlinks(dir)
+	for range 2 {
+		if got, _ := filepath.EvalSymlinks(GitTop(ctx, dir)); got != want {
+			t.Fatalf("GitTop = %q, want %q", got, want)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if got := GitTop(ctx, dir); got != "" {
+		t.Fatalf("GitTop after .git removal = %q, want empty", got)
+	}
+}
+
+func TestGitTopCancelledContextIsEmpty(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	gitInitDir(t, dir)
+	GitTop(context.Background(), dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := GitTop(ctx, dir); got != "" {
+		t.Fatalf("GitTop with cancelled ctx = %q, want empty", got)
+	}
+}
+
+func TestGitTopMemoSeesNestedInit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	outer := t.TempDir()
+	sub := filepath.Join(outer, "sub")
+	deep := filepath.Join(sub, "deep")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitInitDir(t, outer)
+	wantOuter, _ := filepath.EvalSymlinks(outer)
+	if got, _ := filepath.EvalSymlinks(GitTop(ctx, deep)); got != wantOuter {
+		t.Fatalf("initial GitTop = %q, want %q", got, wantOuter)
+	}
+	gitInitDir(t, sub)
+	wantSub, _ := filepath.EvalSymlinks(sub)
+	if got, _ := filepath.EvalSymlinks(GitTop(ctx, deep)); got != wantSub {
+		t.Fatalf("nested GitTop = %q, want %q", got, wantSub)
+	}
+}

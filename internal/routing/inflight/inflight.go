@@ -255,52 +255,95 @@ func LiveRoutes() map[route.Route]int {
 // recordReaders bounds the concurrent dispatch-record reads; the cost is per-file syscalls, not bytes.
 const recordReaders = 8
 
-type liveRecord struct {
-	owner int
-	route route.Route
-	alive bool
+// recordIndexFile caches each record's liveness fields; not *.json, so record listings never see it.
+const recordIndexFile = ".live.idx"
+
+// recordEntry is one record's liveness fields, valid while its mtime and size are unchanged.
+type recordEntry struct {
+	Mod      int64     `json:"m"`
+	Size     int64     `json:"s"`
+	Running  bool      `json:"r,omitempty"`
+	PID      int       `json:"pid,omitempty"`
+	Time     time.Time `json:"t,omitzero"`
+	Owner    int       `json:"o,omitempty"`
+	Provider string    `json:"rp,omitempty"`
+	Profile  string    `json:"rf,omitempty"`
 }
+
+func (e recordEntry) stamp() stamp { return stamp{e.Size, e.Mod} }
 
 // liveRecords calls fn with the owner and route of every dispatch record whose job is alive, in name order.
 func liveRecords(fn func(owner int, r route.Route)) {
 	dir := paths.DispatchDir()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	var names []string
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".json") {
-			names = append(names, e.Name())
+	infos := recordInfos(dir)
+	idx := filepath.Join(dir, recordIndexFile)
+	old := loadRecordIndex(idx)
+	entries, _ := parallel.Map(context.Background(), infos, recordReaders, func(_ context.Context, fi os.FileInfo) (recordEntry, error) {
+		st := stamp{fi.Size(), fi.ModTime().UnixNano()}
+		if e, ok := old[fi.Name()]; ok && e.stamp() == st {
+			return e, nil
 		}
-	}
-	settled := NewSettled(dir)
-	recs, _ := parallel.Map(context.Background(), names, recordReaders, func(_ context.Context, n string) (liveRecord, error) {
-		if settled.Skip(n) {
-			return liveRecord{}, nil
-		}
-		r, noToken := readLiveRecord(filepath.Join(dir, n))
-		if noToken {
-			settled.Note(n)
-		}
-		return r, nil
+		return readRecordEntry(filepath.Join(dir, fi.Name()), st), nil
 	})
-	settled.Done()
-	for _, r := range recs {
-		if r.alive {
-			fn(r.owner, r.route)
+	next := make(map[string]recordEntry, len(infos))
+	changed := len(old) != len(infos)
+	for i, fi := range infos {
+		next[fi.Name()] = entries[i]
+		changed = changed || entries[i] != old[fi.Name()]
+	}
+	if changed && len(infos) > 0 {
+		saveRecordIndex(idx, next)
+	}
+	for _, e := range entries {
+		if e.Running && DispatchAlive("running", e.PID, e.Time) {
+			fn(e.Owner, route.Route{Provider: e.Provider, Profile: e.Profile})
 		}
 	}
 }
 
-// readLiveRecord also says whether the bytes held no RunningToken (a verdict that holds until a rewrite).
-func readLiveRecord(path string) (liveRecord, bool) {
+// recordInfos is the stat of every *.json record in dir, in name order; the stamp precedes any read.
+func recordInfos(dir string) []os.FileInfo {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var infos []os.FileInfo
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil {
+			infos = append(infos, fi)
+		}
+	}
+	return infos
+}
+
+func loadRecordIndex(idx string) map[string]recordEntry {
+	old := map[string]recordEntry{}
+	if b, err := os.ReadFile(idx); err == nil {
+		if json.Unmarshal(b, &old) != nil {
+			return map[string]recordEntry{} // a bad index is rebuilt from the records
+		}
+	}
+	return old
+}
+
+func saveRecordIndex(idx string, m map[string]recordEntry) {
+	if b, err := json.Marshal(m); err == nil {
+		_ = paths.AtomicWriteNoSync(idx, b, 0o600) // a cache: a failed write only costs the next scan a reread
+	}
+}
+
+// readRecordEntry decodes one record under the stamp taken before the read, so a mid-read rewrite never matches.
+func readRecordEntry(path string, st stamp) recordEntry {
+	e := recordEntry{Mod: st.mod, Size: st.size}
 	b, _, err := readSized(path)
 	if err != nil {
-		return liveRecord{}, false
+		return recordEntry{Size: -1} // never matches a stat, so a transient read failure is retried
 	}
 	if !bytes.Contains(b, []byte(RunningToken)) {
-		return liveRecord{}, true
+		return e
 	}
 	var r struct {
 		Status string          `json:"status"`
@@ -309,10 +352,12 @@ func readLiveRecord(path string) (liveRecord, bool) {
 		Owner  int             `json:"owner"`
 		Route  json.RawMessage `json:"route"`
 	}
-	if json.Unmarshal(b, &r) != nil || !DispatchAlive(r.Status, r.PID, r.Time) {
-		return liveRecord{}, false
+	if json.Unmarshal(b, &r) != nil || r.Status != "running" {
+		return e
 	}
-	return liveRecord{owner: r.Owner, route: routeKey(r.Route), alive: true}, false
+	rt := routeKey(r.Route)
+	e.Running, e.PID, e.Time, e.Owner, e.Provider, e.Profile = true, r.PID, r.Time, r.Owner, rt.Provider, rt.Profile
+	return e
 }
 
 // routeKey keys a record's route as a structured {Provider, Profile}: object or legacy string, null or junk as zero.

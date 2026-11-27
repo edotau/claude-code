@@ -274,3 +274,50 @@ func BenchmarkLiveRoutes2000Records5Running(b *testing.B) {
 		b.Fatalf("live routes = %v, want databricks/qa=3 databricks/dev=2", routes)
 	}
 }
+
+func TestLiveRecordsIndexTracksChangesAndDeletes(t *testing.T) {
+	if !probeTrusted() {
+		t.Skip("needs the Unix PID probe")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, status string) {
+		body := fmt.Sprintf(`{"status":%q,"pid":%d,"owner":7,"time":%q,"route":"databricks:qa"}`,
+			status, os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		n := 0
+		liveRecords(func(int, route.Route) { n++ })
+		return n
+	}
+	write("a.json", "running")
+	write("b.json", "ok")
+	if n := count(); n != 1 {
+		t.Fatalf("live = %d, want 1", n)
+	}
+	if n := count(); n != 1 { // served from the index
+		t.Fatalf("indexed live = %d, want 1", n)
+	}
+	write("b.json", "running")
+	if n := count(); n != 2 {
+		t.Fatalf("after rewrite live = %d, want 2", n)
+	}
+	if err := os.Remove(filepath.Join(dir, "a.json")); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("after delete live = %d, want 1", n)
+	}
+	if err := os.WriteFile(filepath.Join(dir, recordIndexFile), []byte("junk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("with bad index live = %d, want 1", n)
+	}
+}
