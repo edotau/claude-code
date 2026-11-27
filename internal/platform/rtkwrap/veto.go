@@ -37,6 +37,8 @@ func VetoRule(cmd, cwd string) string {
 	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git
 	case rtkGitInLinkedWorktree(cmd, cwd):
 		return "linked-worktree"
+	case rtkGitCommits(cmd):
+		return "commit"
 	case rtkGitValueVetoed(cmd):
 		return "value-git"
 	case rtkGitBranchMutates(cmd):
@@ -148,6 +150,14 @@ func rtkGitValueVetoed(cmd string) bool {
 		}
 	}
 	return false
+}
+
+// rtkGitCommits reports whether any git segment commits, past global options (`git -c k=v commit`).
+func rtkGitCommits(cmd string) bool {
+	return slices.ContainsFunc(shell.Segments(cmd), func(seg string) bool {
+		args := rtkGitArgs(seg)
+		return args != nil && gitRTKSubcommand(args) == "commit"
+	})
 }
 
 // rtkGitBranchMutates: rtk prints only `ok` for `git branch -D`, so a delete, move or copy stays raw.

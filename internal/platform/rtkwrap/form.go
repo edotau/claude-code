@@ -31,6 +31,9 @@ func ForModel(ctx context.Context, cmd, cwd string) string {
 	if t[0] == rtkName { // already wrapped: pin it so a child's PATH cannot swap the binary
 		return PinRTK(cmd, textutil.QuoteSH(bin))
 	}
+	if out, decided := FastPath(cmd); decided {
+		return pinnedForm(out, cmd, bin)
+	}
 	key := formKey(bin, cwd, cmd)
 	if got, ok := forms.Load(key); ok {
 		return got.(string)

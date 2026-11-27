@@ -2,6 +2,7 @@ package rtkwrap
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -276,6 +277,97 @@ func TestResolveRelativeEntryWinsInOrder(t *testing.T) {
 	got, _ := resolve([]string{"./bin", filepath.Join(root, "abs")}, "git", nil)
 	if want := filepath.Join("bin", "git"); got != want {
 		t.Errorf("resolve = %q, want %q", got, want)
+	}
+}
+
+func TestWrapDecisionExternalCLIs(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	oc, op, oa := procComm, procParent, procArgv
+	t.Cleanup(func() { procComm, procParent, procArgv = oc, op, oa })
+	comms := map[int]string{10: "codex", 11: "opencode", 12: "gemini", 13: "node", 20: "bash", 21: "zsh", 22: "sh", 23: "bash"}
+	parents := map[int]int{20: 10, 21: 11, 22: 12, 23: 13}
+	procComm = func(pid int) string { return comms[pid] }
+	procParent = func(pid int) int { return parents[pid] }
+	procArgv = func(pid int) []string {
+		if pid == 20 || pid == 21 {
+			return []string{"/bin/bash", "-lc", "git status"}
+		}
+		return []string{"/bin/sh", "-c", "git status"}
+	}
+	t.Setenv("BASH_ENV", filepath.Join(Dir(), bashEnvName))
+	for _, tc := range []struct {
+		name string
+		ppid int
+		want bool
+	}{
+		{"codex -lc", 20, true},
+		{"opencode -lc", 21, true},
+		{"gemini -c", 22, true},
+		{"node with harness BASH_ENV", 23, true},
+	} {
+		c := call{name: "git", args: []string{"status"}, pipe: true, pid: 99, ppid: tc.ppid, sid: 5, cwd: cwd}
+		if _, reason := c.gate(); (reason == "") != tc.want {
+			t.Errorf("%s: gate() reason = %q, want wrap %v", tc.name, reason, tc.want)
+		}
+	}
+	t.Setenv("BASH_ENV", "")
+	c := call{name: "git", args: []string{"status"}, pipe: true, pid: 99, ppid: 23, sid: 5, cwd: cwd}
+	if _, reason := c.gate(); reason == "" {
+		t.Errorf("node without harness BASH_ENV wrapped unexpectedly")
+	}
+}
+
+func TestWrapDecisionLoginAndDirectExec(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cwd := t.TempDir()
+	oc, op, oa := procComm, procParent, procArgv
+	t.Cleanup(func() { procComm, procParent, procArgv = oc, op, oa })
+	comms := map[int]string{10: "codex", 11: "gemini", 12: "node", 20: "bash", 21: "bash"}
+	parents := map[int]int{20: 10, 21: 10}
+	procComm = func(pid int) string { return comms[pid] }
+	procParent = func(pid int) int { return parents[pid] }
+	procArgv = func(pid int) []string {
+		if pid == 21 {
+			return []string{"/bin/bash", "-l", "-i"}
+		}
+		return []string{"/bin/bash", "-l", "-c", "git status"}
+	}
+	for _, tc := range []struct {
+		label string
+		ppid  int
+		want  bool
+	}{
+		{"bash -l -c", 20, true},
+		{"no -c after flags", 21, false},
+		{"direct exec under gemini", 11, true},
+		{"direct exec under codex", 10, true},
+		{"direct exec under bare node", 12, false},
+	} {
+		c := call{name: "git", args: []string{"status"}, pipe: true, pid: 99, ppid: tc.ppid, sid: 5, cwd: cwd}
+		if _, reason := c.gate(); (reason == "") != tc.want {
+			t.Errorf("%s: gate() reason = %q, want wrap %v", tc.label, reason, tc.want)
+		}
+	}
+	c := call{name: "git", args: []string{"-c", "k=v", "commit", "-m", "x y"}, pipe: true, pid: 99, ppid: 11, sid: 5, cwd: cwd}
+	if _, reason := c.gate(); reason != "veto:commit" && reason != "veto:value-git" {
+		t.Errorf("git -c commit via direct exec reason = %q, want a veto", reason)
+	}
+}
+
+func TestEnsureBashEnvKeepsShimDirFirst(t *testing.T) {
+	dir, bin := t.TempDir(), filepath.Join(t.TempDir(), "shim")
+	must(t, os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755))
+	must(t, Ensure(dir, bin))
+	got, err := os.ReadFile(filepath.Join(dir, bashEnvName))
+	must(t, err)
+	if !strings.Contains(string(got), `PATH=`+dir+`":$PATH"`) || !strings.Contains(string(got), "trap : EXIT") {
+		t.Errorf(".bash_env = %q, want the trap and a PATH re-prepend of %s", got, dir)
+	}
+	out, err := exec.Command("sh", "-c", `PATH=/usr/bin:/bin . "$1"; echo "$PATH"`, "sh", filepath.Join(dir, bashEnvName)).Output()
+	must(t, err)
+	if want := dir + ":/usr/bin:/bin"; strings.TrimSpace(string(out)) != want {
+		t.Errorf("PATH after sourcing = %q, want %q", out, want)
 	}
 }
 

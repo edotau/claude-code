@@ -189,6 +189,7 @@ func routeOptions(opts *Options, rt *copilotRegistryRoute, env []string, req age
 	}
 	// --env goes last so it wins
 	opts.Env = append(opts.Env, req.Env...)
+	opts.Env = agent.RTKShimsFor("copilot", opts.Env, req) // after --env, so it never shadows the shim PATH
 	applyCopilotToken(opts, env)
 	return nil
 }

@@ -316,7 +316,11 @@ func (b BaseEngine) RenderSettings(_ context.Context, s Settings, env, argv []st
 			argv = append(argv, l.Args...)
 		}
 	}
-	return RouteEnvLast(launchEnv, env), argv, nil, func() {}, nil
+	env = RouteEnvLast(launchEnv, env)
+	if !s.Headless { // a headless launch gets its shims after --env, in prepare
+		env = WithRTKShims(b.name, env, rtkLaunchCodemode(RunOptions{}))
+	}
+	return env, argv, nil, func() {}, nil
 }
 
 func (b BaseEngine) Login(context.Context, *providers.Provider, string, *Headless) ([]string, []string, error) {

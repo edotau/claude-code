@@ -353,8 +353,11 @@ func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
 	if bin == "" || !rtkMayRewrite(cmd) || rtkVetoed(cmd, cwd, bin) {
 		return rtkForm{}
 	}
-	rewritten := rtkRewritten(bin, cmd)
-	if rewritten == "" {
+	rewritten, decided := rtkwrap.FastPath(cmd) // zero forks for a skip or a plain command rtk wraps whole
+	if !decided {
+		rewritten = rtkRewritten(bin, cmd)
+	}
+	if rewritten == "" || rewritten == cmd {
 		return rtkForm{}
 	}
 	found, onPath := paths.RTKOnPath(bin)
@@ -372,16 +375,8 @@ func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
 // rtkRewriteWords are the words rtk rewrite acts on; TestRTKRewriteWordsMatchRTK fails when rtk outgrows them.
 var rtkRewriteWords = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_rewrite_words") })
 
-// rtkWordRun is one word of a command, and rtkVersioned a versioned spelling of one (gcc-13, python3.12).
-var rtkWordRun = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\w.+-]+`) })
-var rtkVersioned = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[-.]?[0-9][0-9.]*$`) })
-
 // rtkMayRewrite is false only when no word of cmd is one rtk rewrites, so skipping the ~10 ms exec loses nothing.
-func rtkMayRewrite(cmd string) bool {
-	return slices.ContainsFunc(rtkWordRun().FindAllString(cmd, -1), func(w string) bool {
-		return rtkRewriteWords()[w] || rtkRewriteWords()[rtkVersioned().ReplaceAllString(w, "")]
-	})
-}
+func rtkMayRewrite(cmd string) bool { return rtkwrap.MayRewrite(cmd) }
 
 // rtkNotes is the once-per-session context: the bypass hint, plus the shadow notice when PATH lacks the pinned rtk.
 func rtkNotes(sessionID, word, found, bin string, onPath bool) string {

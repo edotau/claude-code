@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/rtkwrap"
 	"github.com/edotau/claude-code/internal/routing/models"
 
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
@@ -225,7 +227,41 @@ func PrepareLaunch(ctx context.Context, d Driver, req RunOptions, t providers.Ta
 	if err == nil && p != nil {
 		p.Env, p.Argv, p.Emulated, p.Cleanup, err = d.RenderSettings(ctx, st, p.Env, p.Argv)
 	}
+	if err == nil && p != nil {
+		p.Env = WithRTKShims(d.Name(), p.Env, rtkLaunchCodemode(req))
+	}
 	return st, err
+}
+
+// WithRTKShims is env with the rtk shims (PATH, BASH_ENV, CODEMODE) for an external CLI once built; idempotent.
+func WithRTKShims(name string, env []string, codemode string) []string {
+	if !usesRTKShims(name) {
+		return env
+	}
+	if _, err := os.Stat(rtkwrap.Binary()); err != nil {
+		return env
+	}
+	return rtkwrap.Launch(env, codemode, NoticeOut)
+}
+
+// RTKShimsFor is env with the shims for a request, run after req.Env so --env never shadows the shim PATH or BASH_ENV.
+func RTKShimsFor(name string, env []string, req RunOptions) []string {
+	return WithRTKShims(name, env, rtkLaunchCodemode(req))
+}
+
+// usesRTKShims reports whether external CLI name uses bin/.rtkwrap PATH shims (pi wires Launch itself).
+func usesRTKShims(name string) bool {
+	return slices.Contains([]string{"codex", "opencode", "gemini", "copilot"}, name)
+}
+
+func rtkLaunchCodemode(req RunOptions) string {
+	if req.Codemode != "" {
+		return req.Codemode
+	}
+	if m := strings.ToLower(strings.TrimSpace(providers.CustomEnv()[rtkwrap.CodemodeEnv])); rtkwrap.CodemodeOn(m) {
+		return m
+	}
+	return ""
 }
 
 // checkPromptCap refuses a prompt over the agent's transport cap.
@@ -276,6 +312,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 		return p, retry.Fatal(name, err)
 	}
 	p.Env = append(p.Env, req.Env...) // --env goes last, after the route keys, so it wins
+	p.Env = RTKShimsFor(name, p.Env, req)
 	return p, nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/routing/agentid"
 )
 
@@ -71,8 +72,14 @@ const UserBashEnvVar = "HARNESS_USER_BASH_ENV"
 const bashEnvName = ".bash_env"
 
 // bashEnv's EXIT trap stops bash exec'ing a -c line's last command, so the shim sees its tool-shell parent.
-const bashEnv = `if [ -n "$` + UserBashEnvVar + `" ]; then . "$` + UserBashEnvVar + `"; [ -n "$(trap -p EXIT)" ] || trap : EXIT; else trap : EXIT; fi
+const bashEnvTrap = `if [ -n "$` + UserBashEnvVar + `" ]; then . "$` + UserBashEnvVar + `"; [ -n "$(trap -p EXIT)" ] || trap : EXIT; else trap : EXIT; fi
 `
+
+// bashEnvFor is the BASH_ENV file for dir: the trap, then dir first on PATH again (path_helper).
+func bashEnvFor(dir string) string {
+	q := textutil.QuoteSH(dir)
+	return bashEnvTrap + "case \":$PATH:\" in *:" + q + ":*) ;; *) PATH=" + q + `":$PATH"; export PATH;; esac` + "\n"
+}
 
 // Ensure makes dir hold one symlink per name to bin, replacing a wrong entry, plus the BASH_ENV file.
 func Ensure(dir, bin string) error {
@@ -82,7 +89,7 @@ func Ensure(dir, bin string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if _, err := paths.WriteIfChanged(filepath.Join(dir, bashEnvName), []byte(bashEnv), 0o644); err != nil {
+	if _, err := paths.WriteIfChanged(filepath.Join(dir, bashEnvName), []byte(bashEnvFor(dir)), 0o644); err != nil {
 		return err
 	}
 	for _, name := range append(slices.Clone(Names), rtkName) {

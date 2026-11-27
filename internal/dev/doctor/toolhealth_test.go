@@ -65,16 +65,16 @@ func TestRTKHookRows(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(rtkwrap.CodemodeEnv, "")
 	t.Setenv("PATH", t.TempDir())
-	if got := rtkAgentRow("gemini"); !got.OK || got.Detail != "awareness text only" {
+	if got := rtkAgentRow("gemini"); got.OK || got.Detail != "warn rtk binary not installed" {
 		t.Errorf("Gemini without rtk binary = %+v", got)
 	}
 	installDoctorRTKPin(t)
 	want := map[string]string{
 		"rtk hook claude":   "warn rtk-rewrite hook not installed",
-		"rtk hook codex":    "warn rtk-rewrite hook not installed",
-		"rtk hook copilot":  "rewrite (SDK tool)",
-		"rtk hook gemini":   "awareness text only",
-		"rtk hook opencode": "rewrite (hook)",
+		"rtk hook codex":    "warn shims not installed",
+		"rtk hook copilot":  "warn shims not installed",
+		"rtk hook gemini":   "warn shims not installed",
+		"rtk hook opencode": "warn shims not installed",
 		"rtk hook pi":       "warn shims not installed",
 		"rtk PATH":          "warn rtk not on PATH (pinned binary may still work)",
 	}
@@ -106,17 +106,17 @@ func TestRTKHookRowsInstalledHooks(t *testing.T) {
 	if err := os.WriteFile(settings.SettingsFile(), []byte(claude), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "rtk-rewrite"}).Command()
-	codex := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"` +
-		settings.AgentEnv + `=codex ` + command + `"}]}]}}`
-	if err := os.WriteFile(filepath.Join(os.Getenv("CODEX_HOME"), "hooks.json"), []byte(codex), 0o600); err != nil {
-		t.Fatal(err)
+	got, codex := rtkAgentRow("claude"), rtkAgentRow("codex")
+	if !got.OK || got.Detail != "rewrite (hook)" || codex.OK || codex.Detail != "warn shims not installed" {
+		t.Errorf("installed Claude hook = %+v, codex without shims = %+v", got, codex)
 	}
-	if got := rtkAgentRow("claude"); !got.OK || got.Detail != "rewrite (hook)" {
-		t.Errorf("installed Claude hook = %+v", got)
-	}
-	if got := rtkAgentRow("codex"); got.OK || got.Detail != "warn rtk-rewrite hook not installed" {
-		t.Errorf("untrusted Codex hook = %+v", got)
+	installDoctorPiShims(t)
+	installDoctorRTKPin(t)
+	for a, want := range map[string]string{"codex": "shims", "opencode": "shims", "gemini": "shims", "pi": "shims",
+		"copilot": "rewrite (SDK tool) + shims"} {
+		if got := rtkAgentRow(a); !got.OK || got.Detail != want {
+			t.Errorf("installed %s shims = %+v", a, got)
+		}
 	}
 }
 

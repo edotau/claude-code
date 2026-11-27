@@ -451,14 +451,13 @@ func rtkAgentRow(a string) check {
 	switch {
 	case rtkwrap.CodeMode():
 		row.Detail = "off in code mode (" + rtkwrap.CodeModeSource() + ")"
-	case a == "gemini":
-		row.Detail = "awareness text only"
 	case paths.RTKBinary() == "":
 		row.OK, row.Detail = false, "warn rtk binary not installed"
-	case a == "copilot":
-		row.Detail = "rewrite (SDK tool)"
-	case a == "pi":
+	case a == "copilot", a == "pi", a == "codex", a == "opencode", a == "gemini":
 		row.Detail = "shims"
+		if a == "copilot" {
+			row.Detail = "rewrite (SDK tool) + shims"
+		}
 		if !piShimsInstalled() {
 			row.OK, row.Detail = false, "warn shims not installed"
 		}
@@ -473,20 +472,7 @@ func rtkAgentRow(a string) check {
 }
 
 func rtkHookInstalled(a string) bool {
-	if a == "opencode" { // the plugin is generated and injected at launch, not installed in a global config
-		return true
-	}
-	file := settings.SettingsFile()
-	command := settings.DispatcherCommand(settings.EventPreToolUse)
-	if a == "codex" {
-		home, err := paths.CodexHome()
-		if err != nil {
-			return false
-		}
-		file = filepath.Join(home, "hooks.json")
-		command = (settings.EventSpec{Event: settings.EventPreToolUse, Name: "rtk-rewrite"}).Command()
-	}
-	b, err := os.ReadFile(file)
+	b, err := os.ReadFile(settings.SettingsFile())
 	if err != nil {
 		return false
 	}
@@ -496,62 +482,10 @@ func rtkHookInstalled(a string) bool {
 	if json.Unmarshal(b, &config) != nil {
 		return false
 	}
-	for gi, group := range config.Hooks[settings.EventPreToolUse] {
-		if group.RunsGate(a, command, "Bash") && (a != "codex" || codexRTKTrusted(file, gi, group)) {
-			return true
-		}
-	}
-	return false
-}
-
-func codexRTKTrusted(file string, gi int, group settings.MatcherGroup) bool {
-	config, err := os.ReadFile(filepath.Join(filepath.Dir(file), "config.toml"))
-	if err != nil {
-		return false
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(file))
-	if err != nil {
-		return false
-	}
-	for hi, hook := range group.Hooks {
-		if !strings.Contains(hook.Command, "rtk-rewrite") {
-			continue
-		}
-		handler := map[string]any{"type": hook.Type, "command": hook.Command, "timeout": max(1, hook.Timeout), "async": hook.Async}
-		if hook.StatusMessage != "" {
-			handler["statusMessage"] = hook.StatusMessage
-		}
-		identity := map[string]any{"event_name": "pre_tool_use", "hooks": []any{handler}}
-		if group.Matcher != "" {
-			identity["matcher"] = group.Matcher
-		}
-		canonical, err := textutil.MarshalNoEscape(identity)
-		if err != nil {
-			return false
-		}
-		key := fmt.Sprintf("%s:pre_tool_use:%d:%d", filepath.Join(parent, filepath.Base(file)), gi, hi)
-		if codexTrustValue(config, key) == "sha256:"+textutil.SHA256Hex(canonical) {
-			return true
-		}
-	}
-	return false
-}
-
-func codexTrustValue(config []byte, key string) string {
-	header := fmt.Sprintf("[hooks.state.%q]", key)
-	for section := range strings.SplitSeq(string(config), "\n[") {
-		if !strings.HasPrefix(strings.TrimSpace(section), strings.TrimPrefix(header, "[")) &&
-			!strings.HasPrefix(strings.TrimSpace(section), header) {
-			continue
-		}
-		for line := range strings.SplitSeq(section, "\n") {
-			name, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-			if ok && strings.TrimSpace(name) == "trusted_hash" {
-				return strings.Trim(strings.TrimSpace(value), `"`)
-			}
-		}
-	}
-	return ""
+	command := settings.DispatcherCommand(settings.EventPreToolUse)
+	return slices.ContainsFunc(config.Hooks[settings.EventPreToolUse], func(g settings.MatcherGroup) bool {
+		return g.RunsGate(a, command, "Bash")
+	})
 }
 
 func piShimsInstalled() bool {

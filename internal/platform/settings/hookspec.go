@@ -137,8 +137,8 @@ var Registry = []Group{
 		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "MultiEdit|Write|Edit|NotebookEdit", Budget: 5 * sec, Blocks: true, AlwaysOn: true},
 	}},
 	{Name: "rtk", Events: []EventSpec{
-		// An eligible noisy Bash command is rewritten through rtk (Claude, Codex, OpenCode; agy judges rules post-rewrite).
-		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, Agents: []string{"codex"}, Plugin: []string{"opencode"}},
+		// Claude Code uses the pure-Go fast-path PreToolUse hook; external CLIs use bin/.rtkwrap PATH shims.
+		{Name: "rtk-rewrite", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec},
 	}},
 	{Name: "docs", Events: []EventSpec{
 		// Root or ignored docs/ markdown is blocked, a new plan-named one goes to the plans home, a draft needs the template.

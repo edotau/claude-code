@@ -21,7 +21,15 @@ import (
 // piComm is the process name Pi sets (process.title), as proc.Comm reads it on macOS and Linux.
 const piComm = "pi"
 
-// toolShells are the shells Pi's bash tool may spawn as `<shell> -c <command>`.
+// externalCLIComms are external harness-launched CLIs whose tool-shell children may be wrapped via PATH shims.
+var externalCLIComms = map[string]bool{
+	"codex": true, "opencode": true, "gemini": true, "copilot": true,
+}
+
+// runtimeComms are JS runtimes hosting an external CLI when BASH_ENV points to our shim dir.
+var runtimeComms = map[string]bool{"node": true, "bun": true, "deno": true}
+
+// toolShells are the shells a CLI's bash tool may spawn as `<shell> -c|-lc <command>`.
 var toolShells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true}
 
 // Process-table and rtk seams; tests stub them.
@@ -91,25 +99,49 @@ func lineRaw(cmd, name string) string {
 // veto is the "veto:<rule>" code when the tool line or this call's own argv trips one, else "".
 func (c call) veto(cmd string) string {
 	rule := cmp.Or(VetoRule(cmd, c.cwd), VetoRule(quoteArgv(c.name, c.args), c.cwd))
-	if c.name == "git" && gitRTKSubcommand(c.args) == "commit" {
-		rule = cmp.Or(rule, "commit")
-	}
 	if rule == "" {
 		return ""
 	}
 	return "veto:" + rule
 }
 
-// toolCommand is the command line when c is the tool shell's direct child; $(...) and make never are.
+// toolCommand is the tool line when c is the tool shell's direct child or the exec'd lone command; $(...), make never.
 func (c call) toolCommand() (string, bool) {
-	if c.sid != c.ppid || !toolShells[procComm(c.ppid)] || procComm(procParent(c.ppid)) != piComm {
+	if c.externalHost(procComm(c.ppid)) { // sh/zsh exec'd the lone command in place: the call is the whole line
+		return quoteArgv(c.name, c.args), true
+	}
+	if !toolShells[procComm(c.ppid)] {
 		return "", false
 	}
+	parent := procComm(procParent(c.ppid))
 	argv := procArgv(c.ppid)
-	if len(argv) != 3 || argv[1] != "-c" {
-		return "", false
+	switch {
+	case parent == piComm:
+		if c.sid == c.ppid && len(argv) == 3 && argv[1] == "-c" {
+			return argv[2], true
+		}
+	case c.externalHost(parent):
+		return shellLine(argv)
 	}
-	return argv[2], true
+	return "", false
+}
+
+// externalHost reports comm is an external CLI, or a JS runtime hosting one under our BASH_ENV.
+func (c call) externalHost(comm string) bool {
+	return externalCLIComms[comm] || runtimeComms[comm] && os.Getenv("BASH_ENV") == filepath.Join(Dir(), bashEnvName)
+}
+
+// shellLine is the command of `sh [-flags] -c|-lc <command>`, leading flags (-l, --login) skipped.
+func shellLine(argv []string) (string, bool) {
+	for i := 1; i < len(argv) && strings.HasPrefix(argv[i], "-"); i++ {
+		if a := argv[i]; !strings.HasPrefix(a, "--") && strings.HasSuffix(a, "c") {
+			if i+1 < len(argv) {
+				return argv[i+1], true
+			}
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func quoteArgv(name string, args []string) string {
@@ -180,8 +212,11 @@ func rewriteWraps(rewritten, name string, args []string) bool {
 	return wrapped
 }
 
-// rewrite is `rtk rewrite cmd` (exit 0 or 3); "" on any failure.
+// rewrite is `rtk rewrite cmd` (exit 0 or 3), FastPath's answer when it decides; "" on any failure.
 func rewrite(rtk, cmd string, env []string) string {
+	if out, decided := FastPath(cmd); decided {
+		return out
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
 	c := exec.CommandContext(ctx, rtk, "rewrite", "--", cmd)
