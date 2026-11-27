@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -23,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	verifyinspect "github.com/edotau/claude-code/internal/agent/inspect"
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"
@@ -60,7 +61,10 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		return fullGoGate, nil, 0, sc, nil
 	}
 	set := reverseDeps(list, abs, changed)
-	pkgs = slices.Sorted(maps.Keys(set))
+	for p := range set {
+		pkgs = append(pkgs, p)
+	}
+	slices.Sort(pkgs)
 	for p := range changed {
 		if set[p] {
 			nChanged++
@@ -561,6 +565,7 @@ type gateAt struct{ Dir, Base, Lane string }
 func runStages(ctx context.Context, at gateAt, stages [][]string, stdout, stderr io.Writer) (map[string]float64, error) {
 	secs := map[string]float64{}
 	for _, steps := range stages {
+		steps = uncachedGoSteps(at.Dir, steps, stdout, secs)
 		durs, err := runTimed(ctx, at, steps, stdout, stderr)
 		names := mapStrings(steps, stepName)
 		for i, d := range durs {
@@ -571,6 +576,46 @@ func runStages(ctx context.Context, at gateAt, stages [][]string, stdout, stderr
 		}
 	}
 	return secs, nil
+}
+
+// uncachedGoSteps only reuses package tests; repository-wide build and vet always execute at their actual scope.
+func uncachedGoSteps(dir string, steps []string, out io.Writer, secs map[string]float64) []string {
+	return slices.DeleteFunc(slices.Clone(steps), func(step string) bool {
+		if !reuseGoGate(dir, [][]string{{step}}) {
+			return false
+		}
+		fmt.Fprintln(out, "verify: stamp-reused (package tests only; build and vet still run)")
+		secs["stamp-reused"] = 0
+		return true
+	})
+}
+
+// reuseGoGate only recognizes a single plain package-scoped Go test, never a wider build or vet command.
+func reuseGoGate(dir string, stages [][]string) bool {
+	if len(stages) != 1 || len(stages[0]) != 1 {
+		return false
+	}
+	steps, err := plans.VerifyArgv(stages[0][0])
+	if err != nil || len(steps) != 1 {
+		return false
+	}
+	args := plainGoTest(steps[0])
+	return verifyinspect.FreshPackageStamps(args, func(scope []string) (string, error) {
+		return verifyinspect.ComputeStampKey(dir, scope, verifyinspect.GoStampGates)
+	})
+}
+
+func plainGoTest(step plans.VerifyStep) []string {
+	f := step.Argv
+	if len(step.Env) > 0 || len(f) < 3 || f[0] != "go" || f[1] != "test" {
+		return nil
+	}
+	for _, p := range f[2:] {
+		if !strings.HasPrefix(p, "./") {
+			return nil
+		}
+	}
+	return f[2:]
 }
 
 // runTimed runs steps concurrently, each with its own output buffer; the first failure cancels the rest.
@@ -667,7 +712,7 @@ func RunScopedGate(ctx context.Context, dir string, scope []string, lintCheck bo
 // shortID is the first 12 hex digits of the SHA-256 of the NUL-joined parts.
 func shortID(parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return hex.EncodeToString(sum[:])[:12]
+	return hex.EncodeToString(sum[:6])
 }
 
 var gateNoiseRe = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ms|s)\b|(?:/private)?/(?:tmp|var/folders)/[^ :]+(?::\d+){0,2}`)

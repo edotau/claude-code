@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -90,7 +91,7 @@ func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	repo, plan := planRepo(t)
 	in := &core.Input{CWD: repo}
 	lr := leafRead{scan: leafScan{brief: "Task: 1.2\nwire it"}}
-	got := handbackVerify(in, lr, time.Now()) // an expired deadline takes the no-time branch: no gate runs
+	got := handbackVerify(in, lr, time.Now()) // no owned edits: nothing is queued
 	if len(got) != 2 || got[0] != "verify 1.2: lane not resolved; not run" ||
 		!strings.HasPrefix(got[1], "commit+tick: claude-code worktree commit --task '1.2' --plan "+plan) {
 		t.Errorf("task brief: got %q, want one verify 1.2 line and one commit+tick naming it", got)
@@ -106,6 +107,62 @@ func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	}
 	if got := handbackVerify(in, leafRead{scan: leafScan{brief: "just look around"}}, time.Now()); got != nil {
 		t.Errorf("no task: got %q, want nothing", got)
+	}
+}
+
+func TestHandbackQueuesWithoutGo(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, _ := planRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte("package a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin, marker := t.TempDir(), filepath.Join(t.TempDir(), "go-ran")
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte("#!/bin/sh\necho ran > '"+marker+"'\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	in := &core.Input{CWD: repo, SessionID: "main-session"}
+	for range 2 {
+		lines := handbackVerify(in, leafRead{scan: leafScan{brief: "Task: 1.2\nwire it"}}, time.Now().Add(time.Minute))
+		if len(lines) != 2 || !strings.Contains(lines[0], "queued for main batch") || !strings.Contains(lines[1], "commit+tick:") {
+			t.Fatalf("handback: %q", lines)
+		}
+	}
+	assertHandbackPending(t, in.SessionID)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("handback ran go: %v", err)
+	}
+}
+
+func assertHandbackPending(t *testing.T, session string) inspect.PendingTask {
+	t.Helper()
+	q, err := inspect.ReadPending(session)
+	if err != nil || len(q.Tasks) != 1 {
+		t.Fatalf("pending: %+v %v", q, err)
+	}
+	task := q.Tasks[0]
+	if task.Task != "1.2" || strings.Join(task.Files, ",") != "a.go" {
+		t.Fatalf("pending task: %+v", task)
+	}
+	return task
+}
+
+func TestHandbackRetainsCustomVerify(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, plan := planRepo(t)
+	hosttest.WriteRel(t, repo, "a.go", "package a\n")
+	body := "# P\n\n- [ ] 1.2 wire it verify: go test -race ./... owns: a.go\n"
+	if err := os.WriteFile(plan, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := &core.Input{CWD: repo, SessionID: "custom"}
+	lines := handbackVerify(in, leafRead{scan: leafScan{brief: "Task: 1.2"}}, time.Now())
+	if len(lines) == 0 || !strings.Contains(lines[0], "queued") {
+		t.Fatalf("handback: %v", lines)
+	}
+	task := assertHandbackPending(t, in.SessionID)
+	if len(task.Checks) != 1 || task.Checks[0].Command != "go test -race ./..." {
+		t.Fatalf("lost custom verify: %+v", task)
 	}
 }
 

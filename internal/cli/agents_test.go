@@ -28,6 +28,19 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
+func TestStampAgentsDiffBatchFlag(t *testing.T) {
+	code, _, stderr := runAgents(t, "diff", "--batch")
+	if code != 2 || !strings.Contains(stderr, "--batch need --check") {
+		t.Fatalf("batch without check: exit %d stderr %q", code, stderr)
+	}
+	for _, flag := range agentsSpec().Sub["diff"].Flags {
+		if flag.Name == "batch" && flag.IsBool {
+			return
+		}
+	}
+	t.Fatal("--batch missing from completion")
+}
+
 func TestAgentTransferInterspersedFlags(t *testing.T) {
 	old := transferAgent
 	t.Cleanup(func() { transferAgent = old })

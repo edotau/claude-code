@@ -13,8 +13,37 @@ import (
 	"testing"
 	"time"
 
+	verifyinspect "github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
+
+func TestReuseGoGateOnlySkipsMatchingTests(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	hosttest.WriteRel(t, dir, "go.mod", "module x\n")
+	hosttest.WriteRel(t, dir, "pkg/p.go", "package pkg\nconst N = 1\n")
+	key, err := verifyinspect.ComputeStampKey(dir, []string{"pkg"}, verifyinspect.GoStampGates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyinspect.WriteStamp(key, verifyinspect.StampMeta{Passed: true, Gates: verifyinspect.GoStampGates}); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteRel(t, dir, "unrelated/broken.go", "invalid Go\n")
+	steps := []string{"go build ./...", "go vet ./...", "go test ./pkg"}
+	var out bytes.Buffer
+	left := uncachedGoSteps(dir, steps, &out, map[string]float64{})
+	if !slices.Equal(left, steps[:2]) || !strings.Contains(out.String(), "stamp-reused") {
+		t.Fatalf("narrow proof waived wider checks: %v %s", left, out.String())
+	}
+	if reuseGoGate(dir, [][]string{{"go test -race ./pkg"}}) {
+		t.Fatal("custom test flags were suppressed")
+	}
+	hosttest.WriteRel(t, dir, "pkg/p.go", "package pkg\nconst N = 2\n")
+	if reuseGoGate(dir, [][]string{{"go test ./pkg"}}) {
+		t.Fatal("modified package reused stale pass")
+	}
+}
 
 // gateRepo is a git repo holding module example.com/m, with run and write helpers.
 func gateRepo(t *testing.T) (dir string, run func(...string) string, write func(rel, body string)) {

@@ -7,14 +7,98 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 )
+
+func TestStampDiffBatchMergesAndClears(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := newDiffRepo(t)
+	fake := &fakeGates{}
+	fake.install(t)
+	if err := QueuePending("session", PendingTask{Dir: dir, Task: "1", Files: []string{"pkg/p.go"}}); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, dir, "extra/q.go", "package extra\n")
+	o := DiffOptions{Dir: dir, Check: true, Batch: true, SessionID: "session", Paths: []string{"extra/q.go"}, JSON: true}
+	code, out, errOut := runDiff(t, o)
+	if code != 0 {
+		t.Fatalf("batch exit %d: %s %s", code, out, errOut)
+	}
+	var rep DiffReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil || len(rep.Files) != 2 {
+		t.Fatalf("committed queue file missing: %+v %v", rep.Files, err)
+	}
+	if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg", "extra"), 0); !ok {
+		t.Fatal("batch did not stamp the union")
+	}
+	if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg"), 0); !ok {
+		t.Fatal("batch did not stamp the individually checked package")
+	}
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "verify", "pending", "session.json")); !os.IsNotExist(err) {
+		t.Fatalf("queue retained after pass: %v", err)
+	}
+	if n := slices.Index(fake.calls, "go build"); n < 0 || slices.Index(fake.calls[n+1:], "go build") >= 0 {
+		t.Fatalf("expected one build: %v", fake.calls)
+	}
+}
+
+func TestStampDiffBatchFailuresRetainQueue(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		t.Run(strconv.FormatBool(partial), func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			dir := newDiffRepo(t)
+			fake := &fakeGates{fail: map[string]string{"go build": "build failed"}}
+			fake.install(t)
+			if err := QueuePending("s", PendingTask{Dir: dir, Task: "1", Files: []string{"pkg/p.go"}}); err != nil {
+				t.Fatal(err)
+			}
+			o := DiffOptions{Dir: dir, Check: true, Batch: true, SessionID: "s"}
+			if partial {
+				o.Gates = []string{"test"}
+			}
+			code, out, _ := runDiff(t, o)
+			if !partial && code != DiffExitGate {
+				t.Fatalf("failed check exit %d: %s", code, out)
+			}
+			q, err := ReadPending("s")
+			if err != nil || len(q.Tasks) != 1 {
+				t.Fatalf("queue lost: %+v %v", q, err)
+			}
+			if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg"), 0); ok {
+				t.Fatal("failed or partial gates wrote a default pass stamp")
+			}
+		})
+	}
+}
+
+func TestStampDiffRejectsMutationDuringCheck(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := newDiffRepo(t)
+	(&fakeGates{}).install(t)
+	orig := gateRun
+	gateRun = func(ctx context.Context, root, name string, args ...string) (string, error) {
+		if name == "go" && args[0] == "build" {
+			writeRepoFile(t, dir, "pkg/p.go", "package pkg\n// changed during the gates\n")
+		}
+		return orig(ctx, root, name, args...)
+	}
+	gi := newGateInput(dir, "HEAD", []DiffFile{{Path: "pkg/p.go", Status: "M"}})
+	res := checkedGates(context.Background(), gi, nil)
+	if !slices.ContainsFunc(res, func(g GateResult) bool { return g.Name == "stamp" && g.Status == "FAIL" }) {
+		t.Fatalf("mutation was stamped: %+v", res)
+	}
+	if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg"), 0); ok {
+		t.Fatal("unvalidated contents got a stamp")
+	}
+}
 
 func writeRepoFile(t *testing.T, dir, rel, body string) {
 	t.Helper()
@@ -242,4 +326,120 @@ func TestDiffFlagsPreDirtyOutside(t *testing.T) {
 		t.Fatalf("reverted file alone: exit %d\n%s", code, out)
 	}
 	wantInOutput(t, out, "outside --path (1):\n  reverted.txt: was already modified")
+}
+
+func goProofKey(t *testing.T, dir string, pkgs ...string) string {
+	t.Helper()
+	key, err := ComputeStampKey(dir, pkgs, GoStampGates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func TestStampOutsideNeverWritesProof(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := newDiffRepo(t)
+	(&fakeGates{}).install(t)
+	writeRepoFile(t, dir, "pkg/p.go", "package pkg\nfunc P() int { return 2 }\n")
+	writeRepoFile(t, dir, "pkg/a.go", "package pkg\n")
+	code, out, errOut := runDiff(t, DiffOptions{Dir: dir, Check: true, Paths: []string{"pkg/p.go"}})
+	if code != DiffExitOutside {
+		t.Fatalf("exit %d: %s %s", code, out, errOut)
+	}
+	if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg"), 0); ok {
+		t.Fatal("outside-scope check wrote a pass stamp")
+	}
+}
+
+func TestStampGoInputOwners(t *testing.T) {
+	dir := newDiffRepo(t)
+	writeRepoFile(t, dir, "pkg/p.go", "package pkg\nimport _ \"embed\"\n//go:embed prompts/*\nvar P string\n")
+	writeRepoFile(t, dir, "pkg/testdata/bad.go", "not valid Go")
+	for _, name := range []string{"pkg/testdata/bad.go", "pkg/testdata/sub/input.txt", "pkg/prompt.md", "pkg/prompts/p.md"} {
+		t.Run(name, func(t *testing.T) {
+			files := []DiffFile{{Path: name, Status: "M"}}
+			gi := newGateInput(dir, "HEAD", files)
+			includeGoInputs(&gi, files)
+			if !slices.Equal(gi.pkgs, []string{"./pkg"}) {
+				t.Fatalf("%s owners = %v", name, gi.pkgs)
+			}
+		})
+	}
+	if owner := goInputOwner(dir, "docs/guide.md"); owner != "" {
+		t.Fatalf("standalone docs owner = %s", owner)
+	}
+}
+
+func TestStampBatchPartitionAndCustomFailure(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir, other := newDiffRepo(t), newDiffRepo(t)
+	(&fakeGates{}).install(t)
+	queueStampTask(t, PendingTask{Dir: other, Task: "other", Files: []string{"pkg/p.go"}})
+	queueStampTask(t, PendingTask{Dir: dir, Task: "local", Files: []string{"pkg/p.go"},
+		Checks: []PendingCheck{{Command: "go test -race ./pkg"}}})
+	old := pendingRun
+	t.Cleanup(func() { pendingRun = old })
+	fail, calls := true, 0
+	pendingRun = func(_ context.Context, root string, check PendingCheck) (string, error) {
+		calls++
+		if !paths.SamePath(root, dir) || check.Command != "go test -race ./pkg" {
+			t.Fatalf("wrong custom check: %s %+v", root, check)
+		}
+		if fail {
+			return "custom failed", os.ErrInvalid
+		}
+		return "", nil
+	}
+	o := DiffOptions{Dir: dir, Check: true, Batch: true, SessionID: "session"}
+	if code, out, _ := runDiff(t, o); code != DiffExitGate {
+		t.Fatalf("custom failure ignored: %d %s", code, out)
+	}
+	pendingStampTasks(t, 2)
+	if _, ok := HasFreshStamp(goProofKey(t, dir, "pkg"), 0); ok {
+		t.Fatal("custom failure wrote pass stamp")
+	}
+	fail = false
+	if code, out, _ := runDiff(t, o); code != 0 {
+		t.Fatalf("batch failed: %d %s", code, out)
+	}
+	left := pendingStampTasks(t, 1)
+	if calls != 2 || !paths.SamePath(left.Tasks[0].Dir, other) {
+		t.Fatalf("custom calls %d; remaining %+v", calls, left)
+	}
+}
+
+func TestStampQueuedCommandsExecuteAndRejectShell(t *testing.T) {
+	dir, bin := t.TempDir(), t.TempDir()
+	marker := filepath.Join(dir, "called")
+	writeRepoFile(t, bin, "go", "#!/bin/sh\nprintf '%s\\n' \"$*\" > '"+marker+"'\n")
+	if err := os.Chmod(filepath.Join(bin, "go"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	check := PendingCheck{Command: "go test -race ./pkg"}
+	if out, err := runPendingCheck(context.Background(), dir, check); err != nil {
+		t.Fatalf("custom check failed: %s %v", out, err)
+	}
+	b, err := os.ReadFile(marker)
+	if err != nil || strings.TrimSpace(string(b)) != "test -race ./pkg" {
+		t.Fatalf("custom args: %q %v", b, err)
+	}
+	check.Command = "go test ./pkg; touch injected"
+	if _, err := runPendingCheck(context.Background(), dir, check); err == nil {
+		t.Fatal("untrusted shell syntax accepted")
+	}
+}
+
+func TestStampGeneratedToolchainFailureRetainsQueue(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := newDiffRepo(t)
+	(&fakeGates{}).install(t)
+	queueStampTask(t, PendingTask{Dir: dir, Task: "python", Files: []string{"pkg/p.go"},
+		Checks: []PendingCheck{{Command: "exit 7", Generated: true}}})
+	code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true, Batch: true, SessionID: "session"})
+	if code != DiffExitGate {
+		t.Fatalf("toolchain failure lost: %d %s", code, out)
+	}
+	pendingStampTasks(t, 1)
 }

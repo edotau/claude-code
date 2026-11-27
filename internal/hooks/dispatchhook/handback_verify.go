@@ -2,7 +2,6 @@ package dispatchhook
 
 import (
 	"cmp"
-	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/dev/worktree"
@@ -22,8 +22,8 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
-// handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
-func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
+// handbackVerify only queues work; the main agent owns the single batched validation pass.
+func handbackVerify(in *core.Input, lr leafRead, _ time.Time) []string {
 	top := verifyTop(in.CWD, lr.scan.brief)
 	if top == "" {
 		return nil
@@ -45,19 +45,32 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 		}
 	}
 	id, dirty := cmp.Or(task.ID, task.Title), dirtyOf()
-	files := dirtyOwned(dirty, plans.OwnedPaths(task))
+	files := dirtyOwned(dirty, verifyOwnedPaths(top, dirtyTop, plans.OwnedPaths(task)))
 	commit := commitLine(lane, id, planPath, files, dirty)
 	if lane == "" && len(files) == 0 { // no lane and no owned edit in the checkout: nothing shows where the leaf worked
 		return []string{"verify " + id + ": lane not resolved; not run", commit}
 	}
-	if time.Until(deadline) < 2*time.Second {
-		return []string{"verify " + id + ": no time left in the hand-back budget; the commit-time verify still runs", commit}
+	if err := inspect.QueuePending(in.SessionID, inspect.PendingTask{
+		Dir: dirtyTop, Task: id, Files: files, Checks: waves.DeferredChecks(dirtyTop, task, files),
+	}); err != nil {
+		return []string{"verify " + id + ": queue failed: " + err.Error() + "; main must check owned paths", commit}
 	}
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
-	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: dirtyTop, Task: task, Files: files,
-		OutDir: filepath.Join(paths.StateDir(), "verify", "handback")})
-	return append(verifyLines(checks), commit)
+	return []string{"verify " + id + ": queued for main batch (run: claude-code agents diff --check --batch)", commit}
+}
+
+func verifyOwnedPaths(top, lane string, owned []string) []string {
+	out := slices.Clone(owned)
+	for i, p := range out {
+		if !filepath.IsAbs(p) {
+			continue
+		}
+		if rel, ok := paths.RelWithin(lane, p); ok {
+			out[i] = filepath.ToSlash(rel)
+		} else if rel, ok := paths.RelWithin(top, p); ok {
+			out[i] = filepath.ToSlash(rel)
+		}
+	}
+	return out
 }
 
 // commitLine is the commit command, run from the lane when the leaf worked in one.

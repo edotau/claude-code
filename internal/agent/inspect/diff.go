@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/dev/review/source"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
@@ -35,6 +38,8 @@ type DiffOptions struct {
 	Paths     []string
 	Verify    string
 	Check     bool
+	Batch     bool // --batch: merge this session's pending handbacks into one check
+	SessionID string
 	Gates     []string // --gates values; empty runs the default gate set
 	All       bool     // --all: the per-kind steps cover the whole tree, not only the changed files
 	JSON      bool
@@ -95,10 +100,7 @@ type DiffReport struct {
 func Diff(o DiffOptions) int {
 	ctx, cancel := context.WithTimeout(context.Background(), diffGateTimeout)
 	defer cancel()
-	want, err := parseGates(o.Gates)
-	if err == nil && !o.Check && (len(o.Gates) > 0 || o.All) {
-		err = errors.New("--gates and --all need --check")
-	}
+	want, err := diffGates(o)
 	if err != nil {
 		fmt.Fprintf(o.Err, "agents diff: %v\n", err)
 		return DiffExitUsage
@@ -113,14 +115,38 @@ func Diff(o DiffOptions) int {
 		PreDirtyOutside: in.preDirtyOutside, dispatch: in.dispatch}
 	rep.Outside = mergeOutside(rep.Outside, rep.PreDirtyOutside)
 	decls := startDeclRows(o, in)
-	if o.Check && (len(in.files) > 0 || o.All) {
-		gi, err := gatesInput(ctx, o, in, filesInPaths(in.files, rep.Outside), len(want) > 0)
-		if err != nil {
-			fmt.Fprintf(o.Err, "agents diff: %v\n", err)
-			return DiffExitUsage
-		}
-		rep.Gates = runGatesFor(ctx, gi, want)
+	if err := checkDiffGates(ctx, o, in, want, &rep); err != nil {
+		fmt.Fprintf(o.Err, "agents diff: %v\n", err)
+		return DiffExitUsage
 	}
+	finishBatch(o, in, want, &rep)
+	return printDiff(o, in, rep, decls)
+}
+
+func diffGates(o DiffOptions) (map[string]bool, error) {
+	if !o.Check && (len(o.Gates) > 0 || o.All || o.Batch) {
+		return nil, errors.New("--gates, --all and --batch need --check")
+	}
+	return parseGates(o.Gates)
+}
+
+func checkDiffGates(ctx context.Context, o DiffOptions, in diffIn, want map[string]bool, rep *DiffReport) error {
+	if !o.Check || len(in.files) == 0 && !o.All && len(in.pending.Tasks) == 0 {
+		return nil
+	}
+	gi, err := gatesInput(ctx, o, in, filesInPaths(in.files, rep.Outside), len(want) > 0)
+	if err != nil {
+		return err
+	}
+	if diffExit(*rep) == 0 {
+		rep.Gates = checkedGates(ctx, gi, want, in.pending.Tasks...)
+	} else {
+		rep.Gates = append(runGatesFor(ctx, gi, want), pendingGates(ctx, gi.root, in.pending.Tasks)...)
+	}
+	return nil
+}
+
+func printDiff(o DiffOptions, in diffIn, rep DiffReport, decls <-chan []string) int {
 	if o.JSON {
 		if err := helptext.WriteJSON(o.Out, rep); err != nil {
 			fmt.Fprintf(o.Err, "agents diff: %v\n", err)
@@ -161,9 +187,82 @@ func runGatesFor(ctx context.Context, gi gateInput, want map[string]bool) []Gate
 	return runSelectedGates(ctx, gi, want)
 }
 
+// checkedGates only stamps a green run whose inputs stayed unchanged throughout validation.
+func checkedGates(ctx context.Context, gi gateInput, want map[string]bool, tasks ...PendingTask) []GateResult {
+	before, err := gateStampKeys(ctx, gi)
+	res := append(runGatesFor(ctx, gi, want), pendingGates(ctx, gi.root, tasks)...)
+	if len(gi.pkgs) == 0 || !greenGates(res) {
+		return res
+	}
+	if err != nil {
+		return append(res, GateResult{Name: "stamp", Status: "skip", Reason: err.Error()})
+	}
+	if err := saveGateStamps(ctx, gi, before, res); err != nil {
+		res = append(res, GateResult{Name: "stamp", Status: "FAIL", Reason: err.Error()})
+	}
+	return res
+}
+
+type gateProof struct{ key, gates string }
+
+func saveGateStamps(ctx context.Context, gi gateInput, before []gateProof, res []GateResult) error {
+	after, err := gateStampKeys(ctx, gi)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(before, after) {
+		return errors.New("files changed during validation; rerun the batch")
+	}
+	for _, proof := range after {
+		if !provedGates(res, proof.gates) {
+			continue
+		}
+		if err := WriteStamp(proof.key, StampMeta{Passed: true, Gates: proof.gates, Packages: gi.pkgs}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func provedGates(res []GateResult, gates string) bool {
+	for name := range strings.SplitSeq(gates, ",") {
+		if !slices.ContainsFunc(res, func(g GateResult) bool { return g.Name == name && g.Status == "ok" }) {
+			return false
+		}
+	}
+	return true
+}
+
+func greenGates(res []GateResult) bool {
+	return len(res) > 0 && !slices.ContainsFunc(res, func(g GateResult) bool { return g.Status != "ok" && g.Status != "skip" })
+}
+
+func gateStampKeys(ctx context.Context, gi gateInput) ([]gateProof, error) {
+	if len(gi.pkgs) == 0 {
+		return nil, nil
+	}
+	groups := [][]string{gi.pkgs}
+	if len(gi.pkgs) > 1 {
+		for _, p := range gi.pkgs {
+			groups = append(groups, []string{p})
+		}
+	}
+	var keys []gateProof
+	for _, pkgs := range groups {
+		key, err := ComputeStampKey(gi.root, pkgs, GoStampGates)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, gateProof{key, GoStampGates})
+	}
+	key, err := ComputeDiffStampKey(ctx, gi.root, gi.base, gi.pkgs, gi.files)
+	return append(keys, gateProof{key, DefaultStampGates}), err
+}
+
 // gatesInput is the gates' input: the change set, or with --all every tracked and untracked file inside --path.
 func gatesInput(ctx context.Context, o DiffOptions, in diffIn, changed []DiffFile, strict bool) (gateInput, error) {
 	gi := newGateInput(in.root, in.base, changed)
+	includeGoInputs(&gi, changed)
 	gi.strict = strict
 	if !o.All {
 		return gi, nil
@@ -179,11 +278,83 @@ func gatesInput(ctx context.Context, o DiffOptions, in diffIn, changed []DiffFil
 		}
 	}
 	wide := newGateInput(in.root, in.base, all)
+	includeGoInputs(&wide, all)
 	wide.srcs, wide.old, wide.strict, wide.whole = gi.srcs, gi.old, strict, len(in.sel) == 0
 	if wide.whole {
 		wide.pkgs = []string{"./..."}
 	}
 	return wide, nil
+}
+
+// includeGoInputs resolves fixtures and package-local inputs before treating standalone Markdown as documentation.
+func includeGoInputs(gi *gateInput, files []DiffFile) {
+	if !paths.FileExists(filepath.Join(gi.root, "go.mod")) {
+		return
+	}
+	for _, f := range files {
+		if f.Path == "go.mod" || f.Path == "go.sum" {
+			gi.pkgs = []string{"./..."}
+			return
+		}
+		if pkg := goInputOwner(gi.root, f.Path); pkg != "" {
+			gi.pkgs = append(gi.pkgs, pkg)
+		}
+	}
+	slices.Sort(gi.pkgs)
+	gi.pkgs = slices.Compact(gi.pkgs)
+}
+
+func goInputOwner(root, name string) string {
+	dir := path.Dir(name)
+	fixture := strings.HasPrefix(name, "testdata/")
+	if fixture {
+		dir = "."
+	} else if fixtureRoot, _, found := strings.Cut(name, "/testdata/"); found {
+		fixture = true
+		dir = fixtureRoot
+	}
+	for {
+		if dirHasGo(filepath.Join(root, dir)) && packageInput(root, dir, name, fixture) {
+			if dir == "." {
+				return "."
+			}
+			return "./" + dir
+		}
+		if dir == "." {
+			return ""
+		}
+		dir = path.Dir(dir)
+	}
+}
+
+func packageInput(root, dir, name string, fixture bool) bool {
+	if fixture || path.Dir(name) == dir || !strings.HasSuffix(name, ".md") {
+		return true
+	}
+	entries, err := os.ReadDir(filepath.Join(root, dir))
+	if err != nil {
+		return true
+	}
+	rel := strings.TrimPrefix(name, dir+"/")
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if embedsInput(filepath.Join(root, dir, e.Name()), rel) {
+			return true
+		}
+	}
+	return false
+}
+
+func embedsInput(file, rel string) bool {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return true
+	}
+	patterns, err := stampEmbeds(string(b))
+	match, matchErr := stampEmbedMatch(rel, patterns)
+	return err != nil || matchErr != nil || match
 }
 
 // diffIn is what Diff resolves before it reports: the repo root, the cleaned --path list, the base commit and files.
@@ -196,21 +367,22 @@ type diffIn struct {
 	noScope         bool
 	preDirtyOutside []string
 	dispatch        string
+	pending         PendingVerify
+	session         string
 }
 
 func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 	if in.root, err = repoRoot(o.Dir); err != nil {
 		return
 	}
-	sel := o.Paths
-	if o.Verify != "" {
-		if in.verify, err = verifyDispatch(o.Verify, proxyLogPath()); err != nil {
+	sel := slices.Clone(o.Paths)
+	if o.Batch {
+		if sel, err = batchPaths(o, &in, sel); err != nil {
 			return
 		}
-		if in.fromBrief = len(sel) == 0 && len(in.verify.owned) > 0; in.fromBrief {
-			sel = ownedScope(in.verify.owned)
-		}
-		in.noScope = len(sel) == 0
+	}
+	if sel, err = diffVerifyScope(o.Verify, &in, sel); err != nil {
+		return
 	}
 	if in.sel, err = cleanPaths(in.root, sel); err != nil {
 		return
@@ -219,13 +391,134 @@ func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 		return
 	}
 	in.files, err = collectChanges(ctx, in.root, in.base)
-	if err == nil && o.Base == "" && o.Check && len(filesInPaths(in.files, outsidePaths(in.files, in.sel))) == 0 {
+	if err == nil && needsLaneChanges(o, in) {
 		in.base, in.files, err = laneChanges(ctx, in)
 	}
 	if err == nil {
 		in.preDirtyOutside, in.dispatch = preDirtyOutside(in.root, in.sel, in.verify)
+		addPendingFiles(&in)
 	}
 	return
+}
+
+func needsLaneChanges(o DiffOptions, in diffIn) bool {
+	return !o.Batch && o.Base == "" && o.Check && len(filesInPaths(in.files, outsidePaths(in.files, in.sel))) == 0
+}
+
+func diffVerifyScope(id string, in *diffIn, sel []string) ([]string, error) {
+	if id == "" {
+		return sel, nil
+	}
+	var err error
+	if in.verify, err = verifyDispatch(id, proxyLogPath()); err != nil {
+		return nil, err
+	}
+	in.fromBrief = len(sel) == 0 && len(in.verify.owned) > 0
+	if in.fromBrief {
+		sel = ownedScope(in.verify.owned)
+	}
+	in.noScope = len(sel) == 0
+	return sel, nil
+}
+
+func batchPaths(o DiffOptions, in *diffIn, sel []string) ([]string, error) {
+	in.session = o.SessionID
+	if in.session == "" {
+		in.session = os.Getenv(paths.SessionIDEnv)
+	}
+	var err error
+	if in.pending, err = ReadPending(in.session); err != nil {
+		return nil, err
+	}
+	in.pending.Tasks = slices.DeleteFunc(in.pending.Tasks, func(task PendingTask) bool {
+		return !paths.SamePath(in.root, task.Dir)
+	})
+	for _, task := range in.pending.Tasks {
+		sel = append(sel, task.Files...)
+	}
+	if len(sel) == 0 && len(in.pending.Tasks) == 0 {
+		return nil, errors.New("batch: no pending files; supply --path explicitly")
+	}
+	return sel, nil
+}
+
+func addPendingFiles(in *diffIn) {
+	for _, task := range in.pending.Tasks {
+		for _, p := range task.Files {
+			if slices.ContainsFunc(in.files, func(f DiffFile) bool { return f.Path == p }) {
+				continue
+			}
+			status := "M"
+			if !paths.FileExists(filepath.Join(in.root, p)) {
+				status = "D"
+			}
+			in.files = append(in.files, DiffFile{Path: p, Status: status, Test: pack.IsTestPath(p)})
+		}
+	}
+	slices.SortFunc(in.files, func(a, b DiffFile) int { return strings.Compare(a.Path, b.Path) })
+}
+
+var pendingRun = runPendingCheck
+
+func pendingGates(ctx context.Context, dir string, tasks []PendingTask) []GateResult {
+	var out []GateResult
+	seen := map[PendingCheck]bool{}
+	for _, task := range tasks {
+		for _, check := range task.Checks {
+			if seen[check] {
+				continue
+			}
+			seen[check] = true
+			start := time.Now()
+			text, err := pendingRun(ctx, dir, check)
+			g := GateResult{Name: "verify " + task.Task + ": " + check.Command, Status: "ok", Seconds: time.Since(start).Seconds()}
+			if err != nil {
+				g.Status, g.Reason = "FAIL", text+"\n"+err.Error()
+			}
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+func runPendingCheck(ctx context.Context, dir string, check PendingCheck) (string, error) {
+	if check.Generated {
+		return pendingCommand(ctx, dir, plans.VerifyStep{Argv: []string{"bash", "-c", "set -o pipefail; " + check.Command}})
+	}
+	if err := plans.VerifyShape(check.Command); err != nil {
+		return "", err
+	}
+	steps, err := plans.VerifyArgv(check.Command)
+	if err != nil {
+		return "", err
+	}
+	var output strings.Builder
+	for _, step := range steps {
+		text, err := pendingCommand(ctx, dir, step)
+		output.WriteString(text)
+		if err != nil {
+			return output.String(), err
+		}
+	}
+	return output.String(), nil
+}
+
+func pendingCommand(ctx context.Context, dir string, step plans.VerifyStep) (string, error) {
+	cmd := exec.CommandContext(ctx, step.Argv[0], step.Argv[1:]...)
+	cmd.Dir, cmd.Env = dir, proc.GoFlagsEnv(append(proc.GitEnv(), step.Env...), "-trimpath")
+	proc.TreeCancel(cmd, time.Second)
+	cmd.WaitDelay = proc.ExecWaitDelay
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func finishBatch(o DiffOptions, in diffIn, want map[string]bool, rep *DiffReport) {
+	if !o.Batch || want != nil || diffExit(*rep) != 0 {
+		return
+	}
+	if err := ClearPending(in.session, in.pending); err != nil {
+		rep.Gates = append(rep.Gates, GateResult{Name: "pending queue", Status: "FAIL", Reason: err.Error()})
+	}
 }
 
 // laneChanges re-reads changes against merge-base(main, HEAD) when none lie in --path, so a committed lane is checked.

@@ -44,7 +44,7 @@ func agentsSpec() *helptext.Node {
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
-			boolFlag("all"), formatFlag()}},
+			boolFlag("all"), boolFlag("batch"), formatFlag()}},
 		"fix":    {Flags: []helptext.Flag{flag("path"), boolFlag("dry-run")}},
 		"list":   {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":    {Flags: ask.CompletionFlags()},
@@ -72,6 +72,9 @@ func agentNode(name string) *helptext.Node {
 		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
 		"catalog":  catalogSpec(name),
 	}}
+	if name == "gemini" {
+		n.Sub["vscode"] = &helptext.Node{Flags: []helptext.Flag{flag("profile"), flag("overlay"), flag("model")}}
+	}
 	if name == "codex" {
 		task := func(f ...helptext.Flag) *helptext.Node { return &helptext.Node{Flags: append(f, flag("overlay"))} }
 		n.Sub["cloud"] = &helptext.Node{Sub: map[string]*helptext.Node{
@@ -134,7 +137,7 @@ var agentsSubPages = map[string][3]string{
 		"the ones outside every --path, each new Go test or helper with its caller count (advisory), and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
 		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing golangci-lint or mdsmith then fails); --all checks the whole " +
-		"tree. --verify <id> adds a dispatch's routing proof and flags pre-existing dirty files it touched outside --path. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
+		"tree. --batch merges this session's queued handbacks and clears them after a full pass. --verify <id> adds a dispatch's routing proof and flags pre-existing dirty files it touched outside --path. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
 	"fix": {"fix --path <p> [flags]", "Run the fixers make format runs (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on " +
 		"the tracked files under each --path, and nothing else. Refuses no --path, an untracked or symlinked file, and a " +
 		"file a live session or leaf holds. --dry-run lists what would change.",
@@ -443,6 +446,7 @@ func cmdAgentsDiff(args []string) int {
 	})
 	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
 	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity, test, quality and docs on the touched packages")
+	batch := fs.Bool("batch", false, "with --check: validate this session's queued handbacks in one batch")
 	var gates []string
 	fs.Func("gates", "gates: lint, docs, yaml, shell, test or names; comma list", func(v string) error {
 		gates = append(gates, v)
@@ -457,7 +461,7 @@ func cmdAgentsDiff(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents diff: %v", err)
 	}
-	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, Gates: gates, All: *all, JSON: *format == helptext.JSON,
+	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, Batch: *batch, Gates: gates, All: *all, JSON: *format == helptext.JSON,
 		Out: os.Stdout, Err: os.Stderr})
 }
 
@@ -901,6 +905,9 @@ func agentProviderArgs(name string, args []string) ([]string, error) {
 
 var agentLaunch = ask.Launch
 
+// agentOwnVerbs are one agent's own subcommands (not shared pages), keyed by agent and verb.
+var agentOwnVerbs = map[[2]string]func([]string) int{{"codex", "cloud"}: codexCloud, {"gemini", "vscode"}: geminiVSCode}
+
 // cmdAgentVerb is `<agent>`: bare or `--` launches, a sub-verb runs it, else launch.
 func cmdAgentVerb(name string, args []string) int {
 	args, err := agentProviderArgs(name, args)
@@ -913,8 +920,8 @@ func cmdAgentVerb(name string, args []string) int {
 		return agentLaunch(name, args)
 	case retired != "":
 		return unknownSub(name, retired, agentPage(name))
-	case name == "codex" && args[0] == "cloud":
-		return codexCloud(args[1:])
+	case agentOwnVerbs[[2]string{name, args[0]}] != nil:
+		return agentOwnVerbs[[2]string{name, args[0]}](args[1:])
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
 	case len(args) == 1 && isHelpVerb(args[0]):
@@ -1035,6 +1042,28 @@ func agentProfile(name string, args []string) int {
 		return helptext.Fail("%s profile: %v", name, err)
 	}
 	return 0
+}
+
+// geminiVSCodePage is `gemini vscode -h`: the launch flags, which pick the route as a bare launch does.
+func geminiVSCodePage() helptext.Page {
+	p := helptext.Page{
+		Usage: "claude-code gemini vscode [--profile P] [--overlay JSON] [--model M] [code args…]",
+		About: "Quit VS Code and reopen it with the Antigravity extension on the route `claude-code gemini` " +
+			"resolves: a Databricks profile's gateway, or its own login (--profile antigravity). Other args go " +
+			"to VS Code (a folder, --new-window). macOS. Exit 0, 1 failed.",
+		Flags: launchFlags("gemini"),
+	}
+	return p
+}
+
+// geminiVSCode is `gemini vscode [launch flags] [code args…]`; --here is the detached helper's form.
+func geminiVSCode(args []string) int {
+	if len(args) == 1 && isHelpVerb(args[0]) {
+		geminiVSCodePage().Fprint(os.Stderr)
+		return 0
+	}
+	rest := slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--here" })
+	return ask.VSCode("gemini", len(rest) < len(args), rest)
 }
 
 // printRoster prints agent.Summaries as the JSON array of rows, or one text line each.

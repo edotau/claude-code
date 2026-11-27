@@ -449,8 +449,10 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 		got := candidates(vendor, "")
 		slices.Sort(got)
 		wantVendor := want
-		if vendor == "codex" { // cloud is the codex verb's own subcommand, not a shared page
-			wantVendor = slices.Sorted(slices.Values(append(slices.Clone(want), "cloud")))
+		for own := range agentOwnVerbs { // codex cloud, gemini vscode: one agent's own subcommand, not a shared page
+			if own[0] == vendor {
+				wantVendor = slices.Sorted(slices.Values(append(slices.Clone(wantVendor), own[1])))
+			}
 		}
 		if !slices.Equal(got, wantVendor) {
 			t.Errorf("Candidates([%q \"\"]) = %v, want %v", vendor, got, wantVendor)
@@ -476,7 +478,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
-		"gemini":   vendorSubwords(),
+		"gemini":   append(vendorSubwords(), "vscode"),
 		"review":   reviewToolNames(),
 	} {
 		node := tree[verb]

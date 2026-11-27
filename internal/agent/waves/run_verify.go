@@ -172,11 +172,12 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 			return w, err
 		}
 	}
-	passed, result, err := r.checkOnce(ctx, s)
+	passed, result, err := r.checkedLeaf(ctx, w, s)
 	l.Verify = result
 	if err != nil {
 		return w, err
 	}
+	passed = passed && !slices.ContainsFunc(w.Gates, func(g inspect.GateResult) bool { return g.Status == "FAIL" })
 	if leafPassed(l, w, passed) {
 		l.Verdict = LeafStateOK
 	}
@@ -193,12 +194,25 @@ func (r *runner) checkOnce(ctx context.Context, s Spec) (bool, *stepResult, erro
 	return r.taskCheck(ctx, s)
 }
 
-func (r *runner) taskCheck(ctx context.Context, s Spec) (bool, *stepResult, error) {
-	if s.Verify == "" {
-		rep, err := checkDiff(r.h.check, inspect.DiffOptions{Dir: r.o.Dir, Base: r.state.Base, Paths: checkScope(s.Owns), Check: true})
-		return !slices.ContainsFunc(rep.Gates, func(g inspect.GateResult) bool { return g.Status == "FAIL" }), nil, err
+func defaultTaskCheck(s Spec) bool {
+	return s.Verify == "" || s.Verify == DefaultVerify(s.Owns) || s.Verify == "claude-code agents diff --check"
+}
+
+// Only verifyLeaf, after checkWave, may reuse the union pass; dependency release still calls taskCheck directly.
+func (r *runner) checkedLeaf(ctx context.Context, w WaveState, s Spec) (bool, *stepResult, error) {
+	if defaultTaskCheck(s) && len(w.Gates) > 0 {
+		passed := !slices.ContainsFunc(w.Gates, func(g inspect.GateResult) bool { return g.Status == "FAIL" })
+		return passed, nil, nil
 	}
-	result, err := r.step(ctx, s.Verify, "verify-"+s.ID, s.Owns)
+	return r.checkOnce(ctx, s)
+}
+
+func (r *runner) taskCheck(ctx context.Context, s Spec) (bool, *stepResult, error) {
+	cmd := s.Verify
+	if defaultTaskCheck(s) {
+		cmd = DefaultVerify(s.Owns)
+	}
+	result, err := r.step(ctx, cmd, "verify-"+s.ID, s.Owns)
 	return result.Exit == 0, &result, err
 }
 
