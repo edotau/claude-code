@@ -152,7 +152,7 @@ func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, nat
 		}
 		acct, bill := explicitAccount(r, RunOptions{}) // the account lets a quota refusal hold the own plan
 		d := Dispatch{Agent: watchFirstOutput(r), Model: bare, Account: acct, Billing: bill, keepCaller: true}
-		return Chain{Want: want, Dispatches: []Dispatch{d}}, router.PickResult{}, nil
+		return newPlannedChain(ctx, loadRegistryWarn()).append(Chain{Want: want}, d), router.PickResult{}, nil
 	}
 	alias, row, exact := router.ModelRow(model)
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
@@ -223,7 +223,8 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	family := providers.FamilyName(callerModel)
 	rc := routeCtx{ctx: ctx, tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
 		current: current, alias: alias, dispatchID: router.NonClaudeDispatchID(cmp.Or(exact, providers.FamilyDefaults[family]), explicitModel, pins[want].Model),
-		family: family, explicitModel: explicitModel, native: native, policy: o.Policy, pf: &Preflight{}}
+		family: family, explicitModel: explicitModel, native: native, policy: o.Policy, pf: &Preflight{},
+		assembly: newPlannedChain(ctx, reg)}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
@@ -256,7 +257,7 @@ func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Cha
 		return c
 	}
 	disp.otherRoute, disp.quotaOverflow = true, true
-	c.Dispatches = append(c.Dispatches, disp)
+	c = rc.assembly.admit(c, disp, rc.pf)
 	return c
 }
 
@@ -284,7 +285,11 @@ func (rc routeCtx) finishChain(c Chain, pick router.PickResult) Chain {
 	if len(c.Dispatches) > 0 && databricksDispatch(rc.reg, c.Dispatches[0]) {
 		rc.pf.note(proxyNote())
 	}
-	c = guardCLIVersion(rc, c)
+	if c.Preflight != nil {
+		for _, note := range c.Preflight.Notes {
+			rc.pf.note(note)
+		}
+	}
 	if len(rc.pf.Failed)+len(rc.pf.Notes) > 0 {
 		if len(c.Dispatches) > 0 {
 			rc.pf.Chosen = hopTarget(c.Dispatches[0])
@@ -456,6 +461,9 @@ func (rc routeCtx) asPin() routeCtx {
 // addCandidates appends a dispatch to c for each step of the fallback order whose cell can run; the rest are skipped.
 func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead bool, alias string) (Chain, error) {
 	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
+	if nativeLead {
+		c = guardCLIVersion(rc, c)
+	}
 	armFailed := rc.armFinding()
 	for _, s := range steps {
 		before := len(rc.pf.Failed)
@@ -469,15 +477,15 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 		case skip != "":
 			c.Skipped = append(c.Skipped, skip)
 			continue
-		case !ok || slices.ContainsFunc(c.Dispatches, disp.same): // the pin is the requested target
+		case !ok || rc.assembly.contains(c, disp): // the pin is the requested target
 			continue
 		}
 		if s.i == req && !s.pin {
 			c.requested = route.Target{Route: disp.Route, Model: cmp.Or(disp.Model, disp.Account)}
 		}
-		c.Dispatches = append(c.Dispatches, disp)
+		c = rc.assembly.admit(c, disp, rc.pf)
 	}
-	return c, nil
+	return rc.assembly.finish(c), nil
 }
 
 // servedRefusal is AcceptModel's usage refusal when a fresh listing lacks cand's typed model; nil otherwise.
@@ -569,11 +577,15 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if q.Host {
 		return Single(q.Engine), router.PickResult{}, nil
 	}
+	ctx = context.WithValue(ctx, routeRequestKey{}, q)
 	c, pick, err := resolveRoute(ctx, q)
 	if err != nil {
 		return c, pick, err
 	}
-	return withOwnHopCodemodeNote(q, withPiRunner(ctx, q, c)), pick, nil
+	if q.Preview { // Pi runners execute a choice; they are not additional router choices.
+		pick.Candidates = pick.Candidates[min(c.runnerCandidates(), len(pick.Candidates)):]
+	}
+	return withOwnHopCodemodeNote(q, c), pick, nil
 }
 
 // noted is c with one preflight note; the chain itself is unchanged.
@@ -704,6 +716,16 @@ func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
 	if len(pf.Notes) > 0 && len(chain.Dispatches) > 0 {
 		pf.Chosen, chain.Preflight = hopTarget(chain.Dispatches[0]), pf
 	}
+	if len(chain.Dispatches) > 0 {
+		d := chain.Dispatches[0]
+		chain.Dispatches = nil
+		assembly := newPlannedChain(context.WithValue(ctx, routeRequestKey{}, q), loadRegistryWarn())
+		chain = assembly.finish(assembly.append(chain, d))
+		if chain.Preflight != nil {
+			pf := *chain.Preflight
+			pf.Chosen, chain.Preflight = hopTarget(chain.Dispatches[0]), &pf
+		}
+	}
 	return chain, nil
 }
 
@@ -773,6 +795,7 @@ type routeCtx struct {
 	family                        string // the caller's typed family name; forFamily makes it each candidate's id
 	explicitModel, native         bool
 	policy                        router.Policy
+	assembly                      *plannedChain
 	pf                            *Preflight // findings and notes the candidate checks add
 }
 

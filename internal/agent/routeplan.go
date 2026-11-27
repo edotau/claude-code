@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/vault"
@@ -449,4 +450,30 @@ func (p RoutePlan) Hops() []PlanHop {
 		out = append(out, h)
 	}
 	return out
+}
+
+// runnerHops validates the plan's Pi prefix using the admitted lead, without building an own-CLI chain first.
+func (p RoutePlan) runnerHops(ctx context.Context, reg *providers.Registry, q RouteReq, lead Dispatch) ([]Dispatch, []string) {
+	if len(p.Runners) == 0 || p.Runners[0].Kind != RunnerPi {
+		if p.Barred != "" && !strings.HasPrefix(p.Barred, "--runner cli") {
+			return nil, []string{q.Agent + ": pi runner skipped: " + p.Barred + "; runs on " + q.Agent + "'s own CLI"}
+		}
+		return nil, nil
+	}
+	if !ownDatabricksHop(reg, q, lead) {
+		return nil, nil
+	}
+	pi, err := Lookup(agentid.Pi)
+	if err != nil || pi.Available() != nil {
+		return nil, []string{q.Agent + ": pi runner skipped: pi is not installed"}
+	}
+	hops, skips, why := piRunnerHops(ctx, reg, q, lead, pi)
+	if why != "" {
+		return nil, []string{q.Agent + ": pi runner skipped: " + why}
+	}
+	var notes []string
+	for _, skip := range skips {
+		notes = append(notes, q.Agent+": pi runner hop skipped: "+skip)
+	}
+	return hops, notes
 }

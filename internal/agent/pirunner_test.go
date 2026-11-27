@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
@@ -68,12 +69,12 @@ func testTokenScope(t *testing.T, reg *providers.Registry, open, armed context.C
 	}
 }
 
-// ledBy with no hops leaves the chain as it was instead of indexing an empty list.
-func TestLedByNoHops(t *testing.T) {
+// An empty admission pass leaves existing chain metadata untouched.
+func TestPiRunnerNoCandidates(t *testing.T) {
 	c := Chain{Want: "claude", Dispatches: []Dispatch{{Model: "m"}}, Preflight: &Preflight{Chosen: "x"}}
-	got := c.ledBy(nil)
+	got := newPlannedChain(context.Background(), nil).finish(c)
 	if len(got.Dispatches) != 1 || got.Preflight.Chosen != "x" {
-		t.Fatalf("ledBy(nil) = %+v", got)
+		t.Fatalf("empty admission = %+v", got)
 	}
 }
 
@@ -177,13 +178,13 @@ func TestPiChainModeDefault(t *testing.T) {
 	}
 }
 
-// The claude hop sits right after the pi hops, ahead of an off-arm claude hop; nothing follows it that was not there.
-func TestAfterPiHopsOrder(t *testing.T) {
+// Own CLI candidates keep their order and metadata when no runner plan is present.
+func TestPlanCandidateOrderWithoutRunners(t *testing.T) {
 	pi, cl := &fakeRunner{name: "pi"}, &fakeRunner{name: "claude"}
-	hops := []Dispatch{{Agent: pi, Account: "databricks·dev"}, {Agent: cl, Account: "anthropic·ultra"}}
-	got := afterPiHops(hops, Dispatch{Agent: cl, Account: "databricks·dev"})
-	if len(got) != 3 || got[1].Account != "databricks·dev" || got[2].Account != "anthropic·ultra" || len(hops) != 2 {
-		t.Fatalf("hops = %+v", got)
+	hops := []Dispatch{{Agent: pi, Account: "databricks·workspace-a"}, {Agent: cl, Account: "anthropic·login"}}
+	c := planTestChain(context.Background(), RouteReq{}, Chain{Dispatches: hops})
+	if len(c.Dispatches) != 2 || c.Dispatches[0].Account != hops[0].Account || c.Dispatches[1].Account != hops[1].Account {
+		t.Fatalf("hops = %+v", c.Dispatches)
 	}
 }
 
@@ -193,7 +194,7 @@ func TestWithPiSiblings(t *testing.T) {
 	c := Chain{Dispatches: []Dispatch{{Agent: &fakeRunner{name: "pi"}, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
 	o := RunOptions{Agent: "pi", Fallback: route.FallbackAgents}
 	open := withTestPlan(t, proc.WithValues(context.Background(), proc.Values{}), o, "dev", "qa", "prod")
-	got := withPiSiblings(open, reg, c)
+	got := (&plannedChain{ctx: open, reg: reg, plain: c.Dispatches}).plainSiblings(c, c.Dispatches[0])
 	notes := strings.Join(got.Preflight.Notes, "\n")
 	for _, ws := range []string{"pi (qa)", "pi (prod)"} {
 		if !strings.Contains(notes, ws) {
@@ -204,7 +205,7 @@ func TestWithPiSiblings(t *testing.T) {
 		t.Fatalf("the lead's own workspace was planned as a sibling: %q", notes)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiSiblings(withTestPlan(t, armed, o, "dev"), reg, c); len(got.Dispatches) != 1 || got.Preflight != nil {
+	if got := (&plannedChain{ctx: withTestPlan(t, armed, o, "dev"), reg: reg, plain: c.Dispatches}).plainSiblings(c, c.Dispatches[0]); len(got.Dispatches) != 1 || got.Preflight != nil {
 		t.Fatalf("a confined ask planned sibling hops: %+v", got)
 	}
 }
@@ -236,7 +237,7 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 	pi := &fakeRunner{name: "pi"}
 	c := Chain{Dispatches: []Dispatch{{Agent: pi, Account: "databricks·dev", Model: "databricks-gemini-3-8-flash"}}}
 	open := proc.WithValues(context.Background(), proc.Values{})
-	got := withPiClaudeHop(withTestPlan(t, open, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev", "qa", "prod"), q, c)
+	got := planTestChain(withTestPlan(t, open, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev", "qa", "prod"), q, c)
 	var seq []string
 	for _, d := range got.Dispatches {
 		seq = append(seq, d.Agent.Name()+" "+d.Account)
@@ -249,7 +250,7 @@ func TestWithPiClaudeHopOrder(t *testing.T) {
 		t.Fatalf("the sibling runs %q, not the lead's model", sib.Model)
 	}
 	armed := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev"}`})
-	if got := withPiClaudeHop(withTestPlan(t, armed, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev"), q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
+	if got := planTestChain(withTestPlan(t, armed, RunOptions{Agent: "pi", Fallback: route.FallbackAgents}, "dev"), q, c); len(got.Dispatches) != 2 || got.Dispatches[1].Agent.Name() != "claude" {
 		t.Fatalf("a confined ask's hops = %+v, want pi then claude", got.Dispatches)
 	}
 }
@@ -265,21 +266,21 @@ func TestWithPiClaudeHopPin(t *testing.T) {
 		t.Fatalf("plain pin ask mode = %q", pinned)
 	}
 	var pseq []string
-	for _, d := range withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, c).Dispatches {
+	for _, d := range planTestChain(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, c).Dispatches {
 		pseq = append(pseq, d.Agent.Name()+" "+d.Account)
 	}
 	if pwant := []string{"pi databricks·dev", "claude databricks·dev"}; !slices.Equal(pseq, pwant) {
 		t.Fatalf("pin hops = %v, want %v", pseq, pwant)
 	}
 	stray := Chain{Dispatches: []Dispatch{c.Dispatches[0], {Agent: pi, Account: "databricks·qa"}}}
-	if got := withPiClaudeHop(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, stray); len(got.Dispatches) != 2 {
+	if got := planTestChain(open, RouteReq{Agent: "pi", Fallback: route.FallbackPin}, stray); len(got.Dispatches) != 2 {
 		t.Fatalf("pin kept a stray workspace hop: %+v", got.Dispatches)
 	}
 	bad := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{bad`})
 	if _, err := PlanRoute(bad, RunOptions{Agent: "pi", Fallback: route.FallbackNone, FallbackDefaulted: true}, ParentRoute{}); err == nil {
 		t.Fatal("a malformed overlay built a plan")
 	}
-	one := withPiClaudeHop(bad, RouteReq{Agent: "pi", Fallback: route.FallbackNone}, c) // no plan, no widening
+	one := planTestChain(bad, RouteReq{Agent: "pi", Fallback: route.FallbackNone}, c) // no plan, no widening
 	if len(one.Dispatches) != 1 {
 		t.Fatalf("a malformed overlay widened: %+v", one)
 	}
@@ -329,5 +330,69 @@ func TestPiRunnerBarredForRunnerCaps(t *testing.T) {
 	}
 	if why := piBar(ctx, RunOptions{}, "codex", false); why != "" {
 		t.Errorf("plain ask barred: %q", why)
+	}
+}
+
+// planTestChain feeds candidate dispatches through the same append-only assembly used by route admission.
+func planTestChain(ctx context.Context, q RouteReq, c Chain) Chain {
+	assembly := newPlannedChain(context.WithValue(ctx, routeRequestKey{}, q), loadRegistryWarn())
+	candidates := c.Dispatches
+	c.Dispatches = nil
+	for _, d := range candidates {
+		c = assembly.append(c, d)
+	}
+	return assembly.finish(c)
+}
+
+// plannedRunnerFixture uses synthetic workspaces with the same served model and usable sibling credentials.
+func plannedRunnerFixture(t *testing.T) (*providers.Registry, context.Context) {
+	t.Helper()
+	setLocalStage(t, "off")
+	setConfigDir(t)
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{
+ "workspace-a":{"auth":{"type":"key","command":"echo test-token"},"host":"https://workspace-a.example","preset":"databricks"},
+ "workspace-b":{"auth":{"type":"key","command":"echo test-token"},"host":"https://workspace-b.example","preset":"databricks"}}}}`)
+	for _, profile := range []string{"workspace-a", "workspace-b"} {
+		saveListing(t, profile, []string{"databricks-claude-sonnet-5-5"})
+	}
+	registerPiForTest(t)
+	pathstest.FakeVendor(t, "pi", "")
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "workspace-a"})
+	return reg, PeekContext(ctx)
+}
+
+func TestPiRunnerSinglePassMetadata(t *testing.T) {
+	reg, ctx := plannedRunnerFixture(t)
+	o := RunOptions{Agent: "claude", Model: "sonnet", Lead: "workspace-a", Fallback: route.FallbackAll}
+	p, err := PlanRoute(ctx, o, ParentRoute{Fence: route.Fence{Open: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := Dispatch{Agent: &fakeRunner{name: o.Agent}, Model: o.Model, Effort: "high", Route: rowRoute(reg, o.Lead),
+		Account: workspaceAccount(reg, o.Lead), Billing: "metered", otherRoute: true, swap: true, routerChose: true, rung: 3,
+		keepCaller: true, servedRepick: func(string) string { return "repick" }}
+	q := RouteReq{Agent: o.Agent, Model: o.Model, Fallback: o.Fallback}
+	assembly := newPlannedChain(context.WithValue(withPlan(ctx, p), routeRequestKey{}, q), reg)
+	c := assembly.append(Chain{Want: o.Agent}, lead)
+	if len(c.Dispatches) != 3 || c.OwnHop() != 2 {
+		t.Fatalf("lead admission = %+v, want Pi on both workspaces then own CLI", c)
+	}
+	head, own := c.Dispatches[0], c.Dispatches[2]
+	if head.runFor != o.Agent || head.Model != "databricks-claude-sonnet-5-5" || head.Route != lead.Route ||
+		head.Effort != lead.Effort || head.Billing != lead.Billing || !head.otherRoute || !head.swap || !head.routerChose || head.rung != 3 {
+		t.Fatalf("runner metadata = %+v, lead %+v", head, lead)
+	}
+	if !own.keepCaller || own.servedRepick("") != "repick" || own.Agent != lead.Agent {
+		t.Fatalf("own CLI metadata changed: %+v", own)
+	}
+	tail := Dispatch{Agent: &fakeRunner{name: "codex"}, Account: "openai·login", quotaOverflow: true}
+	c = assembly.append(c, tail)
+	if len(c.Dispatches) != 4 || !c.Dispatches[3].quotaOverflow || c.Dispatches[0].Agent != head.Agent {
+		t.Fatalf("tail admission reordered the prefix: %+v", c)
 	}
 }

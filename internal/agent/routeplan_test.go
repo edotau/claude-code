@@ -288,3 +288,41 @@ func TestParentRouteKeepsClosedEmptyFence(t *testing.T) {
 		t.Error("a plan that lacked a fence must read as open")
 	}
 }
+
+func TestPlanRunnerSelectionAndHopOrder(t *testing.T) {
+	_, ctx := plannedRunnerFixture(t)
+	for _, tc := range []struct {
+		name, runner, fallback string
+		carry                  bool
+		want                   []RunnerKind
+	}{
+		{name: "Databricks Pi first", fallback: "all", want: []RunnerKind{RunnerPi, RunnerPi, RunnerCLI}},
+		{name: "runner cli", runner: "cli", fallback: "all", want: []RunnerKind{RunnerCLI}},
+		{name: "runner pi", runner: "pi", fallback: "all", want: []RunnerKind{RunnerPi, RunnerPi, RunnerCLI}},
+		{name: "none retains own CLI", fallback: "none", want: []RunnerKind{RunnerPi, RunnerCLI}},
+		{name: "pin retains sibling runners", fallback: "pin", want: []RunnerKind{RunnerPi, RunnerPi, RunnerCLI}},
+		{name: "carry keeps own CLI", runner: "pi", fallback: "all", carry: true, want: []RunnerKind{RunnerCLI}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := RunOptions{Agent: "claude", Model: "sonnet", Lead: "workspace-a", Runner: tc.runner, Fallback: tc.fallback, Carry: tc.carry}
+			p, err := PlanRoute(ctx, o, ParentRoute{Fence: route.Fence{Open: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []RunnerKind
+			for _, h := range p.Hops() {
+				got = append(got, h.Runner.Kind)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("hops = %+v, want %v", p.Hops(), tc.want)
+			}
+			q := RouteReq{Agent: o.Agent, Model: o.Model, Fallback: o.Fallback, Opts: o}
+			lead := Dispatch{Agent: &fakeRunner{name: o.Agent}, Model: o.Model, Account: "databricks·workspace-a"}
+			ch := planTestChain(withPlan(ctx, p), q, Chain{Dispatches: []Dispatch{lead}})
+			admitted := admittedPlan(p, ch)
+			if !slices.Equal(admitted.Hops(), p.Hops()) {
+				t.Fatalf("admitted hops = %+v, planned %+v (notes %+v)", admitted.Hops(), p.Hops(), ch.Preflight)
+			}
+		})
+	}
+}

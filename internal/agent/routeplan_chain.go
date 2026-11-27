@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
+	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
 )
 
@@ -115,4 +118,144 @@ func executablePolicy(p router.Policy) router.Policy {
 		p.Kind = router.PolicyAnyInFence
 	}
 	return p
+}
+
+// routeRequestKey carries Resolve's full ask into the candidate admission pass, including previews.
+type routeRequestKey struct{}
+
+// plannedChain emits runner hops before admitting the first own CLI, never splicing a completed fallback chain.
+type plannedChain struct {
+	ctx       context.Context
+	q         RouteReq
+	reg       *providers.Registry
+	checked   map[string]*Finding
+	plain     []Dispatch
+	plainMode string
+	backstop  Engine
+}
+
+func newPlannedChain(ctx context.Context, reg *providers.Registry) *plannedChain {
+	q, _ := ctx.Value(routeRequestKey{}).(RouteReq)
+	return &plannedChain{ctx: ctx, q: q, reg: reg, checked: make(map[string]*Finding)}
+}
+
+// admit checks each source CLI once, before choosing the lead whose model the Pi runner will execute.
+func (p *plannedChain) admit(c Chain, d Dispatch, pf *Preflight) Chain {
+	name := d.Agent.Name()
+	f, checked := p.checked[name]
+	if !checked {
+		f = cliVersionFinding(p.ctx, name, pf)
+		p.checked[name] = f
+		if f != nil {
+			c.Skipped = append(c.Skipped, f.Detail)
+		}
+	}
+	if f != nil {
+		return c
+	}
+	return p.append(c, d)
+}
+
+// append assembles the lead's runners once; subsequent validated candidates retain their original order.
+func (p *plannedChain) append(c Chain, d Dispatch) Chain {
+	if len(c.Dispatches) == 0 && len(p.plain) == 0 && p.q.Agent != "" {
+		if p.startPlain(d) {
+			p.plain = append(p.plain, d)
+			return c
+		}
+		plan, _ := PlanOf(p.ctx)
+		if p.q.Agent != agentid.Pi {
+			hops, notes := plan.runnerHops(p.ctx, p.reg, p.q, d)
+			c.Dispatches = append(c.Dispatches, hops...)
+			c.Dispatches = append(c.Dispatches, d)
+			return planNotes(c, notes)
+		}
+	}
+	if len(p.plain) > 0 && p.plainMode == route.FallbackPin && d.Agent.Name() == agentid.Pi && d.Account != p.plain[0].Account {
+		return c
+	}
+	if len(p.plain) > 0 && len(c.Dispatches) == 0 && d.Agent.Name() == agentid.Pi {
+		p.plain = append(p.plain, d)
+		return c
+	}
+	c = p.finish(c)
+	c.Dispatches = append(c.Dispatches, d)
+	return c
+}
+
+func planNotes(c Chain, notes []string) Chain {
+	for _, note := range notes {
+		c = c.noted(note)
+	}
+	return c
+}
+
+// startPlain buffers only a plain Pi ask's leading Pi candidates, so existing siblings keep their metadata.
+func (p *plannedChain) startPlain(d Dispatch) bool {
+	if p.q.Agent != agentid.Pi || !ownDatabricksHop(p.reg, p.q, d) {
+		return false
+	}
+	p.plainMode = piChainMode(p.ctx, p.q)
+	var err error
+	p.backstop, err = Lookup(agentid.Claude)
+	return p.plainMode != "" && err == nil
+}
+
+// finish emits a plain Pi ask's prefix once, before its first non-Pi candidate or the end of admission.
+func (p *plannedChain) finish(c Chain) Chain {
+	if len(p.plain) == 0 {
+		return c
+	}
+	defer func() { p.plain = nil }()
+	if len(c.Dispatches) > 0 {
+		return c
+	}
+	lead := p.plain[0]
+	c.Dispatches = append(c.Dispatches, lead)
+	if p.plainMode != route.FallbackPin && lead.Model != "" && !IsAuto(lead.Model) {
+		c = p.plainSiblings(c, lead)
+	}
+	c.Dispatches = append(c.Dispatches, p.plain[1:]...)
+	_, profile, _ := strings.Cut(lead.Account, "·")
+	alias := cmp.Or(p.q.AliasHint, models.Sonnet)
+	q := RouteReq{Agent: agentid.Claude, AliasHint: alias, Tools: p.q.Tools}
+	if _, why := agentModelOn(PeekContext(p.ctx), p.reg, q, alias, profile); why != "" {
+		return c.noted("claude fallback hop skipped: " + why)
+	}
+	c.Dispatches = append(c.Dispatches, Dispatch{Agent: p.backstop, Model: alias, Route: rowRoute(p.reg, profile),
+		Account: lead.Account, Billing: lead.Billing, otherRoute: true, fixedModel: true})
+	return c
+}
+
+func (p *plannedChain) plainSiblings(c Chain, lead Dispatch) Chain {
+	sibs, skips, why := piSiblings(p.ctx, p.reg, lead, lead.Model)
+	if why != "" {
+		return c.noted("pi sibling hops skipped: " + why)
+	}
+	for _, skip := range skips {
+		c = c.noted("pi sibling hop skipped: " + skip)
+	}
+	for _, d := range sibs {
+		if slices.ContainsFunc(p.plain, func(e Dispatch) bool { return e.Agent == lead.Agent && e.Account == d.Account }) {
+			continue
+		}
+		d.Agent = lead.Agent
+		c.Dispatches = append(c.Dispatches, d)
+	}
+	return c
+}
+
+// runnerCandidates counts the extra candidates previewOutcome projected from Pi runner metadata.
+func (c Chain) runnerCandidates() int {
+	n := 0
+	for _, d := range c.Dispatches {
+		if d.runFor != "" && d.rung > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+func (p *plannedChain) contains(c Chain, d Dispatch) bool {
+	return slices.ContainsFunc(c.Dispatches, d.same) || slices.ContainsFunc(p.plain, d.same)
 }
