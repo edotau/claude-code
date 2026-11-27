@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	agent.Register(agent.Agent{Row: row, Driver: opencodeEngine{agent.NewBaseEngine("opencode")},
+	agent.Register(agent.Agent{Row: row, Driver: opencodeEngine{opencodeBase()},
 		Hub: &agent.Hub{Start: HubStart, Dispatch: newHubDispatch,
 			OwnPlan: func(id string) bool { return OpencodeCredID(id) == "opencode" }},
 		Redactors: map[string]func(string) string{"OPENCODE_CONFIG_CONTENT": redactConfig}})

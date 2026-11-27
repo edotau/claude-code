@@ -31,3 +31,19 @@ func TestOpencodeRowScopedProxy(t *testing.T) {
 		t.Error("opencode row must walk the scoped proxy list")
 	}
 }
+
+func TestRouteCapsParity(t *testing.T) {
+	e := opencodeEngine{opencodeBase()}
+	if !e.LoginServes(&providers.Provider{Provider: "github"}) || e.LoginServes(&providers.Provider{Provider: "x"}) || e.LoginServes(nil) {
+		t.Fatal("LoginServes must add github only")
+	}
+	if !e.FollowsPin(nil) {
+		t.Fatal("FollowsPin default must hold")
+	}
+	if got, want := e.DescribeRoute(t.Context(), nil), describeOpenCodeRoute(nil); got != want {
+		t.Fatalf("DescribeRoute = %+v, want %+v", got, want)
+	}
+	if _, _, ok := e.FallbackTarget(t.Context(), nil); ok {
+		t.Fatal("nil registry has no fallback")
+	}
+}

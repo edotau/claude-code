@@ -374,6 +374,15 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 
 type opencodeEngine struct{ agent.BaseEngine }
 
+// opencodeBase adds github to its login families: that profile's Auth.Login names copilot, yet opencode has its own.
+func opencodeBase() agent.BaseEngine {
+	return agent.NewBaseEngine("opencode").WithRouteCaps(agent.RouteCaps{
+		LoginProviders:  []string{"github"},
+		ResolveFallback: func(_ context.Context, reg *providers.Registry) agent.RouteInfo { return describeOpenCodeRoute(reg) },
+		RequireFallback: true,
+	})
+}
+
 var _ agent.HeadlessDriver = opencodeEngine{}
 
 func (opencodeEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
@@ -431,11 +440,6 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 	return cmd, tail, host, nil
 }
 
-// LoginServes adds github: that profile's Auth.Login names copilot, yet opencode has its own GitHub Copilot login.
-func (e opencodeEngine) LoginServes(p *providers.Provider) bool {
-	return p.Provider == "github" || e.BaseEngine.LoginServes(p)
-}
-
 func (opencodeEngine) Login(_ context.Context, p *providers.Provider, model string, h *agent.Headless) (env, argv []string, err error) {
 	if p.Provider != "github" {
 		return nil, nil, errors.New("opencode: no subscription sign-in support")
@@ -453,14 +457,6 @@ func (opencodeEngine) Login(_ context.Context, p *providers.Provider, model stri
 
 func (opencodeEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
 	return opencode(r.Provider, r.Dialect, r.Base, r.Model, r.Cred, r.Routed, h)
-}
-
-func (e opencodeEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
-	return agent.RouteFallback(reg, e.DescribeRoute(ctx, reg))
-}
-
-func (opencodeEngine) DescribeRoute(_ context.Context, reg *providers.Registry) agent.RouteInfo {
-	return describeOpenCodeRoute(reg)
 }
 
 var _ agent.Authenticator = opencodeEngine{}
@@ -505,10 +501,6 @@ func (opencodeEngine) PreRoute(_ context.Context, reg *providers.Registry, expli
 		return gt, gnote, true, nil
 	}
 	return providers.Target{}, "", false, nil
-}
-
-func (e opencodeEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
-	return agent.RouteErr(e.DescribeRoute(ctx, reg))
 }
 
 // LaunchEnv points every opencode launch at the tracked overlay; each error is a notice and opencode runs without it.
