@@ -522,3 +522,58 @@ func TestCLIPlanCarriesResolvedUnit(t *testing.T) {
 		t.Fatalf("plan unit = %+v, %v; want %+v", plan.Unit, err, want)
 	}
 }
+
+func TestParseOverlayEmptyAndStdin(t *testing.T) {
+	t.Setenv(route.OverlayVar, `{"model":"sonnet","set":{"OVERLAY_TEST":"inherited"}}`)
+	o, _, err := ParseArgs([]string{"--overlay", "{}", "--print-env"}, true)
+	if err != nil || o.Overlay == "" || o.Model != "" {
+		t.Fatalf("empty overlay: %+v, %v", o, err)
+	}
+	if ov, err := launchOverlay(o); err != nil || len(ov.Set) != 0 {
+		t.Fatalf("empty overlay inherited env: %+v, %v", ov, err)
+	}
+	path := filepath.Join(t.TempDir(), "overlay.json")
+	if err := os.WriteFile(path, []byte(`{"model":"opus"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	in, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = in
+	t.Cleanup(func() { os.Stdin = old; _ = in.Close() })
+	o, _, err = ParseArgs([]string{"--overlay=-", "--print-env"}, true)
+	if err != nil || o.Model != "opus" || o.Overlay == "-" {
+		t.Fatalf("stdin overlay: %+v, %v", o, err)
+	}
+	if _, err := ApplyLaunchOverlay(t.Context(), &providers.Registry{}, &o, true); err != nil {
+		t.Fatalf("apply reread stdin: %v", err)
+	}
+	if _, err := launchOverlay(o); err != nil {
+		t.Fatalf("exec reread stdin: %v", err)
+	}
+}
+
+func TestParseOverlayFlagBoundaries(t *testing.T) {
+	const doc = `{"provider":"databricks","profile":"auto","model":"sonnet"}`
+	for _, tc := range []struct {
+		flags          []string
+		model, profile string
+	}{
+		{nil, "sonnet", "auto"},
+		{[]string{"--model=opus"}, "opus", "auto"},
+		{[]string{"--model="}, "sonnet", "auto"},
+		{[]string{"--profile=local"}, "sonnet", "local"},
+	} {
+		args := append([]string{"--overlay", doc}, tc.flags...)
+		passthrough := []string{"--effort", "high", "--fallback", "none", "--codemode", "off"}
+		o, rest, err := ParseArgs(append(args, passthrough...), true)
+		if err != nil || o.Model != tc.model || o.Provider != tc.profile || !slices.Equal(rest, passthrough) {
+			t.Fatalf("%v: %+v, rest %v, %v", args, o, rest, err)
+		}
+		if tc.profile == "local" && o.Route.Provider != "" {
+			t.Fatalf("typed profile mixed with overlay provider: %+v", o.Route)
+		}
+	}
+}

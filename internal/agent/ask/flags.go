@@ -187,8 +187,8 @@ func directRoute(provider, profile string) bool {
 
 // validateCodemode resolves --codemode: a misspelled value errors; an unsupported one runs off with a reason.
 func validateCodemode(mode, ag, runner string, tools, direct bool) (resolved, reason string, err error) {
-	if mode != "" && !slices.Contains(route.Codemodes, mode) {
-		return "", "", fmt.Errorf("--codemode %q must be %s", mode, strings.Join(route.Codemodes, " or "))
+	if err := enumFlag("codemode", mode, route.Codemodes); err != nil {
+		return "", "", err
 	}
 	if ag == agentid.Pi {
 		return piCodemode(mode, tools)
@@ -422,12 +422,17 @@ func googleToolNames(csv string) ([]string, error) {
 	return out, err
 }
 
-// runnerCheck refuses a --runner outside route.Runners.
-func runnerCheck(f *askFlags) error {
-	if f.runner != "" && !slices.Contains(route.Runners, f.runner) {
-		return fmt.Errorf("--runner %q must be %s", f.runner, strings.Join(route.Runners, " or "))
+// enumFlag shares overlay enum validation while preserving the CLI's diagnostic.
+func enumFlag(name, value string, choices []string) error {
+	if route.OneOf(name, value, choices) != nil {
+		return fmt.Errorf("--%s %q must be %s", name, value, strings.Join(choices, " or "))
 	}
 	return nil
+}
+
+// runnerCheck refuses a --runner outside route.Runners.
+func runnerCheck(f *askFlags) error {
+	return enumFlag("runner", f.runner, route.Runners)
 }
 
 // askExclusive rejects flag pairs that cannot be combined.
@@ -658,9 +663,10 @@ func unitConflict(f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
 
 // settingConflict refuses a typed --model, --effort, --fallback, --host or --runner that differs from its overlay key.
 func settingConflict(fs *flag.FlagSet, ov agentconfig.Overlay) error {
-	for _, k := range [][2]string{{"model", ov.Model}, {"effort", ov.Effort}, {"fallback", ov.Fallback}, {"host", ov.Host}, {"runner", ov.Runner}} {
-		if v := fs.Lookup(k[0]).Value.String(); helptext.Explicit(fs, k[0]) && v != "" && k[1] != "" && v != k[1] {
-			return fmt.Errorf("--%s %s conflicts with overlay %s %s", k[0], v, k[0], k[1])
+	values := overlayFlags(ov)
+	for _, key := range []string{"model", "effort", "fallback", "host", "runner"} {
+		if v := fs.Lookup(key).Value.String(); helptext.Explicit(fs, key) && v != "" && values[key] != "" && v != values[key] {
+			return fmt.Errorf("--%s %s conflicts with overlay %s %s", key, v, key, values[key])
 		}
 	}
 	return nil

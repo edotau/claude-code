@@ -995,3 +995,48 @@ func TestRecordConfinementDefaultIsNone(t *testing.T) {
 		t.Error("retired record accepted")
 	}
 }
+
+func TestFlagOverlayLaunchAskModelPrecedence(t *testing.T) {
+	for _, modelArgs := range [][]string{nil, {"--model", "opus"}, {"--model=haiku"}} {
+		args := append([]string{"--overlay", `{"model":"sonnet"}`}, modelArgs...)
+		launch, rest, err := agent.ParseArgs(args, true)
+		if err != nil || len(rest) != 0 {
+			t.Fatalf("launch %v: rest %v, %v", args, rest, err)
+		}
+		fs, f := askFlagSet()
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		ov, err := agentconfig.LoadOverlayContext(t.Context(), f.overlay, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ov.Fold(fs)
+		if f.model != launch.Model {
+			t.Errorf("%v: ask model %q, launch model %q", args, f.model, launch.Model)
+		}
+	}
+}
+
+func TestFlagOverlayEnumDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		choices []string
+	}{
+		{"codemode", route.Codemodes}, {"runner", route.Runners},
+	} {
+		for _, value := range append([]string{"", "invalid"}, tc.choices...) {
+			err := enumFlag(tc.name, value, tc.choices)
+			if value != "invalid" {
+				if err != nil {
+					t.Errorf("%s=%q: %v", tc.name, value, err)
+				}
+				continue
+			}
+			want := "--" + tc.name + ` "invalid" must be ` + strings.Join(tc.choices, " or ")
+			if err == nil || err.Error() != want {
+				t.Errorf("%s: %v, want %s", tc.name, err, want)
+			}
+		}
+	}
+}

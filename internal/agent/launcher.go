@@ -3,8 +3,8 @@ package agent
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -28,17 +28,6 @@ import (
 // IsTerminal is the TTY check, a seam tests swap.
 var IsTerminal = proc.IsTerminal
 
-// flagValue is the value of the flag at args[i]: val when inline (--flag=val), else the next arg and its index.
-func flagValue(args []string, i int, name, val string, hasVal bool) (string, int, error) {
-	if hasVal {
-		return val, i, nil
-	}
-	if i+1 >= len(args) {
-		return "", i, fmt.Errorf("%s needs a value", name)
-	}
-	return args[i+1], i + 1, nil
-}
-
 // ParseArgs strips harness flags from args (the first "--" ends them) and refuses a --keep-env name ask would refuse.
 func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	var o LaunchOptions
@@ -60,9 +49,12 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 				rest = append(rest, a)
 				continue
 			}
-			var err error
-			if val, i, err = flagValue(args, i, name, val, hasVal); err != nil {
-				return o, nil, err
+			if !hasVal {
+				i++
+				if i == len(args) {
+					return o, nil, fmt.Errorf("%s needs a value", name)
+				}
+				val = args[i]
 			}
 			setter(val)
 		}
@@ -302,26 +294,32 @@ func (o *LaunchOptions) foldOverlay() error {
 	if err != nil {
 		return err
 	}
-	doc, err := json.Marshal(ov)
-	if err != nil {
-		return err
-	}
-	o.Overlay = string(doc)
+	o.Overlay = cmp.Or(ov.Doc(), "{}") // an explicit empty document must not fall back to the inherited overlay
+	o.foldModel(ov)
 	if r := ov.Route(); o.Provider == "" && !r.IsZero() { // route comes whole from one source; typed --profile wins
-		o.foldRoute(r, ov.Model)
+		o.foldRoute(r)
 	}
-	o.Model = cmp.Or(o.Model, ov.Model)
 	return nil
 }
 
+// foldModel folds overlay model via ask's flag > overlay precedence when no flag set o.Model.
+func (o *LaunchOptions) foldModel(ov agentconfig.Overlay) {
+	fs := flag.NewFlagSet("launch", flag.ContinueOnError)
+	fs.StringVar(&o.Model, "model", o.Model, "")
+	if o.Model != "" {
+		_ = fs.Set("model", o.Model)
+	}
+	ov.Fold(fs)
+}
+
 // foldRoute takes the overlay's route whole and defaults the model its provider or pool implies.
-func (o *LaunchOptions) foldRoute(r route.Route, model string) {
+func (o *LaunchOptions) foldRoute(r route.Route) {
 	o.Route = r
 	o.Provider = r.Profile
 	if r.Profile == poolName || (r.Provider == providers.GroupDatabricks && r.Profile == "") {
-		o.Model = cmp.Or(o.Model, model, AutoModel)
+		o.Model = cmp.Or(o.Model, AutoModel)
 	} else if r.Provider != "" && r.Profile == "" {
-		o.Model = cmp.Or(o.Model, model, models.Opus)
+		o.Model = cmp.Or(o.Model, models.Opus)
 	}
 }
 
@@ -463,7 +461,7 @@ func applyLaunchFields(ctx context.Context, reg *providers.Registry, o *LaunchOp
 		o.Values = o.Values.With(egress.EnvHost, h)
 		ctx = proc.WithValues(ctx, o.Values)
 	}
-	o.Model = cmp.Or(o.Model, eff.Model)
+	o.foldModel(eff)
 	return ctx, nil
 }
 
