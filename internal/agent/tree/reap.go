@@ -102,6 +102,9 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	}
 	orphans, orphanCode := reapOrphans(dryRun, verb, out, errw)
 	contracts, contractCode := reapContracts(dryRun, out, errw)
+	if !dryRun {
+		agent.ReconcileActive(paths.DispatchDir())
+	}
 	code = max(code, sockCode, orphanCode, contractCode)
 	if records+markers+socks+orphans+contracts == 0 {
 		fmt.Fprintln(out, "agents cancel --lost: nothing to reap")

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -310,6 +311,11 @@ func claimRecord(rec Record) Record {
 			err = os.Link(tmp.Name(), filepath.Join(dir, rec.ID+".json"))
 		}
 		_ = os.Remove(tmp.Name())
+		if err == nil {
+			noteActiveGen()
+			syncActiveMarker(dir, rec.ID, rec.Status == "running")
+			return rec
+		}
 		if !errors.Is(err, os.ErrExist) {
 			return rec
 		}
@@ -516,14 +522,67 @@ func (r Record) saveLocked() error {
 		return err
 	}
 	if readErr == nil && bytes.Equal(old, b) {
+		noteActiveGen()
+		syncActiveMarker(dir, r.ID, r.Status == "running")
 		return nil // identical bytes on disk: skip the temp write, fsync and rename
 	}
 	if err := paths.AtomicWrite(path, b, 0o600); err != nil {
 		return err
 	}
+	noteActiveGen()
+	syncActiveMarker(dir, r.ID, r.Status == "running")
 	if errors.Is(readErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
 		pruneDispatches(dir, r.ID)
 	}
+	return nil
+}
+
+// activeDir is the sidecar directory holding one marker file per running dispatch record.
+func activeDir(dir string) string { return filepath.Join(dir, "active") }
+
+// activeGen counts dispatch-dir mutations observed while an index rebuild is in progress.
+var activeGen atomic.Uint64
+
+// noteActiveGen records that dir changed; a rebuild compares it before certifying .indexed.
+func noteActiveGen() { activeGen.Add(1) }
+
+// withActiveLock runs fn holding dir/active.lock; a lock error leaves the index untouched.
+func withActiveLock(dir string, fn func() error) {
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	// WithFileLock appends .lock, so the file is <dir>/active.lock, beside (not inside) active/.
+	_ = paths.WithFileLock(filepath.Join(dir, "active"), fn)
+}
+
+// syncActiveMarker writes or removes id's sidecar marker under the active-index lock; Save never fails on it.
+func syncActiveMarker(dir, id string, running bool) {
+	if id == "" || dir == "" {
+		return
+	}
+	withActiveLock(dir, func() error {
+		if os.MkdirAll(activeDir(dir), 0o700) != nil {
+			dropActiveIndexed(dir)
+			return nil
+		}
+		if !activeIndexCurrent(dir) {
+			dropActiveIndexed(dir) // a raw writer or prior failure: do not certify a partial index
+		}
+		marker := filepath.Join(activeDir(dir), id+".json")
+		if !running {
+			return finishMarker(dir, os.Remove(marker))
+		}
+		return finishMarker(dir, os.WriteFile(marker, nil, 0o600))
+	})
+}
+
+// finishMarker drops .indexed when the marker write failed; a missing marker on stop is success.
+func finishMarker(dir string, err error) error {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		dropActiveIndexed(dir)
+		return nil
+	}
+	refreshActiveIndexed(dir)
 	return nil
 }
 

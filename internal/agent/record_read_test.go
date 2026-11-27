@@ -193,3 +193,214 @@ func TestRecordAliasesAndIdentityRules(t *testing.T) {
 		t.Errorf("encoded = %s, want ran_route holding the profile only", s)
 	}
 }
+
+func TestRunningRecentActiveIndexLifecycleAndFallback(t *testing.T) {
+	setConfigDir(t)
+	dir := paths.DispatchDir()
+	base := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	r1 := saveRunning(t, "codex", "one", base)
+	r2 := saveRunning(t, "claude", "two", base.Add(time.Minute))
+	wantRunning(t, []string{r2.ID, r1.ID})
+	r1.Status = wire.StatusOK
+	saveRecordForTest(t, r1)
+	wantNoMarker(t, dir, r1.ID)
+	// Stale marker (record finished on disk without Save) is lazily unlinked by RunningRecent.
+	if err := os.WriteFile(markerPath(dir, r1.ID), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantRunning(t, []string{r2.ID})
+	wantNoMarker(t, dir, r1.ID)
+}
+
+func TestRunningRecentActiveFallbackRawFixtures(t *testing.T) {
+	setConfigDir(t)
+	dir := paths.DispatchDir()
+	okAt := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	liveAt := okAt.Add(time.Minute)
+	writeEncodedRaw(t, NewRecord("codex", RunOptions{Prompt: "done"}, okAt), wire.StatusOK)
+	live := NewRecord("claude", RunOptions{Prompt: "go"}, liveAt)
+	writeEncodedRaw(t, live, "running")
+	wantRunning(t, []string{live.ID})
+	if _, err := os.Stat(markerPath(dir, live.ID)); err != nil {
+		t.Fatalf("fallback did not seed active marker: %v", err)
+	}
+}
+
+func TestReconcileActiveRepairsDrift(t *testing.T) {
+	setConfigDir(t)
+	dir := paths.DispatchDir()
+	live := saveRunning(t, "codex", "live", time.Date(2026, 11, 27, 11, 0, 0, 0, time.UTC))
+	_ = os.Remove(markerPath(dir, live.ID))
+	ghost := markerPath(dir, "20261127T090000.000-ghost")
+	if err := os.WriteFile(ghost, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ReconcileActive(dir)
+	if _, err := os.Stat(markerPath(dir, live.ID)); err != nil {
+		t.Fatalf("ReconcileActive did not restore missing marker: %v", err)
+	}
+	wantNoMarker(t, dir, "20261127T090000.000-ghost")
+}
+
+// TestReconcileActiveKeepsLiveClaimedDuringRebuild keeps a marker claimed between snapshot and delete.
+func TestReconcileActiveKeepsLiveClaimedDuringRebuild(t *testing.T) {
+	setConfigDir(t)
+	dir := paths.DispatchDir()
+	_ = saveRunning(t, "codex", "old", time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC))
+	id := recordID(time.Date(2026, 11, 27, 12, 1, 0, 0, time.UTC), "claude")
+	t.Cleanup(func() { activeRebuildHook = nil })
+	activeRebuildHook = func(d string) { claimLiveDuringRebuild(t, d, id) }
+	seedActiveIndex(dir, nil)
+	if _, err := os.Stat(markerPath(dir, id)); err != nil {
+		t.Fatalf("rebuild deleted the marker claimed after its snapshot: %v", err)
+	}
+	if _, err := os.Stat(indexedPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("torn rebuild certified .indexed: %v", err)
+	}
+}
+
+// TestSaveDoesNotCertifyStaleIndex drops .indexed after a failed marker write and after a raw extra record.
+func TestSaveDoesNotCertifyStaleIndex(t *testing.T) {
+	setConfigDir(t)
+	dir := paths.DispatchDir()
+	r := saveRunning(t, "codex", "one", time.Date(2026, 11, 27, 13, 0, 0, 0, time.UTC))
+	if _, err := os.Stat(indexedPath(dir)); err != nil {
+		t.Fatalf("first Save did not stamp .indexed: %v", err)
+	}
+	blockMarker(t, dir, r.ID)
+	r.Request.Prompt = "changed"
+	saveRecordForTest(t, r)
+	if _, err := os.Stat(indexedPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("failed marker write left .indexed: %v", err)
+	}
+	if err := os.Remove(markerPath(dir, r.ID)); err != nil {
+		t.Fatal(err)
+	}
+	wantRawSaveDropsIndex(t, dir, r)
+}
+
+func BenchmarkRunningRecentActiveIndex(b *testing.B) {
+	setConfigDir(b)
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	base := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	running := map[int]bool{10: true, 1000: true, 1500: true, 1990: true, 1999: true}
+	for i := range DispatchKeep() {
+		rec := benchAskRecord(base.Add(time.Duration(i)*time.Minute), i)
+		if !running[i] {
+			rec.Status, rec.DurationMs, rec.Usage = "ok", 93_000, &wire.Usage{InputTokens: 41_000, OutputTokens: 2_300}
+		}
+		body, err := rec.encode()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rec.ID+".json"), body, 0o600); err != nil {
+			b.Fatal(err)
+		}
+		syncActiveMarker(dir, rec.ID, running[i])
+	}
+	if got, err := RunningRecent(AllRecords); err != nil || len(got) != len(running) {
+		b.Fatalf("RunningRecent = %d records, %v; want %d", len(got), err, len(running))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = RunningRecent(AllRecords)
+	}
+}
+
+// writeEncodedRaw writes a record the way Save does, without touching the active index.
+func writeEncodedRaw(t *testing.T, r Record, status string) {
+	t.Helper()
+	r.Status = status
+	body, err := r.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRawDispatch(t, r.ID, string(body))
+}
+
+func saveRunning(t *testing.T, agentName, prompt string, at time.Time) Record {
+	t.Helper()
+	r := NewRecord(agentName, RunOptions{Prompt: prompt}, at)
+	saveRecordForTest(t, r)
+	return r
+}
+
+func wantRunning(t *testing.T, ids []string) {
+	t.Helper()
+	got, err := RunningRecent(AllRecords)
+	if err != nil || len(got) != len(ids) {
+		t.Fatalf("RunningRecent = %+v, %v; want %v", got, err, ids)
+	}
+	for i, id := range ids {
+		if got[i].ID != id {
+			t.Fatalf("RunningRecent[%d] = %s, want %s", i, got[i].ID, id)
+		}
+	}
+}
+
+func markerPath(dir, id string) string { return filepath.Join(activeDir(dir), id+".json") }
+
+// blockMarker replaces id's marker file with a directory so the next WriteFile of it fails.
+func blockMarker(t *testing.T, dir, id string) {
+	t.Helper()
+	path := markerPath(dir, id)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func wantNoMarker(t *testing.T, dir, id string) {
+	t.Helper()
+	if _, err := os.Stat(markerPath(dir, id)); !os.IsNotExist(err) {
+		t.Fatalf("marker %s still present: %v", id, err)
+	}
+}
+
+// claimLiveDuringRebuild writes a running record and its marker after the rebuild snapshotted dir, once.
+func claimLiveDuringRebuild(t *testing.T, dir, id string) {
+	t.Helper()
+	activeRebuildHook = nil
+	body := []byte(`{"schema":1,"id":"` + id + `","agent":"claude","status":"running"}`)
+	if err := os.WriteFile(filepath.Join(dir, id+".json"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath(dir, id), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noteActiveGen() // a real Save/claim bumps the generation the locked snapshot compares
+	now := time.Now()
+	if err := os.Chtimes(dir, now, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wantRawSaveDropsIndex adds an unindexed running record, Saves another, and requires the index to be dropped.
+func wantRawSaveDropsIndex(t *testing.T, dir string, r Record) {
+	t.Helper()
+	ReconcileActive(dir)
+	if _, err := os.Stat(indexedPath(dir)); err != nil {
+		t.Fatalf("reconcile did not stamp .indexed: %v", err)
+	}
+	rawAt := time.Date(2026, 11, 27, 13, 1, 0, 0, time.UTC)
+	raw := NewRecord("claude", RunOptions{Prompt: "raw"}, rawAt)
+	writeEncodedRaw(t, raw, "running")
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(dir, future, future); err != nil {
+		t.Fatal(err)
+	}
+	r.Request.Prompt = "again"
+	saveRecordForTest(t, r)
+	if _, err := os.Stat(indexedPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("Save certified a stale index over raw fixture: %v", err)
+	}
+	got, err := RunningRecent(AllRecords)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("RunningRecent after raw fixture = %+v, %v; want both running records", got, err)
+	}
+}

@@ -562,3 +562,28 @@ func TestReapRepeatedDryRunStable(t *testing.T) {
 		t.Fatalf("repeat differs:\n%s\nvs\n%s", first.String(), second.String())
 	}
 }
+
+func TestReapReconcilesActiveIndex(t *testing.T) {
+	reapSocketConfig(t)
+	live := saveReapRecord(t, os.Getpid(), time.Now())
+	dir := paths.DispatchDir()
+	active := filepath.Join(dir, "active")
+	_ = os.Remove(filepath.Join(active, live.ID+".json"))
+	ghost := filepath.Join(active, "20261127T000000.000-ghost.json")
+	if err := os.MkdirAll(active, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ghost, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if code := Reap(false, &out, &out); code != 0 {
+		t.Fatalf("Reap = %d: %s", code, out.String())
+	}
+	if _, err := os.Stat(filepath.Join(active, live.ID+".json")); err != nil {
+		t.Fatalf("Reap did not restore live active marker: %v", err)
+	}
+	if _, err := os.Stat(ghost); !os.IsNotExist(err) {
+		t.Fatalf("Reap did not remove ghost marker: %v", err)
+	}
+}

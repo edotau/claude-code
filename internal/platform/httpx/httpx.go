@@ -4,6 +4,7 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,11 +19,28 @@ import (
 // ErrTooLarge is returned with the first Limit bytes when a response body is longer than Call.Limit.
 var ErrTooLarge = errors.New("response body too large")
 
-// Client is the default bounded client; callers may supply Call.Client for different policies.
-var Client = NewClient(30*time.Second, nil, SameOriginRedirect)
+// DefaultTransport pools idle HTTP/1.1 + HTTP/2 connections and caches TLS session tickets across calls.
+var DefaultTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 128
+	t.MaxIdleConnsPerHost = 32
+	t.IdleConnTimeout = 90 * time.Second
+	t.ForceAttemptHTTP2 = true
+	t.TLSClientConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		ClientSessionCache: tls.NewLRUClientSessionCache(64),
+	}
+	return t
+}()
 
-// NewClient builds a client with explicit timeout, transport and redirect policies; nil uses net/http defaults.
+// Client is the default bounded client; callers may supply Call.Client for different policies.
+var Client = NewClient(30*time.Second, DefaultTransport, SameOriginRedirect)
+
+// NewClient builds a client with timeout, transport and redirect; nil transport uses DefaultTransport.
 func NewClient(timeout time.Duration, transport http.RoundTripper, redirect func(*http.Request, []*http.Request) error) *http.Client {
+	if transport == nil {
+		transport = DefaultTransport
+	}
 	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: redirect}
 }
 

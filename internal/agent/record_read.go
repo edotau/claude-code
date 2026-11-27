@@ -66,8 +66,234 @@ func ReadRecentWith(n int, needle string) ([]Record, error) {
 	return out, err
 }
 
-// RunningRecent is ReadRecentWith over the records whose bytes mention a running status; callers still check Status.
-func RunningRecent(n int) ([]Record, error) { return ReadRecentWith(n, inflight.RunningToken) }
+// RunningRecent returns up to n running records newest first, using the active sidecar index when synced.
+func RunningRecent(n int) ([]Record, error) {
+	if n < 1 {
+		return nil, nil
+	}
+	dir := paths.DispatchDir()
+	if recs, ok := readActiveRecent(dir, n); ok {
+		return recs, nil
+	}
+	recs, err := ReadRecentWith(AllRecords, inflight.RunningToken)
+	if err != nil {
+		return nil, err
+	}
+	var out []Record
+	for _, r := range recs {
+		if r.Status == "running" {
+			out = append(out, r)
+		}
+	}
+	seedActiveIndex(dir, out)
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out, nil
+}
+
+const activeIndexedFile = ".indexed"
+
+func indexedPath(dir string) string { return filepath.Join(activeDir(dir), activeIndexedFile) }
+
+// activeIndexValid reports whether .indexed exists and is at least as new as dir itself.
+func activeIndexValid(dir string) bool {
+	sfi, err := os.Stat(indexedPath(dir))
+	if err != nil {
+		return false
+	}
+	dfi, err := os.Stat(dir)
+	return err == nil && !dfi.ModTime().After(sfi.ModTime())
+}
+
+// activeIndexCurrent reports .indexed exists and still covers dir after a second dir stat.
+func activeIndexCurrent(dir string) bool {
+	if _, err := os.Stat(indexedPath(dir)); err != nil {
+		return false
+	}
+	dfi, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	sfi, err := os.Stat(indexedPath(dir)) // after dir: a raw write between the stats must not look current
+	return err == nil && !dfi.ModTime().After(sfi.ModTime())
+}
+
+// dropActiveIndexed removes the sentinel so readers fall back to a full scan instead of a false negative.
+func dropActiveIndexed(dir string) { _ = os.Remove(indexedPath(dir)) }
+
+// refreshActiveIndexed advances a current sentinel, or creates one only for a lone record.
+func refreshActiveIndexed(dir string) {
+	if activeIndexCurrent(dir) || loneRecord(dir) {
+		touchActiveIndexed(dir)
+		return
+	}
+	dropActiveIndexed(dir)
+}
+
+// loneRecord reports dir lists at most one dispatch record.
+func loneRecord(dir string) bool {
+	names, err := recordNames(dir)
+	return err == nil && len(names) <= 1
+}
+
+// touchActiveIndexed stamps .indexed so its mtime matches or follows dir's mtime.
+func touchActiveIndexed(dir string) {
+	idx := indexedPath(dir)
+	dfi, err := os.Stat(dir)
+	if err != nil {
+		_ = os.WriteFile(idx, nil, 0o600)
+		return
+	}
+	now := time.Now()
+	if dfi.ModTime().After(now) {
+		now = dfi.ModTime()
+	}
+	if sfi, serr := os.Stat(idx); serr == nil && !dfi.ModTime().After(sfi.ModTime()) {
+		return
+	}
+	if err := os.WriteFile(idx, nil, 0o600); err != nil || os.Chtimes(idx, now, now) != nil {
+		_ = os.Remove(idx)
+	}
+}
+
+// readActiveRecent reads up to n running records from activeDir(dir), unlinking stale markers lazily.
+func readActiveRecent(dir string, n int) ([]Record, bool) {
+	if !activeIndexValid(dir) {
+		return nil, false
+	}
+	names, err := recordNames(activeDir(dir))
+	if err != nil {
+		return nil, false
+	}
+	var out []Record
+	var buf []byte
+	for _, name := range slices.Backward(names) {
+		var b []byte
+		var rerr error
+		b, buf, rerr = readInto(filepath.Join(dir, name), buf)
+		if rerr != nil {
+			if errors.Is(rerr, fs.ErrNotExist) {
+				_ = os.Remove(filepath.Join(activeDir(dir), name))
+			}
+			continue
+		}
+		r, derr := decodeRecord(b)
+		if derr != nil {
+			continue
+		}
+		if r.Status != "running" {
+			_ = os.Remove(filepath.Join(activeDir(dir), name))
+			continue
+		}
+		out = append(out, r)
+		if len(out) >= n {
+			break
+		}
+	}
+	return out, true
+}
+
+// seedActiveIndex reconciles markers from a snapshot taken under the active-index lock.
+func seedActiveIndex(dir string, _ []Record) {
+	withActiveLock(dir, func() error {
+		if os.MkdirAll(activeDir(dir), 0o700) != nil {
+			dropActiveIndexed(dir)
+			return nil
+		}
+		if !seedActiveLocked(dir, runningNow(dir)) {
+			dropActiveIndexed(dir) // dir changed under the snapshot: keep markers, do not certify
+		}
+		return nil
+	})
+}
+
+// activeRebuildHook runs after the locked snapshot and before stale markers are removed (tests interleave a claim).
+var activeRebuildHook func(dir string)
+
+// seedActiveLocked writes markers for running and drops the rest; false means dir changed under the snapshot.
+func seedActiveLocked(dir string, running []Record) bool {
+	before, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	gen := activeGen.Load()
+	want, failed := markerWant(dir, running)
+	if activeRebuildHook != nil {
+		activeRebuildHook(dir)
+	}
+	if failed || !snapHeld(dir, before, gen) || !dropStaleMarkers(dir, want) || !snapHeld(dir, before, gen) {
+		return false
+	}
+	touchActiveIndexed(dir)
+	return snapHeld(dir, before, gen)
+}
+
+// snapHeld reports dir's mtime and the Save/claim generation are unchanged since the snapshot.
+func snapHeld(dir string, before os.FileInfo, gen uint64) bool {
+	if gen != activeGen.Load() {
+		return false
+	}
+	after, err := os.Stat(dir)
+	return err == nil && os.SameFile(before, after) && !after.ModTime().After(before.ModTime())
+}
+
+// markerWant writes one marker per running record; failed means a write did not land.
+func markerWant(dir string, running []Record) (map[string]bool, bool) {
+	want := make(map[string]bool, len(running))
+	failed := false
+	for _, r := range running {
+		if r.Status != "running" || r.ID == "" {
+			continue
+		}
+		name := r.ID + ".json"
+		want[name] = true
+		if err := os.WriteFile(filepath.Join(activeDir(dir), name), nil, 0o600); err != nil {
+			failed = true
+		}
+	}
+	return want, failed
+}
+
+// dropStaleMarkers removes active markers not in want; false means a removal failed and the index is unsafe.
+func dropStaleMarkers(dir string, want map[string]bool) bool {
+	names, err := recordNames(activeDir(dir))
+	if err != nil {
+		return false
+	}
+	for _, name := range names {
+		if want[name] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(activeDir(dir), name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false
+		}
+	}
+	return true
+}
+
+// runningNow lists dir's running records; it runs under the active-index lock during a rebuild.
+func runningNow(dir string) []Record {
+	var running []Record
+	_ = eachRecent(dir, inflight.RunningToken, func(r Record) bool {
+		if r.Status == "running" {
+			running = append(running, r)
+		}
+		return true
+	})
+	return running
+}
+
+// ReconcileActive syncs active markers with dir's running records under one lock.
+func ReconcileActive(dir string) {
+	if dir == "" {
+		dir = paths.DispatchDir()
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	seedActiveIndex(dir, nil)
+}
 
 // jsonToken is s as the record writer encodes it, the bytes any record holding s as a field value must contain.
 func jsonToken(s string) string {
@@ -239,6 +465,7 @@ func removeRecord(dir, name string) bool {
 func removeRecordFiles(dir, name string) {
 	id := strings.TrimSuffix(name, ".json")
 	_ = os.Remove(filepath.Join(dir, name))
+	_ = os.Remove(filepath.Join(activeDir(dir), name))
 	_ = os.Remove(filepath.Join(dir, id+".log"))
 	_ = os.Remove(filepath.Join(dir, id+paths.DispatchEventsSuffix))
 	_ = os.Remove(AgyLogPath(id))

@@ -132,3 +132,21 @@ func TestSameOriginRedirectRefusesCrossHostWithoutLeakingKey(t *testing.T) {
 		t.Fatalf("redirect target saw X-Api-Key %q", gotKey)
 	}
 }
+
+func TestDefaultTransportPoolingAndTLS(t *testing.T) {
+	if DefaultTransport == nil {
+		t.Fatal("DefaultTransport is nil")
+	}
+	if DefaultTransport.MaxIdleConns != 128 || DefaultTransport.MaxIdleConnsPerHost != 32 {
+		t.Fatalf("idle conns = %d / %d, want 128 / 32", DefaultTransport.MaxIdleConns, DefaultTransport.MaxIdleConnsPerHost)
+	}
+	if DefaultTransport.IdleConnTimeout != 90*time.Second || !DefaultTransport.ForceAttemptHTTP2 {
+		t.Fatalf("IdleConnTimeout=%v ForceAttemptHTTP2=%v", DefaultTransport.IdleConnTimeout, DefaultTransport.ForceAttemptHTTP2)
+	}
+	if DefaultTransport.TLSClientConfig == nil || DefaultTransport.TLSClientConfig.ClientSessionCache == nil {
+		t.Fatalf("TLSClientConfig=%+v, want non-nil ClientSessionCache", DefaultTransport.TLSClientConfig)
+	}
+	if Client.Transport != DefaultTransport || NewClient(time.Second, nil, nil).Transport != DefaultTransport {
+		t.Fatal("Client and NewClient(nil transport) must use DefaultTransport")
+	}
+}
