@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,7 +113,7 @@ func (s Schema) Eng() Driver {
 	if e, ok := driverFor(s.Name); ok {
 		return e
 	}
-	return BaseEngine{s.Name}
+	return NewBaseEngine(s.Name)
 }
 
 // SchemaFor is the roster row for name, or a bare row carrying only the name when the roster has none.
@@ -152,11 +153,47 @@ func RouteFallback(reg *providers.Registry, ri RouteInfo) (providers.Target, str
 	return providers.Target{}, "", false
 }
 
+// RouteCaps declares static policy; zero values preserve the legacy BaseEngine defaults.
+type RouteCaps struct {
+	Login          string // Empty uses the engine name; LoginProviders adds provider families regardless of Auth.Login.
+	LoginProviders []string
+	IgnorePin      bool
+	LaunchEnv      []string
+	FallbackLogin  LoginFallback
+	// ResolveFallback takes precedence over FallbackLogin and supplies both the target and its description.
+	ResolveFallback func(context.Context, *providers.Registry) RouteInfo
+	RequireFallback bool // NoRoute fails with the fallback description's reason.
+}
+
+// LoginFallback selects a registry login, then applies its own model and finally the agent model pin.
+type LoginFallback struct {
+	Provider, Login, Note string        // Empty Provider disables the fallback; empty Login uses RouteCaps.Login.
+	Check                 func() error  // Nil trusts registry presence; an error drops the fallback.
+	OwnModel              func() string // Empty result keeps the registry's opus slot.
+}
+
 // BaseEngine holds the defaults a CLI overrides only where it differs.
-type BaseEngine struct{ name string }
+type BaseEngine struct {
+	name  string
+	route *RouteCaps
+}
 
 // NewBaseEngine is the defaults for the roster agent name; a vendor Driver embeds it.
-func NewBaseEngine(name string) BaseEngine { return BaseEngine{name} }
+func NewBaseEngine(name string) BaseEngine { return BaseEngine{name: name} }
+
+// WithRouteCaps returns a base with declarative policy; slices are copied so callers cannot mutate its defaults.
+func (b BaseEngine) WithRouteCaps(c RouteCaps) BaseEngine {
+	c.LoginProviders, c.LaunchEnv = slices.Clone(c.LoginProviders), slices.Clone(c.LaunchEnv)
+	b.route = &c
+	return b
+}
+
+func (b BaseEngine) routeCaps() RouteCaps {
+	if b.route == nil {
+		return RouteCaps{}
+	}
+	return *b.route
+}
 
 func (b BaseEngine) Name() string { return b.name }
 
@@ -188,9 +225,21 @@ func (BaseEngine) After(*CLIPrep, RunOptions) {}
 
 func (BaseEngine) RanModel(t providers.Target) string { return t.Model }
 
-func (b BaseEngine) LoginServes(p *providers.Provider) bool { return p.Auth.Login == b.name }
+func (b BaseEngine) loginName() string {
+	if c := b.routeCaps(); c.Login != "" {
+		return c.Login
+	}
+	return b.name
+}
 
-func (b BaseEngine) DescribeRoute(context.Context, *providers.Registry) RouteInfo {
+func (b BaseEngine) LoginServes(p *providers.Provider) bool {
+	return p != nil && (p.Auth.Login == b.loginName() || slices.Contains(b.routeCaps().LoginProviders, p.Provider))
+}
+
+func (b BaseEngine) DescribeRoute(ctx context.Context, reg *providers.Registry) RouteInfo {
+	if fn := b.routeCaps().ResolveFallback; fn != nil {
+		return fn(ctx, reg)
+	}
 	return RouteInfo{Agent: b.name, Route: RouteNone, Reason: "no fallback chain defined for " + b.name}
 }
 
@@ -206,13 +255,18 @@ func (BaseEngine) GateExplicit(_ context.Context, _ RunOptions, _ *providers.Reg
 	return t, "", nil
 }
 
-func (BaseEngine) NoRoute(context.Context, *providers.Registry, providers.Target) error { return nil }
+func (b BaseEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ providers.Target) error {
+	if b.routeCaps().RequireFallback {
+		return RouteErr(b.DescribeRoute(ctx, reg))
+	}
+	return nil
+}
 
 func (BaseEngine) FallbackNote(providers.Target, string) (string, bool) { return "", false }
 
-func (BaseEngine) FollowsPin(*providers.Provider) bool { return true }
+func (b BaseEngine) FollowsPin(*providers.Provider) bool { return !b.routeCaps().IgnorePin }
 
-func (BaseEngine) LaunchEnv() []string { return nil }
+func (b BaseEngine) LaunchEnv() []string { return slices.Clone(b.routeCaps().LaunchEnv) }
 
 func (BaseEngine) Presence(context.Context, router.Cell) error { return nil }
 
@@ -273,8 +327,33 @@ func (b BaseEngine) Wire(context.Context, WireRoute, *Headless) ([]string, []str
 	return nil, nil, errUnknownAgent(b.name)
 }
 
-func (BaseEngine) FallbackTarget(context.Context, *providers.Registry) (providers.Target, string, bool) {
-	return providers.Target{}, "", false
+func (b BaseEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
+	if reg == nil {
+		return providers.Target{}, "", false
+	}
+	rc := b.routeCaps()
+	if rc.ResolveFallback != nil {
+		return RouteFallback(reg, b.DescribeRoute(ctx, reg))
+	}
+	f := rc.FallbackLogin
+	if f.Provider == "" {
+		return providers.Target{}, "", false
+	}
+	login := f.Login
+	if login == "" {
+		login = b.loginName()
+	}
+	p, ok := reg.LoginProfile(f.Provider, login)
+	if !ok || (f.Check != nil && f.Check() != nil) {
+		return providers.Target{}, "", false
+	}
+	model := p.Models[models.Opus]
+	if f.OwnModel != nil {
+		if own := f.OwnModel(); own != "" {
+			model = own
+		}
+	}
+	return PinnedTarget(ctx, b.name, providers.Target{Provider: p, Model: model}), f.Note, true
 }
 
 // LiveBackend is how one agent holds a session open: build the process, write a turn, parse one turn's events.

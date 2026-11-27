@@ -32,7 +32,7 @@ import (
 type claudeEngine struct{ agent.BaseEngine }
 
 // claudeAgent is the claude agent; Name and Caps come from the shared base, like every other agent.
-var claudeAgent = claudeEngine{agent.NewBaseEngine("claude")}
+var claudeAgent = claudeEngine{agent.NewBaseEngine("claude").WithRouteCaps(agent.RouteCaps{Login: "claude"})}
 
 var _ agent.Engine = claudeAgent
 

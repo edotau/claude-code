@@ -24,11 +24,17 @@ import (
 	"github.com/edotau/claude-code/internal/platform/settings"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
 type codexEngine struct{ agent.BaseEngine }
+
+var codexAgent = codexEngine{agent.NewBaseEngine("codex").WithRouteCaps(agent.RouteCaps{
+	Login: "codex",
+	FallbackLogin: agent.LoginFallback{
+		Provider: "openai", Note: "chatgpt (codex login)", Check: codexChatGPTLogin, OwnModel: codexOwnModel,
+	},
+})}
 
 var _ agent.HeadlessDriver = codexEngine{}
 
@@ -128,19 +134,6 @@ func codexEffortArgv(s agent.Settings, argv []string) ([]string, []string, error
 
 func (codexEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) ([]string, []string, error) {
 	return codex(ctx, r.Provider, r.Base, r.Model, r.Cred, h)
-}
-
-func (e codexEngine) FallbackTarget(ctx context.Context, reg *providers.Registry) (providers.Target, string, bool) {
-	if p, ok := reg.LoginProfile("openai", "codex"); ok && codexChatGPTLogin() == nil {
-		// Codex's own config.toml model beats the catalog; the model pin beats both.
-		model := p.Models[models.Opus]
-		if own := codexOwnModel(); own != "" {
-			model = own
-		}
-		t := agent.PinnedTarget(ctx, e.Name(), providers.Target{Provider: p, Model: model})
-		return t, "chatgpt (codex login)", true
-	}
-	return providers.Target{}, "", false
 }
 
 func (codexEngine) Render(ctx context.Context, reg *providers.Registry, sel providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
@@ -487,7 +480,7 @@ func codexProviderHeaders(p *providers.Provider, env proc.Values, envHs, fields 
 }
 
 func init() {
-	agent.Register(agent.Agent{Row: row, Driver: codexEngine{agent.NewBaseEngine("codex")}})
+	agent.Register(agent.Agent{Row: row, Driver: codexAgent})
 	agentconfig.RegisterFileOps("codex", agentconfig.FileOps{Write: writeCodexConfig, LoadBaseline: loadCodexBaseline,
 		SaveBaseline: saveCodexBaseline, Revert: restoreCodexConfig})
 	agentconfig.RegisterFileOps("codex-hooks", agentconfig.FileOps{Write: writeCodexHooks})

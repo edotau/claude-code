@@ -983,3 +983,22 @@ func TestClaudeArgsDropsDraftKey(t *testing.T) {
 		t.Fatalf("a schema with no draft key changed: %s", got)
 	}
 }
+
+func TestClaudeRouteCaps(t *testing.T) {
+	e := agent.SchemaFor("claude").Eng()
+	for _, login := range []string{"claude", "codex", "copilot", ""} {
+		p := &providers.Provider{Auth: providers.Auth{Login: login}}
+		if e.LoginServes(p) != (login == "claude") || !e.FollowsPin(p) {
+			t.Errorf("unexpected policy for login %q", login)
+		}
+	}
+	if _, _, ok := e.FallbackTarget(t.Context(), &providers.Registry{}); ok {
+		t.Fatal("claude acquired a fallback chain")
+	}
+	if err := e.NoRoute(t.Context(), nil, providers.Target{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.LaunchEnv()) != 0 {
+		t.Fatal("claude acquired launch env")
+	}
+}

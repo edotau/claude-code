@@ -611,3 +611,36 @@ func TestCodexRowScopedProxy(t *testing.T) {
 		t.Error("codex row must walk the scoped proxy list")
 	}
 }
+
+func TestCodexRouteCapsFallback(t *testing.T) {
+	vaulttest.Use(t)
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	orig := codexStatus
+	codexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using ChatGPT"), nil }
+	t.Cleanup(func() { codexStatus = orig })
+	p := &providers.Provider{Name: "test-login", Provider: "openai", Auth: providers.Auth{Login: "codex"}, Models: map[string]string{"opus": "catalog"}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{p.Name: p}}
+	e := agent.SchemaFor("codex").Eng()
+	for _, tc := range []struct{ own, pin, want string }{{"", "", "catalog"}, {"local", "", "local"}, {"local", "pinned", "pinned"}} {
+		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(fmt.Sprintf("model = %q\n", tc.own)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ctx := proc.WithValues(t.Context(), proc.Values{"CODEX_MODEL": tc.pin})
+		got, note, ok := e.FallbackTarget(ctx, reg)
+		if !ok || got.Provider != p || got.Model != tc.want || note != "chatgpt (codex login)" {
+			t.Fatalf("fallback = %+v, %q, %v; want model %q", got, note, ok, tc.want)
+		}
+	}
+	codexStatus = func(context.Context, string) ([]byte, error) { return []byte("Logged in using an API key"), nil }
+	if _, _, ok := e.FallbackTarget(t.Context(), reg); ok {
+		t.Fatal("API key accepted as ChatGPT fallback")
+	}
+	if !e.LoginServes(p) || !e.FollowsPin(p) || len(e.LaunchEnv()) != 0 {
+		t.Fatal("codex inherited dispatch policy changed")
+	}
+	if e.LoginServes(&providers.Provider{Auth: providers.Auth{Login: "claude"}}) {
+		t.Fatal("codex accepted another CLI's login")
+	}
+}
