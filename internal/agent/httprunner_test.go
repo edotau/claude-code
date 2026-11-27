@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -92,5 +93,37 @@ func TestParseOneShotChatEdgeCases(t *testing.T) {
 	usage, model, err := parseOneShotStream(providers.ProtocolOpenAI, strings.NewReader(stream), &out)
 	if err != nil || out.String() != big+"end" || model != "m" || usage != (wire.Usage{InputTokens: 2, OutputTokens: 1}) {
 		t.Fatalf("err=%v len=%d model=%q usage=%+v", err, out.Len(), model, usage)
+	}
+}
+
+func TestHTTPRunnerGeminiChatParts(t *testing.T) {
+	for _, content := range []string{
+		`"hello"`,
+		`[{"type":"text","text":"hel"},{"type":"text","text":"lo"}]`,
+		`[{"type":"reasoning","text":"private"},{"type":"text","text":"hello"}]`,
+	} {
+		t.Run(content, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/chat/completions" {
+					t.Errorf("path = %q, want existing chat endpoint", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: {\"model\":\"gemini-served\",\"choices\":[{\"delta\":{\"content\":%s},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n", content)
+			}))
+			defer srv.Close()
+			p := &providers.Provider{Name: "test", Protocol: providers.ProtocolOpenAI, BaseURL: srv.URL,
+				Auth: providers.Auth{Type: providers.AuthNone}}
+			req := RunOptions{Prompt: "ping", HTTPDirect: true}
+			if !CanOneShotHTTP(p, "gemini-requested", req) {
+				t.Fatal("this request must already be HTTP-eligible")
+			}
+			var stream bytes.Buffer
+			res, err := OneShotHTTP(t.Context(), providers.Target{Provider: p, Model: "gemini-requested"}, req, wire.NewTextSink(&stream))
+			want := wire.Result{Provider: "test", Model: "gemini-served", Reported: "gemini-served", Answer: "hello",
+				Usage: wire.Usage{InputTokens: 5, OutputTokens: 2}}
+			if err != nil || !reflect.DeepEqual(res, want) || stream.String() != "hello" {
+				t.Fatalf("result=%+v stream=%q err=%v, want %+v", res, stream.String(), err, want)
+			}
+		})
 	}
 }

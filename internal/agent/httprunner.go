@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/platform/httpx"
 	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/remote/egress"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/served"
@@ -216,6 +217,9 @@ func parseOneShotStream(dialect string, r io.Reader, w io.Writer) (wire.Usage, s
 	br := bufio.NewReader(r)
 	for {
 		line, readErr := br.ReadBytes('\n')
+		if dialect == providers.ProtocolOpenAI {
+			line = translate.FlattenChatStreamLine(line)
+		}
 		data, ok := sseDataLine(line)
 		if ok {
 			stop, err := applyOneShotData(dialect, data, w, &usage, &served, &done)
