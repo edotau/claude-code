@@ -194,6 +194,9 @@ func (r *Router) modelCooling(t providers.Target) bool {
 
 // hopBlocked reports a hop target that is cooling, quota-dead for its model, auth-marked or without a credential.
 func (r *Router) hopBlocked(state router.State, t providers.Target) bool {
+	if t.Provider == nil || t.Provider.Preset != providers.PresetDatabricks {
+		return true
+	}
 	if _, marked := state.AuthMarked(router.AccountOf(t.Provider), r.now()); marked {
 		return true
 	}
@@ -211,14 +214,10 @@ func (r *Router) tpmHop(in *http.Request, cur providers.Target, ok func(provider
 	start := slices.Index(names, cur.Provider.Name)
 	for k := range names {
 		p := reg.Providers[names[(start+1+k)%len(names)]]
-		if p == nil || p.Name == cur.Provider.Name || p.Preset != providers.PresetDatabricks {
-			continue
-		}
 		t := providers.Target{Provider: p, Model: cur.Model, ContextTokens: cur.ContextTokens}
-		if len(confineLadder(in, []providers.Target{t})) == 0 || r.hopBlocked(state, t) || !ok(t) {
-			continue
+		if p != cur.Provider && !r.hopBlocked(state, t) && len(confineLadder(in, []providers.Target{t})) > 0 && ok(t) {
+			return t, true
 		}
-		return t, true
 	}
 	return providers.Target{}, false
 }

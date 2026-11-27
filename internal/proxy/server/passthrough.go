@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/driver/googletools"
@@ -98,18 +97,14 @@ func (r *Router) forwardPassthrough(sw *statusWriter, in *http.Request,
 	if !ok {
 		return
 	}
-	var err error
 	if err := safeRest(rest); err != nil {
 		writeError(sw, http.StatusBadRequest, err.Error())
 		return
 	}
 	query := in.URL.RawQuery
 	if dbxGemini {
-		if rest, query, model, err = geminiGatewayCall(p, rest, in.URL.Query()); err != nil ||
-			in.Method != http.MethodPost {
-			if err == nil {
-				err = errors.New("proxy: databricks gemini route takes POST only")
-			}
+		var err error
+		if rest, query, model, err = geminiGatewayCall(p, in.Method, rest, in.URL.Query()); err != nil {
 			writeError(sw, http.StatusNotFound, err.Error())
 			return
 		}
@@ -176,7 +171,7 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 		writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
 		return model, "", p.Name
 	}
-	return r.passthroughResponse(sw, in, p, route, path, model, dialect, body, original, geminiChat)
+	return r.passthroughResponse(sw, in, passthroughHop{p, route, path, body, model, geminiChat}, dialect, original)
 }
 
 // passthroughBodyState keeps the original map immutable; each hop owns a shallow copy of its raw values.
@@ -340,32 +335,31 @@ func (h passthroughHop) target() string {
 }
 
 // nextHop picks the next untried sibling and prepares its request; false leaves the caller relaying what it has.
-func (r *Router) nextHop(in *http.Request, origin *providers.Provider, cur passthroughHop, dialect string,
-	tried map[string]bool, status int, cause error, path *url.URL, original []byte) (passthroughHop, bool) {
-	next, nextRoute := r.passthroughFallback(in, origin, cur.p, cur.model, dialect, tried, status, cause)
+func (r *Router) nextHop(tc *passthroughTPM, cur passthroughHop, status int, cause error) (passthroughHop, bool) {
+	next, nextRoute := r.passthroughFallback(tc.in, tc.origin, cur.p, cur.model, tc.dialect, tc.tried, status, cause)
 	if next == nil {
 		return cur, false
 	}
-	hop, err := r.preparePassthroughHop(in, next, nextRoute, path, cur.model, dialect, original)
+	hop, err := r.preparePassthroughHop(tc.in, next, nextRoute, tc.path, cur.model, tc.dialect, tc.original)
 	if err != nil {
 		return cur, false
 	}
 	return hop, true
 }
 
-func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
-	route string, path *url.URL, model, dialect string, body, original []byte, geminiChat bool) (string, string, string) {
+func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, cur passthroughHop, dialect string,
+	original []byte) (string, string, string) {
+	p, path := cur.p, cur.path
 	tried := map[string]bool{p.Name: true}
-	cur := passthroughHop{p, route, path, body, model, geminiChat}
 	tc := passthroughTPM{in: in, origin: p, dialect: dialect, tried: tried, path: path, original: original}
-	if r.modelCooling(providers.Target{Provider: p, Model: model}) {
+	if r.modelCooling(providers.Target{Provider: p, Model: cur.model}) {
 		cur, _ = r.tpmPassthroughHop(&tc, cur, "TPM cooling")
 	}
 	for { // each hop marks a new sibling tried, so passthroughFallback ends the loop
 		hopIn := withFastHeader(in, len(tried) == 1 && sessionFailoverProvider(in) != "", cur.model)
 		resp, body, retried, err := r.sendHop(hopIn, cur, cur.target(), isChatCompletion(dialect, cur.path.Path))
 		if err != nil {
-			if next, ok := r.nextHop(in, p, cur, dialect, tried, 0, err, path, original); ok {
+			if next, ok := r.nextHop(&tc, cur, 0, err); ok {
 				cur = next
 				continue
 			}
@@ -374,7 +368,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 		}
 		cur.body = body
 		hint := retry.ParseShouldRetry(resp.Header.Get("X-Should-Retry"))
-		if next, ok := r.retryPassthroughResp(&tc, in, p, cur, dialect, tried, path, original, resp, hint); ok {
+		if next, ok := r.retryPassthroughResp(&tc, cur, resp, hint); ok {
 			_ = resp.Body.Close()
 			cur = next
 			continue
@@ -394,13 +388,13 @@ func (r *Router) finishPassthroughSendErr(sw *statusWriter, in *http.Request, p 
 	writePassthroughSendError(sw, in, p, err)
 }
 
-func (r *Router) retryPassthroughResp(tc *passthroughTPM, in *http.Request, origin *providers.Provider, cur passthroughHop,
-	dialect string, tried map[string]bool, path *url.URL, original []byte, resp *http.Response, hint retry.ShouldRetry) (passthroughHop, bool) {
+func (r *Router) retryPassthroughResp(tc *passthroughTPM, cur passthroughHop, resp *http.Response,
+	hint retry.ShouldRetry) (passthroughHop, bool) {
 	if next, ok := r.after429(tc, cur, resp, hint); ok {
 		return next, true
 	}
-	if passthroughRetryable(in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
-		return r.nextHop(in, origin, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original)
+	if passthroughRetryable(tc.in, resp.StatusCode, hint) && (!tc.hopped || resp.StatusCode != http.StatusTooManyRequests) {
+		return r.nextHop(tc, cur, resp.StatusCode, errors.New(resp.Status))
 	}
 	return cur, false
 }
@@ -464,7 +458,7 @@ func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, 
 	if dbxGemini {
 		var err error
 		_, _, rest, _ := parsePassthrough(in.URL.Path)
-		if nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, rest, in.URL.Query()); err != nil {
+		if nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, in.Method, rest, in.URL.Query()); err != nil {
 			return passthroughHop{}, err
 		}
 	}
@@ -580,8 +574,7 @@ const (
 	effortNoneCap = 256
 )
 
-// sendHop sends one hop; a chat call to a pair known to refuse tools with effort sends none up front,
-// and if that still answers 400 the pair is forgotten and the plain send-then-retry path runs.
+// sendHop sends one hop; known effort-refusing pairs send reasoning_effort "none" up front and fall back on 400.
 func (r *Router) sendHop(in *http.Request, cur passthroughHop, target string,
 	chat bool) (*http.Response, []byte, string, error) {
 	if chat && !models.ResponsesOnly(cur.model) && r.effortRefused(cur.p.Name, cur.model) {
@@ -650,8 +643,7 @@ func (r *Router) markEffortRefused(provider, model string, on bool) {
 	r.effortNone[key] = now.Add(effortNoneTTL + jitter)
 }
 
-// retryWithoutEffort resends a chat body once with reasoning_effort "none" after a 400 on tools, even if none was sent;
-// a Responses-only model rejects none, so its 400 passes through.
+// retryWithoutEffort resends a chat body once with reasoning_effort "none" after a non-Responses-only 400 on tools.
 func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, target, model string,
 	resp *http.Response, body []byte) (*http.Response, []byte, string) {
 	if resp.StatusCode != http.StatusBadRequest || models.ResponsesOnly(model) {
@@ -967,7 +959,7 @@ func logMessage(s string) string {
 		if n == 160 {
 			break
 		}
-		if !unicode.IsControl(c) {
+		if c >= 0x20 && c != 0x7f && (c < 0x80 || c > 0x9f) {
 			b.WriteRune(c)
 			n++
 		}
@@ -1021,13 +1013,16 @@ var geminiCallRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^v1beta/models/([A-Za-z0-9._-]+):(generateContent|streamGenerateContent)$`)
 })
 
-// geminiGatewayCall maps an allowed call onto the row's wire id; the query keeps only alt=sse.
-func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, query, model string, err error) {
+// geminiGatewayCall maps an allowed POST call onto the row's wire id; the query keeps only alt=sse.
+func geminiGatewayCall(p *providers.Provider, method, rest string, q url.Values) (path, query, model string, err error) {
 	m := geminiCallRE().FindStringSubmatch(rest)
 	if m == nil {
 		return "", "", "", errors.New(
 			"proxy: databricks gemini route serves only v1beta/models/<id>:(stream)GenerateContent",
 		)
+	}
+	if method != http.MethodPost {
+		return "", "", "", errors.New("proxy: databricks gemini route takes POST only")
 	}
 	model = p.WireModel(m[1])
 	if q.Get("alt") == "sse" {

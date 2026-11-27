@@ -61,35 +61,28 @@ type Router struct {
 	dead     map[string]time.Time // provider:model → quota-dead until (a hard 429: the key cannot use that model)
 	deadAt   map[string]time.Time // provider:model → when its dead mark landed in quota.json
 	cred     map[string]time.Time // provider name → present-credential cache expiry (credTTL)
-	// provider name → generation, bumped on invalidate so a stale in-flight probe never resurrects it
-	credGen map[string]int
-
-	// cached router.LoadState() for attempts: auth marks and persisted quota-dead models
-	authState router.State
-	authAt    time.Time // when authState was loaded
-	// bumped by condemn: a load begun before its mark is not cached
-	authGen int
-	// provider names this process marked auth-dead: cleared on their next success
-	marked map[string]bool
+	// provider → generation, bumped on invalidate so a stale in-flight probe never resurrects it
+	credGen   map[string]int
+	authState router.State // cached router.LoadState() for attempts: auth marks and persisted quota-dead models
+	authAt    time.Time    // when authState was loaded
+	authGen   int          // bumped by condemn: a load begun before its mark is not cached
+	marked    map[string]bool
 	// provider:endpoint pairs already recorded as deprecated by this process, guarded by mu
 	deprecated map[string]bool
 	used       map[string]profileUse // provider name → last request time and egress host, for the keepalive loop
 	ka         keepalive
-	// scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
-	files map[string]fileEntry
+	files      map[string]fileEntry // scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	// provider\x00model → until when its chat tools refuse reasoning_effort, so none goes up front; guarded by mu
 	effortNone map[string]time.Time
-	// sha256 of the bearer the Files API refused; a new credential clears it
-	filesOff  string
-	filesTill time.Time // filesOff holds until then (filesOffTTL)
+	filesOff   string    // sha256 of the bearer the Files API refused; a new credential clears it
+	filesTill  time.Time // filesOff holds until then (filesOffTTL)
 	// cached vault CLAUDE_CODE_OAUTH_TOKEN ("" = none sealed), for the passthrough fallback
 	oauthTok string
 	oauthAt  time.Time         // oauthTok is valid until oauthAt+credTTL, a miss until oauthAt+oauthMissTTL
 	oauth    func() string     // reads the sealed subscription token; a seam for tests
 	headers  map[string]string // validated HARNESS_HEADERS, canonical names
-	// swapSeen is when each (profile, asked, served) swap was last logged, guarded by swapMu
 	swapMu   sync.Mutex
-	swapSeen map[string]time.Time
+	swapSeen map[string]time.Time // when each (profile, asked, served) swap was last logged, guarded by swapMu
 }
 
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
@@ -281,21 +274,16 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	if !ok {
 		return session, model, 0
 	}
-	clientModel := models.Strip1M(plain)                                                     // the ledger keeps the plain id; the row is the target's
-	w.meta.plain, w.meta.route, in = clientModel, target.Provider.Name, withMeta(in, w.meta) // route: as resolved
-	clientAuth := in.Header.Get("Authorization") != "" ||
-		r.oauthToken() != "" // the sealed token authenticates passthrough
+	clientModel := models.Strip1M(plain) // the ledger keeps the plain id; the row is the target's
+	w.meta.plain, w.meta.route, in = clientModel, target.Provider.Name, withMeta(in, w.meta)
+	clientAuth := in.Header.Get("Authorization") != "" || r.oauthToken() != ""
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
 		writeError(w, http.StatusBadRequest, "proxy: "+msg)
 		return target.Provider.Name, target.Model, 0
 	}
-	ladder := r.attempts(in, reg, target, clientAuth)
-	ladder.spendCap = reg.Routing.SpendCap
-	if !count {
-		var ok bool
-		if ladder, ok = r.capLadder(w, in, ladder); !ok {
-			return target.Provider.Name, target.Model, 0
-		}
+	ladder, ok := r.capLadder(w, in, r.attempts(in, reg, target, clientAuth), count)
+	if !ok {
+		return target.Provider.Name, target.Model, 0
 	}
 	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
@@ -426,8 +414,7 @@ func (r *Router) noteFailure(ladder []providers.Target, i int, err error) []prov
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
 func (r *Router) attempts(in *http.Request, reg *providers.Registry, target providers.Target, clientAuth bool) attemptLadder {
 	out := r.failoverLadderFor(in, reg, target, clientAuth)
-	// A model this key cannot use at all is replaced by its provider's next slot up front.
-	for i, t := range out {
+	for i, t := range out { // replace any model this key cannot use with its provider's next slot up front
 		if r.isDead(t) {
 			if d, ok := r.demotion(t); ok {
 				r.noteSwap(t.Provider.Name, t.Model, d.Model, "quota-dead for this key")
@@ -448,7 +435,7 @@ func (r *Router) attempts(in *http.Request, reg *providers.Registry, target prov
 	if target.Provider.Preset == providers.PresetDatabricks && first > 2 {
 		first = sort.Search(first, func(i int) bool { return cooling(out[i]) })
 	}
-	return attemptLadder{rows: out, primary: target, coolingFrom: first}
+	return attemptLadder{rows: out, primary: target, coolingFrom: first, spendCap: reg.Routing.SpendCap}
 }
 
 // failoverLadderFor adds reg.Fallback plus, for auto-failover tokens, same-provider healthy siblings.
@@ -736,10 +723,7 @@ func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	if err != nil || ok {
 		return resp, err
 	}
-	r.invalidateCredential(
-		p.Name,
-	) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
-	// one atomic step per profile: a token a peer minted since rejected is adopted, else this call mints
+	r.invalidateCredential(p.Name) // before Refresh: a failure must not leave a stale "present" cached
 	credential, err := providers.RefreshRejected(ctx, p, rejected)
 	if err != nil {
 		return nil, r.authFailure(ctx, p, err)
@@ -755,8 +739,7 @@ func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	return resp, nil
 }
 
-// replayReminted replays the credential a peer request already re-minted for this identity; ok is false when none
-// exists or it is rejected (a non-credential 403 is relayed as is); rejected is the last credential refused.
+// replayReminted replays a peer's re-minted credential; ok is false when none exists or it is rejected.
 func replayReminted(ctx context.Context, p *providers.Provider, sent string,
 	do func(string) (*http.Response, error)) (resp *http.Response, rejected string, ok bool, err error) {
 	if sent == "" {

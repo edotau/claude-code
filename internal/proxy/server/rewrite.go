@@ -56,25 +56,22 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, model, false
 	}
-	target := parsed
-	if served, ok := r.builtinSonnetSwap(reg, target, model); ok {
-		r.noteSwap(target.Provider.Name, target.Model, served.Model, "Claude Code's built-in Sonnet 5, not pinned or typed")
-		target = served
+	if served, ok := r.builtinSonnetSwap(reg, parsed, model); ok {
+		r.noteSwap(parsed.Provider.Name, parsed.Model, served.Model, "Claude Code's built-in Sonnet 5, not pinned or typed")
+		parsed = served
 	}
-	if err := fableRefusal(reg, target); err != nil {
+	if err := fableRefusal(reg, parsed); err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, model, false
 	}
-	// a resolved target outside a token's profiles is a 403
-	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
+	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, parsed.Provider.Name) {
 		writeError(w, http.StatusForbidden, "proxy: this token is limited to profiles "+strings.Join(scope, ", "))
-		return target, model, false
+		return parsed, model, false
 	}
-	return target, model, true
+	return parsed, model, true
 }
 
-// builtinSonnetSwap is the profile's current Sonnet for Claude Code's own `[1m]`-marked Sonnet 5 on Databricks; a pinned
-// or typed Sonnet 5 never carries the marker (Claude 5+ is 1M by default), so it is not swapped (R8).
+// builtinSonnetSwap swaps Claude Code's own `[1m]`-marked Sonnet 5 on Databricks to the profile's current Sonnet (R8).
 func (r *Router) builtinSonnetSwap(reg *providers.Registry, t providers.Target, raw string) (providers.Target, bool) {
 	if t.Provider.SpellingRule() != "databricks-serving" || !models.Has1M(strings.TrimSpace(raw)) {
 		return providers.Target{}, false
@@ -115,7 +112,7 @@ func fableRefusal(reg *providers.Registry, t providers.Target) error {
 	return fmt.Errorf("model %s: profile %s serves no Fable, and no Opus id is known for it", t.Model, t.Provider.Name)
 }
 
-// opusID is p's Opus id: the session pin, else p's own table, else the catalog's Opus spelled for p; never a non-Opus id.
+// opusID is p's Opus id: the session pin, else p's own table, else the catalog's Opus spelled for p.
 func opusID(reg *providers.Registry, p *providers.Provider) string {
 	var pinned string
 	if sel, err := providers.Select(reg, p.Name); err == nil && sel.Aliases[models.Opus].Provider == p {

@@ -564,7 +564,10 @@ func (r *Router) spendCapRefused(w http.ResponseWriter, in *http.Request, c prov
 }
 
 // capLadder drops metered rows once a cap is spent; false means none was left and the 402 is written.
-func (r *Router) capLadder(w http.ResponseWriter, in *http.Request, l attemptLadder) (attemptLadder, bool) {
+func (r *Router) capLadder(w http.ResponseWriter, in *http.Request, l attemptLadder, count bool) (attemptLadder, bool) {
+	if count {
+		return l, true
+	}
 	msg, hit := r.spendCapHit(in, l.spendCap)
 	if !hit {
 		return l, true
