@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/providers"

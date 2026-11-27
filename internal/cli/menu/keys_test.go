@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/dev/configure"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/routing/providers"

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/remote/network/remote"
 	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
@@ -89,6 +88,9 @@ func (k routeKey) check(v string) error {
 	return nil
 }
 
+// IsSelfHost reports whether a host names this machine; remote/network/remote sets it when linked, else never.
+var IsSelfHost = func(string) bool { return false }
+
 // checkCrossKeys applies the rules spanning several routing keys: a route names provider and profile together.
 func (o Overlay) checkCrossKeys() error {
 	if err := cmp.Or(o.checkRouteUnit(), o.checkRouteScope()); err != nil {
@@ -97,7 +99,7 @@ func (o Overlay) checkCrossKeys() error {
 	switch {
 	case strings.ContainsFunc(o.Profile, func(r rune) bool { return r == ':' || unicode.IsSpace(r) }):
 		return errors.New("profile: want a name without ':' or spaces")
-	case o.Remote != "" && o.Host != "" && !remote.IsSelf(o.Host):
+	case o.Remote != "" && o.Host != "" && !IsSelfHost(o.Host):
 		return ErrRemoteWithHost
 	}
 	return nil

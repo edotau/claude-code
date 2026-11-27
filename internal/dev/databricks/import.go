@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )

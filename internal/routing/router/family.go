@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/driver/copilotauth"
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/models"
 
@@ -90,13 +89,16 @@ func droppedSet(p *providers.Provider) map[string]bool {
 	return out
 }
 
+// CopilotIDs reads a Copilot row's enabled ids; driver/copilotauth sets it, else none.
+var CopilotIDs = func(*providers.Provider) []string { return nil }
+
 // firstPartyIDs is the list the harness already keeps for p's sign-in row: copilot's snapshot, codex's cache.
 func firstPartyIDs(p *providers.Provider) []string {
 	switch {
 	case p == nil:
 		return nil
 	case p.Provider == "github":
-		return copilotauth.IDs(p)
+		return CopilotIDs(p)
 	case p.Auth.Login == "codex":
 		return providers.CodexCachedIDs()
 	}

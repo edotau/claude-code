@@ -116,7 +116,7 @@ func TestRotationAndMalformedLines(t *testing.T) {
 	}
 }
 
-// TestAuditLogSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
+// TestAuditLogSchemaStampsNewLinesAndSkipsNewer: unstamped lines read, new ones carry schema 1, newer are skipped.
 func TestAuditLogSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	ts := time.Now().UTC().Format(time.RFC3339)

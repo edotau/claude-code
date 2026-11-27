@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/providers"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // CatalogRecord is the sealed vault record holding the latest GitHub Copilot catalog snapshot, any account.
@@ -85,6 +86,8 @@ func rowLogin(p *providers.Provider) string {
 	}
 	return p.Login
 }
+
+func init() { router.CopilotIDs = IDs }
 
 // IDs is the enabled ids of the Copilot catalog snapshot kept for row p's account, memoized per login.
 func IDs(p *providers.Provider) []string {

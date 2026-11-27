@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/dev/worktree/worktreetest"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/settings"

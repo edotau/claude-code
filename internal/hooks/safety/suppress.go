@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"

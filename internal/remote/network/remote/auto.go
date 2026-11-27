@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/schemas"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
@@ -81,6 +82,8 @@ func ResolveAuto(host string) (string, error) {
 		}
 	})
 }
+
+func init() { agentconfig.IsSelfHost = IsSelf }
 
 // IsSelf reports whether host names this machine (tailscale.IsLocalHost); `auto` and a blank host never do.
 func IsSelf(host string) bool {

@@ -15,11 +15,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
-	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/dev/configure"
 	"github.com/edotau/claude-code/internal/dev/preflight"
 	"github.com/edotau/claude-code/internal/driver/claude"
 	"github.com/edotau/claude-code/internal/driver/copilot"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"

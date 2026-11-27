@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/schemas"
 	"github.com/edotau/claude-code/internal/routing/inflight"

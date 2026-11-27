@@ -11,8 +11,8 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/permission"
 	"github.com/edotau/claude-code/internal/platform/shell"

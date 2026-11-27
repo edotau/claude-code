@@ -23,7 +23,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/schemas"
 )

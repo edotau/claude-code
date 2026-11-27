@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/remote/network/remote"

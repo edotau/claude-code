@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 )
 
 // service labels every account this harness stores (secret-tool's service, `security -s`).

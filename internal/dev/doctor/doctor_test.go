@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/proxy"

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/driver/copilotauth"
 	_ "github.com/edotau/claude-code/internal/platform/nonet"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
@@ -62,10 +61,12 @@ func TestMarkModelDead(t *testing.T) {
 func familyDeadFixture(t *testing.T, reads *int) *providers.Registry {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	copilotauth.StubRead(t, func(string) []string {
+	prev := CopilotIDs
+	t.Cleanup(func() { CopilotIDs = prev })
+	CopilotIDs = func(*providers.Provider) []string {
 		*reads++
 		return []string{"gpt-6.1-sol", "gpt-6.2-sol", "gpt-6-astra"}
-	}, nil)
+	}
 	return &providers.Registry{Providers: map[string]*providers.Provider{"octo": {Name: "octo", Provider: "github"}}}
 }
 

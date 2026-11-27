@@ -351,3 +351,43 @@ func TestWriterRegistryRejectsUnregisteredAndStale(t *testing.T) {
 		}
 	})
 }
+
+// TestDomainLayers fails when a lower domain (assets, platform, routing) imports a higher one; cli/ui is a shared leaf.
+func TestDomainLayers(t *testing.T) {
+	root := filepath.Join("..", "..") // internal/
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		rel, _ := filepath.Rel(root, p)
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") || !lowerDomain(filepath.ToSlash(rel)) {
+			return err
+		}
+		bad, err := higherImports(fset, p)
+		for _, to := range bad {
+			t.Errorf("%s imports higher domain %s", filepath.ToSlash(rel), to)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func higherImports(fset *token.FileSet, p string) ([]string, error) {
+	f, err := parser.ParseFile(fset, p, nil, parser.ImportsOnly)
+	if err != nil {
+		return nil, err
+	}
+	var bad []string
+	for _, imp := range f.Imports {
+		to, ok := strings.CutPrefix(strings.Trim(imp.Path.Value, `"`), "github.com/edotau/claude-code/internal/")
+		if ok && !lowerDomain(to) && !strings.HasPrefix(to, "cli/ui/") {
+			bad = append(bad, to)
+		}
+	}
+	return bad, nil
+}
+
+func lowerDomain(rel string) bool {
+	top, _, _ := strings.Cut(rel, "/")
+	return top == "assets" || top == "platform" || top == "routing"
+}

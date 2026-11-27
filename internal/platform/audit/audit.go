@@ -230,7 +230,7 @@ func Summary(events []Event) map[Action]int {
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{
-	Name: "audit", Owner: "internal/dev/audit", Kind: schemas.Log,
+	Name: "audit", Owner: "internal/platform/audit", Kind: schemas.Log,
 	Glob:    func() string { return logFile() + "*" },
 	New:     func() any { return &Event{} },
 	Version: schemaVersion, Keep: "audit trail is kept; rotated at 1 MiB", Migrate: schemas.SameShape,

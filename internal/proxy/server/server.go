@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/audit"
+	"github.com/edotau/claude-code/internal/platform/audit"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
