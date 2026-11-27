@@ -15,7 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 )
 
 func startFleet(t *testing.T, parent, id string, role contract.Role) error {

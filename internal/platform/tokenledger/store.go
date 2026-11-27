@@ -222,7 +222,7 @@ func (c *sessionLedger) readTail(f *os.File, size int64, id, day string) (tally,
 const schemaVersion = 1
 
 var format = schemas.Register(schemas.Format{
-	Name: "usage-ledger", Owner: "internal/dev/tokenledger", Kind: schemas.Log,
+	Name: "usage-ledger", Owner: "internal/platform/tokenledger", Kind: schemas.Log,
 	Glob:    Path,
 	New:     func() any { return &Entry{} },
 	Version: schemaVersion, Keep: "usage history is the ledger of record", Migrate: schemas.SameShape,

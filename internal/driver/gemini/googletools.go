@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/driver/googletools"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 

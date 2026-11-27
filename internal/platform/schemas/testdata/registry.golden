@@ -44,7 +44,7 @@ bench-history | log | 1 | state/harness/bench/*/history.jsonl | internal/dev/rev
 claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks/wthook | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/driver/codex | keep
 codex-routing | log | 1 | state/harness/codex/routing-*.jsonl | internal/hooks | clean:codex-audit
-contract | record | 1 | state/harness/contract/*.json | internal/dev/contract | keep
+contract | record | 1 | state/harness/contract/*.json | internal/platform/contract | keep
 coworker-overlay | wire | 2 | - | internal/routing/agentconfig | keep
 desktop-meta | derived | 0 | <fixed at init> | internal/dev/desktop | keep
 desktop-profile | derived | 0 | <fixed at init> | internal/dev/desktop | keep
@@ -89,7 +89,7 @@ tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | interna
 token-expiry | cache | 2 | state/harness/cache/token-expiry/*.json | internal/routing/providers | keep
 transcript-summary | cache | 2 | state/harness/transcript/summary.json | internal/dev/transcript | keep
 upstream-latest | cache | 1 | state/harness/doctor/upstream-latest.json | internal/dev/doctor | keep
-usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/dev/tokenledger | keep
+usage-ledger | log | 1 | state/usage/ledger.jsonl | internal/platform/tokenledger | keep
 vault | store | 8 | state/vault.db | vault | keep
 vendor-baseline | derived | 1 | state/harness/vendor-baseline/* | internal/routing/agentconfig | keep
 worktree-land-op | record | 1 | state/harness/worktree-land-ops/*.json | internal/dev/worktree | keep

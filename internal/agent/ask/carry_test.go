@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 	"github.com/edotau/claude-code/internal/platform/paths/pathstest"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/vault"

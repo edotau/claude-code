@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/contract"
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/dev/worktree"
+	"github.com/edotau/claude-code/internal/platform/contract"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 

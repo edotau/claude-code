@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/tree"
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 )
 
 // contractRows reports contracts by state, read-only like the rest of doctor; `agents cancel --lost` reaps them.

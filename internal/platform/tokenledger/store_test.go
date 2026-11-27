@@ -157,7 +157,7 @@ func TestOldLinesParseAndProfileName(t *testing.T) {
 	}
 }
 
-// TestUsageLedgerSchemaStampsNewLinesAndSkipsNewer pins: unstamped lines read, new lines carry schema 1, schema-2 lines are skipped.
+// TestUsageLedgerSchemaStampsNewLinesAndSkipsNewer pins schema-1 stamping and skipping newer schema-2 lines.
 func TestUsageLedgerSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	seed := `{"ts":"2026-01-01T00:00:00Z","provider":"p","model":"old","input":1,"output":2,"cache_read":3}` + "\n" +

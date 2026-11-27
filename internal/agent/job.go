@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"

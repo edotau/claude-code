@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 )
 
 func TestParseProviderMode(t *testing.T) {

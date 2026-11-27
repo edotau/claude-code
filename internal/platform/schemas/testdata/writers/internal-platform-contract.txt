@@ -1,0 +1,2 @@
+internal/platform/contract/store.go:FailUnreadable	unversioned: a verbatim copy of the unreadable contract file kept as evidence
+internal/platform/contract/store.go:write	contract

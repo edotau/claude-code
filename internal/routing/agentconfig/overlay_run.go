@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/driver/googletools"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 )
 
 // runKeys are per-run keys; a child inherits only restrictions; the ask path reads them from task 3.1a on.

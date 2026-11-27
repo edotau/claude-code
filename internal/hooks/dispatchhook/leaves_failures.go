@@ -10,9 +10,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/health"
-	"github.com/edotau/claude-code/internal/dev/contract"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/platform/contract"
 	"github.com/edotau/claude-code/internal/platform/paths"
 )
 

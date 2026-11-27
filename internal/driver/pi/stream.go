@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 )
 
 // piEvent is one line of `pi --mode json`; only the fields the parser and the driver read are decoded.

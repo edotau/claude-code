@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/driver/googletools"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 	"github.com/edotau/claude-code/internal/routing/inflight"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"

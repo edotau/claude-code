@@ -15,9 +15,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/driver/googletools"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )

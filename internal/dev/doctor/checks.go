@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/dev/audit"
 	"github.com/edotau/claude-code/internal/dev/preflight"
 	"github.com/edotau/claude-code/internal/dev/setup"
-	"github.com/edotau/claude-code/internal/dev/tokenledger"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/driver/claude"
 	"github.com/edotau/claude-code/internal/driver/codex"
@@ -28,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/settings"
+	"github.com/edotau/claude-code/internal/platform/tokenledger"
 	"github.com/edotau/claude-code/internal/remote/tailscale"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )

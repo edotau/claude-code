@@ -15,7 +15,7 @@ import (
 
 // Format is the contract state file: one per contract id, written by Go only and trusted on load apart from Validate.
 var Format = schemas.Register(schemas.Format{
-	Name: "contract", Owner: "internal/dev/contract", Kind: schemas.Record, Version: SchemaVersion,
+	Name: "contract", Owner: "internal/platform/contract", Kind: schemas.Record, Version: SchemaVersion,
 	Glob: func() string { return filepath.Join(Dir(), "*.json") },
 	New:  func() any { return new(Contract) },
 	Keep: "a contract's terms and records; a failed one is kept as evidence until the owner removes it",

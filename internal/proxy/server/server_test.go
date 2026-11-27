@@ -19,9 +19,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/tokenledger"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/tokenledger"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/proxy"

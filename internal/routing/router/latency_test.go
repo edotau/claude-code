@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/dev/tokenledger"
+	"github.com/edotau/claude-code/internal/platform/tokenledger"
 )
 
 func setLatency(t *testing.T, tab latencyTable) {

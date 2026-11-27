@@ -13,7 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/driver/googletools"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 	"github.com/edotau/claude-code/internal/routing/models"
 )
 

@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/driver/googletools"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/proxy/translate"
+	"github.com/edotau/claude-code/internal/routing/googletools"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"

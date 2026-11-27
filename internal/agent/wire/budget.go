@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/dev/contract"
+	"github.com/edotau/claude-code/internal/platform/contract"
 	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
