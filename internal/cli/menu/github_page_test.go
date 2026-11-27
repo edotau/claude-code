@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/dev/github"
+	_ "github.com/edotau/claude-code/internal/driver/copilot/sdk"
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/vault/vaulttest"

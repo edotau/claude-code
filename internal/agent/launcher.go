@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -302,14 +301,11 @@ func (o *LaunchOptions) foldOverlay() error {
 	return nil
 }
 
-// foldModel folds overlay model via ask's flag > overlay precedence when no flag set o.Model.
+// foldModel fills an unset launch model from the overlay without overwriting a typed flag.
 func (o *LaunchOptions) foldModel(ov agentconfig.Overlay) {
-	fs := flag.NewFlagSet("launch", flag.ContinueOnError)
-	fs.StringVar(&o.Model, "model", o.Model, "")
-	if o.Model != "" {
-		_ = fs.Set("model", o.Model)
+	if o.Model == "" && ov.Model != "" {
+		o.Model = ov.Model
 	}
-	ov.Fold(fs)
 }
 
 // foldRoute takes the overlay's route whole and defaults the model its provider or pool implies.
