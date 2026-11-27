@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,21 +19,23 @@ import (
 var remotePage = helptext.Page{
 	Usage: "claude-code network remote --host <name> [flags] \"<task>\"\n" +
 		"claude-code network remote --host <name> --list [flags]\n" +
-		"claude-code network remote --host <name> --attach <session>",
+		"claude-code network remote --host <name> --attach <session> [--forward <port,...>]",
 	About: "Start an agent CLI in a detached tmux session on a tailnet host over ssh, then\n" +
-		"list its cc-* sessions (--list) or attach to one (--attach <session>).",
+		"list its cc-* sessions (--list) or attach to one (--attach <session>).\n" +
+		"An attach reconnects when the connection drops and re-opens its --forward ports.",
 }
 
 // dispatchFlagMode maps a mode-specific flag to the mode that owns it; --host/--list/--attach apply to every mode.
 var dispatchFlagMode = map[string]string{
 	"dir": "start", "agent": "start", "name": "start", "dry-run": "start",
-	"format": "list", "status": "list", "interval": "list",
+	"format": "list", "status": "list", "interval": "list", "forward": "attach",
 }
 
 type remoteFlags struct {
-	host, dir, agent, name, format string
-	dryRun, list, status, attach   bool
-	interval                       time.Duration
+	host, dir, agent, name, format, forward string
+	dryRun, list, status, attach            bool
+	interval                                time.Duration
+	ports                                   []int
 }
 
 func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
@@ -45,6 +49,7 @@ func addRemoteFlags(fs *flag.FlagSet) *remoteFlags {
 	fs.BoolVar(&f.status, "status", false, "with --list, classify each pane's state")
 	fs.DurationVar(&f.interval, "interval", 0, "with --status, sample every interval (0 = once)")
 	fs.BoolVar(&f.attach, "attach", false, "attach to a session on --host (positional: session name)")
+	fs.StringVar(&f.forward, "forward", "", "with --attach, forward local port(s) to the host: 3000 or 3000,8080")
 	f.format = helptext.Text
 	fs.Var(helptext.NewFormatValue(&f.format), "format", `--list output format: text|json (default "text")`)
 	return f
@@ -102,7 +107,27 @@ func checkRemoteFlags(fs *flag.FlagSet, f *remoteFlags, mode string) int {
 	if f.interval != 0 && !f.status {
 		return helptext.FailUsage("network remote: --interval applies with --status only")
 	}
+	if f.forward != "" {
+		ports, err := parsePorts(f.forward)
+		if err != nil {
+			return helptext.FailUsage("network remote: --forward: %v", err)
+		}
+		f.ports = ports
+	}
 	return 0
+}
+
+// parsePorts reads a comma-separated list of TCP ports, each 1..65535.
+func parsePorts(s string) ([]int, error) {
+	var ports []int
+	for v := range strings.SplitSeq(s, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("%q is not a port in 1..65535", v)
+		}
+		ports = append(ports, n)
+	}
+	return ports, nil
 }
 
 func (f remoteFlags) mode() string {
@@ -133,7 +158,7 @@ func dispatchRemoteMode(ctx context.Context, host, mode string, f *remoteFlags, 
 		if len(rest) != 1 {
 			return helptext.Fail("network remote --attach: give exactly one session name")
 		}
-		return dispatchAttach(host, rest[0])
+		return dispatchAttach(host, rest[0], f.ports)
 	default:
 		return dispatchStart(ctx, host, f.dir, f.agent, f.name, strings.Join(rest, " "), f.dryRun)
 	}
@@ -225,8 +250,12 @@ func printPaneStatus(statuses []paneStatus, format string) error {
 	return nil
 }
 
-func dispatchAttach(host, session string) int {
-	if err := attachSession(host, session, tailscale.IsLocalHost(context.Background(), host)); err != nil {
+func dispatchAttach(host, session string, ports []int) int {
+	err := attachSession(host, session, tailscale.IsLocalHost(context.Background(), host), ports)
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
+		return exit.ExitCode()
+	}
+	if err != nil {
 		return helptext.Fail("network remote --attach: %v", err)
 	}
 	return 0
