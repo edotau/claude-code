@@ -479,33 +479,6 @@ func TestClaimResendIgnoresMarkerFileContent(t *testing.T) {
 	}
 }
 
-// A claim and a reboot recovery of one holder: whichever decides second sees the claim and spawns nothing.
-func TestClaimResendThenRecoverJobDualClaim(t *testing.T) {
-	setConfigDir(t)
-	rec := deadRunning(t, nil)
-	entered, release := holdAt(t, "claim-resend")
-	claimed, recovered := make(chan error, 1), make(chan error, 1)
-	var ran bool
-	go func() { _, _, err := ClaimResend(rec.ID); claimed <- err }()
-	<-entered
-	go func() {
-		var err error
-		ran, err = RecoverJob(context.Background(), rec.ID, time.Now())
-		recovered <- err
-	}()
-	assertBlocked(t, recovered, "RecoverJob")
-	release()
-	if err := <-claimed; err != nil {
-		t.Fatalf("claim = %v", err)
-	}
-	if err := <-recovered; err != nil || ran {
-		t.Fatalf("RecoverJob after a claim = %t, %v; want no relaunch", ran, err)
-	}
-	if _, err := ClaimJob(rec.ID); !errors.Is(err, ErrJobNotFresh) {
-		t.Fatalf("ClaimJob after a claim = %v, want not fresh", err)
-	}
-}
-
 // A second live canceller is refused; the owner's rollback lifts the cancel; another's rollback leaves it.
 func TestCancelOwnerAndRollback(t *testing.T) {
 	setConfigDir(t)
@@ -746,26 +719,15 @@ func TestPruneRemovesRollbackMarker(t *testing.T) {
 }
 
 func TestOriginalJobFencesVoidClaimNonce(t *testing.T) {
-	for name, reboot := range map[string]bool{"job": false, "reboot": true} {
-		t.Run(name, func(t *testing.T) {
-			setConfigDir(t)
-			rec := deadRunning(t, nil)
-			rec.Resumer = &Claim{Phase: claimLaunching, Nonce: "late", PID: adapterDeadPID(t), Deadline: time.Now().Add(-time.Second)}
-			put(t, rec)
-			if reboot {
-				old := executable
-				executable = func() (string, error) { return "", errors.New("spawn refused") }
-				t.Cleanup(func() { executable = old })
-				if ran, err := RecoverJob(t.Context(), rec.ID, time.Now()); ran || err == nil {
-					t.Fatalf("reboot recovery = %t, %v, want failed spawn", ran, err)
-				}
-			} else if _, err := ClaimJob(rec.ID); err != nil {
-				t.Fatal(err)
-			}
-			if err := AdoptResend(rec.ID, "late", "late-child"); !errors.Is(err, ErrBadTransition) {
-				t.Fatalf("late nonce survived original job takeover: %v", err)
-			}
-		})
+	setConfigDir(t)
+	rec := deadRunning(t, nil)
+	rec.Resumer = &Claim{Phase: claimLaunching, Nonce: "late", PID: adapterDeadPID(t), Deadline: time.Now().Add(-time.Second)}
+	put(t, rec)
+	if _, err := ClaimJob(rec.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := AdoptResend(rec.ID, "late", "late-child"); !errors.Is(err, ErrBadTransition) {
+		t.Fatalf("late nonce survived original job takeover: %v", err)
 	}
 }
 

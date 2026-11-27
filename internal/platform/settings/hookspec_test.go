@@ -64,7 +64,9 @@ func TestPlanHooksRegistered(t *testing.T) {
 	byName := map[string]EventSpec{}
 	docsCount := 0
 	for _, s := range Specs() {
-		byName[s.Name] = s
+		if _, dup := byName[s.Name]; !dup {
+			byName[s.Name] = s
+		}
 		if s.Name == "docs-placement" {
 			docsCount++
 		}
@@ -87,9 +89,9 @@ func checkDocsPlacement(t *testing.T, byName map[string]EventSpec, docsCount int
 
 func checkDocsPlanMirror(t *testing.T, byName map[string]EventSpec) {
 	t.Helper()
-	mirror, ok := byName["docs-plan-mirror"]
-	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit" || mirror.Blocks {
-		t.Fatalf("docs-plan-mirror = %+v, ok=%v", mirror, ok)
+	mirror, ok := byName["docs-plan"]
+	if !ok || mirror.Event != EventPostToolUse || mirror.Matcher != "Write|Edit|ExitPlanMode|Bash" || mirror.Blocks {
+		t.Fatalf("docs-plan = %+v, ok=%v", mirror, ok)
 	}
 }
 
@@ -299,14 +301,14 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "native", -1, "worktree-claim-check", "rtk-rewrite", nil},
 		{"codex", "native", -1, "worktree-claim", "worktree-busy", nil},
 		{"codex", "native", -1, "rtk-rewrite", "worktree-busy", nil},
-		{"gemini", "native", 12, "safety-scan", "rtk-rewrite", []string{
-			"docs-placement", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-tick", "format-stop", "memory-start",
+		{"gemini", "native", 11, "safety-scan", "rtk-rewrite", []string{
+			"docs-placement", "docs-plan", "docs-plan", "format-stop", "memory-start",
 			"memory-update", "review-simplicity", "safety-scan", "safety-scan", "worktree-claim", "worktree-claim-check"}},
 		{"copilot", "native", -1, "memory-end", "memory-compact", nil},
 		{"opencode", "plugin", -1, "worktree-claim", "memory-end", nil},
 		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
-			"docs-placement", "docs-plan-mirror", "docs-plan-reminder",
-			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
+			"docs-placement", "docs-plan", "docs-plan",
+			"format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
 			"paths-resolve", "review-simplicity", "safety-scan", "safety-scan"}},
 		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},

@@ -25,7 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
-// dreamPreview is `memory dream --dry-run`'s deterministic report of the mechanical steps only.
+// dreamPreview is `memory update --dream --dry-run`'s deterministic report of the mechanical steps only.
 type dreamPreview struct {
 	Dir           string
 	Oversized     []string // bank files over cap
@@ -43,7 +43,7 @@ func (p dreamPreview) Any() bool {
 	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0 || len(p.HookP95) > 0
 }
 
-// Report renders the preview as `memory dream --dry-run`'s stdout.
+// Report renders the preview as `memory update --dream --dry-run`'s stdout.
 func (p dreamPreview) Report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "bank: %s\n", p.Dir)

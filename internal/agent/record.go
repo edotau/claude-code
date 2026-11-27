@@ -89,7 +89,7 @@ type Record struct {
 	Log            string      `json:"log,omitempty"`           // absolute path of the job's combined stdout+stderr log
 	Activity       *Activity   `json:"activity,omitempty"`      // running only: usage, tool calls and last event time so far
 	ToolStats      ToolStats   `json:"tool_stats,omitempty"`    // per tool name: calls, errors, total ms
-	Progress       string      `json:"progress,omitempty"`      // "part 2/3" or "queued <RFC3339Nano> <pool>"
+	Progress       string      `json:"progress,omitempty"`      // "part 2/3"
 	Owner          int         `json:"owner,omitempty"`         // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string      `json:"host,omitempty"`          // ask --host: the ssh host the dispatch ran on
 	FallbackPolicy string      `json:"fallback_mode,omitempty"` // the --fallback mode asked for (all|agents|none)
@@ -559,11 +559,7 @@ func (r Record) LogLine() string {
 	if r.Status == "running" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
-	status := r.Status
-	if r.QueueLine(time.Now()) != "" && r.Alive() {
-		status = "queued"
-	}
-	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, status, agentCol, elapsed, tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
+	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, elapsed, tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
 	if r.FallbackReason != "" {
 		line += fmt.Sprintf("%-28s   fallback: %s\n", "", r.FallbackReason)
 	}

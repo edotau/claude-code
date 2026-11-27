@@ -25,8 +25,8 @@ const (
 // jobCols are a dispatch row's columns: marker, agent, model, provider, profile, ↑in, ↓out, since, elapsed.
 var jobCols = []col{{}, {max: 18}, {fit: true}, {}, {}, {right: true}, {right: true}, {right: true}, {right: true}}
 
-// spanFrom is the first of the two token columns a queued row's span covers.
-const spanFrom = 5
+// tokIn is the ↑in token column; ↓out follows it.
+const tokIn = 5
 
 // col shapes one fixed column; the last cell of every row is free text, clipped to the width and never padded.
 type col struct {
@@ -67,7 +67,6 @@ type row struct {
 	level, indent int
 	cells         []string
 	hot           uint8  // bit c set: fixed cell c is painted when the layout is rendered with a paint
-	span          bool   // cell spanFrom fills its column and the next one, left-aligned
 	tint          string // SGR code for the marker glyph, applied only when the layout is painted
 	sel           bool   // the interactive selection: the whole row prints in reverse video
 	head          bool   // column names: sized by the data rows, clipped to them
@@ -97,10 +96,8 @@ func (l *layout) sep() {
 	}
 }
 
-// spanLast makes the last row's token cells one span, and selects it when sel is true.
-func (l *layout) spanLast(span, sel bool) {
-	l.rows[len(l.rows)-1].span, l.rows[len(l.rows)-1].sel = span, sel
-}
+// selectLast selects the last row when sel is true.
+func (l *layout) selectLast(sel bool) { l.rows[len(l.rows)-1].sel = sel }
 
 func (l *layout) free(indent int, text string) {
 	l.rows = append(l.rows, row{level: levelFree, indent: indent, cells: []string{text}})
@@ -160,21 +157,8 @@ func levelWidths(rows []row) [levelCount][]int {
 	}
 	for _, r := range rows {
 		for c := range levelCols[r.level] {
-			if !r.span || c != spanFrom && c != spanFrom+1 {
-				ws[r.level][c] = max(ws[r.level][c], textutil.DisplayWidth(r.cells[c]))
-			}
+			ws[r.level][c] = max(ws[r.level][c], textutil.DisplayWidth(r.cells[c]))
 		}
-	}
-	for _, r := range rows { // a span wider than its two columns widens the first, so ↑ and ↓ stay side by side
-		if !r.span {
-			continue
-		}
-		w := ws[r.level]
-		room := w[spanFrom]
-		if w[spanFrom+1] > 0 {
-			room += len(gap) + w[spanFrom+1]
-		}
-		w[spanFrom] += max(textutil.DisplayWidth(r.cells[spanFrom])-room, 0)
 	}
 	return ws
 }
@@ -240,12 +224,16 @@ func fitDispatch(rows []row, ws [levelCount][]int, level, width int) {
 		}
 		rows[i].cells[colAgent] = textutil.TruncateCells(r.cells[colAgent], cur[colAgent], "…")
 		rows[i].cells[colModel] = textutil.TruncateCells(r.cells[colModel], cur[colModel], "…")
-		if !keptIn && !r.span {
-			rows[i].cells[spanFrom], rows[i].cells[spanFrom+1] = "", ""
+		if !keptIn {
+			rows[i].cells[tokIn], rows[i].cells[tokIn+1] = "", ""
 		}
 	}
 	copy(w, cur)
-	truncSpan(rows, w, level)
+	for i, r := range rows {
+		if r.level == level {
+			rows[i].cells[tokIn] = textutil.TruncateCells(r.cells[tokIn], w[tokIn], "…")
+		}
+	}
 }
 
 // dispatchBudget spends width right to left: marker, elapsed, minimal agent and model, then the rest by priority.
@@ -277,68 +265,19 @@ func dispatchBudget(rows []row, w []int, level, width int) (cur []int, keptIn bo
 	whole(colProv, nat[colProv])
 	whole(colProf, nat[colProf])
 	whole(colSince, nat[colSince])
-	whole(spanFrom, plainSpanWidth(rows, level))
-	if cur[spanFrom] > 0 {
-		whole(spanFrom+1, nat[spanFrom+1])
+	whole(tokIn, tokInWidth(rows, level))
+	if cur[tokIn] > 0 {
+		whole(tokIn+1, nat[tokIn+1])
 	}
-	keptIn = cur[spanFrom] > 0
-	cur[spanFrom] = queueWidth(cur, spanWidth(rows, level), rem, keptIn)
-	return cur, keptIn
+	return cur, cur[tokIn] > 0
 }
 
-// queueWidth is the first token column's width once the queue text claims what is left; ↑in dropped needs 2 cells.
-func queueWidth(cur []int, span, rem int, keptIn bool) int {
-	if span == 0 {
-		return cur[spanFrom]
-	}
-	have := cur[spanFrom]
-	if cur[spanFrom+1] > 0 {
-		have += len(gap) + cur[spanFrom+1]
-	}
-	if have == 0 {
-		rem -= len(gap)
-	}
-	got := cur[spanFrom] + max(min(span-have, rem), 0)
-	if !keptIn && got < minAgent {
-		return 0
-	}
-	return got
-}
-
-// spanWidth is the widest span cell of level, the queue text a span row wants in the token columns.
-func spanWidth(rows []row, level int) int {
-	n := 0
-	for _, r := range rows {
-		if r.level == level && r.span {
-			n = max(n, textutil.DisplayWidth(r.cells[spanFrom]))
-		}
-	}
-	return n
-}
-
-// truncSpan cuts the level's first token cells to their column, a span row's to both token columns.
-func truncSpan(rows []row, w []int, level int) {
-	size := w[spanFrom]
-	if w[spanFrom+1] > 0 {
-		size += len(gap) + w[spanFrom+1]
-	}
-	for i, r := range rows {
-		if r.level == level {
-			cellWidth := w[spanFrom]
-			if r.span {
-				cellWidth = size
-			}
-			rows[i].cells[spanFrom] = textutil.TruncateCells(r.cells[spanFrom], cellWidth, "…")
-		}
-	}
-}
-
-// plainSpanWidth is what the level's non-span rows need of the first token column.
-func plainSpanWidth(rows []row, level int) int {
+// tokInWidth is what the level's data rows need of the ↑in column.
+func tokInWidth(rows []row, level int) int {
 	natural := 0
 	for _, r := range rows {
-		if r.level == level && !r.span && !r.head {
-			natural = max(natural, textutil.DisplayWidth(r.cells[spanFrom]))
+		if r.level == level && !r.head {
+			natural = max(natural, textutil.DisplayWidth(r.cells[tokIn]))
 		}
 	}
 	return natural
@@ -371,7 +310,7 @@ func (r row) line(ws []int, width int, paint string) string {
 	b.WriteString(strings.Repeat(" ", r.indent))
 	pos := r.indent
 	for c := range levelCols[r.level] {
-		size := r.cellSize(ws, c)
+		size := ws[c]
 		if size == 0 {
 			continue
 		}
@@ -395,19 +334,6 @@ func (r row) line(ws []int, width int, paint string) string {
 	return line
 }
 
-// cellSize is fixed cell c's printed width: a span covers the next column too, which then prints nothing.
-func (r row) cellSize(ws []int, c int) int {
-	switch {
-	case !r.span || c < spanFrom || c > spanFrom+1:
-		return ws[c]
-	case c == spanFrom+1:
-		return 0
-	case ws[c+1] > 0:
-		return ws[c] + len(gap) + ws[c+1]
-	}
-	return ws[c]
-}
-
 // cellText is cell c; a column name is clipped to the data's width.
 func (r row) cellText(c, size int) string {
 	if r.head {
@@ -421,7 +347,7 @@ func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint stri
 	if hot {
 		b.WriteString(paint)
 	}
-	padded := textutil.PadCells(r.cellText(c, size), size, levelCols[r.level][c].right && (!r.span || c != spanFrom))
+	padded := textutil.PadCells(r.cellText(c, size), size, levelCols[r.level][c].right)
 	if c == 0 && r.tint != "" && paint != "" && !r.sel {
 		padded = tintGlyph(padded, r.tint)
 	}

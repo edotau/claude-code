@@ -33,7 +33,7 @@ func exportBeforeRebuild() error {
 	rep, err := memory.ExportGuardLocked(edb, paths.MemoryStoreDir())
 	err = errors.Join(err, closeDB())
 	if err == nil && len(rep.Conflicts) > 0 {
-		return fmt.Errorf("memory: export conflicts %v: resolve them with `memory conflicts`, then rebuild again", rep.Conflicts)
+		return fmt.Errorf("memory: export conflicts %v: list them with `memory shadow --conflicts`, then rebuild again", rep.Conflicts)
 	}
 	return err
 }
@@ -239,18 +239,7 @@ func scopeForRel(rel string) (string, bool, error) {
 	return "", false, fmt.Errorf("memory: export import %s: outside scope", rel)
 }
 
-// adoptedRev is 1 for a doc new to the db (a plain import: no change rows), else 0 so edits are captured.
-func adoptedRev(ctx context.Context, tx *sql.Tx, doc string) (int, error) {
-	var had int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM docs WHERE path = ?`, doc).Scan(&had)
-	return 1 - min(had, 1), err
-}
-
 func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc) error {
-	adopted, err := adoptedRev(ctx, tx, d.path)
-	if err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO docs(path, kind, header, hidden, grammar, frontmatter)
 		VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET kind = excluded.kind, header = excluded.header,
 		hidden = excluded.hidden, grammar = excluded.grammar, frontmatter = excluded.frontmatter`,
@@ -258,10 +247,6 @@ func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc)
 		return err
 	}
 	oldRows, err := loadLiveEntries(ctx, tx, d.path)
-	if err != nil {
-		return err
-	}
-	before, err := readDocUIDs(ctx, tx, d.path)
 	if err != nil {
 		return err
 	}
@@ -282,16 +267,16 @@ func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc)
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version, rendered_rev)
-			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), ?)`,
-			d.path, en.id, en.seq, en.kind, en.lines, en.date, deriveArea(en.lines), adopted); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version)
+			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries))`,
+			d.path, en.id, en.seq, en.kind, en.lines, en.date, deriveArea(en.lines)); err != nil {
 			return err
 		}
 	}
 	if err := deleteUnused(ctx, tx, oldRows, used, e.moved); err != nil {
 		return err
 	}
-	return captureDocOrder(ctx, tx, d.path, before)
+	return nil
 }
 
 // claimMovedRows lets an unmatched id-marked entry reuse a unique row with the same id whose old doc dropped it.
@@ -382,14 +367,8 @@ func deleteUnused(ctx context.Context, tx *sql.Tx, oldRows []liveEntry, used, mo
 	return nil
 }
 
-// updateMatched rewrites a kept row; a doc move un-deletes an earlier guard-dropped row and rewrites its delete change.
+// updateMatched rewrites a kept row; a doc move un-deletes an earlier guard-dropped row.
 func updateMatched(ctx context.Context, tx *sql.Tx, doc string, e shadowEntry, rowid int64, edited bool) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE changes SET op = 'upsert', payload = json_object('doc', ?1, 'id', ?2, 'seq', ?3,
-		'kind', ?4, 'lines', ?5, 'date', ?6) WHERE entry_rowid = ?7 AND op = 'delete' AND origin = `+machineQ+`
-		AND origin_seq = (SELECT origin_seq FROM entries WHERE rowid = ?7 AND deleted = 1)`,
-		doc, e.id, e.seq, e.kind, e.lines, e.date, rowid); err != nil {
-		return err
-	}
 	_, err := tx.ExecContext(ctx, `UPDATE entries SET doc = ?9, id = ?1, seq = ?2, kind = ?3, date = ?4, area = ?5, deleted = 0,
 		version = version + ((?8 OR (id <> '' AND ?1 <> '' AND id <> ?1) OR kind <> ?3 OR date <> ?4) AND deleted = 0), lines = ?6 WHERE rowid = ?7`,
 		e.id, e.seq, e.kind, e.date, deriveArea(e.lines), e.lines, rowid, edited, doc)

@@ -466,7 +466,7 @@ func servedAlternatives(p *providers.Provider, model string, now time.Time) []st
 		out := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return familyKey(id) != fam || id == model })
 		return out[:min(len(out), maxAlternatives)]
 	}
-	s, ok := endpoints.Fresh(p.Name, now)
+	s, ok := endpoints.FreshShared(p.Name, now)
 	if !ok {
 		return nil
 	}
@@ -492,7 +492,7 @@ func chatServed(s endpoints.Served) func(endpoints.ServedModel) bool {
 
 // nonChatEndpoint is the task of wire in p's fresh listing when that endpoint is not a chat endpoint.
 func nonChatEndpoint(p *providers.Provider, wire string, now time.Time) (task string, bad bool) {
-	s, ok := endpoints.Fresh(p.Name, now)
+	s, ok := endpoints.FreshShared(p.Name, now)
 	if !ok || p.Preset != providers.PresetDatabricks {
 		return "", false
 	}

@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
-	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/hooktelemetry"
 	"github.com/edotau/claude-code/internal/hooks/lane"
 	"github.com/edotau/claude-code/internal/hooks/quality"
@@ -203,10 +202,10 @@ func guardBindingProbes() map[string]bindingProbe {
 	}
 }
 
-// planBindingProbes are the plan-file hooks: each leaves its own trace (a dated copy, a save error).
+// planBindingProbes is the docs-plan probe: its Write payload leaves a dated copy (routing: TestDocsPlanRoutesByTool).
 func planBindingProbes() map[string]bindingProbe {
 	return map[string]bindingProbe{
-		"docs-plan-mirror": func(t *testing.T, cfg string) (string, func(core.Result) bool) {
+		"docs-plan": func(t *testing.T, cfg string) (string, func(core.Result) bool) {
 			draft := filepath.Join(cfg, "plans", "draft.md")
 			err := os.MkdirAll(filepath.Dir(draft), 0o700)
 			if err == nil {
@@ -220,10 +219,18 @@ func planBindingProbes() map[string]bindingProbe {
 				return len(dated) == 1
 			}
 		},
-		"docs-plan-save": func(_ *testing.T, cfg string) (string, func(core.Result) bool) {
-			return `{"tool_name":"ExitPlanMode","tool_response":{"filePath":"` + filepath.Join(cfg, "absent.md") + `"}}`,
-				func(r core.Result) bool { return strings.Contains(r.Stderr, "save-plan:") }
-		},
+	}
+}
+
+// docs-plan picks its handler by tool: ExitPlanMode saves, a payload with no tool (Stop) only runs the watchdog.
+func TestDocsPlanRoutesByTool(t *testing.T) {
+	cfg := flagHarness(t)
+	save := `{"tool_name":"ExitPlanMode","tool_response":{"filePath":"` + filepath.Join(cfg, "absent.md") + `"}}`
+	if r := docsPlan(core.ParseInput(strings.NewReader(save))); !strings.Contains(r.Stderr, "save-plan:") {
+		t.Errorf("ExitPlanMode did not reach Save: %+v", r)
+	}
+	if r := docsPlan(core.ParseInput(strings.NewReader(`{"hook_event_name":"Stop","session_id":"s"}`))); strings.Contains(r.Stderr, "plan-") {
+		t.Errorf("Stop reached a plan handler: %+v", r)
 	}
 }
 
@@ -259,8 +266,8 @@ var pointerBound = map[string]core.Runner{
 	"format-stop": quality.StopFormat, "codex-agent-route": dispatchhook.CodexAgentRoute, "codex-routing-start": dispatchhook.CodexRoutingStart,
 	"codex-routing-result": dispatchhook.CodexRoutingResult, "codex-subagent-start": dispatchhook.CodexSubagentStart,
 	"dispatch-failure": dispatchhook.Release, "review-grep-exit": quality.GrepExit, "dispatch-workflow": dispatchhook.AfterTool, "dispatch-stop": dispatchhook.Stop,
-	"dispatch-handback": dispatchhook.Handback, "docs-plan-tick": docs.TickOrBench, "docs-plan-reminder": dispatchhook.ReminderWatched,
-	"worktree-busy": dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
+	"dispatch-handback": dispatchhook.Handback,
+	"worktree-busy":     dispatchhook.BusyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
 	"worktree-clean-end": wthook.CleanEnd, "worktree-fixnow": wthook.FixNow, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
 	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": webTavily,
 	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,
@@ -718,7 +725,7 @@ func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
 		}
 		stubs = append(stubs, b)
 	}
-	want := []string{"dispatch-workflow/sync", "docs-plan-tick/async", "secrets-out/sync", "worktree-claim/async"}
+	want := []string{"dispatch-workflow/sync", "docs-plan/async", "secrets-out/sync", "worktree-claim/async"}
 	if got := postToolRuns(stubs, &mode, &runs, "Bash"); !slices.Equal(got, want) {
 		t.Fatalf("Bash PostToolUse ran %v, want %v (the sync entry runs no Async alternative)", got, want)
 	}

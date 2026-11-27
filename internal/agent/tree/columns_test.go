@@ -42,15 +42,13 @@ func TestModelBudgetClipsPathologicalIDLast(t *testing.T) {
 
 func TestDispatchBudgetKeepsElapsedAndModel(t *testing.T) {
 	for _, width := range []int{34, 40, 50, 60, 80, 120} {
-		for _, queued := range []bool{false, true} {
-			for _, tokens := range []bool{false, true} {
-				checkDispatchRows(t, width, queued, tokens)
-			}
+		for _, tokens := range []bool{false, true} {
+			checkDispatchRows(t, width, tokens)
 		}
 	}
 }
 
-func checkDispatchRows(t *testing.T, width int, queued, tokens bool) {
+func checkDispatchRows(t *testing.T, width int, tokens bool) {
 	t.Helper()
 	nested := strings.Repeat(" ", 7) + "│ ↳" // 10 cells need 37 columns; 34 gets a shallower marker
 	if width < 37 {
@@ -63,15 +61,11 @@ func checkDispatchRows(t *testing.T, width int, queued, tokens bool) {
 	var l layout
 	l.add(levelDispatch, nested, "codex-reviewer-long", "gpt-6-astra", "· databricks", "qa", in, out, "12s", "2m43s", "")
 	l.add(levelDispatch, "↳", "pi", "databricks-claude-sonnet-5-5", "· databricks", "dev", in, out, "1s", "9s", "")
-	if queued {
-		l.add(levelDispatch, "↳", "pi", "gpt-6-astra", "· databricks", "qa", "queued 12s (pool: 3 waiting on qa)", "", "", "14s", "")
-		l.spanLast(true, false)
-	}
-	wantEnd := []string{"2m43s", "9s", "14s"}
-	wantModel := []string{"gpt-6-a", "databri", "gpt-6-a"}
+	wantEnd := []string{"2m43s", "9s"}
+	wantModel := []string{"gpt-6-a", "databri"}
 	for i, line := range l.lines(width, "") {
 		if textutil.DisplayWidth(line) > width || !strings.HasSuffix(line, wantEnd[i]) || !strings.Contains(line, wantModel[i]) {
-			t.Errorf("w%d q%v t%v row %d: want whole elapsed, model >= 8 cells, <= width: %q", width, queued, tokens, i, line)
+			t.Errorf("w%d t%v row %d: want whole elapsed, model >= 8 cells, <= width: %q", width, tokens, i, line)
 		}
 	}
 }

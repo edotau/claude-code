@@ -330,13 +330,17 @@ func searchRecallTerms(terms []string, k int, persist bool) ([]SearchHit, []corp
 	return rankTimed(terms, k, files, segs), files, segs
 }
 
-// SearchBank ranks blocks for q across the store as one corpus, k best; it never writes the recall index.
+// SearchBank is the one ranking: replaced entries give way to their replacement, k best (0 = all); no index write.
 func SearchBank(q string, k int) []SearchHit {
 	terms := contentTerms(q)
 	if len(terms) == 0 {
 		return nil
 	}
-	hits, _, _ := searchRecallTerms(terms, k, false)
+	ranked, files, segs := searchRecallTerms(terms, 0, false)
+	hits := followReplaced(ranked, files, segs)
+	if k > 0 && len(hits) > k {
+		hits = hits[:k]
+	}
 	return hits
 }
 
@@ -718,20 +722,6 @@ func pruneSeen(dir string) {
 			}
 		}
 	}
-}
-
-// RecallBank is SearchBank as recall serves it: replaced entries give way to their live replacement, top k kept.
-func RecallBank(q string, k int) []SearchHit {
-	terms := contentTerms(q)
-	if len(terms) == 0 {
-		return nil
-	}
-	ranked, files, segs := searchRecallTerms(terms, 0, false)
-	hits := followReplaced(ranked, files, segs)
-	if k > 0 && len(hits) > k {
-		hits = hits[:k]
-	}
-	return hits
 }
 
 // recallCandidate records each selection gate without changing the selection.

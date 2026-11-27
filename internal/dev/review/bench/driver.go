@@ -237,28 +237,9 @@ func settle(out io.Writer, o outcome, reverts *int) bool {
 	return false
 }
 
-// quiet is step 1: load at most half the CPUs and no model job running, served or in flight.
+// quiet is step 1: load at most half the CPUs and no model job in flight.
 func (d *driver) quiet(ctx context.Context) (bool, string) {
-	running := 0
-	out, code, err := d.run(ctx, d.top, "", d.exe, "agents", "serve", "--status", "--format", "json")
-	switch {
-	case code == 1: // no daemon: background jobs run directly and show in the in-flight count
-	case err != nil:
-		return false, "serve status: " + err.Error()
-	default:
-		var st struct {
-			Pools []struct {
-				Running int `json:"running"`
-			} `json:"pools"`
-		}
-		if err := json.Unmarshal([]byte(out), &st); err != nil {
-			return false, "serve status: " + err.Error()
-		}
-		for _, p := range st.Pools {
-			running += p.Running
-		}
-	}
-	running += inflight.Count().Total
+	running := inflight.Count().Total
 	ok, load, err := proc.QuietMachine(ctx, running)
 	if err != nil {
 		return false, err.Error()

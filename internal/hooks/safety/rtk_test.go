@@ -302,7 +302,7 @@ func TestRTKPinnedBinaryShellMetacharacters(t *testing.T) {
 	}
 }
 
-// The docs-plan-tick bug: a rewritten commit chain hides git's own output from the plan tick.
+// The docs-plan tick bug: a rewritten commit chain hides git's own output from the plan tick.
 func TestRTKNeverRewritesGitCommit(t *testing.T) {
 	hosttest.FakeRTK(t)
 	for _, cmd := range []string{`git add x && git commit -m y`, `git commit -m y`, `cd /tmp && git commit -am y`} {

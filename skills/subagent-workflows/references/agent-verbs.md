@@ -17,7 +17,6 @@ Check `claude-code agents <verb> -h` or `claude-code <agent> <verb> -h` for exac
 | `agents brief` | Render `--task <file>` with repeated `--own`; `--path` reserves a fresh brief. |
 | `agents label` | Print the model prefix for the leaf description. |
 | `agents wait` | Wait for ids; `--timeout` bounds waiting, `--progress` reports activity. |
-| `agents serve` | Inspect or control the opt-in per-account dispatch queue. |
 | `agents tree --files` | Inspect live sessions and owned dirty files. |
 | `doctor --agent <a>` | Diagnose the agent's binary, login and route. |
 | `<agent> profile`, `catalog` | Inspect pins and served models. |

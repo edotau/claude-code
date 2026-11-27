@@ -35,7 +35,7 @@ plus the pinned `typos` spell checker for changed Markdown; it runs no root comm
 is, uncommitted edits included. `claude-code install --dry-run` previews all of it. `claude-code configure restore`
 resets `settings.json` to the template (a backup is written first). Deleting the clone leaves behind the agent CLIs
 and host tools it installed, the files `agents sync` wrote into each agent CLI's home, the vault key in the OS
-keyring and, on a Mac, the clipboard launch agent. Fresh machine, existing `~/.claude` and every install option:
+keyring and, on a Mac, the clipboard launch agent. Fresh machine and install options:
 [`rules/harness/commands.md`](rules/harness/commands.md).
 
 ## Five-minute tour
@@ -96,7 +96,6 @@ For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-mess
 
 | Situation | What happens | Applies to |
 | --- | --- | --- |
-| Memory sync between your own machines | Off by default; opting in sends the memory store over ssh only to the hosts you listed | opted-in machines |
 | Force push to `main` or `master` | Blocked; push a branch and open a PR | main and leaves |
 | `git add` or `commit` of a file another live session or agent has uncommitted edits in | Ask, or block for a leaf under `~/.claude` | main and leaves |
 | `claude-code worktree commit` | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files | main and leaves |

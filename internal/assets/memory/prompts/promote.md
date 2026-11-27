@@ -1,9 +1,9 @@
-# `memory promote --to rules|skill|claude-md` — Judgment Residue: Target, Wording, Gate
+# `memory feedback promote --to rules|skill|claude-md` — Judgment Residue: Target, Wording, Gate
 
-> The daily background `claude-code memory dream` also prints this during its reflection step (Phase 6).
+> The daily background `claude-code memory update --dream` also prints this during its reflection step (Phase 6).
 
-`claude-code memory promote <id> --to rules|skill|claude-md` locates the entry and prints the block, its target and
-this procedure; you edit the target by hand. What the verb cannot do is **pick the right target**, **word a
+`claude-code memory feedback promote <id> --to rules|skill|claude-md` locates the entry and prints the block, its target
+and this procedure; you edit the target by hand. What the verb cannot do is **pick the right target**, **word a
 rule or skill so it stands alone**, or **gate `claude-md`**. That's this reference.
 
 ## The promotion gradient
@@ -12,7 +12,7 @@ Full ladder: `rules/workflows/memory-bank.md` → Promotion ladder. In short: `r
 (`rules/standards/` or `rules/software/<lang>/`, enforced) or `skill` (`skills/<name>/SKILL.md`, how-to) → `claude-md`
 (`CLAUDE.md` → Hard rules, always on).
 
-**`--to claude-md` is dream-gated:** the verb refuses outside `memory dream`'s reflection step, which
+**`--to claude-md` is dream-gated:** the verb refuses outside `memory update --dream`'s reflection step, which
 requires 3+ memory entries AND a hard prohibition. Elsewhere, route a CLAUDE.md-worthy entry to `rules/standards/`
 instead and note that the dream gate will consider it later. `promote` also never targets `rules/workflows/`
 (human-authored process).
@@ -52,7 +52,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
 never edits `rules/workflows/` (human-authored process), and never writes to `CLAUDE.md` directly —
-only `memory dream` promotes learnings there after the recurrence + hard-prohibition test passes.
+only `memory update --dream` promotes learnings there after the recurrence + hard-prohibition test passes.
 
 ### Step 3: Distill into a rule
 
@@ -123,7 +123,7 @@ cleanup candidate, but don't delete it here).
 
 ## Step N (every target): remove the entry from native memory
 
-After the target write lands and `claude-code memory promote` runs (or the by-hand move for an
+After the target write lands and `claude-code memory feedback promote` runs (or the by-hand move for an
 entry under cap):
 
 1. Delete the topic file (memory git keeps its history) — or, if the fact shared a file with
@@ -144,7 +144,7 @@ Promoted: "<distilled rule / entry title>"
 Removed from native memory: <slug>.md  +  MEMORY.md index line
 MEMORY.md: N index lines remaining (of 200)
 
-[if claude-md-worthy] Routed to <rules file>; the `memory dream` gate
+[if claude-md-worthy] Routed to <rules file>; the `memory update --dream` gate
 (3+ memory entries AND hard prohibition) will consider it for CLAUDE.md promotion.
 This path does not write CLAUDE.md directly.
 ```
@@ -153,7 +153,7 @@ This path does not write CLAUDE.md directly.
 
 - Don't create agent files; don't invent patterns; don't create omnibus guides (one problem per
   skill); don't write discovery-narrative history.
-- Don't write `CLAUDE.md` outside `memory dream`'s gate.
+- Don't write `CLAUDE.md` outside `memory update --dream`'s gate.
 
 ## Failure Modes
 

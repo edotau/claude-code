@@ -10,7 +10,7 @@ Enforced by `docs-placement` (`internal/hooks/docs/docsplacement.go`, `plan.go`)
 
 - **Plan:** `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (gitignored). Repo is the origin name, else main-checkout
   folder; use `<owner>-<repo>` for a remote-name collision and `@home` outside repos.
-  `docs-plan-mirror` dates the first write; `docs-plan-save` files approval. Undated plan-mode drafts are scratch.
+  `docs-plan` dates the first write and files approval. Undated plan-mode drafts are scratch.
 - **Session handoff:** `~/.claude/memory/handoffs/YYYY-MM-DD-<topic>.md`, only when activeContext cannot hold it;
   link it from there.
 - **Report:** `~/.claude/memory/reports/YYYY-MM-DD-<name>.md` (review, audit, research or debt scan).

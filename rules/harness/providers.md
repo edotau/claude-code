@@ -144,11 +144,6 @@ Auto pools and cold, stale or empty listings: `agent.md` → Model precedence.
   `gpt-oss-120b` follows the profile in force. agy signs in by running `agy` (there is no `agy auth login`).
 - On the Google route `gateway resolve`, `agents label` and `usage` read `agy -p /usage` (cached 10 min, spends no
   quota): the note carries the pool's percent left, under 15% warns, and a model at 0% is held until its reset.
-- VS Code chat: the Claude Code Agents extension registers a "Claude Code Databricks" chat provider; its models come
-  from `claude-code configure vscode --dry-run --format json` and it fetches a session token with
-  `claude-code resolve --proxy`,
-  so no token sits in any file. `configure vscode` removes the `Databricks <profile>` groups an older run wrote
-  into `chatLanguageModels.json` (loopback `/p/<profile>/` URLs and `${input:harnessProxyToken}`); other groups stay.
 
 ## Databricks service-principal identity
 

@@ -248,6 +248,9 @@ func TestDeclaredModuleOnWrongEventDecidesByBlocks(t *testing.T) {
 		if s.Event == event {
 			event = settings.EventSessionEnd
 		}
+		if declaredOn(s.Name, event) { // a module spanning events (docs-plan) serves the other one
+			continue
+		}
 		want := map[bool]int{false: 1, true: core.ExitBlock}[s.Blocks]
 		var out, errb bytes.Buffer
 		code := RunArgs(event, []string{"--" + s.Name}, strings.NewReader(`{}`), &out, &errb)

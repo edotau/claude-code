@@ -23,7 +23,7 @@ func syntheticEngine(tree map[string]*Node) Engine {
 
 func TestKnownPath(t *testing.T) {
 	leaf := &Node{}
-	root := &Node{Sub: map[string]*Node{"--setup": {Sub: map[string]*Node{"mode": leaf}}}}
+	root := &Node{Sub: map[string]*Node{"--action": {Sub: map[string]*Node{"mode": leaf}}}}
 	e := syntheticEngine(map[string]*Node{"verb": root, "empty": nil})
 	for _, tc := range []struct {
 		words []string
@@ -33,10 +33,10 @@ func TestKnownPath(t *testing.T) {
 	}{
 		{},
 		{words: []string{"unknown", "arg"}, rest: []string{"unknown", "arg"}},
-		{words: []string{"alias", "--setup", "mode", "--flag", "value"},
-			path: []string{"verb", "--setup", "mode"}, node: leaf, rest: []string{"--flag", "value"}},
-		{words: []string{"verb", "unknown", "--setup"}, path: []string{"verb"}, node: root,
-			rest: []string{"unknown", "--setup"}},
+		{words: []string{"alias", "--action", "mode", "--flag", "value"},
+			path: []string{"verb", "--action", "mode"}, node: leaf, rest: []string{"--flag", "value"}},
+		{words: []string{"verb", "unknown", "--action"}, path: []string{"verb"}, node: root,
+			rest: []string{"unknown", "--action"}},
 	} {
 		path, node, rest := e.knownPath(tc.words)
 		if !slices.Equal(path, tc.path) || node != tc.node || !slices.Equal(rest, tc.rest) {

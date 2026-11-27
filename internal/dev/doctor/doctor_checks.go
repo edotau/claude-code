@@ -216,7 +216,7 @@ func memoryDreamRow(now time.Time) check {
 		return row
 	}
 	if len(rs) == 0 {
-		row.Detail = "no record yet (memory dream --force)"
+		row.Detail = "no record yet (memory update --dream --force)"
 		return row
 	}
 	at := func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
@@ -240,7 +240,7 @@ func memoryDreamRow(now time.Time) check {
 		row.Detail = textutil.TruncateCells(row.Detail, 80, "…")
 		return row
 	}
-	row.Detail = "no ok run yet (memory dream --force)"
+	row.Detail = "no ok run yet (memory update --dream --force)"
 	return row
 }
 

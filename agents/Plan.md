@@ -23,7 +23,7 @@ the goal to plan.
   evidence from the real code, commit to one recommendation (`## Procedure`).
 - **Filing location** — multi-part work starts as a dated plan (R18); plans live only in `~/.claude/plans/<repo>/`
   (named by the launch dir's git repo, `@home` outside any repo), never a repo root or a repo's own `.claude/`;
-  mechanics (`docs-plan-save`, the `docs-placement` gate, `docs-plan-mirror`):
+  mechanics (`docs-plan`, the `docs-placement` gate):
   `~/.claude/rules/harness/docs-placement.md`.
 
 ## Knows
@@ -122,7 +122,7 @@ Every phase is:
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
 - **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
 - **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): the
-  main session's `worktree commit --task` ticks it after verifying (`docs-plan-tick`).
+  main session's `worktree commit --task` ticks it after verifying (`docs-plan`).
 - **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and
   `findings: <path>#<key>` go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git
   write verbs; `claude-code agents ask --waves <plan>` runs it (template `## Tasks`).

@@ -232,7 +232,7 @@ func dreamHookPackage(module string) string {
 		if !slices.ContainsFunc(group.Events, func(s settings.EventSpec) bool { return s.Name == module }) {
 			continue
 		}
-		if module == "docs-plan-reminder" || module == "worktree-busy" {
+		if module == "docs-plan" || module == "worktree-busy" {
 			return "internal/hooks"
 		}
 		if sub, ok := groups[group.Name]; ok {

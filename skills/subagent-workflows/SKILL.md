@@ -73,7 +73,7 @@ The carrier runs the inner ask as a plain child (no model tokens); a cut-off chi
 ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
 `agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase instead of `quiet`; the idle limit applies.
 **Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line runs the task as a Pi ask first; review,
-docs and gate leaves stay in-context. A brief naming `Agent: pi` (or the type `pi` or `code-mode`) is retyped to
+docs and gate leaves stay in-context. A brief naming `Agent: pi` (or the type `pi`) is retyped to
 `coworker`; with `Codemode: off` it stays a `claude` leaf running a plain Pi ask. A Pi refusal or failed
 start (not on the profile's menu, no Databricks route, guard did not load) is the one refusal below: it does the task
 in-context, `Ran on:` naming the failed Pi attempt and what then ran. A brief needing the Agent tool, skills or MCP

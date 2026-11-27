@@ -17,7 +17,6 @@ import (
 	usagecmd "github.com/edotau/claude-code/internal/dev/usage"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/dev/worktree/auditq"
-	"github.com/edotau/claude-code/internal/platform/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"
@@ -85,7 +84,6 @@ func buildCommands() []command {
 		{name: "switch", group: groupSession, hidden: true, summary: "set the session profile on every agent that serves it", run: cmdSwitch, spec: switchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
-		{name: "test", group: groupSession, hidden: true, summary: "test tooling: run a command with TMPDIR on a RAM disk", run: cmdTest, spec: testSpec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpec},
 		{name: "failures", group: groupSession, summary: "failures broadcast to live sessions: ls, claim, done, report", run: cmdFailures, spec: failuresSpec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists and detectors: status, tick, assumptions, goals", run: cmdPlan, spec: planSpec},
@@ -387,26 +385,6 @@ func cmdVersion(args []string) int {
 	fmt.Println("claude-code", textutil.BuildVersion())
 	return 0
 }
-
-// cmdTest dispatches `test <sub>`: test tooling.
-func cmdTest(args []string) int {
-	if len(args) > 0 && args[0] == "ramdisk" {
-		return ramdisk.Run(args[1:])
-	}
-	if code, ok := helpOrBare(testPage, args); ok {
-		return code
-	}
-	return unknownSub("test", args[0], testPage)
-}
-
-var testPage = helptext.Page{
-	Usage:    "claude-code test <command>",
-	About:    "Test tooling.",
-	Commands: [][2]string{{"ramdisk", "run a command with TMPDIR on a throwaway RAM disk"}},
-}
-
-// testSpec is the completion node for the test verb tree.
-func testSpec() *helptext.Node { return &helptext.Node{Sub: map[string]*helptext.Node{"ramdisk": {}}} }
 
 // usageBudgets reads each Databricks profile's budgets for `usage --cost`; any failure is skipped quietly.
 func usageBudgets() []usagecmd.Budget {

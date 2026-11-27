@@ -34,8 +34,7 @@ var themePage = helptext.Page{
 		{"apply", "merge theme/<tool>.json into each tool's config"},
 		{"statusline", "render the status line (settings.json runs it)"},
 	},
-	Hint: "claude-code configure vscode merges VS Code settings (see its -h).\n" +
-		"claude-code configure theme <command> -h lists that command's flags.",
+	Hint: "claude-code configure theme <command> -h lists that command's flags.",
 }
 
 // cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
@@ -136,7 +135,7 @@ func printPalettes(w io.Writer, colored bool) {
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
 		Usage: "claude-code configure theme apply [flags]",
-		About: "Merge every theme/<tool>.json|.conf into that tool's config. Targets: vscode, statusline, opencode, " +
+		About: "Merge every theme/<tool>.json|.conf into that tool's config. Targets: statusline, opencode, " +
 			"opencode-themes, copilot, gemini, ghostty.",
 	})
 	dryRun := fs.Bool("dry-run", false, "report what would change; write nothing")

@@ -91,7 +91,7 @@ func TestCompletionExact(t *testing.T) {
 		{"memory subcommand", []string{"memory", "rev"}, []string{"review"}},
 		{"leaf offers nothing", []string{"gateway", "route", "--task", ""}, nil},
 		{"gemini catalog despite bare launcher", []string{"gemini", "ca"}, []string{"catalog"}},
-		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--setup", "--tools", "--verbose"}},
+		{"install flags", []string{"install", "--"}, []string{"--dry-run", "--missing", "--tools", "--verbose"}},
 		{"theme flags", []string{"configure", "theme", "--"}, []string{"--palettes", "--reset"}},
 		{"doctor flags", []string{"doctor", "--"}, []string{"--agent", "--audit", "--days", "--fix", "--format", "--git", "--list", "--mcp",
 			"--prompts", "--proxy", "--range", "--refresh", "--scan", "--secrets", "--since"}},
@@ -212,9 +212,6 @@ func helpFlagDriftExempt() map[string]string {
 	}
 	for _, n := range reviewToolNames() {
 		m["review "+n] = "detectors keep their former scripts' flags; reviewSpec offers none on purpose"
-	}
-	for _, s := range []string{"pr list", "pr view", "pr diff", "pr create", "checks", "comment"} {
-		m["scm "+s] = "help prints the shared scm flag set; completion offers each subverb's own"
 	}
 	return m
 }
@@ -474,10 +471,10 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	for verb, want := range map[string][]string{
 		"vault":   {"ls", "set", "get", "rm", "import", "export", "rotate-secret"},
 		"network": {"browser", "pki", "websearch", "remote"},
-		"memory": {"search", "remember", "init", "review", "feedback", "promote", "update", "dream",
-			"index", "path", "watch", "fmt", "report", "sandbox", "extract", "shadow", "store", "conflicts", "sync"},
+		"memory": {"search", "remember", "init", "review", "feedback", "update",
+			"index", "path", "watch", "fmt", "report", "sandbox", "extract", "shadow", "store"},
 		"gateway":  {"proxy", "resolve"},
-		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief", "serve"},
+		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
@@ -492,14 +489,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 			t.Errorf("%s subwords = %v, want %v", verb, got, want)
 		}
 	}
-	// install --setup <mode> is its own sub-dispatch, nested under install's "--setup" node.
-	setupNode := tree["install"].Sub["--setup"]
-	if setupNode == nil {
-		t.Fatal(`install: no "--setup" sub-node in specTree()`)
-	}
-	if got, want := sortedSubwords(setupNode), []string{"adopt", "nuke", "workspace"}; !slices.Equal(got, want) {
-		t.Errorf("install --setup subwords = %v, want %v", got, want)
-	}
+
 }
 
 // TestHookDomainMatchesRegistry: `hook <tab>` offers every event settings.Specs declares, in registry order.
@@ -654,6 +644,31 @@ func TestOldVerbsAreUnknownCommands(t *testing.T) {
 	}
 }
 
+// Removed commands cannot dispatch; worktree remains the home for PR operations.
+func TestRemovedSmallCutCommands(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, tc := range []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"scm"}, "worktree -h"},
+		{[]string{"test", "ramdisk"}, `unknown command "test"`},
+	} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, tc.args...)) })
+		if code != 2 || !strings.Contains(stderr, tc.message) {
+			t.Errorf("Run(%v) = %d, stderr %q; want 2 and %q", tc.args, code, stderr, tc.message)
+		}
+	}
+	for _, verb := range []string{"scm", "test"} {
+		if lookup(verb) != nil {
+			t.Errorf("removed verb %q resolves", verb)
+		}
+	}
+	if lookup("worktree") == nil || specTree()["worktree"].Sub["pr"] == nil {
+		t.Error("worktree pr must remain available")
+	}
+}
+
 var helpFormatRow = regexp.MustCompile(`^  (\S(?:.*?\S)?) {2,}(\S.*)$`)
 var helpFormatFlag = regexp.MustCompile(`^(?:-[A-Za-z0-9], )?(?:-[A-Za-z0-9]|--[A-Za-z0-9][A-Za-z0-9_-]+)(?: \S+)?$`)
 
@@ -663,7 +678,7 @@ func TestHelpFormat(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	hidden := []string{
 		"agents", "models", "review", "hook",
-		"help-svg", "clip", "completion", "plan", "test",
+		"help-svg", "clip", "completion", "plan",
 	}
 	var verbs []string
 	for _, c := range commands() {
@@ -847,7 +862,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
 		"hook": true, "clip": true, "configure history diff": true,
-		"test ramdisk": true, "failures done": true, "memory init": true,
+		"failures done": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,
 	}

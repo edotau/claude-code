@@ -72,7 +72,7 @@ func planAgentBlock(in *core.Input) core.Result {
 	} else if p := core.ToolPath(in.ToolInput()); p != "" || len(edits) == 0 { // EditedPaths drops file_path beside a patch key
 		edits = append(edits, textutil.FileEdit{Path: p})
 	}
-	home := filepath.Join(paths.ConfigDir(), "plans")
+	home := plansRoot()
 	for _, edit := range edits {
 		path := planWritePath(edit.Path, in.CWD)
 		if !filepath.IsAbs(path) || !paths.InsideDir(path, home) {

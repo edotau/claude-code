@@ -15,7 +15,6 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/platform/proc"
@@ -186,7 +185,7 @@ func (r *askRun) askPrepare(ctx context.Context, req agent.RunOptions, run *armR
 	if err := claimRecover(ctx); err != nil {
 		return failAsk(f.format, f.name, err)
 	}
-	prepared, err := prepareAdmitted(ctx, cl, req, r.jobRec, run)
+	prepared, err := prepareRun(ctx, cl, req, r.jobRec, run)
 	if err != nil {
 		return failAskCode(f.format, f.name, err, prepareExitCode(err))
 	}
@@ -283,20 +282,7 @@ func prepareExitCode(err error) int {
 	return 1
 }
 
-// admitJob is serve.Admit; a test seam.
-var admitJob = serve.Admit
-
-// admitPending holds a detached job (jobRec set) until `agents serve` admits its pool; with no daemon it runs at once.
-func admitPending(ctx context.Context, jobRec *agent.Record) {
-	if jobRec != nil {
-		agent.NoteQueued(jobRec.ID, serve.PoolOf(*jobRec), os.Stderr)
-		defer agent.NoteQueued(jobRec.ID, "", os.Stderr)
-		admitJob(ctx, *jobRec, os.Stderr)
-	}
-}
-
-func prepareAdmitted(ctx context.Context, cl *agent.Client, req agent.RunOptions, jobRec *agent.Record, run *armRetry) (*agent.Prepared, error) {
-	admitPending(ctx, jobRec)
+func prepareRun(ctx context.Context, cl *agent.Client, req agent.RunOptions, jobRec *agent.Record, run *armRetry) (*agent.Prepared, error) {
 	err := ctx.Err()
 	var prepared *agent.Prepared
 	if err == nil {

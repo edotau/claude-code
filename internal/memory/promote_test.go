@@ -70,7 +70,7 @@ func TestPromoteClaudeMDNeedsADreamRun(t *testing.T) {
 		if err == nil {
 			t.Fatal("Promote --to claude-md outside a dream run = nil error, want one")
 		}
-		if !strings.Contains(err.Error(), "memory dream") || !strings.Contains(err.Error(), "--to rules") {
+		if !strings.Contains(err.Error(), "memory update --dream") || !strings.Contains(err.Error(), "--to rules") {
 			t.Errorf("error missing the reason/alternative: %v", err)
 		}
 		after, rerr := os.ReadFile(localPath)

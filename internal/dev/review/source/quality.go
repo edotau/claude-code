@@ -664,7 +664,7 @@ func Round1(f float64) float64 {
 	return v
 }
 
-// qualityOf is the analysis behind RunQuality / analyze_file; the language is detected from the extension.
+// qualityOf is the analysis behind review simplify; the language is detected from the extension.
 func qualityOf(path string) (QualityReport, error) {
 	lang := DetectLanguage(path)
 	if lang == "" {
@@ -810,23 +810,6 @@ type QualityReport struct {
 	SolidViolations []SolidViolation `json:"solid_violations"`
 	FunctionDetails []FunctionInfo   `json:"function_details"`
 	ClassDetails    []ClassInfo      `json:"class_details"`
-}
-
-// errorResult is the {"error": "..."} shape both scripts return on a per-file/dir failure.
-type errorResult struct {
-	Error string `json:"error"`
-}
-
-// directoryReport is code_quality_checker.analyze_directory's dict shape.
-type directoryReport struct {
-	Directory            string          `json:"directory"`
-	FilesAnalyzed        int             `json:"files_analyzed"`
-	AverageScore         PyFloat         `json:"average_score"`
-	OverallGrade         string          `json:"overall_grade"`
-	TotalCodeSmells      int             `json:"total_code_smells"`
-	TotalSolidViolations int             `json:"total_solid_violations"`
-	Files                []QualityReport `json:"files"`
-	FilesFailed          []string        `json:"files_failed,omitempty"`
 }
 
 const maxCommentLineChars = 120

@@ -412,10 +412,9 @@ type spawner struct {
 	watcher func(args []string, cwd string) bool
 	catchup func(cwd, sessionID string) bool
 	refresh func(root, profile string) bool
-	sync    func(cwd string) bool
 }
 
-var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, catchup: spawnCatchup, refresh: spawnEmbedRefresh, sync: spawnSync}
+var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, catchup: spawnCatchup, refresh: spawnEmbedRefresh}
 
 // spawnUpdate records the session's result as pending, then launches `memory update`; a failed launch undoes it.
 func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
@@ -445,10 +444,6 @@ func spawnCatchup(cwd, sessionID string) bool {
 	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
 }
 
-func spawnSync(cwd string) bool {
-	return spawnSelf([]string{"memory", "sync"}, cwd, "sync-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
-}
-
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
 func spawnEmbedRefresh(root, profile string) bool {
 	values := proc.Values{UpdateChildEnv: "1"}
@@ -459,7 +454,7 @@ func spawnEmbedRefresh(root, profile string) bool {
 }
 
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
-type Spawns struct{ Update, Catchup, Refresh, Sync atomic.Int64 }
+type Spawns struct{ Update, Catchup, Refresh atomic.Int64 }
 
 // StubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
 func StubSpawns(ok bool) (s *Spawns, restore func()) {
@@ -470,7 +465,6 @@ func StubSpawns(ok bool) (s *Spawns, restore func()) {
 		watcher: func([]string, string) bool { return true },
 		catchup: func(string, string) bool { s.Catchup.Add(1); return true },
 		refresh: func(string, string) bool { s.Refresh.Add(1); return true },
-		sync:    func(string) bool { s.Sync.Add(1); return true },
 	}
 	return s, func() { spawn = prev }
 }

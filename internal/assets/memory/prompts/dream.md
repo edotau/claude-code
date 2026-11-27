@@ -1,9 +1,9 @@
-# `claude-code memory dream` — Typed judgment pass
+# `claude-code memory update --dream` — Typed judgment pass
 
 Return exactly one JSON object matching the supplied Batch schema. Tools are off: do not run commands,
 edit files, or return a markdown report. Go applies the entire batch atomically after checking the snapshot.
 This typed-answer contract overrides any worker opening or reflection instruction asking for edits,
-commands, promotion, or a prose report. `memory promote` remains available to the owner separately.
+commands, promotion, or a prose report. `memory feedback promote` remains available to the owner separately.
 
 ## Phase 1: Snapshot
 
@@ -84,7 +84,7 @@ Go re-checks every change after the run and reopens what it cannot prove.
 ## Phase 6: Reflection
 
 `claude-code memory feedback list --rank` prints this phase alone as a read-only reflection: score and report, never
-edit, promote or create a file there; step 4 runs only inside `memory dream`.
+edit, promote or create a file there; step 4 runs only inside `memory update --dream`.
 
 Inside dream, use the changed entries already read (no subagent, no re-read). Standalone, read `catalog.md` and the
 five typed files in the store root (`claude-code memory path`), then `feedback/` and `notes/`, then the higher tiers:
@@ -96,9 +96,9 @@ five typed files in the store root (`claude-code memory path`), then `feedback/`
 3. **Score** Durability, Impact and Scope, 0–3 each. A promotion candidate totals 6 or more and is not already in a
    higher tier. Target: `rules` (a one-line imperative), `skill` (a multi-step how-to), or `claude-md` only for a
    hard prohibition that recurs in 3+ bank entries and must be visible every session.
-4. **Dream only**: for a `claude-md` candidate run `claude-code memory promote <id> --to claude-md` (it works only
+4. **Dream only**: for a `claude-md` candidate run `claude-code memory feedback promote <id> --to claude-md` (it works only
    in this run, prints the block and edits nothing), apply the edit by hand, then remove the promoted entries from
-   the bank. Never edit `rules/**` or `skills/**`: list those candidates with their `memory promote <id> --to
+   the bank. Never edit `rules/**` or `skills/**`: list those candidates with their `memory feedback promote <id> --to
    rules|skill` line for the owner.
 
 Report, shorter than the memory it covers; exact entry ids and first 80 characters, no invented entries:
@@ -148,11 +148,11 @@ After all updates:
 
 ## When to run
 
-- **Periodically**: for memory hygiene (daily background `memory dream`)
+- **Periodically**: for memory hygiene (daily background `memory update --dream`)
 - **Proactively**: when context window is ≥85% full (the `context-checkpoint` Stop hook's
   threshold, before compaction loses detail)
 - **After corrections**: when user feedback or gate failures revealed a pattern worth capturing
-  — route those into `rules/` via `memory remember` + `memory promote <id> --to rules` first; dream only
+  — route those into `rules/` via `memory remember` + `memory feedback promote <id> --to rules` first; dream only
   promotes what has already settled into 3+ bank entries
 
 ## Integration

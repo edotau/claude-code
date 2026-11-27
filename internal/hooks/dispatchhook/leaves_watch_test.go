@@ -216,31 +216,6 @@ func TestWatchTickModes(t *testing.T) {
 	}
 }
 
-func TestWatchTickQueueNotice(t *testing.T) {
-	watchStubs(t)
-	watchJobs = func(int, time.Time, agent.WatchLimits) (agent.WatchReport, error) {
-		return agent.WatchReport{Pending: 1, Queued: []agent.QueuedJob{
-			{ID: deadJob, Pool: "qa", Wait: 3 * time.Second, Ahead: 2},
-		}}, nil
-	}
-	got := watchTick(promptIn("queue"))
-	if !strings.Contains(got.Context, "queued on qa 3s, 2 ahead") || strings.Contains(got.Context, "silent") || got.SystemMessage != "" {
-		t.Fatalf("notice = %+v", got)
-	}
-}
-
-func TestWatchTickQueueFailureOnce(t *testing.T) {
-	s := agent.StaleJob{ID: deadJob, Reason: agent.WatchQueueStuck, Queue: "queued on qa 20s; daemon gone",
-		Next: []string{"claude-code", "agents", "result", "-f", deadJob}}
-	now, _, resumes := watchStubs(t, s)
-	first := watchTick(promptIn("queue"))
-	*now = now.Add(2 * time.Minute)
-	second := watchTick(promptIn("queue"))
-	if !strings.Contains(first.Context, "next: claude-code agents result -f "+deadJob) || second.Context != "" || *resumes != 0 {
-		t.Fatalf("first=%+v second=%+v resumes=%d", first, second, *resumes)
-	}
-}
-
 func TestMarkCollectedOnlyEndedJobs(t *testing.T) {
 	watchStubs(t)
 	for id, status := range map[string]string{"20261116T100000.000-codex": "ok", "20261116T100100.000-codex": "running"} {

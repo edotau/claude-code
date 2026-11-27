@@ -97,14 +97,8 @@ func typeSuggestion(st string) string {
 	return `use "general-purpose"` // the host-wide agent with every tool
 }
 
-// retiredCodeModeType is the old name of the coworker type; a dispatch naming it is redirected.
-const retiredCodeModeType = "code-mode"
-
-// staleTypeTarget is the type a roster agent's bare name (pi) or the retired code-mode is rewritten to; "" otherwise.
+// staleTypeTarget is the type a roster agent's bare name (pi) is rewritten to; "" otherwise.
 func staleTypeTarget(st string) string {
-	if st == retiredCodeModeType {
-		st = agentid.Pi
-	}
 	if to := agentid.SubagentType(st); agentid.Known(st) && to != st && slices.Contains(dispatchTypes(), to) {
 		return to
 	}
@@ -128,13 +122,10 @@ func codemodeTarget(st, task string) string {
 	return ""
 }
 
-// briefPiType is coworker when the brief's Agent: line names pi or the retired code-mode alone; "" otherwise.
+// briefPiType is the type of the brief's Agent: line when that agent's code-mode runs are typed by mode; "" otherwise.
 func briefPiType(task string) string {
 	if a := briefExternal(task); agentid.Routing(a).CodeMode.TypedByMode {
 		return agentid.SubagentType(a)
-	}
-	if m := agentLineRe().FindStringSubmatch(briefHeader(task)); m != nil && strings.EqualFold(strings.TrimSpace(m[1]), retiredCodeModeType) {
-		return agentid.CoworkerType
 	}
 	return ""
 }

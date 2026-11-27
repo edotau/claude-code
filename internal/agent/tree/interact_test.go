@@ -75,7 +75,7 @@ func TestDashboardHeaderRefreshStops(t *testing.T) {
 	var calls atomic.Int32
 	headerSource = func(context.Context, string) headerStatus {
 		calls.Add(1)
-		return headerStatus{served: true}
+		return headerStatus{}
 	}
 	t.Cleanup(func() { headerSource = original })
 	ctx, cancel := context.WithCancel(t.Context())

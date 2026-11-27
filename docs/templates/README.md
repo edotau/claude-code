@@ -14,8 +14,6 @@
 | Status line default config + palettes | [`internal/assets/ui/theme/default_config.json`](../../internal/assets/ui/theme/default_config.json), [`default_palettes.json`](../../internal/assets/ui/theme/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
 | Agent config defaults | [`internal/assets/agentconfig/agents.json`](../../internal/assets/agentconfig/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
 | tmux.conf | [`internal/assets/setup/tmux.conf`](../../internal/assets/setup/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
-| VS Code machine-settings template | [`internal/assets/ui/vscode/machine-settings.template.json`](../../internal/assets/ui/vscode/machine-settings.template.json) | `claude-code configure --vscode` | — |
-| VS Code keybindings template | [`internal/assets/ui/vscode/keybindings.template.json`](../../internal/assets/ui/vscode/keybindings.template.json) | `claude-code configure --vscode` (keybindings step) | — |
 | claude-science config | [`internal/assets/claude/science.toml`](../../internal/assets/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/assets/clipboard/wl-paste-claude.sh`](../../internal/assets/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
 | Leaf brief template | [`internal/assets/brief/brief.tmpl`](../../internal/assets/brief/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |

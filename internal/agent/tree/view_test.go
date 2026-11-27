@@ -97,10 +97,10 @@ func TestDashboardHeaderSpaceAndClamp(t *testing.T) {
 	nodes := rootNodes(10)
 	h := &headerStatus{}
 	s := clamp(dashState{width: 80, height: 7, header: h, selID: "dispatch:9"}, visible(nodes, nil))
-	if s.top != 7 || viewRows(s) != 3 {
+	if s.top != 6 || viewRows(s) != 4 {
 		t.Fatalf("with header: top %d rows %d", s.top, viewRows(s))
 	}
-	if s = onResize(s, 80, 6); s.top != 6 || headerRows(s) != 0 || viewRows(s) != 4 {
+	if s = onResize(s, 80, 5); s.top != 7 || headerRows(s) != 0 || viewRows(s) != 3 {
 		t.Fatalf("short terminal: top %d header %d rows %d", s.top, headerRows(s), viewRows(s))
 	}
 	if lines := dashLines(s, nil, time.Now(), ""); len(lines) != 3 {

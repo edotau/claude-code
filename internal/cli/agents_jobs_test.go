@@ -143,38 +143,11 @@ func TestAgentsStatusForms(t *testing.T) {
 	}
 }
 
-func TestAgentsStatusQueued(t *testing.T) {
-	cfgDir(t)
-	r := seedCodexJob(t, "")
-	r.Status, r.PID = "running", os.Getpid()
-	if err := r.Save(); err != nil {
-		t.Fatal(err)
-	}
-	agent.NoteQueued(r.ID, "qa", nil)
-	for _, args := range [][]string{
-		{"status"}, {"status", r.ID}, {"status", "--agent", "codex", "--all"},
-		{"status", "--format", "json"}, {"status", r.ID, "--format", "json"},
-	} {
-		out := okAgents(t, args...)
-		if !strings.Contains(out, "queued") || !strings.Contains(out, "queued on qa, waiting ") {
-			t.Errorf("status %v missing queue detail: %s", args, out)
-		}
-	}
-	saved, err := agent.LoadRecord(r.ID)
-	if err != nil || saved.Status != "running" {
-		t.Fatalf("status display changed stored lifecycle: %+v, %v", saved, err)
-	}
-}
-
 func TestAgentsStatusDeadQueuedJSON(t *testing.T) {
 	pid := deadPID(t)
-	queued := "queued " + time.Now().Add(-time.Minute).Format(time.RFC3339Nano) + " qa"
 	for _, tc := range []struct {
 		status, progress, wantStatus, wantProgress string
 	}{
-		{"running", queued, "lost", ""},
-		{"error", queued, "error", ""},
-		{"ok", queued, "ok", ""},
 		{"running", "part 2/3", "lost", "part 2/3"},
 		{"error", "part 2/3", "error", "part 2/3"},
 	} {

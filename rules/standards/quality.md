@@ -28,7 +28,7 @@ tests and test runtime where possible.
 
 **One line, ≤120 chars per section**, in every language, including docstrings. Exempt: provenance/audit blocks,
 file-header runbooks and gotcha notes. Cut excess prose; never rewrap it. Paragraphs belong in docs.
-Enforced by the same gate; cleanup list: `claude-code review quality --comments --format tsv <paths>`.
+Enforced by the same gate; cleanup list: `claude-code review simplify --comments <paths>`.
 
 - Explain only a why, gotcha, unit or invariant the code cannot show; never narrate the next line, name or signature.
 - Docstrings: one line (≤ ~80 chars) only when useful; usually none for unexported symbols. Do not list what code shows.

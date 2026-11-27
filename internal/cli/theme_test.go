@@ -225,17 +225,6 @@ func TestThemeStatuslineStyleHelpAndCompletionListEveryStyle(t *testing.T) {
 	}
 }
 
-func TestConfigureVSCodeDispatchesToVSCode(t *testing.T) {
-	hermeticTheme(t)
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdConfigure([]string{"vscode", "--bogus-flag"}) })
-	if code != 2 {
-		t.Errorf("exit %d, want 2 (flag parse error from vscode.Run)", code)
-	}
-	if strings.Contains(stderr, "claude-code vscode") {
-		t.Errorf("stale old verb name in help/errors: %q", stderr)
-	}
-}
-
 func TestThemeResetDeletesOverrideAndIsIdempotent(t *testing.T) {
 	dir := hermeticTheme(t)
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdTheme([]string{"nord"}) }); code != 0 {

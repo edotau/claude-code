@@ -275,7 +275,7 @@ func appendArchiveOverflow(name string, now time.Time, overflow []string) error 
 	return nil
 }
 
-// PromoteTargets are the `memory promote --to` destinations.
+// PromoteTargets are the `memory feedback promote --to` destinations.
 var PromoteTargets = []string{"rules", "skill", "claude-md"}
 
 // promoteJudgmentTarget names where a judgment promotion lands, for the operator to act on by hand.
@@ -296,9 +296,9 @@ func Promote(id, to string) (string, error) {
 // promoteJudgment prints id with its target and procedure; `claude-md` only prints inside a dream run (isDreamChild).
 func promoteJudgment(id, to, target string) (string, error) {
 	if to == "claude-md" && !isDreamChild() {
-		return "", fmt.Errorf("--to claude-md only runs inside `memory dream`'s cross-pollination step "+
+		return "", fmt.Errorf("--to claude-md only runs inside `memory update --dream`'s cross-pollination step "+
 			"(gated: 3+ memory entries AND a hard prohibition) — route %s to rules instead: "+
-			"`memory promote %s --to rules`", id, id)
+			"`memory feedback promote %s --to rules`", id, id)
 	}
 	block, err := findBlock(id)
 	if err != nil {

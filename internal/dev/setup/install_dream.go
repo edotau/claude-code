@@ -33,7 +33,8 @@ var dreamPlistTmpl = template.Must(template.New("dream").Parse(`<?xml version="1
 	<array>
 		<string>{{.Bin}}</string>
 		<string>memory</string>
-		<string>dream</string>
+		<string>update</string>
+		<string>--dream</string>
 		<string>--trigger</string>
 		<string>schedule</string>
 		<string>--cwd</string>
@@ -65,7 +66,7 @@ func renderDreamPlist(bin, cwd, logPath string) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// dreamLaunchAgent runs `memory dream --trigger schedule` every dreamEvery seconds on macOS; it self-skips if not due.
+// dreamLaunchAgent runs `memory update --dream --trigger schedule` every dreamEvery seconds on macOS (self-skips).
 func dreamLaunchAgent(w io.Writer, bin string, dryRun bool) error {
 	if runtime.GOOS != "darwin" {
 		return nil

@@ -35,7 +35,7 @@ Apply `agents/Plan.md` → Plan rules and Phase rules, then check:
 1. **Evidence:** rerun 2–3 Target-shape commands. Flag non-reproduction or a `Snapshot:` far behind touched files' HEAD.
 2. **Decision:** `DECISION:` rejects a viable alternative, not a straw man.
 3. **Baseline:** Phase 0 covers the commands later phases change.
-4. **Tasks:** `owns:` names real edited paths for `docs-plan-tick`; external-agent tasks name a `claude` fallback.
+4. **Tasks:** `owns:` names real edited paths for `docs-plan`; external-agent tasks name a `claude` fallback.
 5. **Cold start:** spec covered, no scope creep/placeholders, each code change carries its code.
 
 Flag implementation blockers only, not wording, nice-to-haves or extra sections.

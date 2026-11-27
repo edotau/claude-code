@@ -1,12 +1,6 @@
-internal/dev/setup/adopt.go:Record	setup-state
-internal/dev/setup/adopt.go:copyFile	unversioned: foreign: setup backup copy of user files
 internal/dev/setup/install_mdlint.go:installMdlintConfig	unversioned: text: memory store markdownlint child config, rewritten when stale
 internal/dev/setup/install_rtk.go:installRTKConfig	rtk-config
 internal/dev/setup/install_steps.go:installBinarySiblings	unversioned: foreign: installed hooks binary and build stamp
 internal/dev/setup/install_steps.go:installBinaryTarget	unversioned: foreign: installed binary
 internal/dev/setup/install_steps.go:seedTmuxConf	unversioned: foreign: user tmux.conf
 internal/dev/setup/install_steps.go:writeLauncher	unversioned: foreign: bin/claude and bin/browser launcher scripts
-internal/dev/setup/nuke.go:createBackupFile	unversioned: foreign: nuke backup archive
-internal/dev/setup/workspace.go:workspaceDirAction	unversioned: foreign: workspace repo files
-internal/dev/setup/workspace.go:workspaceFileAction	unversioned: foreign: workspace repo files
-internal/dev/setup/workspace.go:workspaceIgnoreAction	unversioned: foreign: workspace repo .gitignore

@@ -187,17 +187,7 @@ func agentsDispatchLog(format string) int {
 	if format != helptext.JSON {
 		return ask.DispatchLog("agents status", format)
 	}
-	recs := agent.RecentRecords(20)
-	for i, r := range recs {
-		if r.Alive() {
-			if line := r.QueueLine(time.Now()); line != "" {
-				recs[i].Status, recs[i].Progress = "queued", line
-			}
-		} else if strings.HasPrefix(r.Progress, "queued ") {
-			recs[i].Progress = ""
-		}
-	}
-	return helptext.WriteJSONOrFail("agents status", recs)
+	return helptext.WriteJSONOrFail("agents status", agent.RecentRecords(20))
 }
 
 // resultFlags are the `agents result` flags.

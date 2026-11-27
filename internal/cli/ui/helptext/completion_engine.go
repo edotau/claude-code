@@ -56,7 +56,7 @@ func (e Engine) knownPath(words []string) (path []string, node *Node, rest []str
 	i := 1
 	for i < len(words) && n.Sub != nil {
 		next, ok := n.Sub[words[i]]
-		if !ok { // A sub keyed "--setup" is the only one a flag word can enter.
+		if !ok {
 			break
 		}
 		n, path = next, append(path, words[i])

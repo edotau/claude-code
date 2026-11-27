@@ -13,24 +13,20 @@ import (
 
 // reviewTools are the evaluate-code/simplify detectors, each keeping its former Python CLI.
 var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr io.Writer) int{
-	"quality":    func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunQuality(a, o, e) },
-	"complexity": func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunComplexity(a, o, e) },
-	"simplify":   func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunSimplify(a, o, e) },
-	"diff":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunDiff(a, o, e) },
-	"pr":         func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
-	"report":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
-	"gate":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
-	"scope":      func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
-	"bench":      func(a []string, _ io.Reader, o, e io.Writer) int { return bench.RunBench(a, o, e) },
+	"simplify": func(a []string, _ io.Reader, o, e io.Writer) int { return source.RunSimplify(a, o, e) },
+	"diff":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunDiff(a, o, e) },
+	"pr":       func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunPR(a, o, e) },
+	"report":   func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
+	"gate":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
+	"scope":    func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
+	"bench":    func(a []string, _ io.Reader, o, e io.Writer) int { return bench.RunBench(a, o, e) },
 }
 
 var reviewPage = helptext.Page{
 	Usage: "claude-code review <tool> [args...]",
 	About: "The evaluate-code and simplify detectors as one verb; each tool has its own flags.",
 	Commands: [][2]string{
-		{"quality", "code smells and SOLID violations in a file or tree"},
-		{"complexity", "function length, nesting and branch counts"},
-		{"simplify", "complexity + quality pass over the changed files"},
+		{"simplify", "complexity + quality pass (--complexity, --comments)"},
 		{"diff", "diff lines that don't trace to the task"},
 		{"pr", "a branch's changes by category, risk and review order"},
 		{"report", "pr + quality findings as one review report"},

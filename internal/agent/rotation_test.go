@@ -48,70 +48,18 @@ func TestRotationAskedAuto(t *testing.T) {
 	}
 }
 
-// Under the pool pin a workspace's skip drops a model only once no other row serves it unskipped.
-func TestRotationPoolPinSkips(t *testing.T) {
-	reg, _, _ := autoFixture(t)
-	saveListing(t, "prod", devListing)
-	rows := []*providers.Provider{reg.Providers["dev"], reg.Providers["prod"]}
-	picks := func() []string { // stamped picks cycle the whole pool
-		var out []string
-		for range rotationPool("opencode", models.Sonnet, rows[0], false, time.Now()) {
-			m, _, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, true, false, nil, time.Now())
-			if err != nil {
-				t.Fatal(err)
-			}
-			out = append(out, m)
-		}
-		return out
-	}
-	first := picks()[0]
-	for i, want := range []bool{true, false} {
-		router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[i]), rows[i], providers.SpellPin(rows[i], first))
-		if got := picks(); slices.Contains(got, first) != want {
-			t.Errorf("after skipping on %d row(s): picks %v, want %s in them %v", i+1, got, first, want)
-		}
-	}
-}
-
-// The pool-pin note's "in pool" count drops a model only once every workspace holds it; one row's hold leaves it.
-func TestRotationPoolPinNoteCountsWorkspaceSkips(t *testing.T) {
-	reg, _, _ := autoFixture(t)
-	saveListing(t, "prod", devListing)
-	rows := []*providers.Provider{reg.Providers["dev"], reg.Providers["prod"]}
-	pool := rotationPool("opencode", models.Sonnet, rows[0], false, time.Now())
-	if len(pool) < 2 {
-		t.Fatalf("fixture: standard pool has %d members, want 2+", len(pool))
-	}
-	_, note, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
-	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
-		t.Fatalf("note %q (%v), want %d in pool", note, err, len(pool))
-	}
-	if router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[0]), rows[0], providers.SpellPin(rows[0], pool[0])) == "" {
-		t.Fatalf("fixture: %s not in %s's rotation pool", pool[0], rows[0].Name)
-	}
-	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
-	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
-		t.Errorf("after a dev skip, note %q (%v), want still %d in pool (prod serves it)", note, err, len(pool))
-	}
-	router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[1]), rows[1], providers.SpellPin(rows[1], pool[0]))
-	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
-	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool)-1)) {
-		t.Errorf("after the same skip on prod, note %q (%v), want %d in pool", note, err, len(pool)-1)
-	}
-}
-
 // Stamped picks walk the pool least-recent first: each differs, and after a cycle the first pick returns; dear ones sit out.
 func TestRotationLeastRecentCycle(t *testing.T) {
 	reg, _, _ := autoFixture(t)
-	rows, now := []*providers.Provider{reg.Providers["dev"]}, time.Now()
-	pool := rotationPool("opencode", models.Sonnet, rows[0], false, now)
+	dev, now := reg.Providers["dev"], time.Now()
+	pool := rotationPool("opencode", models.Sonnet, dev, false, now)
 	n := len(pool) - len(catalog.DeferTurns(pool, "standard"))
 	if n < 2 {
 		t.Fatalf("fixture: standard pool has %d cheaper members, want 2+", n)
 	}
 	var seen []string
 	for range n + 1 {
-		m, _, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, true, false, nil, now)
+		m, _, err := rotationModelOn(context.Background(), dev, "opencode", models.Sonnet, true, false, nil, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +142,7 @@ func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
 	dev, now := reg.Providers["dev"], time.Now()
 	pick := func() string {
 		t.Helper()
-		m, _, err := rotationModelOn(context.Background(), []*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
+		m, _, err := rotationModelOn(context.Background(), dev, "opencode", models.Sonnet, false, false, nil, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -219,7 +167,7 @@ func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
 func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	dev, now := reg.Providers["dev"], time.Now()
-	m, _, err := rotationModelOn(context.Background(), []*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
+	m, _, err := rotationModelOn(context.Background(), dev, "opencode", models.Sonnet, false, false, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +188,7 @@ func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 	}
 	t.Run("typed model idle cutoff", func(t *testing.T) {
 		reg, _, _ := autoFixture(t)
-		m, _, err := rotationModelOn(context.Background(), []*providers.Provider{reg.Providers["dev"]}, "opencode", models.Sonnet, false, false, nil, time.Now())
+		m, _, err := rotationModelOn(context.Background(), reg.Providers["dev"], "opencode", models.Sonnet, false, false, nil, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -472,5 +420,75 @@ func TestWithoutDeprecatedSkipsDroppedModels(t *testing.T) {
 	}
 	if got := withoutDeprecated(p, append([]catalog.Candidate(nil), cands...)); len(got) != 2 {
 		t.Fatalf("pool after undrop = %v, want both", got)
+	}
+}
+
+// A rotation pick the served check refuses is re-picked, never run: the refusal is named in the route's note (R8).
+func TestRotationRepicksUnservedPick(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	now := time.Now()
+	ask := func() ModelRoute {
+		t.Helper()
+		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: "dev", Model: "auto", Task: standardBrief, ctx: PeekContext(context.Background())}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	refused := ask().Model
+	orig := servedVerdict
+	servedVerdict = func(agentName string, p *providers.Provider, model string, at time.Time) (string, *Finding, string) {
+		if model == refused {
+			return "", &Finding{Check: "served", Detail: p.Name + listsNoEndpoint + model}, ""
+		}
+		return orig(agentName, p, model, at)
+	}
+	t.Cleanup(func() { servedVerdict = orig })
+	got := ask()
+	if got.Model == refused || !strings.Contains(got.Note, "rotation skipped "+refused) {
+		t.Errorf("ran %s note %q, want another model and a skip note for %s", got.Model, got.Note, refused)
+	}
+}
+
+// A skip on the row's only pool member keeps it out of the next picks.
+func TestRotationPoolPinSkips(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	p := reg.Providers["dev"]
+	picks := func() []string { // stamped picks cycle the whole pool
+		var out []string
+		for range rotationPool("opencode", models.Sonnet, p, false, time.Now()) {
+			m, _, err := rotationModelOn(context.Background(), p, "opencode", models.Sonnet, true, false, nil, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+	first := picks()[0]
+	router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", p), p, providers.SpellPin(p, first))
+	if got := picks(); slices.Contains(got, first) {
+		t.Errorf("after skipping %s: picks %v still include it", first, got)
+	}
+}
+
+// The rotation note counts the pool; a skip shrinks the count by one.
+func TestRotationPoolNoteCountsSkips(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	p := reg.Providers["dev"]
+	pool := rotationPool("opencode", models.Sonnet, p, false, time.Now())
+	if len(pool) < 2 {
+		t.Fatalf("fixture: standard pool has %d members, want 2+", len(pool))
+	}
+	_, note, err := rotationModelOn(context.Background(), p, "opencode", models.Sonnet, false, false, nil, time.Now())
+	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
+		t.Fatalf("note %q (%v), want %d in pool", note, err, len(pool))
+	}
+	if router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", p), p, providers.SpellPin(p, pool[0])) == "" {
+		t.Fatalf("fixture: %s not in %s's rotation pool", pool[0], p.Name)
+	}
+	_, note, err = rotationModelOn(context.Background(), p, "opencode", models.Sonnet, false, false, nil, time.Now())
+	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool)-1)) {
+		t.Errorf("after the skip, note %q (%v), want %d in pool", note, err, len(pool)-1)
 	}
 }

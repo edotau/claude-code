@@ -27,13 +27,6 @@ type SandboxOwner struct {
 	Start int64 `json:"start"`
 }
 
-// InSandbox reports whether the config dir is a `memory sandbox`, by the owner marker its creation wrote there.
-func InSandbox() bool {
-	data, err := os.ReadFile(filepath.Join(paths.ConfigDir(), SandboxOwnerFile))
-	var o SandboxOwner
-	return err == nil && json.Unmarshal(data, &o) == nil && o.PID > 0
-}
-
 // SandboxRegistry lists every sandbox dir ever created, whatever TMPDIR it was under.
 func SandboxRegistry() string { return filepath.Join(paths.MemoryStateDir(), "sandboxes.list") }
 
@@ -121,7 +114,7 @@ func Sandbox(opt SandboxOptions) (res SandboxResult, err error) {
 	if err = recordSandbox(res.Dir); err != nil {
 		return res, err
 	}
-	res.Env = map[string]string{"CLAUDE_CONFIG_DIR": res.Dir, syncEnv: "", "CLAUDE_REMOTE_HOST": ""}
+	res.Env = map[string]string{"CLAUDE_CONFIG_DIR": res.Dir}
 	res.Stores, err = sandboxFlat(res.Dir, opt)
 	return res, err
 }

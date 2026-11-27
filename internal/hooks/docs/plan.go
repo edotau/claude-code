@@ -285,14 +285,16 @@ var undatedNameRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-`)
 })
 
+// plansRoot is <config>/plans, the one home of native drafts and dated plans.
+func plansRoot() string { return filepath.Join(paths.ConfigDir(), "plans") }
+
 // isUndatedDraft reports whether abs is a markdown file directly under <config>/plans/ not dated or a README.
 func isUndatedDraft(abs string) bool {
 	if !isMarkdownPath(abs) || strings.EqualFold(strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)), "readme") {
 		return false
 	}
 	// Canonicalize both sides: a draft spelled through a symlink must still match the real plans dir.
-	plansDir := paths.Real(filepath.Join(paths.ConfigDir(), "plans"))
-	if paths.Real(filepath.Dir(abs)) != plansDir {
+	if paths.Real(filepath.Dir(abs)) != paths.Real(plansRoot()) {
 		return false
 	}
 	return !undatedNameRe().MatchString(filepath.Base(abs))
@@ -527,7 +529,7 @@ var hookLockWait = time.Second
 
 // Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.
 func Mirror(in *core.Input, stderr io.Writer) int {
-	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); paths.InsideDir(p, filepath.Join(paths.ConfigDir(), "plans")) {
+	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); paths.InsideDir(p, plansRoot()) {
 		plans.RecordBorn(p) // a dated plan written by the tool itself; drafts get theirs in writePlan
 	}
 	path, content, ok := mirrorSource(in)

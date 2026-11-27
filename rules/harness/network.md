@@ -38,8 +38,6 @@ to a readable/traversable path. Other managed certs use `state/certs/<area>/` un
 - Auto host/remote: process then vault `CLAUDE_REMOTE_HOST` (first comma-separated entry), else the sole online
   tailnet peer answering `claude-code version` within 5 seconds (10-minute auto-host.json cache).
   Zero/multiple peers fail. This machine's DNS/hostname/first label runs locally without SSH/tunnel.
-- Memory sync: `rules/workflows/memory-bank.md` → Verbs. With `NETWORK_MEMORY=on`, the active machine syncs
-  every 30 minutes while in use; a peer-only machine never initiates.
 - Auto profile chooses locally eligible Databricks rows (credential, no auth mark, model served), with no token probe:
   revoked logins fail on request. Exclude rate-limit cooldowns; choose fewest dispatches, least recently picked, name.
   Never name a profile auto. Batch chooses per line, counting prior picks as load.

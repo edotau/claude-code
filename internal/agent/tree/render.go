@@ -204,7 +204,7 @@ func addSubagent(l *layout, n Node, c *rowCtx) {
 	addSubagentRow(l, *sub, c, "", sub.Status == statusRunning)
 	addHeld(l, 8, sub.Files, "")
 	for _, r := range nodeRows(n.Children) {
-		addJobRow(l, levelDispatch, append([]string{subNest(*sub) + r.guide + "↳"}, jobCells(r.Dispatch, c.now, nil)...),
+		addJobRow(l, levelDispatch, append([]string{subNest(*sub) + r.guide + "↳"}, jobCells(r.Dispatch, c.now)...),
 			r.Dispatch, false)
 		if c.detail {
 			for _, line := range dispatchExpansion(r.Dispatch) {
@@ -232,19 +232,17 @@ func addJobRow(l *layout, level int, cells []string, d Dispatch, sel bool) {
 	}
 	l.add(level, append(cells, "")...)
 	l.rows[len(l.rows)-1].tint = markerTint(d)
-	l.spanLast(d.queued != "", sel)
+	l.selectLast(sel)
 }
 
-// markerTint is the colour of a dispatch marker: running green, done dim, failed red, queued yellow.
+// markerTint is the colour of a dispatch marker: running green, done dim, failed red.
 func markerTint(d Dispatch) string {
-	switch {
-	case d.queued != "":
-		return ansi.Yellow
-	case d.Status == statusRunning:
+	switch d.Status {
+	case statusRunning:
 		return ansi.Green
-	case d.Status == statusFinished || d.Status == "ok":
+	case statusFinished, "ok":
 		return ansi.Dim
-	case d.Status == statusError || d.Status == "lost":
+	case statusError, "lost":
 		return ansi.Red
 	}
 	return ""

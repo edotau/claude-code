@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/textutil"
-	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/route"
 )
 
@@ -83,10 +81,6 @@ func SpawnContext(ctx context.Context, rec *Record, extra []string) error {
 
 // SpawnArgvContext preserves run values while detaching the child lifetime.
 func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) error {
-	return spawnArgvContext(ctx, rec, argv, env, false)
-}
-
-func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, recovering bool) error {
 	ctx, _ = RunValues(ctx, nil)
 	parent, _ := ctx.Value(dispatchIDKey{}).(string)
 	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
@@ -106,19 +100,12 @@ func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, reco
 		return errors.New("agent: refusing to relaunch the test binary as a job")
 	}
 	logPath := rec.LogPath()
-	trunc := os.O_TRUNC
-	if recovering {
-		trunc = 0 // keep the log the dead run wrote
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|trunc, 0o600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 	defer logFile.Close()
 	cmd := exec.CommandContext(context.Background(), exe, argv...) // detached child must outlive this process, not any caller ctx
-	if recovering {
-		cmd.Dir = cmp.Or(rec.Cwd, rec.Request.WorkDir, rec.Tree, rec.Repo)
-	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.Env = (EnvSpec{Mode: EnvClaude, Extra: env}).Environ(context.WithoutCancel(ctx))
 	proc.Detach(cmd)
@@ -129,84 +116,10 @@ func spawnArgvContext(ctx context.Context, rec *Record, argv, env []string, reco
 	rec.PID, rec.Log, rec.Background = cmd.Process.Pid, logPath, true
 	rec.PIDStart, _ = proc.StartTime(rec.PID) // "" on failure: Cancel then refuses to signal this pid
 	// persist the pid while the on-disk one is 0, so a child dying before ClaimJob is not alive and cancel has a pid
-	if !recovering {
-		_ = NotePID(*rec, false)
-	}
+	_ = NotePID(*rec, false)
 	stopJev(rec.ID)                // the detached child starts its own shadow; this process never takes the one it prepared
 	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
 	return nil
-}
-
-// RecoverJob relaunches an earlier boot's dead background job while holding its record lock.
-func RecoverJob(ctx context.Context, id string, boot time.Time) (bool, error) {
-	r, err := LoadRecord(id)
-	if err != nil {
-		return false, err
-	}
-	path := filepath.Join(paths.DispatchDir(), r.ID+".json")
-	recovered := false
-	err = paths.WithFileLock(path, func() error {
-		cur, err := readRecord(path)
-		if err != nil {
-			return err
-		}
-		if !cur.recoverable(boot) || cur.taken() { // a re-send claimed this holder: it is the one runner
-			return nil
-		}
-		if cur.Status == "lost" {
-			fi, err := os.Stat(path)
-			if err != nil {
-				return err
-			}
-			if fi.ModTime().Before(boot) {
-				return nil
-			}
-		}
-		if err := markRecovery(cur); err != nil {
-			return err
-		}
-		if cur, err = cur.voidClaim(); err != nil {
-			return err
-		}
-		cur.Status, cur.Error, cur.Progress = "running", "", ""
-		cur.PID, cur.PPID, cur.PGID, cur.PIDStart = 0, 0, 0, ""
-		if err := cur.saveLocked(); err != nil {
-			return err
-		}
-		if err := spawnArgvContext(ctx, &cur, recoverArgv(cur), nil, true); err != nil {
-			cur.Status, cur.Error = "error", "reboot recovery: "+err.Error()
-			return errors.Join(err, cur.saveLocked())
-		}
-		recovered = true
-		return cur.saveLocked()
-	})
-	return recovered, err
-}
-
-func markRecovery(r Record) error {
-	f, err := os.OpenFile(r.LogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(recoveryMark)
-	return errors.Join(err, f.Close())
-}
-
-// recoverArgv replays the record's fallback and native config as --overlay; --as keeps its own flag.
-func recoverArgv(r Record) []string {
-	argv := []string{"agents", "ask", "--job", r.ID}
-	var ov agentconfig.Overlay
-	ov.Fallback = r.FallbackPolicy
-	if r.Request.Native {
-		ov.Native = new(true)
-	}
-	if doc := childDoc(ov); doc != "" {
-		argv = append(argv, "--overlay", doc)
-	}
-	if r.Request.Identity != "" {
-		argv = append(argv, "--as", r.Request.Identity)
-	}
-	return argv
 }
 
 // list is name's dispatch records, newest first; a ref decodes only the files it prefixes, else !all keeps Repo.
@@ -481,16 +394,14 @@ func checkAgent(name string) error {
 // Row is one background-job line for `claude-code agents status`.
 type Row struct {
 	ID       string
-	Status   string // queued | running | lost | ok | error | partial | stalled | quota
+	Status   string // running | lost | ok | error | partial | stalled | quota
 	Elapsed  string
 	Preview  string
 	Session  string
-	Error    string `json:",omitempty"`     // the failed dispatch's redacted error text
-	Progress string `json:",omitempty"`     // "part 2/3" while a split review runs
-	Cutoff   string `json:",omitempty"`     // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
-	Live     string `json:"live,omitempty"` // a running row's progress line
-	Pool     string `json:"pool,omitempty"`
-	Wait     string `json:"wait,omitempty"`
+	Error    string `json:",omitempty"`       // the failed dispatch's redacted error text
+	Progress string `json:",omitempty"`       // "part 2/3" while a split review runs
+	Cutoff   string `json:",omitempty"`       // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
+	Live     string `json:"live,omitempty"`   // a running row's progress line
 	Report   string `json:"report,omitempty"` // the report file `memory report --job` stored
 
 	Parent string      `json:"parent,omitempty"`
@@ -500,43 +411,6 @@ type Row struct {
 	Type      string    `json:"type,omitempty"`
 	Runner    string    `json:"runner,omitempty"`
 	ToolStats ToolStats `json:"tool_stats,omitempty"`
-}
-
-// NoteQueued marks admission waits in Progress; an empty pool clears only an admission mark.
-func NoteQueued(id, pool string, note io.Writer) {
-	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-		queuedPool, _ := r.admissionQueue()
-		if r.Status != "running" || pool == queuedPool {
-			return r, false
-		}
-		r.Progress = ""
-		if pool != "" {
-			r.Progress = "queued " + time.Now().UTC().Format(time.RFC3339Nano) + " " + pool
-		}
-		return r, true
-	})
-	if err != nil && note != nil {
-		fmt.Fprintf(note, "agents serve: queue mark for %s not saved: %v\n", id, err)
-	}
-}
-
-func (r Record) admissionQueue() (string, time.Time) {
-	mark, ok := strings.CutPrefix(r.Progress, "queued ")
-	stamp, pool, found := strings.Cut(mark, " ")
-	since, err := time.Parse(time.RFC3339Nano, stamp)
-	if !ok || !found || err != nil || pool == "" || r.Status != "running" {
-		return "", time.Time{}
-	}
-	return pool, since
-}
-
-// QueueLine describes a pending admission; it is empty for an active or finished run.
-func (r Record) QueueLine(now time.Time) string {
-	pool, since := r.admissionQueue()
-	if pool == "" {
-		return ""
-	}
-	return "queued on " + textutil.PreviewRedacted(pool, 60) + ", waiting " + ShortDur(now.Sub(since))
 }
 
 // Observed is what the harness itself recorded about a dispatch, apart from the agent's own account.
@@ -703,10 +577,7 @@ func (r Record) StatusLine() string {
 		return r.LogLine()
 	}
 	now := time.Now()
-	live := r.QueueLine(now)
-	if live == "" {
-		live = ProgressOf(r, now).Fragment(progressWidth)
-	}
+	live := ProgressOf(r, now).Fragment(progressWidth)
 	r.Request.Prompt = ""
 	head, rest, _ := strings.Cut(r.LogLine(), "\n")
 	return strings.TrimRight(head, " ") + "  " + live + "\n" + rest
@@ -724,21 +595,11 @@ func toRow(r Record) Row {
 		r.Error = "lost: process gone" + r.LostProcessDetail()
 	}
 	live := ""
-	pool, since := r.admissionQueue()
-	wait := ""
 	if status == "running" {
-		if pool != "" {
-			status, live = "queued", r.QueueLine(time.Now())
-			wait = ShortDur(time.Since(since))
-			r.Progress = ""
-		} else {
-			live = ProgressOf(r, time.Now()).Line(progressWidth)
-		}
-	} else if strings.HasPrefix(r.Progress, "queued ") {
-		pool, r.Progress = "", "" // a mark left by a crash or a cancel that beat the waiter's own clear
+		live = ProgressOf(r, time.Now()).Line(progressWidth)
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
+		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff,
 		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage, Report: r.Report,
 		Type: r.Type, Runner: r.Runner, ToolStats: r.ToolStats}
 }

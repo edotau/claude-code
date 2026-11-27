@@ -23,6 +23,8 @@ type simplifyArgs struct {
 	threshold string
 	jsonOut   bool
 	fail      bool
+	complex   bool
+	comments  bool
 }
 
 type simplifyQuality struct {
@@ -60,6 +62,8 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
 	jsonOut := fs.Bool("json", false, "Output in JSON format")
 	fail := fs.Bool("fail", false, "exit 1 on NEW comment/size violations in changed Go lines (quality.md)")
+	complexOnly := fs.Bool("complexity", false, "report only the complexity check (function length, nesting, branches)")
+	comments := fs.Bool("comments", false, "list Go comment cleanup candidates as TSV: file:line, kind, symbol, text")
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()
@@ -74,19 +78,31 @@ func parseSimplifyArgs(args []string, stdout, stderr io.Writer) (simplifyArgs, i
 		fmt.Fprintf(stderr, "review simplify: argument --threshold: invalid choice: %q\n", *threshold)
 		return simplifyArgs{}, 2, true
 	}
-	if *fail && *jsonOut {
-		fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --json")
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == "threshold" })
+	parsed := simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail,
+		complex: *complexOnly, comments: *comments}
+	if msg := parsed.conflict(set); msg != "" {
+		fmt.Fprintln(stderr, "review simplify: "+msg)
 		return simplifyArgs{}, 2, true
 	}
-	if *fail {
-		set := false
-		fs.Visit(func(f *flag.Flag) { set = set || f.Name == "threshold" })
-		if set {
-			fmt.Fprintln(stderr, "review simplify: --fail cannot combine with --threshold")
-			return simplifyArgs{}, 2, true
+	return parsed, 0, false
+}
+
+// conflict names the first mode-flag combination simplify refuses; "" means the flags agree.
+func (a simplifyArgs) conflict(thresholdSet bool) string {
+	if a.comments {
+		if a.fail || a.jsonOut || a.complex {
+			return "--comments combines with no other mode flag"
+		}
+		if len(a.targets) == 0 {
+			return "--comments needs paths"
 		}
 	}
-	return simplifyArgs{targets: targets, base: *base, threshold: *threshold, jsonOut: *jsonOut, fail: *fail}, 0, false
+	if a.fail && (a.complex || a.jsonOut || thresholdSet) {
+		return "--fail cannot combine with --json, --complexity or --threshold"
+	}
+	return ""
 }
 
 // gitLines runs git with list args in dir and returns its non-empty output lines.
@@ -276,9 +292,19 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 		paths = changed
 	}
 	files, unreadable := simplifyTargets(paths, stderr)
-	if parsed.fail {
+	switch {
+	case parsed.comments:
+		return runCommentCandidates(files, unreadable, stdout, stderr)
+	case parsed.complex:
+		return runComplexityOnly(files, unreadable, parsed, stdout, stderr)
+	case parsed.fail:
 		return failOnNewViolations(files, simplifyBase(parsed.base), stdout, stderr)
 	}
+	return runSimplifyReport(files, unreadable, parsed, stdout, stderr)
+}
+
+// runSimplifyReport is the default mode: both checks per file, as text or JSON.
+func runSimplifyReport(files, unreadable []string, parsed simplifyArgs, stdout, stderr io.Writer) int {
 	report := analyzeSimplifyTargets(files, complexityThresholds[parsed.threshold], stderr)
 	report.Failed = append(report.Failed, unreadable...)
 	if parsed.jsonOut {
@@ -294,6 +320,29 @@ func RunSimplify(args []string, stdout, stderr io.Writer) int {
 	}
 	printSimplifyReport(stdout, report, parsed.threshold)
 	return simplifyExit(report)
+}
+
+// runComplexityOnly prints the complexity check alone; an unreadable or unparsable file exits 1.
+func runComplexityOnly(files, unreadable []string, parsed simplifyArgs, stdout, stderr io.Writer) int {
+	results, failed := analyzeComplexityFiles(files, complexityThresholds[parsed.threshold], stderr)
+	summary := buildComplexitySummary(results, parsed.threshold)
+	if len(results) == 0 && failed+len(unreadable) > 0 {
+		summary.Status, summary.Verdict = "error", "FAIL"
+	}
+	var err error
+	if parsed.jsonOut {
+		err = WritePyJSON(stdout, summary)
+	} else {
+		err = printComplexityReport(stdout, summary)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: %s\n", err)
+		return 1
+	}
+	if failed+len(unreadable) > 0 {
+		return 1
+	}
+	return 0
 }
 
 // simplifyExit is 1 when any file could not be analyzed, so a dropped file never reads as clean.

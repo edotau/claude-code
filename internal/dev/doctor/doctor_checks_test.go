@@ -37,14 +37,14 @@ func TestMemoryDreamRowFlagsFailedAndStale(t *testing.T) {
 			[]memory.DreamResult{{At: now.Add(-49 * time.Hour), Outcome: memory.DreamNoop}}},
 		{"recent local noop", "last ok 2026-11-25 13:02 on claude·dev (schedule), local model", true,
 			[]memory.DreamResult{{At: ok.At, Outcome: memory.DreamNoop, Agent: ok.Agent, Profile: ok.Profile, Trigger: ok.Trigger, Local: true}}},
-		{"skipped is not success", "no ok run yet (memory dream --force)", false,
+		{"skipped is not success", "no ok run yet (memory update --dream --force)", false,
 			[]memory.DreamResult{{At: now, Outcome: memory.DreamNoop, Reason: "not due"}}},
 		{"skipped after failure", "last run failed 2026-11-25 14:02: auth", false,
 			[]memory.DreamResult{{At: now, Outcome: memory.DreamFailed, Reason: "auth"},
 				{At: now, Outcome: memory.DreamNoop, Reason: "not due"}}},
 		{"skips do not hide success", "last ok 2026-11-25 13:02 on claude·dev (schedule)", true,
 			append([]memory.DreamResult{ok}, repeatedDreamSkips(now, 60)...)},
-		{"no record", "no record yet (memory dream --force)", false, nil},
+		{"no record", "no record yet (memory update --dream --force)", false, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -712,7 +712,7 @@ func autoCandidates(reg *providers.Registry, q ModelQuery, p *providers.Provider
 	if p == nil {
 		return nil, "no row"
 	}
-	s, ok := endpoints.Fresh(p.Name, now)
+	s, ok := endpoints.FreshShared(p.Name, now)
 	if p.Preset != providers.PresetDatabricks || !ok {
 		return nil, "no fresh model listing on " + p.Name
 	}

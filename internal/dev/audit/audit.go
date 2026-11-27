@@ -22,6 +22,7 @@ import (
 // Action is the closed set of audited events; Log drops anything else.
 type Action string
 
+// SetupAdopt and SetupWorkspace remain valid so older audit records stay readable.
 const (
 	ProviderSwitch    Action = "provider_switch"
 	ModelPin          Action = "model_pin"

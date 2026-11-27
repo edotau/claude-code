@@ -5,13 +5,11 @@ package tree
 import (
 	"cmp"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
@@ -55,9 +53,6 @@ func foldInto(d, w Dispatch) Dispatch {
 	d.Runner, d.recType, d.codeMode, d.routeKind = w.Runner, w.recType, w.codeMode, cmp.Or(w.routeKind, d.routeKind)
 	d.LastSignal, d.SignalSource, d.Quiet, d.Live = w.LastSignal, w.SignalSource, w.Quiet, w.Live
 	d.launch, d.Route, d.Task = cmp.Or(w.launch, d.launch), cmp.Or(w.Route, d.Route), cmp.Or(d.Task, w.Task)
-	if w.queued != "" {
-		d.queued, d.queuedAt = w.queued, w.queuedAt
-	}
 	if d.Status == statusRunning && w.Status == "lost" {
 		d.Status = w.Status
 	}
@@ -152,7 +147,7 @@ func (d Dispatch) since(now time.Time) string {
 }
 
 // jobCells are a dispatch row after its marker: agent, model, provider, profile, ↑in, ↓out, since, elapsed.
-func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []string {
+func jobCells(d Dispatch, now time.Time) []string {
 	typ := dispatchType(d)
 	if d.Agent == agentid.Pi && !d.codeMode && d.recType != string(models.TypeCoworker) {
 		typ = agentid.Pi // a plain pi ask asked no other type: its row reads pi, the stored type stays
@@ -164,26 +159,11 @@ func jobCells(d Dispatch, now time.Time, pools map[string]serve.PoolRow) []strin
 	model := strings.TrimPrefix(cmp.Or(d.Model, "default"), databricksPrefix)
 	provider, profile := d.routeParts()
 	up, down := d.tokenCells()
-	if d.queued != "" {
-		up, down = queueText(d, now, pools), ""
-	}
 	return []string{name, model, provider, profile, up, down, d.since(now), durationText(d.Duration)}
 }
 
-// queueText is "queued 1m10s (pool databricks:qa 2/4)"; the count is left out when the daemon does not answer.
-func queueText(d Dispatch, now time.Time, pools map[string]serve.PoolRow) string {
-	pool := d.queued
-	if p, ok := pools[d.queued]; ok && p.Cap > 0 {
-		pool = fmt.Sprintf("%s %d/%d", pool, p.Running, p.Cap)
-	}
-	return "queued " + agent.ShortDur(now.Sub(d.queuedAt)) + " (pool " + pool + ")"
-}
-
-// jobMarker is "○" for a job waiting on admission, else the status glyph.
+// jobMarker is the job's status glyph.
 func jobMarker(d Dispatch) string {
-	if d.queued != "" {
-		return "○"
-	}
 	if d.Status == "lost" {
 		return statusGlyph(statusError)
 	}
@@ -193,38 +173,14 @@ func jobMarker(d Dispatch) string {
 	return statusGlyph(d.Status)
 }
 
-// queryPools is the serve daemon's pool view; a test swaps it so no socket is dialed.
-var queryPools = func() map[string]serve.PoolRow {
-	st, err := serve.QueryStatus(300 * time.Millisecond)
-	if err != nil {
-		return nil
-	}
-	pools := make(map[string]serve.PoolRow, len(st.Pools))
-	for _, p := range st.Pools {
-		pools[p.Pool] = p
-	}
-	return pools
-}
-
-// poolsFor asks the daemon for its pools only when one of rows is queued, so a plain listing dials nothing.
-func poolsFor(rows []nested) map[string]serve.PoolRow {
-	for _, n := range rows {
-		if n.queued != "" {
-			return queryPools()
-		}
-	}
-	return nil
-}
-
 // addJobs adds the machine-wide dispatch job nodes under a column-name row, one row each; detail adds the lines.
 func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 	l.sep()
 	l.add(levelJob, "", "agent", "model", "provider", "", "in", "out", "idle", "time", "")
 	l.rows[len(l.rows)-1].head = true
 	rows := nodeRows(nodes)
-	pools := poolsFor(rows)
 	for _, n := range rows {
-		cells := jobCells(n.Dispatch, now, pools)
+		cells := jobCells(n.Dispatch, now)
 		cells[0] = n.guide + cells[0]
 		addJobRow(l, levelJob, append([]string{jobMarker(n.Dispatch)}, cells...), n.Dispatch, false)
 		if detail {
@@ -238,7 +194,7 @@ func addJobs(l *layout, nodes []Node, now time.Time, detail bool) {
 
 // dispatchExpansion is the two lines under an expanded dispatch row: its task, then status, route, model and id.
 func dispatchExpansion(d Dispatch) []string {
-	detail := []string{d.state()}
+	detail := []string{d.Status}
 	if d.Fallback != "" {
 		detail = append(detail, strings.TrimSpace(d.Fallback+"→"+d.Agent+" ⚠ "+d.FallbackReason))
 	}
@@ -275,12 +231,4 @@ func (d Dispatch) routeParts() (provider, profile string) {
 func profileOf(r string) string {
 	_, profile, _ := strings.Cut(r, ":")
 	return profile
-}
-
-// state is the job's status word, "queued" while it waits on a pool.
-func (d Dispatch) state() string {
-	if d.queued != "" {
-		return "queued"
-	}
-	return d.Status
 }

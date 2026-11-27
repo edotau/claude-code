@@ -243,30 +243,18 @@ func enclosingFunc(file *ast.File, fset *token.FileSet, line int) string {
 	return ""
 }
 
-// runCommentCandidates prints the TSV candidate list for the Go files under paths; it never needs git.
-func runCommentCandidates(paths []string, stdout, stderr io.Writer) int {
-	var files []string
-	for _, p := range paths {
-		st, err := os.Stat(p)
-		switch {
-		case err != nil:
-			fmt.Fprintf(stderr, "review quality: %v\n", err)
-			return 1
-		case st.IsDir():
-			walkSourceFiles(p, stderr, func(f string) {
-				if strings.HasSuffix(f, ".go") {
-					files = append(files, f)
-				}
-			})
-		default:
-			files = append(files, p)
-		}
+// runCommentCandidates prints the TSV candidate list for the Go files among files; it never needs git.
+func runCommentCandidates(files, unreadable []string, stdout, stderr io.Writer) int {
+	if len(unreadable) > 0 {
+		return 1
 	}
-	sort.Strings(files)
 	for _, f := range files {
+		if !strings.HasSuffix(f, ".go") {
+			continue
+		}
 		data, err := os.ReadFile(f)
 		if err != nil {
-			fmt.Fprintf(stderr, "review quality: %v\n", err)
+			fmt.Fprintf(stderr, "review simplify: %v\n", err)
 			return 1
 		}
 		for _, c := range goCommentCandidates(f, string(data)) {

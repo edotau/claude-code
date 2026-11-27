@@ -265,11 +265,31 @@ func oldest(e, history Entry, agent string, p *providers.Provider, pool, skip []
 		if slices.Contains(skip, entry) || providers.SpellPin(p, entry) == "" || HeldUntil(e, agent, entry, now) != nil {
 			continue
 		}
-		if selected == "" || history.Discovery[DiscoverySkipKey(agent, entry)].Before(history.Discovery[DiscoverySkipKey(agent, selected)]) {
+		if selected == "" || pickedAt(history, agent, entry).Before(pickedAt(history, agent, selected)) {
 			selected = entry
 		}
 	}
 	return selected
+}
+
+// pickedAt is when agent last picked entry, zero for never.
+func pickedAt(history Entry, agent, entry string) time.Time {
+	return history.Discovery[DiscoverySkipKey(agent, entry)]
+}
+
+// RotationOrder is pool in pick order: least recently picked first, entries on a live hold last.
+func RotationOrder(e, history Entry, agent string, pool []string, now time.Time) []string {
+	held := func(m string) bool { return HeldUntil(e, agent, m, now) != nil }
+	return slices.SortedStableFunc(slices.Values(pool), func(a, b string) int {
+		return cmp.Or(boolRank(held(a))-boolRank(held(b)), pickedAt(history, agent, a).Compare(pickedAt(history, agent, b)))
+	})
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ServedPool drops entries a fresh listing marks not READY; unchanged when the switch is off or the cache cold.

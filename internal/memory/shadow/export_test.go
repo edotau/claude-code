@@ -396,10 +396,6 @@ func seedHistory(t *testing.T, text string) {
 	if n, _ := res.RowsAffected(); n != 1 {
 		t.Fatalf("setup: seeded %d vector rows for %q, want 1", n, text)
 	}
-	if _, err := db.Exec(`INSERT INTO changes(origin, origin_seq, schema, entry_rowid, base_version, op, payload, at)
-		SELECT 'test', 1, 1, rowid, '1', 'update', '', '' FROM entries WHERE lines LIKE '%' || ? || '%'`, text); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestExportDoesNotTriggerReimport(t *testing.T) {
@@ -414,15 +410,11 @@ func TestExportDoesNotTriggerReimport(t *testing.T) {
 		t.Fatalf("version did not move: %v", v2[id])
 	}
 	seedHistory(t, "second")
-	changes := shadowCount(t, `SELECT count(*) FROM changes`)
 	if got := truthVersions(t); got[id] != v2[id] {
 		t.Fatalf("reopen reset the version: %v -> %v", v2[id], got[id])
 	}
 	if n := shadowCount(t, `SELECT count(*) FROM vectors`); n != 1 {
 		t.Fatalf("vector rows after reopen = %d, want 1", n)
-	}
-	if n := shadowCount(t, `SELECT count(*) FROM changes`); n != changes || n == 0 {
-		t.Fatalf("history rows after reopen = %d, want %d", n, changes)
 	}
 	var ce *memory.ConflictError
 	if err := truthUpdate(t, e, id, "stale", v1); !errors.As(err, &ce) {

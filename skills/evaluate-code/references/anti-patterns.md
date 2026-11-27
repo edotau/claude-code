@@ -13,7 +13,7 @@ Severity: `../SKILL.md` → Lenses → Discipline. Verbs: `detectors.md`.
 ## #2 Simplicity First
 
 Flag speculative generality; fix through `skills/simplify/SKILL.md` (`rules/standards/quality.md` → Simplify).
-`claude-code review complexity` signals:
+`claude-code review simplify --complexity` signals:
 
 - **A3. Single-product factory:** `premature-abstraction`, `class-density`.
 - **A4. Impossible-state error handling:** `cyclomatic-complexity`.

@@ -34,7 +34,7 @@ func NewProviderEntry(p *providers.Provider) ProviderEntry {
 	return e
 }
 
-// ProviderList is the whole JSON listing, the shape the VS Code extension reads.
+// ProviderList is the whole JSON listing, the shape `vault ls providers --format json` prints.
 type ProviderList struct {
 	Session  string          `json:"session"`
 	Default  string          `json:"default"`

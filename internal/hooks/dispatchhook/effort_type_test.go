@@ -103,9 +103,9 @@ func TestDispatchStaleRetypeMatchesDirect(t *testing.T) {
 	run := func(st string) core.Result {
 		return pre(fmt.Sprintf(`{"tool_name":"Agent","tool_input":{"subagent_type":%q,"prompt":"fix a typo","description":"fix a typo"}}`, st))
 	}
-	direct, retyped := run("coworker"), run("code-mode")
+	direct, retyped := run("coworker"), run("pi")
 	if retyped.UpdatedInput["subagent_type"] != "coworker" {
-		t.Fatalf("code-mode = %+v, want a retype to coworker", retyped)
+		t.Fatalf("pi = %+v, want a retype to coworker", retyped)
 	}
 	for _, k := range []string{"model", "effort"} {
 		if direct.UpdatedInput[k] != retyped.UpdatedInput[k] {
@@ -127,9 +127,7 @@ func TestDispatchCodemodeRetype(t *testing.T) {
 		{"coworker", "Agent: pi\\n\\nbody", "coworker"},
 		{"pi", "Agent: pi\\n\\nbody", "coworker"},
 		{"pi", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
-		{"code-mode", "body", "coworker"},
 		{"claude", "Agent: pi\\nrun --codemode off\\n\\nbody", "coworker"}, // prose is not the Codemode: line
-		{"claude", "Agent: code-mode\\n\\nbody", "coworker"},
 		{"claude", "Agent: pi\\nCodemode: off\\n\\nbody", "claude"},
 		{"claude", "Agent: codex\\n\\nbody", "claude"},
 	} {

@@ -176,7 +176,7 @@ func (e *effortPlan) retyped(st string) bool {
 // effortFixType is the type to retype to: a stale name's, code mode's, or confident Open-Jev's; "" for none.
 func effortFixType(in *core.Input) string {
 	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
-	if to := staleTypeTarget(st); to != "" { // a bare "pi" or the old "code-mode" is the coworker type now
+	if to := staleTypeTarget(st); to != "" { // a bare "pi" is the coworker type now
 		return cmp.Or(codemodeTarget(to, prompt), to)
 	}
 	if to := codemodeTarget(st, prompt); to != "" {

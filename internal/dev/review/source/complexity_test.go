@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,9 +18,17 @@ import (
 )
 
 // golden commands (captured against this exact testdata dir, python3 on PATH):
-//   cd testdata/complexity && python3 complexity_checker.py <args> [--json]
+//   cd testdata/complexity && python3 complexity_checker.py <args> [--json] (now `review simplify --complexity`)
 // .py complexity findings are a Go ESTIMATE (not full AST parity) — only shape/structural
 // fields are asserted for python; .js/.ts findings are regex-based and must match byte-for-byte.
+
+// runComplexity drives `review simplify --complexity`; "--" and everything after it stay positional.
+func runComplexity(args []string, stdout, stderr *bytes.Buffer) int {
+	if i := slices.Index(args, "--"); i >= 0 {
+		return RunSimplify(append(slices.Clone(args[:i]), append([]string{"--complexity"}, args[i:]...)...), stdout, stderr)
+	}
+	return RunSimplify(append(slices.Clone(args), "--complexity"), stdout, stderr)
+}
 
 func TestRunComplexityJSMatchesGoldenExactly(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "complexity"))
@@ -27,7 +36,7 @@ func TestRunComplexityJSMatchesGoldenExactly(t *testing.T) {
 	wantJSON := readComplexityGoldenAbs(t, "gate-loop.js.want.json")
 
 	var stdout, stderr bytes.Buffer
-	if code := RunComplexity([]string{"gate-loop.js"}, &stdout, &stderr); code != 0 {
+	if code := runComplexity([]string{"gate-loop.js"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
 	}
 	if stdout.String() != want {
@@ -35,7 +44,7 @@ func TestRunComplexityJSMatchesGoldenExactly(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if code := RunComplexity([]string{"gate-loop.js", "--json"}, &stdout, &stderr); code != 0 {
+	if code := runComplexity([]string{"gate-loop.js", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
 	}
 	if stdout.String() != wantJSON {
@@ -61,7 +70,7 @@ func readComplexityGoldenAbs(t *testing.T, name string) string {
 func TestRunComplexityPythonShapeOnly(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "complexity"))
 	var stdout, stderr bytes.Buffer
-	if code := RunComplexity([]string{"assumption_linter.py", "--json"}, &stdout, &stderr); code != 0 {
+	if code := runComplexity([]string{"assumption_linter.py", "--json"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, stderr=%s", code, stderr.String())
 	}
 	var got map[string]any
@@ -85,7 +94,7 @@ func TestRunComplexityPythonShapeOnly(t *testing.T) {
 
 func TestRunComplexityMissingTargetRefused(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := RunComplexity([]string{"nosuchfile.py", "--json"}, &stdout, &stderr)
+	code := runComplexity([]string{"nosuchfile.py", "--json"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit code = %d, want 2 for a target that does not exist", code)
 	}
@@ -96,7 +105,7 @@ func TestRunComplexityMissingTargetRefused(t *testing.T) {
 
 func TestRunComplexityBadFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := RunComplexity([]string{"--nope", "x.py"}, &stdout, &stderr)
+	code := runComplexity([]string{"--nope", "x.py"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit code = %d for a bad flag, want 2", code)
 	}
@@ -111,12 +120,12 @@ func TestRunComplexityBadFlag(t *testing.T) {
 // -h after a target prints the usage page to stdout, exit 0, stderr empty.
 func TestRunComplexityHelpAfterPositional(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := RunComplexity([]string{"x.py", "-h"}, &stdout, &stderr)
+	code := runComplexity([]string{"x.py", "-h"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.HasPrefix(stdout.String(), "usage: claude-code review complexity <targets...> [flags]\n") {
-		t.Errorf("stdout = %q, want the review complexity usage page", stdout.String())
+	if !strings.HasPrefix(stdout.String(), "usage: claude-code review simplify [paths...] [flags]\n") {
+		t.Errorf("stdout = %q, want the review simplify usage page", stdout.String())
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want empty on -h", stderr.String())
@@ -127,7 +136,7 @@ func TestRunComplexityHelpAfterPositional(t *testing.T) {
 func TestRunComplexityHelpAfterDoubleDashIsPositional(t *testing.T) {
 	t.Chdir(filepath.Join("testdata", "complexity"))
 	var stdout, stderr bytes.Buffer
-	code := RunComplexity([]string{"--", "gate-loop.js", "-h"}, &stdout, &stderr)
+	code := runComplexity([]string{"--", "gate-loop.js", "-h"}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit code = %d, want 2 (-h is a missing target); stderr=%s", code, stderr.String())
 	}
@@ -144,7 +153,7 @@ func TestRunComplexityFailsOnUnreadableFile(t *testing.T) {
 		t.Skipf("cannot create dangling symlink: %v", err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := RunComplexity([]string{dir}, &stdout, &stderr); code != 1 {
+	if code := runComplexity([]string{dir}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d, want 1 so an unreadable file never reads as clean; stderr=%s", code, stderr.String())
 	}
 	if !bytes.Contains(stderr.Bytes(), []byte("[warning] could not read "+broken+":")) {

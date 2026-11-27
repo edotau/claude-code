@@ -59,7 +59,7 @@ func cmdScm(args []string) int {
 	return helptext.FailUsage("worktree: unknown command %q (see claude-code worktree -h)", verb)
 }
 
-// scmPRVerbs are the verbs `scm pr` takes; checks and comment sit beside it.
+// scmPRVerbs are the verbs `worktree pr` takes; checks and comment sit beside it.
 var scmPRVerbs = map[string]bool{"list": true, "view": true, "diff": true, "create": true}
 
 type opts struct {
@@ -68,7 +68,7 @@ type opts struct {
 	draft                                                      *bool
 }
 
-// scmVerb is one scm verb's -h page and the flags it reads; dispatch parses every verb with the full set.
+// scmVerb is one worktree PR operation's -h page and the flags it reads; dispatch parses the full set.
 type scmVerb struct {
 	path, args, about string
 	flags             []string

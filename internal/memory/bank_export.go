@@ -30,7 +30,7 @@ type ExportDB interface {
 	Rendered(rel string) (string, error) // sum of bytes last rendered/imported for rel, "" if never
 	Import(rel, wantSum string) error    // parse file into rows if the db render still has wantSum ("": no doc), else ErrExportStale
 	MarkRendered(rel, sum string) error
-	RecordConflict(rel, kind string) error // lists rel in the db conflicts table for `memory conflicts`
+	RecordConflict(rel, kind string) error // lists rel in the db conflicts table for `memory shadow --conflicts`
 }
 
 // ErrExportStale is Import's refusal: the db changed since the guard rendered it.

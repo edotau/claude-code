@@ -83,7 +83,7 @@ func recallMarkdown(t *testing.T, query string, k int) ([]memory.SearchHit, stri
 	defer func() { memory.RowRecall = rowRecall }()
 	hits := memory.SearchBank(query, k)
 	var report, warnings bytes.Buffer
-	memory.RecallReport(&report, &warnings, memory.RecallBank(query, k), 0)
+	memory.RecallReport(&report, &warnings, hits, 0)
 	block, _ := memory.AgentRecall(context.Background(), "", query)
 	return hits, report.String(), block
 }
@@ -108,9 +108,9 @@ func wantRecallParity(t *testing.T, query string, k int) int {
 		t.Fatalf("SearchBank(%q, %d) = %+v, want %+v", query, k, got, want)
 	}
 	var got, warnings bytes.Buffer
-	memory.RecallReport(&got, &warnings, memory.RecallBank(query, k), 0)
+	memory.RecallReport(&got, &warnings, memory.SearchBank(query, k), 0)
 	if got.String() != report {
-		t.Fatalf("RecallBank(%q) = %q, want %q", query, got.String(), report)
+		t.Fatalf("RecallReport(%q) = %q, want %q", query, got.String(), report)
 	}
 	if got, _ := memory.AgentRecall(context.Background(), "", query); got != block {
 		t.Fatalf("AgentRecall(%q) = %q, want %q", query, got, block)

@@ -61,6 +61,24 @@ func viaStderr(f func(*core.Input, io.Writer) int) core.Runner {
 	}
 }
 
+var (
+	planSave   = viaStderr(docs.Save)
+	planMirror = viaStderr(docs.Mirror)
+)
+
+// docsPlan is the docs-plan module: save on ExitPlanMode, tick or bench on Bash, the watchdog at Stop, else mirror.
+func docsPlan(in *core.Input) core.Result {
+	switch tool := in.CanonicalTool(); {
+	case tool == "ExitPlanMode":
+		return planSave(in)
+	case tool == "Bash":
+		return docs.TickOrBench(in)
+	case tool == "" && in.Nested("tool_input", "file_path") == "": // a Stop payload names no tool
+		return dispatchhook.StopWatched(in)
+	}
+	return planMirror(in)
+}
+
 // runError is a handler that panicked or overran; Outcome is the telemetry word for it.
 type runError struct{ msg, outcome string }
 
@@ -463,10 +481,7 @@ var native = map[string]core.Runner{
 	"codex-subagent-start": dispatchhook.CodexSubagentStart,
 	"dispatch-failure":     dispatchhook.Release,
 	"dispatch-workflow":    dispatchhook.AfterTool,
-	"docs-plan-tick":       docs.TickOrBench,
-	"docs-plan-reminder":   dispatchhook.ReminderWatched,
-	"docs-plan-mirror":     viaStderr(docs.Mirror),
-	"docs-plan-save":       viaStderr(docs.Save),
+	"docs-plan":            docsPlan,
 	"dispatch-stop":        dispatchhook.Stop,
 	"dispatch-handback":    dispatchhook.Handback,
 	"memory-compact":       memhook.Compact,
@@ -617,6 +632,11 @@ func specOf(name string) settings.EventSpec {
 // eventOf names the hookspec event a handler is declared on.
 func eventOf(name string) string { return specOf(name).Event }
 
+// declaredOn reports whether hookspec declares name on event (a module may span events, like docs-plan).
+func declaredOn(name, event string) bool {
+	return slices.ContainsFunc(settings.Specs(), func(s settings.EventSpec) bool { return s.Name == name && s.Event == event })
+}
+
 // RunArgs is `hook <Event> [--<module>|--all|--async]`; an unknown event or module fails closed if it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !slices.Contains(settings.HookEvents(), event) {
@@ -641,7 +661,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 	if name == pi.GuardName && event == settings.EventPreToolUse {
 		return pi.Guard(stdin, stdout, stderr, piModules)
 	}
-	if _, ok := native[name]; !ok || eventOf(name) != event {
+	if _, ok := native[name]; !ok || !declaredOn(name, event) {
 		return unknownModule(event, name, stderr)
 	}
 	return runDirect(name, stdin, stdout, stderr)

@@ -131,11 +131,10 @@ func TestMemoryCLIRejections(t *testing.T) {
 		{"fmt bare --repo", []string{"fmt", "--repo", "/x"}, 2, nil},
 		{"fmt --own outside the config dir", []string{"fmt", "--own"}, 1, []string{"is not the live config dir"}},
 		{"update bare --repo", []string{"update", "--repo", "/x"}, 2, nil},
-		{"dream bare --repo", []string{"dream", "--repo", "/x"}, 2, nil},
 		{"show is retired", []string{"show", "abcd1234"}, 2, []string{`unknown subcommand "show"`}},
 		{"recall is retired", []string{"recall", "x"}, 2, []string{`unknown subcommand "recall"`}},
-		{"promote without --to", []string{"promote", "abc123"}, 2, nil},
-		{"promote two positionals", []string{"promote", "abc123", "extra", "--to", "home"}, 2, nil},
+		{"promote without --to", []string{"feedback", "promote", "abc123"}, 2, nil},
+		{"promote two positionals", []string{"feedback", "promote", "abc123", "extra", "--to", "home"}, 2, nil},
 		{"remember unknown type", []string{"remember", "--type", "bogus", "a fact"}, 1, []string{"want"}},
 		{"search no query", []string{"search"}, 1, []string{"memory search: no query (usage: claude-code memory search"}},
 		{"search bad format", []string{"search", "x", "--format", "xml"}, 2, []string{"memory search: ", "format"}},
@@ -322,7 +321,7 @@ func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	memCfg(t)
 	repo := memoryBankRepo(t)
 	before := dirChecksum(paths.MemorySubDir(""))
-	out := memCLIOK(t, "dream", "--cwd", repo, "--dry-run")
+	out := memCLIOK(t, "update", "--dream", "--cwd", repo, "--dry-run")
 	if !strings.Contains(out, "bank: "+paths.MemorySubDir("")) {
 		t.Errorf("output missing the preview's bank line: %q", out)
 	}
@@ -331,15 +330,15 @@ func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// Without --cwd, `memory dream --dry-run` previews the bank of the dir it runs in.
+// Without --cwd, `memory update --dream --dry-run` previews the bank of the dir it runs in.
 func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	memCfg(t)
 	repo := hosttest.Repo(t) // an empty .git dir is no repo to git, so it would share the home bank
 	memInit(t)
 	t.Chdir(repo)
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryDream([]string{"--dry-run"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dream", "--dry-run"}) })
 	if code != 0 || !strings.Contains(out, "bank: "+paths.MemorySubDir("")) {
-		t.Errorf("memory dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
+		t.Errorf("memory update --dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
 	}
 }
 
@@ -357,7 +356,7 @@ func TestMemoryUpdateMissingTranscriptPrintsTheProcedure(t *testing.T) {
 }
 
 func TestMemoryUsageListsOnlyPublicVerbsAndPrivateStillDispatch(t *testing.T) {
-	for _, v := range []string{"search", "remember", "init", "review", "feedback", "promote", "update", "dream"} {
+	for _, v := range []string{"search", "remember", "init", "review", "feedback", "update"} {
 		if !helpPageHasCommand(memoryPage, v) {
 			t.Errorf("memoryPage missing public verb %q", v)
 		}
@@ -433,7 +432,7 @@ func TestMemoryCompletion(t *testing.T) {
 		{"feedback verbs", []string{"memory", "feedback", ""}, []string{"list", "show", "add", "approve", "close"}},
 		{"feedback list flags", []string{"memory", "feedback", "list", "--"}, []string{"--rank"}},
 		{"update flags", []string{"memory", "update", "--"}, []string{"--dry-run", "--historical"}},
-		{"dream flags", []string{"memory", "dream", "--"}, []string{"--dry-run"}},
+		{"dream flags", []string{"memory", "update", "--"}, []string{"--dream", "--force", "--trigger"}},
 		{"update catchup flags", []string{"memory", "update", "--"}, []string{"--catchup", "--skip"}},
 		{"review timeline flags", []string{"memory", "review", "--"}, []string{"--timeline"}},
 		{"index flags", []string{"memory", "index", "--"}, []string{"--reembed", "--mint-only"}},
@@ -533,11 +532,11 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 		t.Setenv("CLAUDE_PROJECT_DIR", "")
 		t.Chdir(t.TempDir())
-		code, out, stderr := memCLI(t, "dream", "--force", "stray", "--dry-run")
+		code, out, stderr := memCLI(t, "update", "--dream", "--force", "stray", "--dry-run")
 		if code != 2 {
 			t.Errorf("dream ignored stray before --dry-run: exit=%d stderr=%q", code, stderr)
 		}
-		if !strings.Contains(stderr, `memory dream: unexpected argument "stray"`) {
+		if !strings.Contains(stderr, `memory update: unexpected argument "stray"`) {
 			t.Errorf("dream missing positional usage error: %q", stderr)
 		}
 		if out != "" {
@@ -716,36 +715,6 @@ func TestMemoryUpdateCatchupDryRunWritesNothing(t *testing.T) {
 	}
 	if after := treeNames(t, cfg); !slices.Equal(before, after) {
 		t.Errorf("catchup dry-run wrote files: before=%v after=%v", before, after)
-	}
-}
-
-func TestRetiredMemoryVerbsExitUsage(t *testing.T) {
-	memCfg(t)
-	for _, verb := range []string{"import", "fetch"} {
-		code, _, stderr := memCLI(t, verb, "--from", t.TempDir())
-		if code != 2 || !strings.Contains(stderr, "memory "+verb+": retired") || !strings.Contains(stderr, "memory syncs with `claude-code memory sync`") {
-			t.Errorf("memory %s: code %d, stderr %q; want 2 naming memory sync", verb, code, stderr)
-		}
-	}
-}
-
-func TestMemorySyncOffExitsUsage(t *testing.T) {
-	memCfg(t)
-	t.Setenv("NETWORK_MEMORY", "")
-	if code, _, stderr := memCLI(t, "sync", "--host", "peer.example"); code != 2 || !strings.Contains(stderr, memory.SyncOffMsg) {
-		t.Fatalf("code %d, stderr %q; want 2 and the opt-in hint", code, stderr)
-	}
-}
-
-func TestMemorySyncServeIsHiddenAndTyped(t *testing.T) {
-	memCfg(t)
-	if _, _, help := memCLI(t, "sync", "-h"); strings.Contains(help, "serve") || strings.Contains(help, "since") {
-		t.Errorf("help lists the hidden serve flags: %q", help)
-	}
-	for _, args := range [][]string{{"--serve", "bogus"}, {"--serve", "export", "--since", "a=1;rm -rf /"}, {"--serve", "import", "--since", "a=1"}} {
-		if code, _, _ := memCLI(t, append([]string{"sync"}, args...)...); code != 2 {
-			t.Errorf("sync %v: code %d, want 2", args, code)
-		}
 	}
 }
 
@@ -1083,23 +1052,5 @@ func TestMemoryUpgradeIsGoneAndExitsTwo(t *testing.T) {
 	}
 	if helpPageHasCommand(memoryPage, "upgrade") || strings.Contains(memoryPage.Hint, "upgrade") {
 		t.Error("memoryPage still lists upgrade")
-	}
-}
-
-func TestMemoryServeImportReportsBusyBeforeReading(t *testing.T) {
-	memCfg(t)
-	memInit(t)
-	old := memory.BankLockWait
-	memory.BankLockWait = 20 * time.Millisecond
-	t.Cleanup(func() { memory.BankLockWait = old })
-	err := memory.WithBankLock(time.Second, func() error {
-		code, _, stderr := memCLI(t, "sync", "--serve", "import")
-		if code != memory.ImportBusyExit || !strings.Contains(stderr, "busy") {
-			t.Errorf("busy serve: exit %d, stderr %q", code, stderr)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }

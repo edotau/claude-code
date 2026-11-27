@@ -29,11 +29,8 @@ Judgment verbs supply embedded procedures; update runs them for the live session
   `feedback list [--rank]`, `feedback show <id>`.
 - Write: `remember <fact> [--type]`, `feedback add|approve|close`, `init`, `update [--transcript]`,
   `update --catchup [--dry-run] [--skip ID]`, `report`, `fmt [--check|--own]`.
-- Settle: `index`, `dream [--force|--dry-run]`; dream dry-run audits without a model.
-- Move: `promote <id> --to <target>`; `sandbox [--empty]` gives a disposable bank with origin-only vault.
-- `sync [--host H]` is opt-in via `NETWORK_MEMORY=on`; it pulls/pushes change envelopes over SSH to
-  `CLAUDE_REMOTE_HOST`, one transaction per direction. `conflicts` lists/resolves conflicts;
-  hidden `sync --serve export|import` serves peers. Retired import/fetch are replaced by sync.
+- Settle: `index`, `update --dream [--force|--dry-run]`; its dry-run audits without a model.
+- Move: `feedback promote <id> --to <target>`; `sandbox [--empty]` gives a disposable bank with origin-only vault.
 - `shadow --rebuild` rebuilds the DB from files. Export merges log changes by entry id, keeping copies only for
   entries both disk and DB edited and whose bytes are absent from history/file.
   Copies live in `state/harness/memory/held/`, never the bank; settle relocates old copies, keeps 7 days/20 per file.
@@ -44,9 +41,9 @@ Judgment verbs supply embedded procedures; update runs them for the live session
 
 Keep one copy. Each step prints the target, block and editing procedure.
 
-1. `promote --to rules`: standards or software/language rules only, never workflows/CLAUDE.md.
+1. `feedback promote --to rules`: standards or software/language rules only, never workflows/CLAUDE.md.
    `--to skill`: SKILL.md or references for procedures.
-2. `promote --to claude-md`: Hard rules only; requires 3+ entries and a hard prohibition,
+2. `feedback promote --to claude-md`: Hard rules only; requires 3+ entries and a hard prohibition,
    and runs only inside dream's own promotion judgment.
 
 ## Files + mutation contracts
@@ -87,7 +84,7 @@ It includes 10 newest unresolved entries plus a count. Failed refreshes set sess
 Follow `principles.md` → Maintenance and cleanup. Fold extra facts into the kept note; retain its name and metadata,
 including pinned if any merged note was pinned. Repoint every wikilink/path/link, including editable index entries.
 Run `claude-code memory index` last to regenerate MEMORY/catalog.
-Delete folded files once on the editing machine and make it primary; sync propagates deletion to unedited peers.
+Delete folded files once; the bank is local to this machine.
 
 ## Replaced entries
 
@@ -130,13 +127,13 @@ Dream archives overflow; activeContext/progress split by section into monthly ar
   Safety refusal with no bank edits retries once, then records blocked without blocking Stop.
 - **memory-compact:** writes a fact-only `handoffs/YYYY-MM-DD-compact-<id8>.md`, one per session/day, rewritten.
   Reload prefers a fresh model handoff, then the generated one.
-- **memory dream:** catch up first; log every run, including not-due, to dream-results.jsonl and dream logs.
+- **memory update --dream:** catch up first; log every run, including not-due, to dream-results.jsonl and dream logs.
   Mac launchd schedules every six hours; doctor reports status. Receipts classify auth/budget/quota/failed;
   auth/budget wait for new edits before retry.
 - Dream runs on Claude's logged-in user: baseline, audit, recent sessions, prune native notes, refresh bank,
   audit plans, cross-pollinate, report; archive overflow. Audit at most 10 open tasks in week-old plans via plan task.
   Go checks trunk sha/owned paths/cited store evidence, reopens failures and logs each verdict.
-- Dream never edits rules; CLAUDE.md only receives a block its own `promote --to claude-md` printed.
+- Dream never edits rules; CLAUDE.md only receives a block its own `feedback promote --to claude-md` printed.
   Never edit a RULES:BEGIN/END region without human approval. Read changed top-level/feedback/notes files only.
   Feed one rtk candidate from the week's discover misses (command/first flag only; skip failed discovery).
 - Dream rewrites `knowledge/feedback-candidates.md`: one jsonl block, one record per line, ≤2 prose lines.

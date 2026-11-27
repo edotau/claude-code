@@ -62,7 +62,7 @@ const catchupEvery = 10 * time.Minute
 func startWorkers(cwd, sessionID string, now time.Time, banked bool) {
 	queued := false
 	if banked && dreamDue(now) {
-		j := job{Kind: "dream", Key: now.Format(time.DateOnly), CWD: cwd, Args: []string{"memory", "dream", "--cwd", cwd, "--trigger", "session-start"}}
+		j := job{Kind: "dream", Key: now.Format(time.DateOnly), CWD: cwd, Args: []string{"memory", "update", "--dream", "--cwd", cwd, "--trigger", "session-start"}}
 		var err error
 		if queued, err = enqueue(j); err != nil {
 			fmt.Fprintf(os.Stderr, "memory-start: queue dream: %v\n", err)

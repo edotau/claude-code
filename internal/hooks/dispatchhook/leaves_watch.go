@@ -58,8 +58,8 @@ func watchMode() string {
 // BusyWatched is worktree-busy plus the watchdog check (UserPromptSubmit).
 func BusyWatched(in *core.Input) core.Result { return watched(wthook.Busy, in) }
 
-// ReminderWatched is the Stop slot of docs-plan-reminder, which now only hosts the watchdog check.
-func ReminderWatched(in *core.Input) core.Result { return watchTick(in) }
+// StopWatched is the docs-plan Stop slot, which only hosts the watchdog check.
+func StopWatched(in *core.Input) core.Result { return watchTick(in) }
 
 // watched runs r beside the watchdog check; a check past watchWait is cut and records nothing it did not return.
 func watched(r core.Runner, in *core.Input) core.Result {
@@ -152,9 +152,6 @@ func watchTickLocked(key string, owner int, now time.Time, mode string, g *tickG
 	if len(lines) > 0 {
 		res.Context = strings.Join(lines, "\n")
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
-	}
-	for _, q := range rep.Queued[:min(len(rep.Queued), watchBeatMax)] {
-		res.Context = core.JoinNonEmpty("\n", res.Context, "watch: job "+q.ID+" "+q.Line())
 	}
 	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
 		res.Context = core.JoinNonEmpty("\n", res.Context, core.JoinNonEmpty("; ", hb, degradedNote("", "")))
@@ -295,9 +292,6 @@ func readSeen(path string) (map[string]bool, error) {
 
 // watchLine is the context line for one stale job; a resumable dead job is resumed once first.
 func watchLine(s agent.StaleJob, mode string, g *tickGate) string {
-	if s.Queue != "" {
-		return "watch: job " + s.ID + " " + s.Queue + "; next: " + strings.Join(s.Next, " ")
-	}
 	head := fmt.Sprintf("watch: job %s (%s, %s) %s, age %s, silent %s", s.Task, s.ID, s.Agent, reasonText[s.Reason],
 		agent.ShortDur(s.Age), agent.ShortDur(s.Silence))
 	if s.LastLine != "" && s.Reason == agent.WatchSilent {

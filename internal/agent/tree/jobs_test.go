@@ -21,7 +21,7 @@ func TestFoldCarriesOneRowPerJob(t *testing.T) {
 		t.Fatalf("rows = %+v, want the one carry row", rows)
 	}
 	want := []string{"codex", "gpt-6-astra", "databricks", "dev", "↑1.2M", "↓9.1k", "7s", "2m43s"}
-	if got := jobCells(rows[0].Dispatch, now, nil); strings.Join(got, "|") != strings.Join(want, "|") {
+	if got := jobCells(rows[0].Dispatch, now); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("cells = %q, want %q", got, want)
 	}
 	pi := Dispatch{ID: "3-pi", Agent: "pi", Model: "databricks-claude-opus-5-5", Status: statusRunning, Parent: "1-codex"}
@@ -61,7 +61,7 @@ func TestBriefTaskSkipsHeader(t *testing.T) {
 	}
 }
 
-// Through the real renderer at 80 columns: rows never wrap, every column lines up, a queued row spans the tokens.
+// Through the real renderer at 80 columns: rows never wrap, every column lines up.
 func TestJobRowsFitAndAlign(t *testing.T) {
 	now := time.Now()
 	use := &wire.Usage{InputTokens: 2_300_000, OutputTokens: 14_000}
@@ -70,13 +70,12 @@ func TestJobRowsFitAndAlign(t *testing.T) {
 			Usage: use, LastSignal: now.Add(-7 * time.Second)},
 		{ID: "b", Agent: "opencode", Model: "databricks-claude-sonnet-5-5-long-id", Status: statusRunning,
 			Duration: "1h2m", launch: "qa", Usage: use, LastSignal: now.Add(-time.Second)},
-		{ID: "c", Agent: "gemini", Model: "gemini-4-argon", Status: statusRunning, Duration: "9s", launch: "prod",
-			queued: "databricks:prod", queuedAt: now.Add(-70 * time.Second)},
+		{ID: "c", Agent: "gemini", Model: "gemini-4-argon", Status: statusRunning, Duration: "9s", launch: "prod"},
 	}
 	var b strings.Builder
 	renderTree(&b, &Tree{Dispatches: ds}, now, 80, "")
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")[1:]
-	if len(lines) != 3 || !strings.HasPrefix(lines[2], "  ○  gemini") || !strings.Contains(lines[2], "queued 1m10s") {
+	if len(lines) != 3 {
 		t.Fatalf("rows:\n%s", strings.Join(lines, "\n"))
 	}
 	for _, line := range lines {
@@ -114,7 +113,7 @@ func TestJobRowsTypeLabelsAndAlignedRoute(t *testing.T) {
 		{run("pi", "databricks-kimi-k3", "databricks", "dev"), "pi"},
 		{run("pi", "databricks-grok-4-7", "databricks", "dev"), "pi"},
 	} {
-		if got := jobCells(c.d, now, nil)[0]; got != c.want {
+		if got := jobCells(c.d, now)[0]; got != c.want {
 			t.Errorf("%s on %s: label %q, want %q", c.d.Agent, c.d.Model, got, c.want)
 		}
 	}

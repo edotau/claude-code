@@ -43,20 +43,20 @@ func TestGoCommentCandidates(t *testing.T) {
 	}
 }
 
-func TestRunQualityCommentsTSV(t *testing.T) {
+func TestSimplifyCommentsTSV(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(dir+"/p.go", []byte("package p\n\n// one\n// two\nfunc A() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := RunQuality([]string{"--comments", "--format", "tsv", dir}, &out, &errb); code != 0 {
+	if code := RunSimplify([]string{"--comments", dir}, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 	want := dir + "/p.go:3\tstacked\tA\t2 lines: one\n"
 	if out.String() != want {
 		t.Fatalf("got %q want %q", out.String(), want)
 	}
-	if code := RunQuality([]string{"--comments", dir}, &out, &errb); code != 2 {
-		t.Fatalf("missing --format tsv: exit %d, want 2", code)
+	if code := RunSimplify([]string{"--comments"}, &out, &errb); code != 2 {
+		t.Fatalf("missing paths: exit %d, want 2", code)
 	}
 }

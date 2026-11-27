@@ -15,19 +15,6 @@ import (
 	"github.com/edotau/claude-code/internal/platform/hosttest"
 )
 
-// golden commands (captured against this exact testdata dir, python3 on PATH):
-//   cd testdata/quality && python3 code_quality_checker.py <path> [--json]
-// See testdata/quality/README for the full list.
-
-func readGolden(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "quality", name))
-	if err != nil {
-		t.Fatalf("read golden %s: %v", name, err)
-	}
-	return expandGolden(string(b))
-}
-
 // Go methods belong to their receiver type, not the nearest type declaration; only Big crosses 20.
 func TestQualityGoGodClassUsesReceiver(t *testing.T) {
 	var interleaved, proximity strings.Builder
@@ -102,109 +89,6 @@ func TestQualityGoComplexityExcludesInterveningDeclarations(t *testing.T) {
 	}
 }
 
-func TestRunQualityMatchesGolden(t *testing.T) {
-	cases := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"file text", []string{"paths.go"}, "paths.go.want"},
-		{"file json", []string{"paths.go", "--json"}, "paths.go.want.json"},
-		{"js file text", []string{"gate-loop.js"}, "gate-loop.js.want"},
-		{"js file json", []string{"gate-loop.js", "--json"}, "gate-loop.js.want.json"},
-		{"dir text", []string{"."}, "dir.want"},
-		{"dir json", []string{".", "--json"}, "dir.want.json"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Chdir(filepath.Join("testdata", "quality"))
-			var stdout, stderr bytes.Buffer
-			code := RunQuality(tc.args, &stdout, &stderr)
-			if code != 0 {
-				t.Fatalf("exit code = %d, want 0; stderr=%s", code, stderr.String())
-			}
-			want, err := os.ReadFile(tc.want)
-			if err != nil {
-				t.Fatalf("read golden: %v", err)
-			}
-			// Python's print() adds a trailing newline; the golden capture already has it.
-			expected := expandGolden(string(want))
-			if stdout.String() != expected {
-				t.Errorf("output mismatch:\n--- got ---\n%s\n--- want ---\n%s", stdout.String(), expected)
-			}
-		})
-	}
-}
-
-func TestRunQualityMissingPath(t *testing.T) {
-	want := readGolden(t, "notfound.want")
-	t.Chdir(filepath.Join("testdata", "quality"))
-	var stdout, stderr bytes.Buffer
-	code := RunQuality([]string{"nonexistent.go"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1", code)
-	}
-	if stderr.String() != want {
-		t.Errorf("stderr mismatch:\ngot:  %q\nwant: %q", stderr.String(), want)
-	}
-}
-
-func TestRunQualityBadFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunQuality([]string{"--nope", "x.go"}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit code = %d for a bad flag, want 2", code)
-	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty on a bad flag", stdout.String())
-	}
-	if !strings.Contains(stderr.String(), "flag provided but not defined") {
-		t.Errorf("stderr = %q, want the stdlib unknown-flag message", stderr.String())
-	}
-}
-
-// -h after the positional path prints the usage page to stdout, exit 0, stderr empty.
-func TestRunQualityHelpAfterPositional(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunQuality([]string{"x.go", "-h"}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if !strings.HasPrefix(stdout.String(), "usage: claude-code review quality <path> [flags]\n") {
-		t.Errorf("stdout = %q, want the review quality usage page", stdout.String())
-	}
-	if stderr.Len() != 0 {
-		t.Errorf("stderr = %q, want empty on -h", stderr.String())
-	}
-}
-
-// "--" before -h scans the path literally instead of printing help.
-func TestRunQualityHelpAfterDoubleDashIsPositional(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := RunQuality([]string{"--", "nonexistent-h-named-dir"}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1 (missing path, not help)", code)
-	}
-	if strings.Contains(stdout.String(), "usage:") || strings.Contains(stderr.String(), "usage:") {
-		t.Errorf("printed the usage page instead of scanning: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-}
-
-func TestRunQualityOutputWriteError(t *testing.T) {
-	output := filepath.Join(t.TempDir(), "nonexistent", "out.json")
-	var stdout, stderr bytes.Buffer
-	code := RunQuality([]string{filepath.Join("testdata", "quality", "paths.go"), "--json", "--output", output}, &stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1; stderr=%s", code, stderr.String())
-	}
-	if stdout.Len() != 0 {
-		t.Errorf("stdout = %q, want empty", stdout.String())
-	}
-	if !strings.HasPrefix(stderr.String(), "Error: ") || !strings.Contains(stderr.String(), output) {
-		t.Errorf("stderr = %q, want write error containing %q", stderr.String(), output)
-	}
-}
-
 func TestCommentSmells(t *testing.T) {
 	long := "// " + strings.Repeat("x", 118)  // 121 chars
 	short := "// " + strings.Repeat("x", 113) // 116 chars
@@ -237,18 +121,6 @@ func TestCommentSmells(t *testing.T) {
 		})
 	}
 }
-
-// testdataDir is this package's testdata, resolved at init (cwd = package dir) so goldens stay machine-independent.
-var testdataDir = func() string {
-	abs, _ := filepath.Abs("testdata")
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real
-	}
-	return abs
-}()
-
-// expandGolden swaps the @TESTDATA@ placeholder in a golden for this checkout's testdata path.
-func expandGolden(s string) string { return strings.ReplaceAll(s, "@TESTDATA@", testdataDir) }
 
 func TestWalkSourceFilesSkipPartsBelowRootOnly(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "build", "proj")
@@ -310,22 +182,6 @@ func TestWalkSourceFilesPrunesSkippedDirs(t *testing.T) {
 	for _, p := range visited {
 		if strings.HasPrefix(p, filepath.Join(root, "node_modules")+string(filepath.Separator)) {
 			t.Fatalf("walk descended into node_modules: visited %s", p)
-		}
-	}
-}
-
-func TestRunQualityAnalysisErrorExitsNonZero(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "notes.txt")
-	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for name, path := range map[string]string{"empty dir": t.TempDir(), "unsupported file": file} {
-		var stdout, stderr bytes.Buffer
-		if code := RunQuality([]string{path, "--json"}, &stdout, &stderr); code != 1 {
-			t.Errorf("%s: exit code = %d, want 1", name, code)
-		}
-		if !strings.Contains(stdout.String(), `"error"`) {
-			t.Errorf("%s: stdout lacks error report: %q", name, stdout.String())
 		}
 	}
 }
@@ -480,16 +336,12 @@ func TestFindClassesPythonStopsAtModuleDefinition(t *testing.T) {
 	}
 }
 
-func TestWalkExtensionsTracksTraversalFailures(t *testing.T) {
+func TestWalkSourceFilesTracksTraversalFailures(t *testing.T) {
 	dir := t.TempDir()
 	hosttest.WriteRel(t, dir, "not-directory", "contents")
 	root := filepath.Join(dir, "not-directory", "child")
-	reports, failed := walkExtensions(root, []string{".py"}, io.Discard)
-	if len(reports) != 0 || !slices.Equal(failed, []string{root}) {
-		t.Fatalf("reports = %+v, failed = %v; want no reports and traversal failure %q", reports, failed, root)
-	}
-	if _, err := analyzeDirectory(root, "python", io.Discard); err == nil || !strings.Contains(err.Error(), "analysis failed") {
-		t.Fatalf("analysis error = %v, want tracked traversal failure rather than no supported files", err)
+	if failed := walkSourceFiles(root, io.Discard, func(string) {}); !slices.Equal(failed, []string{root}) {
+		t.Fatalf("failed = %v; want traversal failure %q", failed, root)
 	}
 }
 

@@ -91,7 +91,7 @@ func autofillOff() bool {
 // autofillFresh is how long a spawned batch counts against the slots before its agent shows in the live count.
 const autofillFresh = 30 * time.Second
 
-// autofillLockWait keeps a waiting trigger well inside the 10 s docs-plan-tick hook budget.
+// autofillLockWait keeps a waiting trigger well inside the 10 s docs-plan hook budget.
 const autofillLockWait = 2 * time.Second
 
 func autofillDir() string { return filepath.Join(paths.StateDir(), AutofillOrigin) }

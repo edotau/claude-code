@@ -206,7 +206,7 @@ const recentWindow = 2 * time.Minute
 
 // recentHead is the HEAD sha of the first candidate repo whose HEAD was committed just now, else "".
 func recentHead(cwd, cmd string) string {
-	ctx, cancel := core.HookContext("docs-plan-tick")
+	ctx, cancel := core.HookContext("docs-plan")
 	defer cancel()
 	for _, d := range commitCandidates(cwd, cmd) {
 		if d == "" {
@@ -226,7 +226,7 @@ func recentHead(cwd, cmd string) string {
 
 // tickCommit ticks every plan one landed commit advances and returns the context blocks.
 func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
-	ctx, cancel := core.HookContext("docs-plan-tick")
+	ctx, cancel := core.HookContext("docs-plan")
 	defer cancel()
 	dir := commitRepoDir(ctx, in.CWD, cmd, sha)
 	if dir == "" {
@@ -518,7 +518,7 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	if !strings.Contains(cmd, "merge") && !strings.Contains(cmd, "pull") {
 		return core.Result{}
 	}
-	ctx, cancel := core.HookContext("docs-plan-tick")
+	ctx, cancel := core.HookContext("docs-plan")
 	defer cancel()
 	before, after, dir := landedRange(ctx, in.CWD, cmd)
 	if dir == "" {

@@ -88,7 +88,7 @@ lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's 
 
 ## dispatch-effort
 
-Gates type (a stale `pi` or `code-mode` is rewritten to `coworker`, any brief); for a type with no `model:`
+Gates type (a stale `pi` is rewritten to `coworker`, any brief); for a type with no `model:`
 line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
 (effort only when neither the call nor the agent file sets one); claims
 slots, recalls context and labels the row, for Codex-spawned children too. Recall rides `additionalContext`
@@ -175,7 +175,7 @@ so a file whose pid was reused is dropped. A non-Claude agent's line inside a di
 claim stamped with it, or filed by its own CLI process, as that leaf's own. Write|Edit|MultiEdit stays synchronous;
 Bash runs in the async entry (`rules/harness/hooks.md` → Groups and the dispatcher)
 
-## docs-plan-tick / docs-plan-reminder
+## docs-plan
 
 A commit on the trunk of the primary checkout starts one detached `plan tick --verify` per plan for the open tasks its
 `Task: <plan-slug> <id>` trailers name (`claude-code plan status`), in any plan. It runs each task's `verify:` (the

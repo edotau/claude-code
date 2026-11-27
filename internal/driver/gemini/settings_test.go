@@ -360,8 +360,10 @@ func TestRenderGeminiHooksShapePerEvent(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"run_command", "write_file|edit_file"} {
-		if !slices.ContainsFunc(h["PostToolUse"], func(g agyHookEntry) bool { return g.Matcher == want }) {
+	for _, want := range []string{"run_command", "write_file", "edit_file"} {
+		if !slices.ContainsFunc(h["PostToolUse"], func(g agyHookEntry) bool {
+			return slices.Contains(strings.Split(g.Matcher, "|"), want)
+		}) {
 			t.Errorf("PostToolUse lacks a group on %q", want)
 		}
 	}

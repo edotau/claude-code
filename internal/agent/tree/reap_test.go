@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/platform/contract"
@@ -522,10 +521,10 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 }
 
 // dispatchRow is a dispatch's cells joined, for substring checks.
-func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(jobCells(d, now, nil), " ") }
+func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(jobCells(d, now), " ") }
 
 // sinceCell is a dispatch row's time-since-last-event cell.
-func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now, nil)[6] }
+func sinceCell(d Dispatch, now time.Time) string { return jobCells(d, now)[6] }
 
 // A running row shows agent, model · route, since and elapsed, no "↑- ↓-" without usage, and never the brief's task.
 func TestRunningRowHasNoTask(t *testing.T) {
@@ -542,20 +541,6 @@ func TestRunningRowHasNoTask(t *testing.T) {
 	want := []string{"●", "claude", "claude-sonnet-5-5", "qa", "0s", "1m"}
 	if got := strings.Fields(row); !slices.Equal(got, want) {
 		t.Errorf("row = %q, want fields %q", row, want)
-	}
-}
-
-// A job waiting for serve admission shows "○" and its queue wait and pool in place of tokens, never quiet.
-func TestQueuedRowShowsWait(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	now := time.Now()
-	rec := agent.ClaimRecord("codex", agent.RunOptions{}, now.Add(-20*time.Minute))
-	rec.Status, rec.PID = "running", os.Getpid()
-	rec.Progress = "queued " + now.Add(-70*time.Second).UTC().Format(time.RFC3339Nano) + " databricks:qa"
-	d := dispatchFromRecord(rec, "", now)
-	pools := map[string]serve.PoolRow{"databricks:qa": {Pool: "databricks:qa", Running: 2, Cap: 4}}
-	if cells := jobCells(d, now, pools); d.Quiet || jobMarker(d) != "○" || cells[4] != "queued 1m10s (pool databricks:qa 2/4)" {
-		t.Errorf("queued: quiet=%v marker=%q cells=%q", d.Quiet, jobMarker(d), cells)
 	}
 }
 

@@ -26,7 +26,8 @@ import (
 // memorySteps is the memory store's migration list; step n sets user_version n.
 var memorySteps = []sqlite.Step{{Name: "schema", Up: schemaV1}, {Name: "area", Up: areaV2},
 	{Name: "conflict-kind", Up: conflictKindV3}, {Name: "vectors", Up: vectorsV4}, {Name: "entry-uid", Up: entryUIDV5},
-	{Name: "doc-order", Up: orderV6}}
+	{Name: "doc-order", Up: orderV6}, {Name: "drop-capture", Up: dropCaptureV7},
+	{Name: "drop-sync", Up: dropSyncV8}}
 
 // schemaV1Stmts is schema v1, one statement per Exec so a failure names its statement.
 var schemaV1Stmts = []string{
@@ -207,9 +208,8 @@ var (
 	shadowRecordDirs = []string{"reports", "handoffs", "worktrees"}
 )
 
-// shadowClear empties rowid-keyed rows; uid-keyed changes, conflicts and peers stay (pruning changes is forbidden).
-var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM conflicts WHERE entry_rowid <> 0 AND entry_uid IS NULL",
-	keepTombstones + ` WHERE deleted = 1`, "DELETE FROM entries", "DELETE FROM docs"}
+// shadowClear empties the rowid-keyed rows an import replaces.
+var shadowClear = []string{"DELETE FROM vectors", "DELETE FROM entries", "DELETE FROM docs"}
 
 // shadowRebuild replaces every docs and entries row with root's files, then checks each render is byte-equal.
 func shadowRebuild(ctx context.Context, db *sql.DB, root string) (ShadowReport, error) {
@@ -269,7 +269,6 @@ func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (Sha
 	if err != nil {
 		return n, nil, err
 	}
-	ids.adopt = full
 	ids.claimMoved(docs)
 	if err := dropStale(ctx, tx, full, drop); err != nil {
 		return n, nil, err
@@ -284,7 +283,7 @@ func syncDocs(ctx context.Context, tx *sql.Tx, docs []shadowDoc, full bool) (Sha
 		changed = append(changed, d)
 		n.Docs, n.Entries = n.Docs+1, n.Entries+len(d.entries)
 	}
-	return n, changed, ids.tombstoneGone(ctx, tx)
+	return n, changed, nil
 }
 
 // readFingerprints maps imported paths to their "size:mtime_ns" (meta stat:<path>); nil means import everything.
@@ -366,11 +365,9 @@ func dropStale(ctx context.Context, tx *sql.Tx, full bool, drop []string) error 
 	return nil
 }
 
-// dropDocStmts remove one doc and its rowid-keyed rows (rowids are reused); uid-keyed changes and conflicts stay.
+// dropDocStmts remove one doc and its rowid-keyed rows (rowids are reused).
 var dropDocStmts = []string{
 	`DELETE FROM vectors WHERE entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
-	`DELETE FROM conflicts WHERE entry_uid IS NULL AND entry_rowid IN (SELECT rowid FROM entries WHERE doc = ?1)`,
-	keepTombstones + ` WHERE doc = ?1 AND deleted = 1`,
 	`DELETE FROM entries WHERE doc = ?1`, `DELETE FROM docs WHERE path = ?1`, `DELETE FROM meta WHERE key IN ('stat:' || ?1, 'render:' || ?1)`,
 }
 
@@ -414,7 +411,7 @@ func shadowMismatches(ctx context.Context, db *sql.DB, docs []shadowDoc) ([]stri
 	return out, nil
 }
 
-// insertShadowDoc writes d's rows; rendered_rev 1 marks a plain import, which the capture triggers never record.
+// insertShadowDoc writes d's rows; a plain import.
 func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc, ids shadowIdentity) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO docs(path, kind, header, hidden, grammar, frontmatter)
 		VALUES(?, ?, ?, ?, ?, ?)`, d.path, d.kind, d.header, d.hidden, d.grammar, d.front); err != nil {
@@ -423,28 +420,18 @@ func insertShadowDoc(ctx context.Context, tx *sql.Tx, d shadowDoc, ids shadowIde
 	for i, p := range ids.assign(d.path, d.entries) {
 		e := d.entries[i]
 		if _, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, uid, version,
-			deleted, origin, origin_seq, rendered_rev) VALUES(?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, 0, ?, ?, 1)`,
-			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines), p.uid, p.version, p.origin, p.originSeq); err != nil {
+			deleted) VALUES(?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, 0)`,
+			d.path, e.id, e.seq, e.kind, e.lines, e.date, deriveArea(e.lines), p.uid, p.version); err != nil {
 			return err
 		}
-		if p.capture { // the version bump fires entries_capture_au with the old origin/seq as base
-			if _, err := tx.ExecContext(ctx, `UPDATE entries SET version = version + 1 WHERE uid = ?`, p.uid); err != nil {
-				return err
-			}
-		}
 	}
-	if ids.adopt {
-		return nil
-	}
-	return captureDocOrder(ctx, tx, d.path, ids.before[d.path])
+	return nil
 }
 
-// priorEntry is a live entry's identity as an import found it: uid, version and the change it was last at.
+// priorEntry is a live entry's identity as an import found it: uid and version.
 type priorEntry struct {
-	uid, id, lines, origin string
-	doc                    string
-	version, originSeq     int
-	capture                bool // a synced entry edited in its file: recorded as a local change after the insert
+	uid, id, lines, doc string
+	version             int
 }
 
 var idMarkRE = regexp.MustCompile(`\s*<!-- id:[0-9a-f]{8} -->`)
@@ -471,9 +458,7 @@ type shadowIdentity struct {
 	bySeq   map[string]priorEntry
 	byText  map[[3]string][]priorEntry // unedited entries keep their uid when a neighbour shifts their position
 	byCanon map[[3]string][]priorEntry // the same by canonText: an id stamp or a re-wrap keeps the uid too
-	before  map[string]docUIDs
 	used    map[string]bool
-	adopt   bool // a full rebuild reconstructs the db from files: it captures nothing
 }
 
 func seqKey(doc string, seq int) string { return doc + "\x00" + strconv.Itoa(seq) }
@@ -481,8 +466,8 @@ func seqKey(doc string, seq int) string { return doc + "\x00" + strconv.Itoa(seq
 func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
 	ids := shadowIdentity{byID: map[[2]string]priorEntry{}, bySeq: map[string]priorEntry{},
 		byText: map[[3]string][]priorEntry{}, byCanon: map[[3]string][]priorEntry{},
-		before: map[string]docUIDs{}, used: map[string]bool{}}
-	rows, err := tx.QueryContext(ctx, `SELECT doc, id, seq, uid, lines, version, origin, origin_seq,
+		used: map[string]bool{}}
+	rows, err := tx.QueryContext(ctx, `SELECT doc, id, seq, uid, lines, version,
 		COUNT(*) OVER (PARTITION BY doc, id) FROM entries WHERE deleted = 0 AND uid IS NOT NULL ORDER BY doc, seq`)
 	if err != nil {
 		return ids, err
@@ -492,7 +477,7 @@ func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
 		var doc string
 		var seq, dup int
 		var p priorEntry
-		if err := rows.Scan(&doc, &p.id, &seq, &p.uid, &p.lines, &p.version, &p.origin, &p.originSeq, &dup); err != nil {
+		if err := rows.Scan(&doc, &p.id, &seq, &p.uid, &p.lines, &p.version, &dup); err != nil {
 			return ids, err
 		}
 		p.doc = doc
@@ -504,15 +489,6 @@ func shadowUIDs(ctx context.Context, tx *sql.Tx) (shadowIdentity, error) {
 		ids.byText[key] = append(ids.byText[key], p)
 		canon := [3]string{doc, p.id, canonText(p.lines)}
 		ids.byCanon[canon] = append(ids.byCanon[canon], p)
-		d := ids.before[doc]
-		if d.live == nil {
-			d.live = map[string]bool{}
-		}
-		d.live[p.uid] = true
-		if p.origin != "" {
-			d.pub = append(d.pub, p.uid)
-		}
-		ids.before[doc] = d
 	}
 	return ids, rows.Err()
 }
@@ -536,7 +512,7 @@ func (s shadowIdentity) assign(doc string, entries []shadowEntry) []priorEntry {
 		}
 	}
 	for i := range out {
-		out[i] = out[i].reimported(doc, entries[i].lines, s.adopt)
+		out[i] = out[i].reimported(doc, entries[i].lines)
 	}
 	return out
 }
@@ -559,27 +535,11 @@ func (s shadowIdentity) takeByKey(entries []shadowEntry, out []priorEntry, m map
 	}
 }
 
-// tombstoneGone files a tombstone for each prior live entry the sync dropped without re-inserting its uid.
-func (s shadowIdentity) tombstoneGone(ctx context.Context, tx *sql.Tx) error {
-	for _, p := range s.bySeq {
-		if s.used[p.uid] {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO tombstones(uid, origin, origin_seq, at)
-			SELECT ?1, ?2, ?3, NULL WHERE NOT EXISTS (SELECT 1 FROM entries WHERE uid = ?1)`, p.uid, p.origin, p.originSeq); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// reimported is p after its file gave it lines in doc: a fresh entry is version 1, a real edit or move a local change.
-func (p priorEntry) reimported(doc, lines string, adopt bool) priorEntry {
+// reimported is p after its file gave it lines in doc: a fresh entry is version 1, an edit or move bumps it.
+func (p priorEntry) reimported(doc, lines string) priorEntry {
 	switch {
 	case p.uid == "":
 		p.version = 1 // a fresh uid comes from the entries_uid_ai trigger
-	case !adopt && (canonText(p.lines) != canonText(lines) || p.doc != doc):
-		p.capture = true // inserted at its old base (empty origin: base ""), then bumped so the trigger records it
 	case p.lines != lines || p.doc != doc:
 		p.version++
 	}
@@ -604,14 +564,6 @@ func (s shadowIdentity) claimMoved(docs []shadowDoc) {
 			continue
 		}
 		s.byID[[2]string{hs[0], p.id}] = p
-		if p.origin == "" {
-			d := s.before[hs[0]]
-			if d.live == nil {
-				d.live = map[string]bool{}
-			}
-			d.live[p.uid] = true
-			s.before[hs[0]] = d
-		}
 	}
 }
 

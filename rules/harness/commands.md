@@ -37,10 +37,8 @@ Use `claude-code <verb> -h` for flags; this file maps tasks to their owning comm
 - `configure restore [--agent a|all]` resets from templates with backups; `configure revert [--agent a,b]`
   restores CLI config backups. Configs merge, never replace, with five backups each (`agent.md`).
   Worktree-only resets: `settings-management.md` → Worktree render.
-- Existing `~/.claude`: clone to `~/.claude.stage`, then `rtk make -C ~/.claude.stage adopt` backs up collisions
-  and bootstraps. `install --setup nuke [--apply] [--keep-memory]` archives/removes untracked content,
-  leaving credential-shaped files (`.env`, `*.pem`, `*.key`). `install --setup workspace init|link|status`
-  scopes a project's `.claude/`.
+- Existing `~/.claude`: back up user data and resolve collisions manually before installing a checkout;
+  never overwrite credentials or user files. Use `make bootstrap` for a fresh checkout.
 
 ## Agents
 
@@ -50,9 +48,6 @@ Authoring and cloud opt-in: `rules/workflows/agents.md`.
 - `claude-code agents list`: CLI availability; `agents ask --overlay cfg.json --brief task.json --dry-run`:
   resolved route/argv without a model call. Tools default on unless overlay `tools:false` or `noTools:true`.
 - `agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]`: pool dispatch.
-  `agents serve --start [--cap N]`, `--status`, `--restart`, `--stop`: background queue.
-  Install restarts a running daemon, never starts one. Serve admits background carry once before its child;
-  foreground carry and Pi takeover are not gated.
 - `claude-code opencode catalog list|add|remove|import|reset|check|sync`: shared Databricks model menu.
 - `claude-code usage --days 7`: tokens; `--cost`: estimated profile/model cost; `--context`: session sources.
 - `agents sync` renders under `state/projections/<agent>/`, installs into agent homes and links skills into
@@ -85,13 +80,12 @@ Default off: proxy, duration, session. Other keys: path, model, provider, contex
 - Completion: `claude-code completion --install`.
 - OpenCode effort: TUI `ctrl+t`, `opencode run --variant high`, or ask overlay `effort`.
 - Worktrees: `skills/using-git-worktrees/SKILL.md`; diff/find/status: the agent-verbs reference above.
-- Memory sandbox, sync and conflicts: `rules/workflows/memory-bank.md` → Verbs.
+- Memory sandbox: `rules/workflows/memory-bank.md` → Verbs.
 - Remote execution, browser, web, MCP and cleanup: `network.md`.
 - Databricks metadata: `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user|sp]`.
 - Housekeeping: `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` removes; preview first as needed.
   `doctor --audit [--days 7]`, `configure history snapshot|log|diff`.
-- Theme/editor: `configure theme [--palettes|--reset] [<palette>]`, `configure theme apply`,
-  `configure vscode [--check|--dry-run]`.
+- Theme: `configure theme [--palettes|--reset] [<palette>]`, `configure theme apply`.
 - `claude-code tailscale`: one of `--machines`, `--connect`, `--token [--secret|--save]`,
   `--exit-node on|off|approve`, `--subnet <cidr>[,…]|approve|off`, `--route <peer>|off`.
   Token retrieval needs the owner's terminal, browser re-auth and vault OAuth client credentials or API key.

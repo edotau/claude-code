@@ -113,7 +113,7 @@ func TestSpawnMarkerExpires(t *testing.T) {
 func TestSpawnMarkerKeepsStaleRetype(t *testing.T) {
 	smHome(t)
 	call := func(session string) core.Result {
-		return smRun(strings.Replace(smPayload("", session), `"general-purpose"`, `"code-mode"`, 1))
+		return smRun(strings.Replace(smPayload("", session), `"general-purpose"`, `"pi"`, 1))
 	}
 	smRun(`{"harness_spawn":"ready","session_id":"s-co"}`)
 	marked, today := call("s-co"), call("s-co-none")

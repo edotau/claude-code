@@ -260,10 +260,6 @@ func writeDoc(ctx context.Context, tx *sql.Tx, name string, st bankState, now me
 		joinedOrNil(now.Front, now.Front == nil)); err != nil {
 		return err
 	}
-	before, err := readDocUIDs(ctx, tx, name)
-	if err != nil {
-		return err
-	}
 	// free every seq first: the (doc, seq) index is unique and entries move
 	if err := parkDocRows(ctx, tx, name); err != nil {
 		return err
@@ -282,7 +278,7 @@ func writeDoc(ctx context.Context, tx *sql.Tx, name string, st bankState, now me
 			}
 		}
 	}
-	return captureDocOrder(ctx, tx, name, before)
+	return nil
 }
 
 // slot is where an entry lands: its doc, its position, and the row it keeps (0 for a new row).
@@ -296,8 +292,8 @@ type slot struct {
 func writeEntry(ctx context.Context, tx *sql.Tx, at slot, e memory.DocEntry) error {
 	lines := strings.Join(e.Lines, "\n")
 	if at.rowid == 0 {
-		_, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version, rendered_rev)
-			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries), 0)`,
+		_, err := tx.ExecContext(ctx, `INSERT INTO entries(doc, id, seq, kind, lines, date, area, version)
+			VALUES(?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM entries))`,
 			at.doc, e.ID, at.seq, kindNames[e.Kind], lines, e.Date, deriveArea(lines))
 		return err
 	}

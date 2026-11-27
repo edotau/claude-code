@@ -10,11 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
-
-	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 )
 
 // Size caps from rules/standards/quality.md, shared with the diff scope gate.
@@ -229,18 +226,6 @@ func functionFindings(name string, line, length, cyclo, nest int, th thresholds)
 	return out
 }
 
-// collectComplexityFiles ports complexity_checker.collect_files (a target may be a file or a directory).
-func collectComplexityFiles(target string, extensions []string, warn io.Writer) []string {
-	files, unreadable := walkComplexityFiles(target, extensions, warn)
-	// Unreadable paths below target stay in the list so the analysis reports them; a missing target stays out.
-	for _, p := range unreadable {
-		if p != target && hasComplexityExtension(p, extensions) {
-			files = append(files, p)
-		}
-	}
-	return files
-}
-
 // walkComplexityFiles returns the matching files under target and every path the walk could not read.
 func walkComplexityFiles(target string, extensions []string, warn io.Writer) (files, unreadable []string) {
 	info, err := os.Stat(target)
@@ -304,85 +289,6 @@ func printComplexityReport(out io.Writer, s complexitySummary) error {
 	return err
 }
 
-type complexityArgs struct {
-	targets   []string
-	threshold string
-	ext       string
-	jsonOut   bool
-}
-
-// parseComplexityArgs: -h anywhere prints usage to stdout (exit 0); a bad flag goes to stderr (exit 2).
-func parseComplexityArgs(args []string, stdout, stderr io.Writer) (complexityArgs, int, bool) {
-	fs := helptext.NewFlagSet("review complexity", helptext.Page{
-		Usage: "claude-code review complexity <targets...> [flags]",
-		About: "Function length, nesting depth and branch counts over files and directories. " +
-			"Findings are advisory.",
-	})
-	jsonOut := fs.Bool("json", false, "Output in JSON format")
-	threshold := fs.String("threshold", "medium", "strict|medium|relaxed")
-	ext := fs.String("ext", "py,ts,tsx,js,jsx,go", "file extensions to scan, comma-separated")
-	if helptext.WantsHelp(args) {
-		fs.SetOutput(stdout)
-		fs.Usage()
-		return complexityArgs{}, 0, true
-	}
-	fs.SetOutput(stderr)
-	targets, err := helptext.ParseArgs(fs, args)
-	if err != nil {
-		return complexityArgs{}, helptext.ExitCode(err), true
-	}
-	if len(targets) == 0 {
-		fmt.Fprintln(stderr, "review complexity: the following arguments are required: targets")
-		fs.Usage()
-		return complexityArgs{}, 2, true
-	}
-	if _, ok := complexityThresholds[*threshold]; !ok {
-		fmt.Fprintf(stderr, "review complexity: argument --threshold: invalid choice: %q\n", *threshold)
-		return complexityArgs{}, 2, true
-	}
-	return complexityArgs{targets: targets, threshold: *threshold, ext: *ext, jsonOut: *jsonOut}, 0, false
-}
-
-// RunComplexity is the complexity_checker.py CLI: findings are advisory; output and Go syntax errors exit 1.
-func RunComplexity(args []string, stdout, stderr io.Writer) int {
-	parsed, code, done := parseComplexityArgs(args, stdout, stderr)
-	if done {
-		return code
-	}
-	if err := checkTargets(parsed.targets, DetectComplexityLang); err != nil {
-		fmt.Fprintf(stderr, "review complexity: %v\n", err)
-		return 2
-	}
-	th := complexityThresholds[parsed.threshold]
-	extensions := parseExtensions(parsed.ext)
-	files := gatherComplexityFiles(parsed.targets, extensions, stderr)
-	if len(files) == 0 {
-		return reportNoFiles(stdout, stderr, extensions, parsed.targets, parsed.jsonOut)
-	}
-
-	sort.Strings(files)
-	results, failed := analyzeComplexityFiles(files, th, stderr)
-	summary := buildComplexitySummary(results, parsed.threshold)
-	if len(results) == 0 && failed > 0 {
-		summary.Status, summary.Verdict = "error", "FAIL"
-	}
-	if parsed.jsonOut {
-		if err := WritePyJSON(stdout, summary); err != nil {
-			fmt.Fprintf(stderr, "Error: %s\n", err)
-			return 1
-		}
-	} else {
-		if err := printComplexityReport(stdout, summary); err != nil {
-			fmt.Fprintf(stderr, "Error: %s\n", err)
-			return 1
-		}
-	}
-	if failed > 0 {
-		return 1
-	}
-	return 0
-}
-
 // checkTargets refuses a named target that is missing or a file no analyzer handles; directories pass.
 func checkTargets(targets []string, language func(string) string) error {
 	for _, t := range targets {
@@ -395,33 +301,6 @@ func checkTargets(targets []string, language func(string) string) error {
 		}
 	}
 	return nil
-}
-
-func parseExtensions(list string) []string {
-	var extensions []string
-	for e := range strings.SplitSeq(list, ",") {
-		e = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(e), "."))
-		if e != "" {
-			extensions = append(extensions, e)
-		}
-	}
-	return extensions
-}
-
-// gatherComplexityFiles collects the files under every target, deduplicated by resolved path.
-func gatherComplexityFiles(targets, extensions []string, warn io.Writer) []string {
-	seen := map[string]bool{}
-	var files []string
-	for _, target := range targets {
-		for _, f := range collectComplexityFiles(target, extensions, warn) {
-			key := resolvePath(f)
-			if !seen[key] {
-				seen[key] = true
-				files = append(files, f)
-			}
-		}
-	}
-	return files
 }
 
 // analyzeComplexityFiles scores each file; failed counts files that could not be read or parsed.
@@ -444,37 +323,6 @@ func analyzeComplexityFiles(files []string, th thresholds, stderr io.Writer) (re
 	return results, failed
 }
 
-// reportNoFiles ports the "no files matched" branch but exits 1; its json.dumps is compact, unlike the summary path.
-func reportNoFiles(stdout, stderr io.Writer, extensions, targets []string, jsonOut bool) int {
-	msg := fmt.Sprintf("No files matching %s under %s", pyListRepr(extensions), strings.Join(targets, " "))
-	if jsonOut {
-		// json.dumps with no indent= still separates with ", " / ": " (Go's compact form has no spaces).
-		line := fmt.Sprintf(`{"status": %s, "message": %s}`, jsonStringLiteral("error"), jsonStringLiteral(msg))
-		if _, err := fmt.Fprintln(stdout, line); err != nil {
-			fmt.Fprintf(stderr, "Error: %s\n", err)
-			return 1
-		}
-	} else {
-		fmt.Fprintf(stderr, "[error] %s\n", msg)
-	}
-	return 1
-}
-
-// jsonStringLiteral renders s as a Python-style json.dumps string literal (ensure_ascii, no HTML-escaping).
-func jsonStringLiteral(s string) string {
-	b, _ := pyMarshalCompact(s) // a string literal always marshals; nothing here can fail
-	return string(b)
-}
-
-// pyListRepr mimics Python's str(list[str]): ['py', 'ts', ...] with single quotes.
-func pyListRepr(items []string) string {
-	quoted := make([]string, len(items))
-	for i, s := range items {
-		quoted[i] = "'" + s + "'"
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
-}
-
 func hasComplexityExtension(path string, extensions []string) bool {
 	for _, ext := range extensions {
 		if strings.HasSuffix(path, "."+ext) {
@@ -484,7 +332,7 @@ func hasComplexityExtension(path string, extensions []string) bool {
 	return false
 }
 
-// errGoSyntax marks Go source that does not parse; RunComplexity exits 1 for it.
+// errGoSyntax marks Go source that does not parse; --complexity exits 1 for it.
 var errGoSyntax = errors.New("go syntax error")
 
 // analyzeGo scores Go source with go/ast; source that does not parse is an error, never a clean score.

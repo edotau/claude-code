@@ -6,15 +6,15 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R1 Plan ticks:** verified commits automatically tick named active-plan tasks on main after their `verify:`
   and scoped gate pass on that sha. Lane commits mark pending landing; coverage only suggests once.
   No matching open task changes nothing; an unknown task is a note, not an error.
-  Enforced by `docs-plan-tick`, `worktree commit --task`, `plan tick --verify`.
+  Enforced by `docs-plan`, `worktree commit --task`, `plan tick --verify`.
 - **R2 Dead tasks:** strike tasks invalidated by a decision, citing it; never delete or leave them open.
   `plan task <id> --reason <r> --evidence <c>`, or a recorded `DECISION:` ending
   `strikes: <plan-slug> <id> (<reason>)`, targets that exact id, never matching words.
-  Enforced by `plan task` and `docs-plan-tick`.
+  Enforced by `plan task` and `docs-plan`.
 - **R2 Unknown state:** strike with a comment; move to the backlog plan (do now) or techdebt.
 - **R3 Techdebt:** one `~/.claude/memory/techdebt/<area>.md` per area.
-- **R4 Plans audit:** audit plans under 7 days old around memory update and in dream.
-  Enforced after update unlock and by dream's plan phase with Go rechecks.
+- **R4 Plans audit:** audit plans under 7 days old around memory update and in `memory update --dream`.
+  Enforced after update unlock and by the `update --dream` plan phase with Go rechecks.
 - **R4 Boilerplate:** for plans before today, tick process steps if built on origin/main; strike if all build tasks
   are struck; otherwise report. Enforced by `plan tick --audit`.
 - **R5 Verify returns:** follow CLAUDE.md dispatch guidance; rerun one claim before committing. Package tests: R32.
@@ -30,7 +30,7 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R9 Memory recall:** every brief carries recall. Enforced by `dispatch-effort` and ask's `withRecall`.
 - **R10 File-blocked:** when 2+ tasks wait on one file, propose a lane; `worktree-git.md`.
 - **R11 make:** leaf targets/checks follow `quality.md`: lint, scoped diff checks, audit/install/fmt/build/verify/
-  bootstrap/adopt and fixing `lint-<kind>` in the harness tree.
+  bootstrap and fixing `lint-<kind>` in the harness tree.
 - **R12 Dispatch timeout:** every ask/submit gets 15 minutes. A parent may set overlay timeout up to 30 minutes
   only when the plan task states it before dispatch; never extend mid-run. Split tasks needing more.
   At timeout the parent finishes the existing work, never retries/resends (R34).

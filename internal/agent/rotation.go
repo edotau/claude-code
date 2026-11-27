@@ -23,7 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
 	"github.com/edotau/claude-code/internal/routing/router"
-	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
 // poolOf is the lazy any-tier rotation pool of agentName on p, for router's pool checks.
@@ -538,28 +537,13 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 	return rows
 }
 
-// rotationModelOn is agent's next rotation model at alias across rows; stamp records the pick, else it only peeks.
-func rotationModelOn(ctx context.Context, rows []*providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
-	if len(rows) == 0 {
-		return "", "", nil
-	}
+// rotationModelOn is agent's next rotation model at alias on p; stamp records the pick, else it only peeks.
+func rotationModelOn(ctx context.Context, p *providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
 	st := router.LoadState()
-	var pool []string
-	for _, p := range rows {
-		for _, m := range withoutTried(rotationPool(agentName, alias, p, tools, now), tried, p) {
-			// skips and holds live on the workspace's account, not the pool account the pick below reads
-			held := router.HeldUntil(st[router.AccountOf(p)], agentName, m, now) != nil
-			if !slices.Contains(pool, m) && (len(rows) == 1 || !held) {
-				pool = append(pool, m)
-			}
-		}
-	}
-	account, p := router.AccountOf(rows[0]), rows[0]
-	if len(rows) > 1 { // the pool pin: one history for every workspace, entries already wire ids
-		account, p = router.ProviderAccount(PoolPin), nil
-	}
+	pool := withoutTried(rotationPool(agentName, alias, p, tools, now), tried, p)
+	account := router.AccountOf(p)
 	hist := account
-	if rows[0].Preset == providers.PresetDatabricks {
+	if p.Preset == providers.PresetDatabricks {
 		hist = router.ProviderAccount(PoolPin)
 	}
 	n := takeable(st[account], agentName, p, pool, now)
@@ -617,10 +601,9 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 	e, history := st[account], st[hist]
 	var live []string
 	var out []PoolMember
-	for _, entry := range entries {
+	for _, entry := range router.RotationOrder(e, history, agentName, entries, now) {
 		m := PoolMember{Model: providers.SpellPin(p, entry)}
-		key := router.DiscoverySkipKey(agentName, entry)
-		if at := history.Discovery[key]; !at.IsZero() {
+		if at := history.Discovery[router.DiscoverySkipKey(agentName, entry)]; !at.IsZero() {
 			m.LastPicked = &at
 		}
 		m.HeldUntil = router.HeldUntil(e, agentName, entry, now)
@@ -634,24 +617,7 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 	for i := range out {
 		out[i].Next = out[i].Model == next && next != ""
 	}
-	slices.SortStableFunc(out, func(a, b PoolMember) int {
-		return cmp.Or(heldRank(a)-heldRank(b), timeOf(a.LastPicked).Compare(timeOf(b.LastPicked)))
-	})
 	return out
-}
-
-func heldRank(m PoolMember) int {
-	if m.Held {
-		return 1
-	}
-	return 0
-}
-
-func timeOf(t *time.Time) time.Time {
-	if t == nil {
-		return time.Time{}
-	}
-	return *t
 }
 
 // ErrPoolExhausted marks a fresh rotation pool with no eligible model.
@@ -666,8 +632,8 @@ func freshRotation(p *providers.Provider, now time.Time) bool {
 		return false
 	}
 	if p.Preset == providers.PresetDatabricks {
-		listing, _ := endpoints.Load(p.Name)
-		return listing.Fresh(now)
+		_, _, fresh := router.ServedListed(p, "", now)
+		return fresh
 	}
 	return now.Sub(copilotauth.Time(p)) < serving.CacheTTL()
 }
@@ -681,16 +647,7 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 	if !rotatesUnderAuto(q.Agent) {
 		return autoFallback(reg, q, base, need, c, q.Agent+" keeps its tier model under auto", now), true, nil
 	}
-	m, note, alias, err := tierRotation(q, cmp.Or(tierAliases[need.tier], models.Sonnet), p, now)
-	if err != nil {
-		return base, true, autoStopError{fmt.Errorf("auto pick state: %w", err)}
-	}
-	if m == "" {
-		return base, true, exhaustedPool(q.Agent, alias, p, q.Tools, now)
-	}
-	pq := q
-	pq.Profile, pq.Default = "", ""
-	r, err := ResolveModel(reg, rowRoute(reg, base.Profile), m, pq, now)
+	r, note, alias, refused, err := servedRotation(reg, q, cmp.Or(tierAliases[need.tier], models.Sonnet), p, now)
 	if err != nil {
 		return base, true, err
 	}
@@ -701,13 +658,47 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 	}
 	if alias != want { // stepped: the tier alias note would mislead
 		step := poolEmptyNote(want, q.Agent, p, alias, r.Model)
-		r.Note = joinNotes(routeNote(stripAliasNote(base.Note, q.Agent)), step, note)
+		r.Note = joinNotes(routeNote(stripAliasNote(base.Note, q.Agent)), step, note, refused)
 		return r, true, nil
 	}
-	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
+	r.Note = joinNotes(routeNote(base.Note), r.Note, note, refused)
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
 	return r, true, nil
 }
+
+// maxServedRepicks bounds the re-picks after the served check refuses a rotation pick.
+const maxServedRepicks = 8
+
+// servedRotation is tierRotation's pick judged by servedVerdict; a refused pick is re-picked and named in refused (R8).
+func servedRotation(reg *providers.Registry, q ModelQuery, alias string, p *providers.Provider,
+	now time.Time) (r ModelRoute, note, ranAlias, refused string, err error) {
+	var skips []string
+	for range maxServedRepicks {
+		m, note, ranAlias, err := tierRotation(q, alias, p, now)
+		if err != nil {
+			return r, "", "", "", autoStopError{fmt.Errorf("auto pick state: %w", err)}
+		}
+		if m == "" {
+			return r, "", "", "", exhaustedPool(q.Agent, ranAlias, p, q.Tools, now)
+		}
+		pq := q
+		pq.Profile, pq.Default = "", ""
+		r, err := ResolveModel(reg, rowRoute(reg, p.Name), m, pq, now)
+		if err != nil {
+			return r, "", "", "", err
+		}
+		_, failed, _ := servedVerdict(q.Agent, p, r.Model, now)
+		if failed == nil {
+			return r, note, ranAlias, joinNotes(skips...), nil
+		}
+		skips = append(skips, "rotation skipped "+m+": "+failed.Detail)
+		q.ctx = withTriedPicks(cmp.Or(q.ctx, context.Background()), append(askTriedPicks(q.ctx), m, r.Model))
+	}
+	return r, "", "", "", fmt.Errorf("%w: %s", ErrPoolExhausted, joinNotes(skips...))
+}
+
+// servedVerdict is the served check a rotation pick must pass; a var so a test can refuse a pick the listing allows.
+var servedVerdict = checkServed
 
 // stripAliasNote drops aliasNote's "<alias> is <agent>'s alias for <model> here" part from note.
 func stripAliasNote(note, agentName string) string {
@@ -720,10 +711,10 @@ func stripAliasNote(note, agentName string) string {
 func tierRotation(q ModelQuery, alias string, p *providers.Provider, now time.Time) (string, string, string, error) {
 	ctx := cmp.Or(q.ctx, context.Background())
 	stamp := !Peeking(ctx)
-	m, note, err := rotationModelOn(ctx, []*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
+	m, note, err := rotationModelOn(ctx, p, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	if err == nil && m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
 		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
-		m, note, err = rotationModelOn(ctx, []*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
+		m, note, err = rotationModelOn(ctx, p, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	}
 	return m, note, alias, err
 }

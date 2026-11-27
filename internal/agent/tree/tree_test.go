@@ -831,7 +831,7 @@ func treeWidthNodes() []Node {
 		Provider: "fixture", Status: statusRunning, Duration: strings.Repeat("fixture-duration-", 10)}
 	root, queued := job, job
 	root.ID, queued.ID = "fake-root-"+long, "fake-queued-"+long
-	queued.Status, queued.queued = "queued", "waiting for fixture slot"
+	queued.Status = "queued"
 	session := Session{ID: "fake-session-" + long, Name: long, Title: long, Branch: long, Status: statusActive,
 		Workflows: []WorkflowRun{{ID: "fake-workflow-" + long, Name: long, Status: statusRunning}},
 		Subagents: []Subagent{{ID: "fake-subagent-" + long, Type: long, Status: statusRunning,

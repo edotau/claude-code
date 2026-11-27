@@ -270,7 +270,7 @@ func assertReviseCorpus(t *testing.T) {
 	t.Helper()
 	old := markReplaced("## Old <!-- id:aaaaaaaa -->\nunique quasar shard layout audit.", "bbbbbbbb", "")
 	write(t, Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
-	hits := RecallBank("projb unique quasar shard layout audit", 1)
+	hits := SearchBank("projb unique quasar shard layout audit", 1)
 	if len(hits) != 1 || hits[0].ID != "bbbbbbbb" {
 		t.Fatalf("recall = %+v, want bbbbbbbb", hits)
 	}

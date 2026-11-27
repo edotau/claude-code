@@ -98,7 +98,7 @@ func runStagedComplexity(repo string, changed []string, out io.Writer) int {
 		mirrored = append(mirrored, dst)
 	}
 	var buf bytes.Buffer
-	rc := source.RunComplexity(append(mirrored, "--threshold", "medium"), &buf, &buf)
+	rc := source.RunSimplify(append(mirrored, "--complexity", "--threshold", "medium"), &buf, &buf)
 	_, _ = io.WriteString(out, strings.ReplaceAll(buf.String(), dir+string(filepath.Separator), ""))
 	return rc
 }

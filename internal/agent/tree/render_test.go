@@ -167,7 +167,7 @@ func TestRenderWriteErrors(t *testing.T) {
 }
 
 func TestJobCellsFlagFallback(t *testing.T) {
-	if cells := jobCells(Dispatch{Agent: "codex", Fallback: "claude"}, time.Now(), nil); cells[0] != "claude→codex ⚠" {
+	if cells := jobCells(Dispatch{Agent: "codex", Fallback: "claude"}, time.Now()); cells[0] != "claude→codex ⚠" {
 		t.Errorf("jobCells(fallback) = %q, want the chain and the flag", cells)
 	}
 }
@@ -640,12 +640,12 @@ func TestPhaseProgressSurvivesActiveFilter(t *testing.T) {
 // The marker is coloured only when the layout is painted, and padding stays on the plain text.
 func TestJobMarkerColourOnOff(t *testing.T) {
 	var l layout
-	addJobRow(&l, levelJob, append([]string{jobMarker(Dispatch{Status: statusRunning})}, jobCells(Dispatch{Agent: "pi", Status: statusRunning}, time.Now(), nil)...), Dispatch{Status: statusRunning}, false)
+	addJobRow(&l, levelJob, append([]string{jobMarker(Dispatch{Status: statusRunning})}, jobCells(Dispatch{Agent: "pi", Status: statusRunning}, time.Now())...), Dispatch{Status: statusRunning}, false)
 	if got := l.lines(0, "")[0]; strings.Contains(got, "\x1b") {
 		t.Errorf("plain row has escapes: %q", got)
 	}
 	l = layout{}
-	addJobRow(&l, levelJob, append([]string{"✗"}, jobCells(Dispatch{Agent: "pi", Status: statusError}, time.Now(), nil)...), Dispatch{Status: statusError}, false)
+	addJobRow(&l, levelJob, append([]string{"✗"}, jobCells(Dispatch{Agent: "pi", Status: statusError}, time.Now())...), Dispatch{Status: statusError}, false)
 	if got := l.lines(0, "\x1b[36m")[0]; !strings.Contains(got, ansi.Red+"✗"+ansi.Reset) {
 		t.Errorf("painted row = %q, want a red marker", got)
 	}
@@ -666,7 +666,7 @@ func TestJobRowNarrowWidthsKeepModelAndElapsed(t *testing.T) {
 		Usage: &wire.Usage{OutputTokens: 9100}, Quiet: true, LastSignal: time.Now().Add(-time.Minute)}
 	for _, w := range []int{40, 80, 200} {
 		var l layout
-		addJobRow(&l, levelJob, append([]string{jobMarker(d)}, jobCells(d, time.Now(), nil)...), d, false)
+		addJobRow(&l, levelJob, append([]string{jobMarker(d)}, jobCells(d, time.Now())...), d, false)
 		for _, ln := range l.lines(w, "") {
 			if textutil.DisplayWidth(ln) > w {
 				t.Errorf("width %d: line %q too wide", w, ln)

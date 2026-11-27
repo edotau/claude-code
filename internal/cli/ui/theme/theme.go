@@ -28,15 +28,13 @@ type target struct {
 	Src  string // source file in theme/, defaults to Name+".json" if empty
 }
 
-// targets maps each theme/<name>.json to its destination; VS Code's path is platform-specific.
+// targets maps each theme/<name>.json to its destination.
 func targets(home string) []target {
-	vs, _ := paths.VSCodeSettings()
 	cfg := os.Getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
 		cfg = filepath.Join(home, ".config")
 	}
 	return []target{
-		{"vscode", vs, ""},
 		{"statusline", filepath.Join(StatuslineDir(), "config.json"), ""},
 		{"opencode", filepath.Join(paths.StateDir(), "opencode", "tui.json"), ""},
 		{"opencode-themes/gemini-plum", filepath.Join(cfg, "opencode", "themes", "gemini-plum.json"), ""},

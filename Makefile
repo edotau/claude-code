@@ -155,8 +155,6 @@ install:  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		*) echo "$$out"; echo -e "$(C_NOTE)proxy not replaced now; the status line or the next fenced mint replaces it" ;; esac
 	@out="$$($(BIN) gateway proxy --status 2>&1 || true)"; n="$$(printf '%s\n' "$$out" | grep -c '^problem ' || true)"; t="$$(printf '%s\n' "$$out" | grep -c '^teams: ' || true)"; \
 		if [ "$$n" != 0 ] || [ "$$t" = 0 ]; then echo "$$out"; exit 1; fi
-	@if $(BIN) agents serve --status >/dev/null 2>&1; then \
-		$(BIN) agents serve --restart || echo -e "$(C_NOTE)agents serve did not restart (install itself succeeded)"; fi
 
 codesign-cert:  ## macOS: create the self-signed CODESIGN_ID cert in the login keychain (once per Mac)
 	@if [ "$$(uname)" != Darwin ]; then echo -e "$(C_NOTE)codesign-cert is macOS-only; nothing to do"; exit 0; fi; \
@@ -237,21 +235,11 @@ typos:  # (install) pinned typos release in bin/, checked against the sums below
 # =============================================================================
 # SETUP
 # =============================================================================
-.PHONY: bootstrap adopt toolchain setup-env
+.PHONY: bootstrap toolchain setup-env
 bootstrap:  ## Set up a fresh box: toolchain, install, configure
 	@$(MAKE) toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
-
-INTO    ?= $(HOME)/.claude
-ADOPTED  = $(shell [ -e "$(INTO)/.git" ] && echo 1)
-# Not spelled $(MAKE), so `make -n adopt` prints the bootstrap line instead of entering a destination not adopted yet.
-ADOPT_MAKE = $(MAKE)
-adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
-	@$(if $(ADOPTED),echo "$(INTO) is already a checkout")
-	@$(if $(ADOPTED),,$(MAKE) toolchain compile)
-	@$(if $(ADOPTED),,CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS))
-	@$(if $(or $(ADOPTED),$(findstring --dry-run,$(ADOPT_ARGS))),,$(ADOPT_MAKE) -C "$(INTO)" bootstrap)
 
 toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
 	@if command -v go >/dev/null 2>&1; then echo -e "$(C_OK)go found: $$(go version) ($$(command -v go))"; else \
@@ -361,7 +349,7 @@ test:  ## Go tests, -short by default; FULL=1 runs all, COVER=1 lists coverage
 # Stages run in parallel on LINT_BIN, one log each, each in its own process group (set -m) so a cancel reaches
 # grandchildren; agents sync, the one writer, runs alone after. AUDIT_INNER=1 skips the sub-targets' own compile.
 AUDIT_LINT   ?= $(MAKE) lint SKIP=docs
-AUDIT_TEST   ?= if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else $(BIN) test ramdisk -- $(MAKE) test FULL=1; fi
+AUDIT_TEST   ?= if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else $(MAKE) test FULL=1; fi
 # One check per kind (`make audit-<kind>`); sync writes, so audit runs it alone after the parallel ones.
 AUDIT_WHAT   := git vuln prompts sync
 AUDIT_CHECKS ?= $(MAKE) -k $(addprefix audit-,$(filter-out sync,$(AUDIT_WHAT))) BIN=$(BIN) AUDIT_INNER=1

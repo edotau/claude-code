@@ -125,7 +125,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   capped at 600000ms; never lower a larger setting or block. Long waits need shorter polling.
 - **docs-placement — write/edit/Bash PreToolUse:** `docs-placement.md`; ordinary leaf Bash blocks become notes,
   but Plan-agent placement still blocks. First plans need template headings.
-- **dispatch-effort — Agent/Task/Workflow PreToolUse:** retype pi/code-mode to coworker; Codemode:off selects Claude,
+- **dispatch-effort — Agent/Task/Workflow PreToolUse:** retype pi to coworker; Codemode:off selects Claude,
   on/only may select coworker. Header must occupy a whole line, not a command flag.
   Pin unpinned models/effort by TaskTier, correct labels, claim slots and add recall in one updatedInput.
 - **dispatch cap / slots:** 24 per available account, machine-wide, capped at 4 × CPUs.
@@ -136,13 +136,12 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 - **dispatch-handback — SubagentHandback PreToolUse:** wait at most 13s, attach finished receipts or a running note;
   never refuse or impose Bash poll limits. Named plan tasks get their allowlisted verify/scoped owned-file gate
   within the budget, with results attached.
-- **docs-plan-mirror — Write/Edit post:** dated repo-tagged mirror from first write, slug from Suggested slug or H1,
-  under a shared lock.
-- **docs-plan-save — ExitPlanMode post:** file approved text, add missing checklist, verify and remove draft.
-- **docs-plan-tick / docs-plan-reminder — Bash post async / Stop:** commit ticking follows
+- **docs-plan — one module on PostToolUse `Write|Edit|ExitPlanMode|Bash` (Bash async) and Stop**, by the tool it gets:
+  Write/Edit mirrors to a dated repo-tagged file from first write (slug from Suggested slug or H1, shared lock);
+  ExitPlanMode files the approved text, adds a missing checklist, verifies and removes the draft; Bash ticks commits per
   `worktree-git.md` rule 3. Verify in scratch; red stays open; coverage never ticks.
   Ready tasks get context, never a block. Autofill claims ready briefs while slots remain and sends one detached
-  ask batch through overlay at sonnet tier (R35); `HARNESS_AUTOFILL=off` stops it. Reminder hosts the Stop watchdog.
+  ask batch through overlay at sonnet tier (R35); `HARNESS_AUTOFILL=off` stops it. Its Stop slot hosts the watchdog.
 - **memory-update — Stop:** never blocks; detached update plus handoff at `HARNESS_CONTEXT_STEWARD_PCT` (default 75,
   zero mutes), once per threshold crossing, at most three spawns; failed spawn names manual memory update.
 - **format-stop — Stop:** session's dirty cwd edits, newest 50; repo format/fmt per file, pyproject chain,

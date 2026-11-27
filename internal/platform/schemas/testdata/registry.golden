@@ -27,7 +27,6 @@
 # legacy-layout: rtk-config
 # legacy-layout: served-models
 # legacy-layout: settings-overlay
-# legacy-layout: setup-state
 # legacy-layout: stop-format
 # legacy-layout: tailscale-machines
 # legacy-layout: token-expiry
@@ -80,10 +79,8 @@ route-fit | record | 1 | state/harness/router/fit.json | internal/routing/catalo
 route-local | cache | 1 | state/harness/router/local.json | internal/routing/router | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/proxy | keep
 rtk-config | derived | 1 | <fixed at init> | internal/dev/setup | keep
-serve-runtime | record | 1 | state/harness/serve/serve.json | internal/agent/serve | keep
 served-models | cache | 1 | state/harness/preflight/*.json | internal/routing/served | keep
 settings-overlay | derived | 1 | state/harness/overlay-*.json | internal/agent | keep
-setup-state | record | 1 | state/harness/setup.json | internal/dev/setup | keep
 stop-format | cache | 1 | state/harness/stop-format/*.json | internal/hooks/quality | keep
 tailscale-machines | cache | 1 | state/harness/tailscale-machines.json | internal/remote/tailscale | keep
 token-expiry | cache | 2 | state/harness/cache/token-expiry/*.json | internal/routing/providers | keep

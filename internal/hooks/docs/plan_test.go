@@ -365,7 +365,7 @@ func mirrorPayload(t *testing.T, tool, cwd, path string) string {
 	return string(b)
 }
 
-// mirrorRun feeds one docs-plan-mirror PostToolUse for tool/path and requires the hook to fail open.
+// mirrorRun feeds one docs-plan Write PostToolUse for tool/path and requires the hook to fail open.
 func mirrorRun(t *testing.T, label, tool, cwd, path string) {
 	t.Helper()
 	if code := Mirror(core.ParseInput(strings.NewReader(mirrorPayload(t, tool, cwd, path))), &bytes.Buffer{}); code != core.ExitProceed {
@@ -411,7 +411,7 @@ func approvalPayload(t *testing.T, cwd, draft string, toolInput map[string]any) 
 	return raw
 }
 
-// approvePlan runs docs-plan-save on raw, requires it to fail open, and returns what it wrote to stderr.
+// approvePlan runs docs-plan Save on raw, requires it to fail open, and returns what it wrote to stderr.
 func approvePlan(t *testing.T, raw []byte) string {
 	t.Helper()
 	var stderr bytes.Buffer

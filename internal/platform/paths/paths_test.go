@@ -347,47 +347,6 @@ func TestAtomicWriteSyncsParentDir(t *testing.T) {
 	}
 }
 
-func TestVSCodeSettingsIsPlatformSpecific(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)        // os.UserHomeDir on unix
-	t.Setenv("USERPROFILE", home) // os.UserHomeDir on windows
-	orig := vscodeGOOS
-	t.Cleanup(func() { vscodeGOOS = orig })
-
-	for _, tc := range []struct {
-		goos, vscodeServer, want string
-	}{
-		{"darwin", "", filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")},
-		{"windows", "", filepath.Join(home, "AppData", "Roaming", "Code", "User", "settings.json")},
-		{"linux", "", filepath.Join(home, ".config", "Code", "User", "settings.json")},
-		{"linux", "dir", filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json")},
-		{"linux", "file", filepath.Join(home, ".config", "Code", "User", "settings.json")},
-		{"darwin", "dir", filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json")},
-	} {
-		t.Run(tc.goos+"/vscode-server="+tc.vscodeServer, func(t *testing.T) {
-			vscodeGOOS = tc.goos
-			server := filepath.Join(home, ".vscode-server")
-			if err := os.RemoveAll(server); err != nil {
-				t.Fatal(err)
-			}
-			switch tc.vscodeServer {
-			case "dir":
-				if err := os.MkdirAll(server, 0o755); err != nil {
-					t.Fatal(err)
-				}
-			case "file": // only a directory marks a vscode-server host
-				if err := os.WriteFile(server, nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			dest, err := VSCodeSettings()
-			if err != nil || dest != tc.want {
-				t.Errorf("VSCodeSettings() = %s, %v; want %s", dest, err, tc.want)
-			}
-		})
-	}
-}
-
 // TryFileLock must not run fn while another fd already holds the lock, and must run it once released.
 func TestTryFileLockContention(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")

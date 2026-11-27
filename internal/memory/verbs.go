@@ -395,7 +395,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
 }
 
-// DreamRunOptions is one `memory dream`.
+// DreamRunOptions is one `memory update --dream`.
 type DreamRunOptions struct {
 	CWD           string
 	Force, DryRun bool

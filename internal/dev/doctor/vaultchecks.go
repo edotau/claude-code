@@ -245,7 +245,7 @@ func dbProtectRow() check {
 		}
 		parts = append(parts, filepath.ToSlash(name)+" "+size)
 	}
-	return check{Name: "state dbs", OK: true, Detail: "never removed by clean, sweep or nuke: " + strings.Join(parts, ", ")}
+	return check{Name: "state dbs", OK: true, Detail: "never removed by clean or sweep: " + strings.Join(parts, ", ")}
 }
 
 // dbVersionRows reports each existing state/*.db; it opens SQLite read-only and never creates a file.

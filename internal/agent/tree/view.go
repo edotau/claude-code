@@ -21,7 +21,7 @@ const dashFooter = "↑↓ move · ←→ fold · enter expand · o open · c ca
 const footerRows = 2
 
 const (
-	headerHeight = 2
+	headerHeight = 1
 	minTreeRows  = 3
 )
 
@@ -286,8 +286,8 @@ func addNode(l *layout, n Node, c *rowCtx, sel bool) {
 			guide := strings.Repeat("   ", max(n.Depth-c.sub.Depth-1, 0))
 			level, marker = levelDispatch, twist+subNest(*c.sub.Subagent)+guide+"↳"
 		}
-		addJobRow(l, level, append([]string{marker}, jobCells(*n.Dispatch, c.now, nil)...), *n.Dispatch, sel)
+		addJobRow(l, level, append([]string{marker}, jobCells(*n.Dispatch, c.now)...), *n.Dispatch, sel)
 		return
 	}
-	l.spanLast(false, sel)
+	l.selectLast(sel)
 }

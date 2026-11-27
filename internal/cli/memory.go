@@ -34,10 +34,8 @@ var memorySubs = []memorySub{
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the bank"},
 	{"review", "", "doctor + bank stats + hook signals; --timeline N lists entries"},
-	{"feedback", "<list|show|add|approve|close>", "list, show, add, approve or close feedback candidates"},
-	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
-	{"update", "", "save the live session; --catchup saves missed sessions"},
-	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
+	{"feedback", "<list|show|add|approve|close|promote>", "candidates: list, show, add, approve, close; promote a block"},
+	{"update", "", "save the session; --catchup missed ones; --dream consolidate"},
 	{"index", "", "settle the bank, regenerate MEMORY.md, append to index.md"},
 }
 
@@ -48,7 +46,7 @@ var memoryPage = helptext.Page{
 		"promote the ones that hold up.",
 	Commands: memoryCommandRows(),
 	Hint: "plumbing: path, report, fmt, watch,\n" +
-		"          sync, sandbox, extract, shadow, store (off menu)\n" +
+		"          sandbox, extract, shadow, store (off menu)\n" +
 		"claude-code memory <command> -h lists that command's flags.",
 }
 
@@ -70,9 +68,6 @@ var memoryPlumbing = map[string][2]string{
 	"extract": {"", "classify files (--dry-run) or purge proven-dead files (--purge); no model"},
 	"shadow":  {"--rebuild", "rebuild state/memory.db from the Markdown store and check every render is byte-equal"},
 	"store":   {"[--truth db]", "show the source of truth: the db; files was retired"},
-
-	"sync":      {"[--host HOST]", "merge change envelopes with the peers in CLAUDE_REMOTE_HOST (NETWORK_MEMORY=on), pull then push"},
-	"conflicts": {"[--resolve ID --keep local|peer]", "list open sync conflicts, or resolve one; the resolution syncs"},
 }
 
 // memorySubPage is sub's help page: synopsis from its args plus its one-line blurb.
@@ -119,11 +114,20 @@ func cmdMemoryUpdate(args []string) int {
 	catchup := fs.Bool("catchup", false, "save missed sessions, then run queued memory jobs")
 	skip := fs.String("skip", "", "catch-up session id to leave alone")
 	historical := fs.Bool("historical", false, "older session: history and decisions only")
+	dream := fs.Bool("dream", false, "consolidate the bank when due instead of saving a session (--cwd, --force, --dry-run)")
+	force := fs.Bool("force", false, "with --dream: run even when not due")
+	trigger := fs.String("trigger", memory.DreamTriggerManual, "with --dream: what started the run: session-start|schedule|manual")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
 	if fs.NArg() > 0 {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
+	}
+	if *dream {
+		return memoryRunDream(*cwd, *force, *dryRun, *trigger)
+	}
+	if *force || helptext.Explicit(fs, "trigger") {
+		return helptext.FailUsage("memory update: --force and --trigger need --dream")
 	}
 	if *catchup {
 		if *dryRun {
@@ -132,9 +136,6 @@ func cmdMemoryUpdate(args []string) int {
 		now := time.Now()
 		dailyLearn(now, os.Stderr)
 		code := memory.CatchUpSweep(memory.SweepOptions{Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
-		if memory.SyncIfDue(now, now, *cwd) {
-			fmt.Fprintln(os.Stderr, "memory sync: started")
-		}
 		return code
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
@@ -145,22 +146,15 @@ func cmdMemoryUpdate(args []string) int {
 	return 0
 }
 
-func cmdMemoryDream(args []string) int {
-	fs := memoryFlagSet("dream")
-	cwd := fs.String("cwd", "", "project root whose bank to consolidate (default: cwd)")
-	force := fs.Bool("force", false, "run even when not due")
-	dryRun := fs.Bool("dry-run", false, "deterministic preview: caps, archivable blocks; no writes")
-	trigger := fs.String("trigger", "manual", "what started the run: session-start|schedule|manual")
-	if code, done := memoryParseNoArgs(fs, "dream", args); done {
-		return code
-	}
-	switch *trigger {
+// memoryRunDream is `memory update --dream`: the bank consolidation, run when due.
+func memoryRunDream(cwd string, force, dryRun bool, trigger string) int {
+	switch trigger {
 	case memory.DreamTriggerManual, memory.DreamTriggerSessionStart, memory.DreamTriggerSchedule:
 	default:
-		return helptext.FailUsage("memory dream: --trigger must be session-start, schedule or manual")
+		return helptext.FailUsage("memory update: --trigger must be session-start, schedule or manual")
 	}
-	if err := memory.RunDream(memory.DreamRunOptions{CWD: *cwd, Force: *force, DryRun: *dryRun, Run: ask.MemoryRunner(), Out: os.Stdout, Trigger: *trigger}); err != nil {
-		return helptext.Fail("memory dream: %v", err)
+	if err := memory.RunDream(memory.DreamRunOptions{CWD: cwd, Force: force, DryRun: dryRun, Run: ask.MemoryRunner(), Out: os.Stdout, Trigger: trigger}); err != nil {
+		return helptext.Fail("memory update --dream: %v", err)
 	}
 	return 0
 }
@@ -168,41 +162,6 @@ func cmdMemoryDream(args []string) int {
 // cmdMemoryUpgrade is gone: the database is the store, so a typed `memory upgrade` exits 2.
 func cmdMemoryUpgrade([]string) int {
 	return helptext.FailUsage("memory upgrade: the store is the database now; it upgrades itself on the next write")
-}
-
-// cmdMemoryConflicts prints one tab-separated line per open sync conflict: id kind op doc entry peer/seq time.
-func cmdMemoryConflicts(args []string) int {
-	fs := memoryFlagSet("conflicts")
-	id := fs.Int64("resolve", 0, "conflict id to resolve")
-	keep := fs.String("keep", "", "with --resolve: local or peer")
-	if code, done := memoryParseNoArgs(fs, "conflicts", args); done {
-		return code
-	}
-	if r := flagSet(fs, "resolve"); r != flagSet(fs, "keep") || r && (*id <= 0 || *keep != "local" && *keep != "peer") {
-		return helptext.FailUsage("memory conflicts: --resolve needs a positive id and --keep local|peer")
-	}
-	if err := conflictsRun(*id, *keep); err != nil {
-		return helptext.Fail("memory conflicts: %v", err)
-	}
-	return 0
-}
-
-// conflictsRun resolves id when positive, else prints the open conflicts; peer text loses tabs and breaks.
-func conflictsRun(id int64, keep string) error {
-	st, err := memory.OpenEnvelopeStore() // set by internal/memory/shadow, which this package links
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	if id > 0 {
-		return st.ResolveConflict(id, keep)
-	}
-	rows, err := st.Conflicts(true)
-	for _, r := range rows {
-		f := []string{r.Kind, r.Op, r.Doc, r.EntryRef, r.PeerOrigin + "/" + strconv.FormatInt(r.PeerSeq, 10), r.At}
-		fmt.Printf("%d\t%s\n", r.ID, strings.NewReplacer("\t", " ", "\n", " ", "\r", " ", "\x00", "\t").Replace(strings.Join(f, "\x00")))
-	}
-	return err
 }
 
 // cmdMemoryShadow exits 1 when a file's render from rows is not byte-equal to it.
@@ -287,9 +246,7 @@ func memorySubcommands() map[string]func([]string) int {
 		"init":     cmdMemoryInit,
 		"review":   cmdMemoryReview,
 		"feedback": cmdMemoryFeedback,
-		"promote":  cmdMemoryPromote,
 		"update":   cmdMemoryUpdate,
-		"dream":    cmdMemoryDream,
 		// private: plumbing
 		"index":   cmdMemoryIndex,
 		"path":    cmdMemoryPath,
@@ -301,9 +258,6 @@ func memorySubcommands() map[string]func([]string) int {
 		"extract": cmdMemoryExtract,
 		"shadow":  cmdMemoryShadow,
 		"store":   cmdMemoryStore,
-
-		"conflicts": cmdMemoryConflicts,
-		"sync":      cmdMemorySync,
 	}
 }
 
@@ -315,9 +269,6 @@ func cmdMemory(args []string) int {
 	}
 	sub := args[0]
 	h, ok := memorySubcommands()[sub]
-	if use, retired := memoryRetired[sub]; retired && !ok {
-		return helptext.FailUsage("memory %s: retired: %s", sub, use)
-	}
 	if !ok {
 		return helptext.FailUsage("memory: unknown subcommand %q (claude-code memory -h lists them)", sub)
 	}
@@ -336,12 +287,11 @@ func memorySpec() *helptext.Node {
 			helptext.BoolFlag("brief"), helptext.Plain("timeline")}},
 		"feedback": {Sub: map[string]*helptext.Node{"list": {Flags: []helptext.Flag{helptext.BoolFlag("rank")}},
 			"show": {Flags: []helptext.Flag{helptext.Plain("id")}}, "add": {Flags: []helptext.Flag{helptext.Plain("json")}},
-			"approve": {Flags: []helptext.Flag{helptext.Plain("id")}}, "close": {Flags: []helptext.Flag{helptext.Plain("id")}}}},
-		"promote": {Flags: []helptext.Flag{
-			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
+			"approve": {Flags: []helptext.Flag{helptext.Plain("id")}}, "close": {Flags: []helptext.Flag{helptext.Plain("id")}},
+			"promote": {Flags: []helptext.Flag{helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}}}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
-			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip")}},
-		"dream": {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run"), helptext.Plain("trigger")}},
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("historical"), helptext.BoolFlag("catchup"), helptext.Plain("skip"),
+			helptext.BoolFlag("dream"), helptext.BoolFlag("force"), helptext.Plain("trigger")}},
 		"index": {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
 		"path":  {},
 		"report": {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.Plain("job"),
@@ -352,9 +302,6 @@ func memorySpec() *helptext.Node {
 		"extract": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("purge"), helptext.Plain("format"), helptext.Plain("out")}},
 		"shadow":  {Flags: []helptext.Flag{helptext.BoolFlag("rebuild"), helptext.BoolFlag("conflicts"), helptext.ValuedFlag("clear", nil)}},
 		"store":   {Flags: []helptext.Flag{helptext.ValuedFlag("truth", func() []string { return []string{"db"} })}},
-		"sync":    {Flags: []helptext.Flag{helptext.Plain("host")}},
-		"conflicts": {Flags: []helptext.Flag{helptext.Plain("resolve"),
-			helptext.ValuedFlag("keep", func() []string { return []string{"local", "peer"} })}},
 	}}
 }
 
@@ -375,7 +322,7 @@ func cmdMemoryInit(args []string) int {
 func cmdMemoryRemember(args []string) int {
 	fs := memoryFlagSet("remember")
 	kind := fs.String("type", "feedback", "project->decisionLog.md; user/feedback/reference->conventions.md; "+
-		"reads like a rule? use memory promote --to rules instead; types: "+memory.RememberTypeHelp())
+		"reads like a rule? use memory feedback promote <id> --to rules instead; types: "+memory.RememberTypeHelp())
 	old := fs.String("supersedes", "", "id of the live entry this fact replaces (see memory search)")
 	terms, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -783,11 +730,12 @@ var memoryFeedbackVerbs = []struct{ name, args, about string }{
 	{"add", "'<json>'", "append one candidate, a JSON record without status"},
 	{"approve", "<id>", "record the owner's yes; dream skips the candidate"},
 	{"close", "<id> <sha|file:line>", "mark an approved candidate enforced by a main commit or file:line"},
+	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
 }
 
 var memoryFeedbackPage = helptext.Page{
-	Usage: "claude-code memory feedback <list|show|add|approve|close> [args]",
-	About: "Feedback candidates: list and show are read-only; add, approve and close write.",
+	Usage: "claude-code memory feedback <list|show|add|approve|close|promote> [args]",
+	About: "Feedback candidates: list, show and promote are read-only; add, approve and close write.",
 	Commands: func() (rows [][2]string) {
 		for _, v := range memoryFeedbackVerbs {
 			rows = append(rows, [2]string{v.name, v.about})
@@ -803,6 +751,9 @@ func cmdMemoryFeedback(args []string) int {
 		return 0
 	}
 	for _, v := range memoryFeedbackVerbs {
+		if v.name == args[0] && v.name == "promote" {
+			return memoryFeedbackPromote(v.name, v.args, v.about, args[1:])
+		}
 		if v.name == args[0] {
 			return memoryFeedbackRun(v.name, v.args, v.about, args[1:])
 		}
@@ -859,29 +810,24 @@ func memoryFeedbackRun(verb, tail, about string, args []string) int {
 	return 0
 }
 
-// cmdMemoryPromote prints a block and its target for a human to apply (never writes them).
-func cmdMemoryPromote(args []string) int {
-	fs := memoryFlagSet("promote")
+// memoryFeedbackPromote prints a block and its target for a human to apply (never writes them).
+func memoryFeedbackPromote(verb, tail, about string, args []string) int {
+	usage := "claude-code memory feedback " + verb + " [flags] " + tail
+	fs := helptext.NewFlagSet("memory feedback "+verb, helptext.Page{Usage: usage, About: about})
 	to := fs.String("to", "", "promotion target: rules or skill (claude-md: dream only)")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if len(pos) != 1 || *to == "" {
-		return helptext.FailUsage("memory promote: usage: %s", memorySubPage("promote").Usage)
+		return helptext.FailUsage("memory feedback promote: usage: %s", usage)
 	}
 	out, err := memory.Promote(pos[0], *to)
 	if err != nil {
-		return helptext.Fail("memory promote: %v", err)
+		return helptext.Fail("memory feedback promote: %v", err)
 	}
 	fmt.Print(out)
 	return 0
-}
-
-// memoryRetired names each retired verb's replacement; a typed one exits 2 with it.
-var memoryRetired = map[string]string{
-	"import": "memory syncs with `claude-code memory sync`",
-	"fetch":  "memory syncs with `claude-code memory sync`",
 }
 
 // memorySearchExplain prints the hook's recall selection; --explain refuses --format json.
@@ -899,7 +845,7 @@ func memorySearchOpen(q *memoryQuery, n int) int {
 	if !helptext.Explicit(q.fs, "k") {
 		k = 3
 	}
-	hits := memory.RecallBank(q.terms, k)
+	hits := memory.SearchBank(q.terms, k)
 	if q.json() {
 		return helptext.WriteJSONOrFail("memory search", hits)
 	}
@@ -936,7 +882,7 @@ func printMemorySandbox(res memory.SandboxResult, format string) int {
 	for _, s := range res.Stores {
 		stores = append(stores, fmt.Sprintf("%s (%d files)", s.Key, s.Files))
 	}
-	_, err := fmt.Fprintf(os.Stdout, "sandbox  %s\nexport   CLAUDE_CONFIG_DIR=%s\nunset    NETWORK_MEMORY CLAUDE_REMOTE_HOST\nstores   %s\nremove with: rm -rf %s\n",
+	_, err := fmt.Fprintf(os.Stdout, "sandbox  %s\nexport   CLAUDE_CONFIG_DIR=%s\nstores   %s\nremove with: rm -rf %s\n",
 		res.Dir, res.Dir, strings.Join(stores, ", "), res.Dir)
 	if err != nil {
 		return helptext.Fail("memory sandbox: %v", err)

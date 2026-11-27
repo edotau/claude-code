@@ -3,9 +3,7 @@ package doctor
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -204,8 +202,6 @@ func checkHostHealth(ctx context.Context, report func(bool, bool, string, string
 	soft(repoRootCheck(paths.ConfigDir()))
 	auditOK, auditDetail := auditSummary()
 	report(auditOK, false, "audit (7d)", auditDetail)
-	setupOK, setupDetail := setupDoctorDetail()
-	report(setupOK, false, "setup", setupDetail)
 	report(true, false, "browser", browserDoctorDetail())
 	clipOK, clipDetail := clipboard.DoctorDetail()
 	report(clipOK, false, "clipboard", clipDetail)
@@ -344,18 +340,6 @@ func pathBinaryStatus() (bool, string) {
 		return true, found + " (PATH claude-code is the installed binary)"
 	}
 	return false, "PATH claude-code " + found + " shadows " + want + " — remove the stale copy, or put " + paths.BinDir() + " first on PATH"
-}
-
-// setupDoctorDetail reports the last `setup adopt`; a missing record is a fresh clone, an unreadable one fails.
-func setupDoctorDetail() (ok bool, detail string) {
-	if st, found := setup.Read(); found {
-		return true, fmt.Sprintf("adopted %s from %s; backup %s", st.Date.Format("2006-01-02"), st.Commit, st.BackupDir)
-	}
-	file := filepath.Join(paths.StateDir(), "setup.json") // setup.Read drops its error, so look at the file itself
-	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
-		return true, "fresh checkout (no adopt record)"
-	}
-	return false, file + " exists but could not be read or decoded"
 }
 
 // opencodeStaticKeysDetail flags an opencode auth.json static key the vault already supplies; names only, no values.

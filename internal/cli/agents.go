@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/tree"
-	"github.com/edotau/claude-code/internal/cli/gatewayresolve"
+	resolve "github.com/edotau/claude-code/internal/cli/gatewayresolve"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/dev/configure"
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
@@ -55,8 +55,6 @@ func agentsSpec() *helptext.Node {
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), boolFlag("progress"), formatFlag()}},
 		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), flag("report"), flag("agent"), flag("verify"), flag("plan-task"), flag("shape"), flag("name"), flag("description"), flag("trigger"), flag("non-trigger"), flag("task-case"), flag("not-for"), flag("reference"), flag("from"), boolFlag("synthesis-schema"), boolFlag("write"), valuedFlag("tier", agent.TierNames), valuedFlag("codemode", func() []string { return []string{"true", "false"} }), boolFlag("path")}},
-		"serve": {Flags: []helptext.Flag{boolFlag("start"), boolFlag("stop"), boolFlag("restart"), boolFlag("status"),
-			boolFlag("serve"), flag("cap"), formatFlag()}},
 	}}
 }
 
@@ -105,7 +103,6 @@ var agentsPage = helptext.Page{
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 9m30s]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
-		{"serve", "daemon that queues background jobs per pool; --start|--stop"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
 		{"send", "message a live session, queue on a job, or notify parent"},
 	},
@@ -223,7 +220,6 @@ var agentsVerbs = map[string]func([]string) int{
 	"wait":      cmdAgentsWait,
 	"brief":     cmdAgentsBrief,
 	"watch":     cmdAgentsWatch,
-	"serve":     cmdAgentsServe,
 }
 
 // cmdAgentsList is `agents list`: the local roster, or with --host the remote's own `agents` output.

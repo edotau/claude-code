@@ -2,38 +2,25 @@ package tree
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/dev/review/bench"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
-const (
-	headerEvery        = 5 * time.Second
-	headerServeTimeout = 300 * time.Millisecond
-)
+const headerEvery = 5 * time.Second
 
 type headerStatus struct {
-	bench      bench.Status
-	serve      serve.Status
-	served     bool
-	serveError bool
+	bench bench.Status
 }
 
 // headerSource is replaceable so dashboard tests never launch the worktree status verb.
 var headerSource = loadHeaderStatus
 
 func loadHeaderStatus(ctx context.Context, top string) headerStatus {
-	s, err := serve.QueryStatus(headerServeTimeout)
-	h := headerStatus{serve: s, served: err == nil}
-	h.serveError = err != nil && !errors.Is(err, serve.ErrNotRunning) && !errors.Is(err, serve.ErrUnsupported) &&
-		!errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ECONNREFUSED) // a stale socket is a stopped daemon
+	var h headerStatus
 	if ctx.Err() == nil {
 		h.bench = bench.BuildStatus(ctx, top, time.Now())
 	}
@@ -64,27 +51,7 @@ func refreshHeader(ctx context.Context, top string, updates chan<- headerStatus)
 
 func headerLines(h headerStatus, width int) []string {
 	width = min(max(width, 1), maxLineWidth)
-	return []string{
-		textutil.TruncateCells(serveLine(h), width, "…"),
-		textutil.TruncateCells(benchLine(h.bench, width), width, "…"),
-	}
-}
-
-func serveLine(h headerStatus) string {
-	if h.serveError {
-		return "serve: unreadable"
-	}
-	if !h.served {
-		return "serve: off"
-	}
-	if len(h.serve.Pools) == 0 {
-		return "serve: idle"
-	}
-	parts := make([]string, 0, len(h.serve.Pools))
-	for _, p := range h.serve.Pools {
-		parts = append(parts, fmt.Sprintf("%s %d/%d wait %d", p.Pool, p.Running, p.Cap, len(p.Waiting)))
-	}
-	return "serve: " + strings.Join(parts, " · ")
+	return []string{textutil.TruncateCells(benchLine(h.bench, width), width, "…")}
 }
 
 func benchLine(s bench.Status, width int) string {

@@ -510,7 +510,7 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 		} {
 			vaulttest.SetRecord(t, agentName, "model", tc.pin)
 			for range 12 { // stamp the cell as just picked so the rotation's next pick is another model
-				if m, _, _ := rotationModelOn(ctx, rotationRows(reg, agentName), agentName, "", true, false, nil, time.Now()); m == cell {
+				if m, _, _ := rotationModelOn(ctx, reg.Providers["dev"], agentName, "", true, false, nil, time.Now()); m == cell {
 					break
 				}
 			}

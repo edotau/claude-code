@@ -189,13 +189,6 @@ func TestShadowImportIncremental(t *testing.T) {
 func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	t.Helper()
 	ctx := context.Background()
-	execShadow(t, db, "INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) SELECT rowid, 'peer', 1, 'p', 't', 0 FROM entries WHERE doc = 'conventions.md'",
-		`INSERT INTO changes(origin, origin_seq, schema, entry_rowid, entry_uid, base_version, op, payload, at)
-		SELECT 'o', 1, 1, rowid, uid, 'v', 'op', 'p', 't' FROM entries WHERE doc = 'conventions.md'`)
-	var kept int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM changes`).Scan(&kept); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(filepath.Join(root, "conventions.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -209,9 +202,8 @@ func wantVanishedDropped(t *testing.T, db *sql.DB, root string) {
 	}
 	var left int
 	if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM docs WHERE path = 'conventions.md') +
-		(SELECT count(*) FROM entries WHERE doc = 'conventions.md') + (SELECT count(*) FROM conflicts) +
-		abs((SELECT count(*) FROM changes) - ?)`, kept).Scan(&left); err != nil || left != 0 { // every changes row is kept
-		t.Fatalf("rows left for a vanished doc (or changes pruned): %d (%v)", left, err)
+		(SELECT count(*) FROM entries WHERE doc = 'conventions.md')`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("rows left for a vanished doc: %d (%v)", left, err)
 	}
 }
 
@@ -284,8 +276,8 @@ func dumpShadow(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var b strings.Builder
 	for _, q := range []string{"SELECT * FROM docs ORDER BY path", `SELECT rowid, doc, id, seq, kind, lines, date, area, version,
-		deleted, origin, origin_seq, rendered_rev FROM entries ORDER BY rowid`, // uid is random per db
-		"SELECT * FROM vectors", "SELECT * FROM conflicts", "SELECT * FROM changes"} {
+		deleted FROM entries ORDER BY rowid`, // uid is random per db
+		"SELECT * FROM vectors"} {
 		rows, err := db.QueryContext(context.Background(), q)
 		if err != nil {
 			t.Fatal(err)
@@ -348,8 +340,7 @@ func TestShadowRebuildAtomic(t *testing.T) {
 	if _, err := shadowRebuild(ctx, db, root); err != nil {
 		t.Fatal(err)
 	}
-	execShadow(t, db, "INSERT INTO vectors VALUES(1, 'm', 1, x'00', 't')",
-		"INSERT INTO conflicts(entry_rowid, peer_origin, peer_seq, payload, at, resolved) VALUES(1, 'peer', 1, 'p', 't', 0)", "INSERT INTO changes VALUES('o', 1, 1, 1, 'v', 'op', 'p', 't', 'u', NULL)")
+	execShadow(t, db, "INSERT INTO vectors VALUES(1, 'm', 1, x'00', 't')")
 	before := dumpShadow(t, db)
 	if _, err := shadowRebuild(ctx, db, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("rebuild from a missing root succeeded")
@@ -368,10 +359,9 @@ func TestShadowRebuildAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	var c int
-	err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM vectors) + (SELECT count(*) FROM conflicts) +
-		abs((SELECT count(*) FROM changes) - 1)`).Scan(&c) // the uid-keyed changes row survives
+	err := db.QueryRowContext(ctx, `SELECT count(*) FROM vectors`).Scan(&c)
 	if err != nil || c != 0 {
-		t.Fatalf("rowid-keyed rows left after rebuild, or changes pruned: %d (%v)", c, err)
+		t.Fatalf("rowid-keyed rows left after rebuild: %d (%v)", c, err)
 	}
 }
 
@@ -395,6 +385,28 @@ func TestShadowMigrateVersion(t *testing.T) {
 	}
 	if v, err := sqlite.Version(fresh); err != nil || v != 0 {
 		t.Fatalf("dry-run version = %d (%v), want 0", v, err)
+	}
+}
+
+func TestShadowDropCaptureStep(t *testing.T) {
+	db := openShadowDB(t, nil)
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'entries_capture%'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("capture triggers left = %d (%v)", n, err)
+	}
+}
+
+func TestShadowDropSyncStep(t *testing.T) {
+	db := openShadowDB(t, nil)
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name IN ('changes', 'peers', 'doc_orders', 'tombstones')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("sync tables left = %d (%v)", n, err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM meta WHERE key = 'machine_id'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("machine_id rows left = %d (%v)", n, err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('entries') WHERE name IN ('origin', 'origin_seq', 'rendered_rev')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("sync entry columns left = %d (%v)", n, err)
 	}
 }
 
@@ -466,14 +478,13 @@ func TestShadowConflictKindStep(t *testing.T) {
 	if _, err := migrateMemoryDB(ctx, db, sqlite.MigrateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	var kind string
-	var doc sql.NullString
 	var legacy string
 	if err := db.QueryRowContext(ctx, `SELECT kind || '|' || doc FROM conflicts WHERE entry_rowid = 0`).Scan(&legacy); err != nil || legacy != "both-changed|a.md" {
 		t.Fatalf("legacy export row = %q (%v), want both-changed|a.md", legacy, err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT kind, doc FROM conflicts WHERE entry_rowid = 7`).Scan(&kind, &doc); err != nil || kind != "envelope" || doc.Valid {
-		t.Fatalf("migrated conflict = %q %v (%v), want envelope, NULL", kind, doc, err)
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM conflicts WHERE entry_rowid <> 0`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("peer conflict rows left = %d (%v)", n, err)
 	}
 }
 

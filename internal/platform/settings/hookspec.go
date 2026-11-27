@@ -143,14 +143,9 @@ var Registry = []Group{
 	{Name: "docs", Events: []EventSpec{
 		// Root or ignored docs/ markdown is blocked, a new plan-named one goes to the plans home, a draft needs the template.
 		{Name: "docs-placement", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
-		// Every write/edit to a native plan-mode draft is mirrored to its dated, repo-tagged file in plans/.
-		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
-		// An approved plan is filed under plans/, tagged with its repo.
-		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
-		// A commit on main ticks the plan tasks its Task: trailers name; coverage alone only prints a candidate.
-		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Async: "Bash", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
-		// The Stop slot of the plan hooks; its partly-landed record is no longer written.
-		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
+		// Plan files by tool: Write|Edit mirrors, ExitPlanMode files, Bash ticks Task: trailers; Stop runs the watchdog.
+		{Name: "docs-plan", Event: EventPostToolUse, Matcher: "Write|Edit|ExitPlanMode|Bash", Async: "Bash", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
+		{Name: "docs-plan", Event: EventStop, Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "dispatch", Events: []EventSpec{
 		// One PreToolUse runner: cap, then model pin (Workflow leaves too), then the claim.

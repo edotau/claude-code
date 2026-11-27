@@ -48,7 +48,7 @@ Route by where the answer lives; name any route other than "run the loop" in the
 - Something you can open (spec, file, output, docs) → run the loop.
 - A technique you don't know → research it (Step 2's budget), then loop.
 - Only your own inference → say so, label it low-confidence (failure mode 18, costume rigor).
-- A recurring procedure the harness lacks → `claude-code memory promote --to skill`.
+- A recurring procedure the harness lacks → `claude-code memory feedback promote <id> --to skill`.
 
 ## Step 0 — Classify the deliverable shape
 

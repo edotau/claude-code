@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/serve"
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/dev/review/bench"
 	"github.com/edotau/claude-code/internal/dev/worktree"
@@ -567,17 +566,7 @@ func benchWaitQuiet() bool {
 }
 
 var benchBusy = func() bool {
-	running := 0
-	status, err := serve.QueryStatus(time.Second)
-	if err != nil && !errors.Is(err, serve.ErrNotRunning) {
-		return true
-	}
-	if err == nil {
-		for _, pool := range status.Pools {
-			running += pool.Running
-		}
-	}
-	quiet, _, err := proc.QuietMachine(context.Background(), running)
+	quiet, _, err := proc.QuietMachine(context.Background(), 0)
 	if err != nil || !quiet {
 		return true
 	}
@@ -921,7 +910,7 @@ func benchAnnotate(base string, before map[string]benchBaseline, underLoad bool)
 	return 0
 }
 
-// TickOrBench is the docs-plan-tick module: a finished bench run's payload posts its notices, else Tick.
+// TickOrBench is the Bash slot of the docs-plan module: a finished bench run's payload posts its notices, else Tick.
 func TickOrBench(in *core.Input) core.Result {
 	if in.ToolName == "Bash" && in.Nested(benchField, "result") != "" {
 		return benchFinish(in)
