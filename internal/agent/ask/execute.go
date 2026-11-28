@@ -113,7 +113,7 @@ func (r *askRun) batchBase() (agent.RunOptions, error) {
 func (r *askRun) execute() int {
 	f := r.f
 	if f.live {
-		return startLive(r.ctx, r.state, f.name, f.as, f.format)
+		return startLive(r.ctx, r, f.name, f.as, f.format)
 	}
 	if r.jobRec != nil && r.jobRec.Live {
 		return agent.RunHolder(r.jobRec, newClient().Launcher)
@@ -127,10 +127,7 @@ func (r *askRun) execute() int {
 		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
-	join := func() string { return prompt }
-	if framed == nil && !f.dryRun {
-		join = r.startRecall(prompt) // overlaps the setup below; joined before request reads the brief
-	}
+	join := r.joinRecall(framed != nil, prompt)
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
@@ -144,6 +141,20 @@ func (r *askRun) execute() int {
 		return failAsk(f.format, f.name, err)
 	}
 	return r.prepareAndRun(ctx, req)
+}
+
+// joinRecall runs memory recall on foreground and --job runs, skipping the --background parent and retries.
+func (r *askRun) joinRecall(framed bool, prompt string) func() string {
+	if framed || r.f.dryRun || r.f.background || (r.jobRec != nil && r.jobRec.RetryOf != "") {
+		return func() string { return prompt }
+	}
+	if r.jobRec != nil {
+		prompt = agent.WithoutReviewLoop(prompt)
+	}
+	jobRec := r.jobRec
+	r.jobRec = nil
+	defer func() { r.jobRec = jobRec }()
+	return r.startRecall(prompt)
 }
 
 // prepareAndRun arms and probes req, layers the overlay over it, prepares the dispatch, then detaches or runs it.

@@ -306,7 +306,7 @@ func TestMoveOffCutoffSkipsBudgetRecord(t *testing.T) {
 	if !rec.CutOff() {
 		t.Fatal("fixture must be a cutoff")
 	}
-	if moveOffCutoff(nil, nil, rec, nil, " (1m ago)") {
+	if moveOffCutoff(nil, rec, nil, " (1m ago)") {
 		t.Fatal("a budget end moved to another agent")
 	}
 }

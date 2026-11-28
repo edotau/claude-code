@@ -122,8 +122,7 @@ func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 // A live session keeps its flags.
 func TestLiveRequestCarriesFlags(t *testing.T) {
 	f := askFlags{tools: true, noTools: true, fleet: true, enableMemory: true}
-	s := (&askRun{f: &f}).askState()
-	got := liveRequest(t.Context(), s, "claude")
+	got := liveRequest(t.Context(), &askRun{f: &f}, "claude")
 	if !got.Tools || !got.NoTools || !got.Fleet || !got.EnableMemory {
 		t.Errorf("live request lost a flag: %+v", got)
 	}
@@ -142,7 +141,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 			t.Setenv(route.OverlayVar, "")
 		}
 		f := askFlags{profile: tc.typed}
-		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), "gemini").Provider; got != tc.want {
+		if got := liveRequest(t.Context(), &askRun{f: &f}, "gemini").Provider; got != tc.want {
 			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
 		}
 	}
@@ -163,8 +162,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := askFlags{}
-	s := (&askRun{f: &f}).askState()
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, "claude", "sp", "json") }); code != 1 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), &askRun{f: &f}, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
 	recs := agent.RecentRecords(1)
@@ -212,7 +210,7 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		if mode == "live" {
 			f := askFlags{noTools: true}
-			return startLive(t.Context(), (&askRun{f: &f}).askState(), "codex", "", "json")
+			return startLive(t.Context(), &askRun{f: &f}, "codex", "", "json")
 		}
 		fs, _ := askFlagSet()
 		var job *agent.Record

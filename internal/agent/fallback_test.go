@@ -612,13 +612,13 @@ func TestHopKeepsRecoveredGuardFailure(t *testing.T) {
 
 // An auth.command whose credential was issued for another host fails the hop as auth, and fallback moves on.
 func TestCommandCredentialHostMismatchIsAuthAndFallsBack(t *testing.T) {
+	vaulttest.Use(t)
 	fastDefaultBackoff(t)
 	name := fmt.Sprintf("hmm%d", time.Now().UnixNano())
 	stubHostMismatch(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"`+name+`","providers":{"databricks":{"`+name+`":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","command":"echo `+wrongHostCred+`"},`+
 		`"models":{"opus":"m"}}}}}`)
-	t.Cleanup(func() { vaulttest.Put(t, vault.Overlay, "providers", `{}`) }) // the default must not leak to later tests
 	prev := markAuth
 	markAuth = func(string, string) error { return nil }
 	t.Cleanup(func() { markAuth = prev })

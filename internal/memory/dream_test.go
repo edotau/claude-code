@@ -324,18 +324,17 @@ type dreamBatchCase struct {
 func (tc dreamBatchCase) prepare(t *testing.T, sharedCfg, sharedHome, progress, conventions string) {
 	t.Helper()
 	shortBankWait(t)
-	if len(tc.changed) > 0 || tc.race {
-		isolatedConfig(t)
-		initTypedStore(t)
-		dreamTestFixture(t)
-		write(t, Path("progress.md"), progress)
-		write(t, Path("conventions.md"), conventions)
-		return
-	}
 	t.Setenv("CLAUDE_CONFIG_DIR", sharedCfg)
 	t.Setenv("HOME", sharedHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sharedHome, ".config"))
 	_ = os.RemoveAll(paths.MemoryStateDir())
+	if len(tc.changed) > 0 || tc.race {
+		dreamTestFixture(t)
+		t.Cleanup(func() {
+			write(t, Path("progress.md"), progress)
+			write(t, Path("conventions.md"), conventions)
+		})
+	}
 }
 
 // A canned typed answer applies outside the runner's lock scope and records only successful batches.
@@ -608,7 +607,6 @@ func initTypedStore(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), fmt.Sprintf("flat %d\n", storeVersion))
 }
 
 // A store stamped flat 3 still runs the typed path: the stamp is ignored.

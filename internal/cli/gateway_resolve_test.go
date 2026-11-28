@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/cli/gatewayresolve"
+	resolve "github.com/edotau/claude-code/internal/cli/gatewayresolve"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/platform/hosttest"

@@ -91,7 +91,7 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 		t.Errorf("copilot line under a snapshot confinement: err = %v, want no openai account", err)
 	}
 	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.Overlay{Provider: "databricks", Profile: "qa"}.Doc()}),
-		(&askRun{f: &askFlags{}}).askState(), "claude").Provider; got != "qa" {
+		&askRun{f: &askFlags{}}, "claude").Provider; got != "qa" {
 		t.Errorf("live holder under a snapshot workspace: Provider = %q, want qa", got)
 	}
 	confine(t, "openai")

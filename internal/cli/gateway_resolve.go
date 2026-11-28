@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/cli/gatewayresolve"
+	resolve "github.com/edotau/claude-code/internal/cli/gatewayresolve"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"

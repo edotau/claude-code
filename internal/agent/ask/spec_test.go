@@ -665,7 +665,7 @@ func TestRetryKeepsInheritedRunKeys(t *testing.T) {
 		t.Fatalf("config exit %d", code)
 	}
 	f.tools, f.noPersist, f.timeout = true, false, 5*time.Minute // what Apply(record) wrote
-	r.askState().retype()
+	r.retypeOverlay()
 	if f.tools || !f.noPersist || f.timeout != 30*time.Second || f.timeoutTyped {
 		t.Errorf("tools %v noPersist %v timeout %v typed %v after retry, want false true 30s false", f.tools, f.noPersist, f.timeout, f.timeoutTyped)
 	}
@@ -822,7 +822,7 @@ func TestRetryInheritedTimeoutDropsRecordTyped(t *testing.T) {
 		t.Fatalf("config exit %d", code)
 	}
 	f.timeout, f.timeoutTyped = 5*time.Minute, true // what Apply(record) wrote
-	r.askState().retype()
+	r.retypeOverlay()
 	if f.timeout != 30*time.Second || f.timeoutTyped {
 		t.Errorf("timeout %v typed %v after retry, want 30s untyped", f.timeout, f.timeoutTyped)
 	}
@@ -970,7 +970,7 @@ func relaunchPhases(t *testing.T, carried string, req agent.RunOptions) (code in
 		t.Fatal(err)
 	}
 	r := &askRun{ctx: proc.WithValues(t.Context(), proc.Values{route.OverlayVar: carried}), f: f, fs: fs, ag: "opencode"}
-	phases := []func() (int, bool){r.config, func() (int, bool) { r.state = r.askState(); return r.applyRecord() }, r.checkArm}
+	phases := []func() (int, bool){r.config, r.applyRecord, r.checkArm}
 	code, _, stderr = hosttest.CaptureOutput(t, func() int {
 		for _, phase := range phases {
 			if c, done := phase(); done {

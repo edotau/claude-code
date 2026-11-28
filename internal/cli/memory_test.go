@@ -908,18 +908,24 @@ func TestMemoryFeedbackParity(t *testing.T) {
 	baseSnap := memCfg(t)
 	memInit(t)
 	feedbackSeed(t, dir)
+	t.Chdir(t.TempDir())
+	memCLIOK(t, "feedback", "show", "fc-a")
 	approvedSnap := memCfg(t)
 	memMust(t, os.CopyFS(approvedSnap, os.DirFS(baseSnap)))
-	t.Chdir(t.TempDir())
 	memCLIOK(t, "feedback", "approve", "fc-b")
 	cases := feedbackParityCases()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg, src, pre := memCfg(t), baseSnap, tc.pre
+			src, pre := baseSnap, tc.pre
 			if len(pre) > 0 && pre[0] == "approve fc-b" {
 				src, pre = approvedSnap, pre[1:]
 			}
-			memMust(t, os.CopyFS(cfg, os.DirFS(src)))
+			if len(pre) > 0 || strings.HasSuffix(tc.name, "_ok") {
+				cfg := memCfg(t)
+				memMust(t, os.CopyFS(cfg, os.DirFS(src)))
+			} else {
+				t.Setenv("CLAUDE_CONFIG_DIR", src)
+			}
 			t.Chdir(t.TempDir())
 			for _, p := range pre {
 				memCLIOK(t, append([]string{"feedback"}, strings.Fields(p)...)...)

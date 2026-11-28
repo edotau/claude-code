@@ -619,23 +619,24 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 }
 
 // liveRequest is the RunOptions a live holder keeps for its whole session.
-func liveRequest(ctx context.Context, s *askState, name string) agent.RunOptions {
+func liveRequest(ctx context.Context, r *askRun, name string) agent.RunOptions {
+	f := r.f
 	_, cprof := router.ConfinedContext(ctx) // a live holder runs one hop with no chain: it starts on the confinement's profile
-	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, TimeoutTyped: *s.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
-		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist,
-		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
-		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true, Codemode: *s.Codemode}
+	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, TimeoutTyped: f.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, f.profile), Effort: f.effort, WorkDir: f.workdir, SessionID: f.session,
+		Tools: f.tools, NoTools: f.noTools, Fleet: f.fleet, EnableMemory: f.enableMemory, Timeout: f.timeout, KeepEnv: f.keepEnv, NoPersist: f.noPersist,
+		DebugFile: absDebugFile(f.debugFile), SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
+		Autonomous: f.autonomous, Direct: f.direct, Lead: r.lead, Agent: name, Background: true, Codemode: f.codemode}
 }
 
-func startLive(ctx context.Context, s *askState, name, as, format string) int {
-	req := liveRequest(ctx, s, name)
+func startLive(ctx context.Context, r *askRun, name, as, format string) int {
+	req := liveRequest(ctx, r, name)
 	req.Identity = as
 	if err := agent.CheckCapabilities(name, req); err != nil {
 		return failAskCode(format, name, err, 2)
 	}
-	r, err := agent.Lookup(name)
+	eng, err := agent.Lookup(name)
 	if err == nil {
-		err = r.Available()
+		err = eng.Available()
 	}
 	if err == nil {
 		err = agent.CheckLiveCap()

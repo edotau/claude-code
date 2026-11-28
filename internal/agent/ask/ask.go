@@ -66,7 +66,6 @@ type askRun struct {
 	schema      string
 	jobRec      *agent.Record
 	prompt      string
-	state       *askState
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
@@ -128,6 +127,9 @@ func runCtx(ctx context.Context, args []string, out io.Writer) (exit int) {
 	} else {
 		defer Reap()() // dryness is final once flags and spec/stdin parse; a dry run reaps nothing
 	}
+	var stopCache func()
+	ctx, stopCache = agent.WithWorkspaceCache(ctx)
+	defer stopCache()
 	r := &askRun{ctx: withContract(withPlanTask(ctx, f.planTask), f.contract), f: f, fs: fs, args: args, pos: pos, out: out, carryVerify: carried}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.mergeFlags, r.selectAgent, r.carryMode, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.export} {
 		if code, done := phase(); done {
@@ -409,6 +411,8 @@ func (r *askRun) selectAgent() (int, bool) {
 // checkArm applies the overlay's confinement for the agent and refuses flags leaving it (exit 2; preflight: 1).
 func (r *askRun) checkArm() (int, bool) {
 	f := r.f
+	r.ctx = providers.WithIdentity(r.ctx, cmp.Or(f.as, providers.IdentityHeadless))
+	agent.SetWorkspaceCacheContext(r.ctx)
 	value, err := confinementValue(r)
 	if err != nil {
 		return r.fail(err, 2)

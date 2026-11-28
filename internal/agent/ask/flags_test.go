@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/dispatchhook"
 	"github.com/edotau/claude-code/internal/platform/proc"
@@ -128,39 +127,29 @@ func TestAttachFlagSetRejectsBinary(t *testing.T) {
 	}
 }
 
-func newAskTarget() *askTarget {
-	s := func() *string { return new(string) }
-	b := func() *bool { return new(bool) }
-	return &askTarget{Name: s(), Provider: s(), Model: s(), Effort: s(), Workdir: s(), Session: s(),
-		Tools: b(), NoTools: b(), Autonomous: b(), Fleet: b(), EnableMemory: b(), Direct: b(),
-		NoPersist: b(), DebugFile: s(), SystemPrompt: s(), AppendSystemPrompt: s(), OutputSchema: s(),
-		Host: s(), Fallback: s(), Codemode: s(), Runner: s(), GoogleTools: s(), Timeout: new(time.Duration), Attach: new([]string), KeepEnv: new([]string),
-		Native: b(), Pack: new(*pack.Spec), Persona: new(*agent.Schema), Coworker: new(route.Route)}
-}
-
 // A retried or backgrounded dispatch must keep --no-tools; without it the tools come back on.
 func TestApplyRecordRoundTripsNoTools(t *testing.T) {
-	s := newAskTarget()
-	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}}, io.Discard)
-	if !*s.NoTools || *s.Tools {
-		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", *s.NoTools, *s.Tools)
+	r := &askRun{f: &askFlags{}}
+	_ = r.applyRecordTo(agent.Record{Agent: "claude", Request: agent.RunOptions{NoTools: true}}, io.Discard)
+	if !r.f.noTools || r.f.tools {
+		t.Errorf("noTools=%v tools=%v; want noTools on, tools off", r.f.noTools, r.f.tools)
 	}
 	// Negative control: a record without NoTools clears an earlier value.
-	*s.NoTools = true
-	s.Apply(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
-	if *s.NoTools || !*s.Tools {
-		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", *s.NoTools, *s.Tools)
+	r.f.noTools = true
+	_ = r.applyRecordTo(agent.Record{Agent: "claude", Request: agent.RunOptions{Tools: true}}, io.Discard)
+	if r.f.noTools || !r.f.tools {
+		t.Errorf("noTools=%v tools=%v; want tools on, noTools off", r.f.noTools, r.f.tools)
 	}
 }
 
 // A replayed record keeps its --runner cli, so code mode is rechecked against the own CLI.
 func TestApplyRecordRestoresRunner(t *testing.T) {
-	s := newAskTarget()
-	s.Apply(agent.Record{Agent: "codex", Request: agent.RunOptions{Runner: "cli"}}, io.Discard)
-	if *s.Runner != "cli" {
-		t.Errorf("runner = %q, want own", *s.Runner)
+	r := &askRun{f: &askFlags{}}
+	_ = r.applyRecordTo(agent.Record{Agent: "codex", Request: agent.RunOptions{Runner: "cli"}}, io.Discard)
+	if r.f.runner != "cli" {
+		t.Errorf("runner = %q, want own", r.f.runner)
 	}
-	if mode, why, _ := validateCodemode("on", "codex", *s.Runner, true, false); mode != "off" || why == "" {
+	if mode, why, _ := validateCodemode("on", "codex", r.f.runner, true, false); mode != "off" || why == "" {
 		t.Errorf("own runner codemode = %q %q, want off with a reason", mode, why)
 	}
 }
@@ -261,8 +250,8 @@ func TestAskJobRestoresRecordedLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &askRun{ctx: t.Context(), fs: fs, f: f}
-	if _, code, done := loadAskJob(f.job, f.format, r.askState(), &r.prompt); done || code != 0 {
-		t.Fatalf("loadAskJob = %d, %v", code, done)
+	if code, done := r.applyRecord(); done || code != 0 {
+		t.Fatalf("applyRecord = %d, %v", code, done)
 	}
 	if got, _ := r.request(r.prompt); got.Lead != "qa" {
 		t.Fatalf("job lead = %q, want qa", got.Lead)
@@ -291,8 +280,8 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			if err := fs.Parse(args); err != nil {
 				t.Fatal(err)
 			}
-			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+			r := &askRun{ctx: t.Context(), fs: fs, f: f, args: args}
+			if code, done := loadAskRetry(r); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
 			if got, _ := r.request(r.prompt); got.Lead != tc.wantLead {
@@ -322,8 +311,8 @@ func TestRetryLeadFollowsAnsweringRoute(t *testing.T) {
 	if err := fs.Parse(args); err != nil {
 		t.Fatal(err)
 	}
-	r := &askRun{ctx: t.Context(), fs: fs, f: f}
-	if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+	r := &askRun{ctx: t.Context(), fs: fs, f: f, args: args}
+	if code, done := loadAskRetry(r); done || code != 0 {
 		t.Fatalf("loadAskRetry = %d, %v", code, done)
 	}
 	if got, _ := r.request(r.prompt); got.Lead != "qa" || got.Provider != "qa" {
@@ -471,8 +460,8 @@ func TestAskRetryWorkdir(t *testing.T) {
 			if err := fs.Parse(args); err != nil {
 				t.Fatal(err)
 			}
-			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			_, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt)
+			r := &askRun{ctx: t.Context(), fs: fs, f: f, args: args}
+			code, done := loadAskRetry(r)
 			if tc.fail != (done && code == 2) {
 				t.Fatalf("loadAskRetry = %d, %v, fail want %v", code, done, tc.fail)
 			}
@@ -503,8 +492,8 @@ func TestAskRetryFallbackFromEnv(t *testing.T) {
 			}
 			mode, _ := router.FallbackSetting(t.Context(), "")
 			f.fallback = router.ParseFallback(mode) // runTo does this before the phases when --fallback is not typed
-			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			if _, code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt); done || code != 0 {
+			r := &askRun{ctx: t.Context(), fs: fs, f: f, args: args}
+			if code, done := loadAskRetry(r); done || code != 0 {
 				t.Fatalf("loadAskRetry = %d, %v", code, done)
 			}
 			if f.fallback != tc.want {
@@ -638,7 +627,7 @@ func TestMoveOffCutoff(t *testing.T) {
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
 			f.name, f.model, f.fallback, f.modelTyped = tc.rec.Agent, cmp.Or(f.model, "gpt-x"), tc.fallback, tc.typedModel
 			var note strings.Builder
-			moveOffCutoff(fs, r.askState(), tc.rec, &note, "")
+			moveOffCutoff(r, tc.rec, &note, "")
 			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
 				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
 			}
@@ -687,7 +676,7 @@ func TestGuardResubmit(t *testing.T) {
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
 			f.name, f.model, f.fallback, f.modelTyped = tc.ran, "gpt-x", tc.fallback, tc.typed
 			var note strings.Builder
-			guardResubmit(fs, r.askState(), "task \n", &note, now)
+			guardResubmit(r, "task \n", &note, now)
 			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
 				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
 			}
@@ -903,10 +892,10 @@ func TestGoogleToolsFlag(t *testing.T) {
 			t.Errorf("accepted %+v", f)
 		}
 	}
-	s := newAskTarget()
-	s.Apply(agent.Record{Agent: "gemini", Request: agent.RunOptions{GoogleTools: []string{"url", "code"}}}, io.Discard)
-	if *s.GoogleTools != "url,code" {
-		t.Errorf("replayed google tools = %q", *s.GoogleTools)
+	r := &askRun{f: &askFlags{}}
+	_ = r.applyRecordTo(agent.Record{Agent: "gemini", Request: agent.RunOptions{GoogleTools: []string{"url", "code"}}}, io.Discard)
+	if r.f.googleTools != "url,code" {
+		t.Errorf("replayed google tools = %q", r.f.googleTools)
 	}
 }
 
@@ -958,7 +947,6 @@ func TestRetryJobChildReplaysPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &askRun{ctx: t.Context(), fs: fs, f: f, args: []string{"--job", rec.ID}}
-	r.state = r.askState()
 	if rc, done := r.applyRecord(); done || rc != 0 {
 		t.Fatalf("applyRecord = %d, %v", rc, done)
 	}

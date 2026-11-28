@@ -1006,6 +1006,9 @@ func TestContractCleanSweeps(t *testing.T) {
 	origKeep := dispatchKeep
 	dispatchKeep = func() int { return 3 }
 	t.Cleanup(func() { dispatchKeep = origKeep })
+	origOpen := openMemoryFiles
+	openMemoryFiles = func() (map[string]bool, bool) { return map[string]bool{}, true }
+	t.Cleanup(func() { openMemoryFiles = origOpen })
 	for _, f := range schemas.All() {
 		if f.Clean == "" {
 			continue
@@ -1013,6 +1016,7 @@ func TestContractCleanSweeps(t *testing.T) {
 		t.Run(f.Name, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", dir)
+			t.Setenv("TMPDIR", filepath.Join(dir, "tmp"))
 			path := strings.ReplaceAll(f.Glob(), "*", "contract-fixture")
 			if !strings.HasPrefix(path, dir) {
 				t.Fatalf("glob %s outside %s", path, dir)
