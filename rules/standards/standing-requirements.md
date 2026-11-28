@@ -50,8 +50,10 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R22 Performance:** make the same work faster, removing no checks; profile and measure before/after for every
   feature. Profile/fix leaves on bench regressions, doctor hook p95 over budget or slow dispatch; rerun inconclusive
   loaded benchmarks. Enforced in part by post-commit bench and doctor; hook changes affect cost only (R27).
-- **R23 Continuous ship:** green build/touched tests → push main → Mac install/live check; WSL follows R19. Verified
-  lanes land locally uncommitted without asking; the owner commits (`CLAUDE.md`, `worktree-git.md`).
+- **R23 Continuous ship:** lanes land on the local working branch without a full build or audit; tests run once,
+  at the head (owner, 2026-11-28). A push to origin needs a green full build and `make audit` first, then Mac
+  install/live check; WSL follows R19. A landing that breaks the tree is its owner's to fix; a landing that conflicts
+  with work that passed gets a dispatched repair. Added restrictions wait for approval (`CLAUDE.md`, `worktree-git.md`).
 - **R24 Fast tier:** builds/gates, predetermined edits and renames/moves use `Tier: fast` and overlay `model:auto`
   (exclude Codex on Databricks); judgment stays standard/deep (R5). Enforced by `fastTask`.
 - **R25 Fix as found:** fix bugs, diagnostics, dead code and stale docs now within the owner's priority; no asks or

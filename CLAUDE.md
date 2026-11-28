@@ -42,11 +42,12 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
 5. **Finish at the requested boundary.** A review or an edit task stops there. To land an authorized change,
-   follow `rules/standards/worktree-git.md`. A verified lane lands on local without asking (uncommitted in the live
-   checkout; the owner commits) unless its diff adds a restriction. Once the owner's
-   commit builds (macOS, `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin
-   main, then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). `make audit` runs at
-   session end (a worktree land starts its own); `make install` after pulls.
+   follow `rules/standards/worktree-git.md`. A lane lands on the local working branch without asking and without a
+   full build or audit (uncommitted in the live checkout; the owner commits) unless its diff adds a restriction.
+   **A push to origin main needs a green full build (macOS, `GOOS=linux` build, `GOOS=windows` vet) and `make audit`
+   first**; then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). A landing
+   that breaks the tree is its owner's to fix; when yours conflicts with work that passed, dispatch the repair.
+   `make install` after pulls.
 
 ## Behavioral guidelines
 
