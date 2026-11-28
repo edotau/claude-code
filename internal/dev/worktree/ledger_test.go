@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -332,4 +333,68 @@ func TestLedgerPathResolvesPerRepo(t *testing.T) {
 	if got := filepath.Base(ledgerPath(a, "w2", time.Time{})); got != "claude-code--w2.md" {
 		t.Fatalf("legacy prefixed ledger = %s", got)
 	}
+}
+
+// benchGit runs git in dir for a benchmark fixture.
+func benchGit(b testing.TB, dir string, args ...string) {
+	b.Helper()
+	full := append([]string{"-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@bench"}, args...)
+	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+		b.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// benchRepo makes a one-commit repo under a fresh temp dir, with the harness's injected GIT_CONFIG_* unset.
+func benchRepo(b testing.TB) string {
+	b.Helper()
+	for _, kv := range os.Environ() {
+		if key, _, _ := strings.Cut(kv, "="); strings.HasPrefix(key, "GIT_CONFIG_") {
+			b.Setenv(key, "")
+			os.Unsetenv(key)
+		}
+	}
+	main := filepath.Join(paths.Canon(b.TempDir()), "repo")
+	if err := os.MkdirAll(main, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	benchGit(b, main, "init", "-q")
+	benchGit(b, main, "commit", "-q", "--allow-empty", "-m", "init")
+	return main
+}
+
+func benchAppend(b *testing.B, cwd string) {
+	now := time.Now()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := AppendLedger(cwd, "bench", now); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkAppendLedgerMainCheckout appends from a main checkout with no ledger: the common hook case.
+func BenchmarkAppendLedgerMainCheckout(b *testing.B) {
+	b.Setenv("HOME", paths.Canon(b.TempDir()))
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	benchAppend(b, benchRepo(b))
+}
+
+// BenchmarkAppendLedgerLane appends from a managed linked worktree that has an open ledger.
+func BenchmarkAppendLedgerLane(b *testing.B) {
+	home := paths.Canon(b.TempDir())
+	b.Setenv("HOME", home)
+	b.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	main := benchRepo(b)
+	name := "bench-lane"
+	lane := filepath.Join(home, "worktrees", filepath.Base(main), name)
+	benchGit(b, main, "worktree", "add", "-q", "-b", "worktree-"+name, lane)
+	if err := memory.EnsureBank("worktrees"); err != nil {
+		b.Fatal(err)
+	}
+	text := "# Worktree " + name + "\n\n- Repo: " + main + "\n- Status: open\n\n## Log\n"
+	if err := os.WriteFile(ledgerPath(main, name, time.Time{}), []byte(text), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	benchAppend(b, lane)
 }

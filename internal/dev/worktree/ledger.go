@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -168,17 +170,114 @@ func editLedger(cwd string, now time.Time, wait time.Duration, edit func(string)
 	return appended, err
 }
 
+// ledgerNoLaneFromFiles reports, from files alone, that git finds no lane at cwd: a non-repo or a plain main checkout.
+func ledgerNoLaneFromFiles(cwd string) bool {
+	if cwd == "" || gitRedirected() {
+		return false
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		return false
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return false
+	}
+	dir, err := filepath.EvalSymlinks(abs)
+	if err != nil || slices.Contains(strings.Split(dir, string(filepath.Separator)), ".git") {
+		return false
+	}
+	return noLaneAbove(cwd, dir)
+}
+
+// noLaneAbove walks up from dir to the nearest .git: a directory answers for its checkout, a file or error asks git.
+func noLaneAbove(cwd, dir string) bool {
+	for cur := dir; ; {
+		fi, err := os.Lstat(filepath.Join(cur, ".git"))
+		if err == nil && fi.IsDir() {
+			return plainMainOutsideLanes(cwd, cur)
+		}
+		if err == nil || !os.IsNotExist(err) {
+			return false
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return true
+		}
+		cur = parent
+	}
+}
+
+// plainMainOutsideLanes reports whether top is a plain main checkout whose parent is not a lane root.
+func plainMainOutsideLanes(cwd, top string) bool {
+	dotGit := filepath.Join(top, ".git")
+	if !plainGitDir(dotGit) {
+		return false
+	}
+	repo, err := repoFromCommonDir(cwd, dotGit)
+	return err == nil && !repo.holds(filepath.Dir(top))
+}
+
+// plainGitDir reports whether dotGit is a complete non-bare repo with no reftable or config include.
+func plainGitDir(dotGit string) bool {
+	for _, p := range []string{"HEAD", "objects", "refs"} {
+		if _, err := os.Stat(filepath.Join(dotGit, p)); err != nil {
+			return false
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(dotGit, "reftable")); err == nil {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(dotGit, "config"))
+	if err != nil {
+		return false
+	}
+	for line := range strings.SplitSeq(strings.ToLower(string(raw)), "\n") {
+		if strings.Contains(line, "include") || strings.Contains(line, "worktree") {
+			return false
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "bare") && !strings.Contains(line, "false") {
+			return false
+		}
+	}
+	return true
+}
+
+// gitRedirected reports whether a GIT_* variable may move git's discovery or config (an empty DevNull config may).
+func gitRedirected() bool {
+	for _, kv := range os.Environ() {
+		key, val, _ := strings.Cut(kv, "=")
+		switch {
+		case key == "GIT_CONFIG_GLOBAL" || key == "GIT_CONFIG_SYSTEM":
+			if val != os.DevNull {
+				return true
+			}
+		case strings.HasPrefix(key, "GIT_CONFIG"), key == "GIT_DIR", key == "GIT_WORK_TREE", key == "GIT_COMMON_DIR",
+			key == "GIT_CEILING_DIRECTORIES", key == "GIT_DISCOVERY_ACROSS_FILESYSTEM":
+			return true
+		}
+	}
+	return false
+}
+
+// notRepoErr is nil when git's failure only says cwd is no repository (or printed nothing), else err.
+func notRepoErr(ctx context.Context, err error) error {
+	if code, isExit := asExitErr(err); err == nil || isExit && code == gitFatalExit && ctx.Err() == nil {
+		return nil
+	}
+	return err
+}
+
 // locateLedger resolves the managed linked worktree holding cwd and its existing ledger; found is false for none.
 func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err error) {
+	if ledgerNoLaneFromFiles(cwd) {
+		return nil, "", "", false, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), ledgerLocateTimeout)
 	defer cancel()
 	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel").Output()
 	commonDir, topLine, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	if commonDir == "" {
-		if code, isExit := asExitErr(err); err == nil || isExit && code == gitFatalExit && ctx.Err() == nil {
-			return nil, "", "", false, nil
-		}
-		return nil, "", "", false, err
+		return nil, "", "", false, notRepoErr(ctx, err)
 	}
 	repo, rerr := repoFromCommonDir(cwd, commonDir)
 	if rerr != nil {
