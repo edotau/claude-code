@@ -377,17 +377,21 @@ func protectedPath(p string, globs []string) bool {
 	return r != p && matchesProtected(r, globs)
 }
 
-// interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
-var interpreterWrites = sync.OnceValue(func() map[string]*regexp.Regexp {
-	return map[string]*regexp.Regexp{
-		"python": regexp.MustCompile(`open\s*\([^\n]*?(,\s*|mode\s*=\s*)['"][rbt]*[wax+][rwxabt+]*['"]|` +
-			`\b(write_text|write_bytes|unlink|copy\w*|move|replace|rename|remove|rmtree)\s*\(`),
-		"js": regexp.MustCompile(`\b(writeFile|appendFile|createWriteStream|rename|unlink|rm|copyFile|truncate|writeTextFile|remove)` +
-			`(Sync)?\s*\(|Bun\.write\b`),
-		"script": regexp.MustCompile(`open\b[^\n]*(['"]\+?>>?|['"]\+?[wa]\+?['"])|` +
-			`\b(File|IO)\.(binwrite|write|delete|unlink|rename)\b|\b(unlink|rename)\s*[(\s]|FileUtils\.`),
-	}
-})
+// interpreterWrites are per-language write indicators, compiled on first use; reads (open(p), readFile) match none.
+var interpreterWrites = map[string]func() *regexp.Regexp{
+	"python": sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`open\s*\([^\n]*?(,\s*|mode\s*=\s*)['"][rbt]*[wax+][rwxabt+]*['"]|` +
+			`\b(write_text|write_bytes|unlink|copy\w*|move|replace|rename|remove|rmtree)\s*\(`)
+	}),
+	"js": sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b(writeFile|appendFile|createWriteStream|rename|unlink|rm|copyFile|truncate|writeTextFile|remove)` +
+			`(Sync)?\s*\(|Bun\.write\b`)
+	}),
+	"script": sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`open\b[^\n]*(['"]\+?>>?|['"]\+?[wa]\+?['"])|` +
+			`\b(File|IO)\.(binwrite|write|delete|unlink|rename)\b|\b(unlink|rename)\s*[(\s]|FileUtils\.`)
+	}),
+}
 
 // interpreterLang maps an interpreter's basename to its interpreterWrites key ("" when not an interpreter).
 func interpreterLang(base string) string {
@@ -428,7 +432,7 @@ func interpreterWrite(cmd string, raw []string) (needle, glob string) {
 			used = paths.FoldCase(text)
 		}
 		lang := interpreterLang(filepath.Base(rest[0]))
-		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, text) {
+		if compile := interpreterWrites[lang]; compile == nil || !scriptWrites(lang, compile(), text) {
 			continue
 		}
 		if n, g := mentionedGlob(raw, used); n != "" {

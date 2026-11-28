@@ -57,8 +57,16 @@ type pathReport struct {
 // pathToken is a scanned token: raw as written, trimmed with trailing punctuation stripped.
 type pathToken struct{ raw, trimmed string }
 
+// tokenScan is one token family: its quoted and bare patterns, each with a cheap test that rules a text out.
+type tokenScan struct {
+	quoted, bare       func() *regexp.Regexp
+	mayQuoted, mayBare func(string) bool // false only when the pattern cannot match the text
+	trim               string
+	escSpace           bool // a bare match may hold `\ `, so a space after a backslash splits no field
+}
+
 // scanTokens extracts unique path tokens, quoted forms first so spaced paths aren't split by the bareword regex.
-func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathToken {
+func scanTokens(text string, s tokenScan) []pathToken {
 	seen := map[string]bool{}
 	var out []pathToken
 	add := func(raw, p string) {
@@ -67,24 +75,62 @@ func scanTokens(text string, quoted, bare *regexp.Regexp, trim string) []pathTok
 			out = append(out, pathToken{raw, p})
 		}
 	}
-	blanked := quoted.ReplaceAllStringFunc(text, func(m string) string {
-		q := strings.Join(quoted.FindStringSubmatch(m)[1:], "")
-		add(q, q)
-		return strings.Repeat(" ", len(m))
-	})
-	for _, sub := range bare.FindAllStringSubmatch(blanked, -1) {
+	blanked := text
+	if s.mayQuoted(text) {
+		quoted := s.quoted()
+		blanked = quoted.ReplaceAllStringFunc(text, func(m string) string {
+			q := strings.Join(quoted.FindStringSubmatch(m)[1:], "")
+			add(q, q)
+			return strings.Repeat(" ", len(m))
+		})
+	}
+	for _, sub := range fieldMatches(s.bare, blanked, s.escSpace, s.mayBare) {
 		m := sub[len(sub)-1] // group 1 when the pattern has a boundary group, else the whole match
 		t := m
-		if trim != "" {
-			t = strings.TrimRight(m, trim)
+		if s.trim != "" {
+			t = strings.TrimRight(m, s.trim)
 		}
 		add(m, t)
 	}
 	return out
 }
 
+// fieldMatches equals re.FindAllStringSubmatch(text, -1): no bare match spans a split, and ^ or \b see a field as text.
+func fieldMatches(re func() *regexp.Regexp, text string, escSpace bool, may func(string) bool) [][]string {
+	var out [][]string
+	start := 0
+	for i := 0; i <= len(text); i++ {
+		if i < len(text) && !splitsField(text, i, escSpace) {
+			continue
+		}
+		if f := text[start:i]; f != "" && may(f) {
+			out = append(out, re().FindAllStringSubmatch(f, -1)...)
+		}
+		start = i + 1
+	}
+	return out
+}
+
+// splitsField reports a regexp \s byte no bare match can hold; with escSpace a space after a backslash may be held.
+func splitsField(text string, i int, escSpace bool) bool {
+	switch text[i] {
+	case '\t', '\n', '\f', '\r':
+		return true
+	case ' ':
+		return !escSpace || i == 0 || text[i-1] != '\\'
+	}
+	return false
+}
+
+// posixScan is the POSIX token family; every match holds a "/" and a quoted one opens with `"/` or `'/`.
+var posixScan = tokenScan{
+	quoted: quotedPathRE, bare: posixPathRE, trim: ".,;:!?)", escSpace: true,
+	mayQuoted: func(t string) bool { return strings.Contains(t, `"/`) || strings.Contains(t, `'/`) },
+	mayBare:   func(t string) bool { return strings.Contains(t, "/") },
+}
+
 func scanPosixTokens(text string) []pathToken {
-	toks := scanTokens(text, quotedPathRE(), posixPathRE(), ".,;:!?)")
+	toks := scanTokens(text, posixScan)
 	for i := range toks {
 		toks[i].trimmed = strings.ReplaceAll(toks[i].trimmed, `\ `, " ")
 	}
@@ -120,13 +166,26 @@ func describe(p string) (detail string, isImage, large, ok bool) {
 
 // collectReports resolves each path token via the mount-table resolver, foreign forms first, in prompt order.
 func collectReports(prompt string, res *paths.Resolver) []pathReport {
+	win := scanWinTokens(prompt)
+	var posix []pathToken
+	if len(win) == 0 {
+		posix = scanPosixTokens(prompt)
+	}
+	return collectScanned(prompt, win, posix, res)
+}
+
+// collectScanned is collectReports over prompt's scans; posix is reused only when no foreign token blanks the prompt.
+func collectScanned(prompt string, win, posix []pathToken, res *paths.Resolver) []pathReport {
 	c := &reportCollector{res: res, seen: map[string]bool{}}
-	for _, tok := range scanWinTokens(prompt) {
+	for _, tok := range win {
 		c.add(tok.trimmed, tok.raw, tok.trimmed)
 		// the POSIX scan must not re-read inside a foreign token
 		prompt = strings.ReplaceAll(prompt, tok.raw, strings.Repeat(" ", len(tok.raw)))
 	}
-	for _, tok := range scanPosixTokens(prompt) {
+	if len(win) > 0 {
+		posix = scanPosixTokens(prompt)
+	}
+	for _, tok := range posix {
 		n := len(c.reps)
 		c.add("", tok.raw, tok.trimmed)
 		if len(c.reps) == n {
@@ -246,7 +305,11 @@ func modelContext(reps []pathReport) string {
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
 func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
-	reps := collectReports(in.Prompt, res)
+	return reportResult(collectReports(in.Prompt, res))
+}
+
+// reportResult is the hook result for reps: nothing when no path resolved.
+func reportResult(reps []pathReport) core.Result {
 	if len(reps) == 0 {
 		return core.Result{}
 	}
@@ -256,7 +319,7 @@ func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
 // defaultResolver reads the host's mount table (macOS runs `mount`); swapped in tests.
 var defaultResolver = paths.Default
 
-// ResolvePaths binds pathResolverResult to the host's mount view, read only when a token needs the mount table.
+// ResolvePaths is pathResolverResult on the host's mount view, read only when a token needs the mount table.
 func ResolvePaths(in *core.Input) core.Result {
 	if core.AutomatedDelivery(in.Prompt) {
 		return core.Result{}
@@ -272,7 +335,7 @@ func ResolvePaths(in *core.Input) core.Result {
 	if len(win) > 0 || slices.ContainsFunc(posix, func(t pathToken) bool { return strings.HasPrefix(t.trimmed, "//") }) {
 		res = defaultResolver()
 	}
-	return pathResolverResult(in, res)
+	return reportResult(collectScanned(in.Prompt, win, posix, res)) // the scans above are pure: reuse, not rescan
 }
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.
@@ -288,6 +351,17 @@ var quotedWinPathRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`"(` + foreignHead + `[^"]+)"`)
 })
 
+// winScan is the non-POSIX token family; each of its patterns needs a foreignHead.
+var winScan = tokenScan{
+	quoted: quotedWinPathRE, bare: winPathRE, trim: ".,;:!?)]}'\"", mayQuoted: mayHoldForeign, mayBare: mayHoldForeign,
+}
+
 func scanWinTokens(text string) []pathToken {
-	return scanTokens(text, quotedWinPathRE(), winPathRE(), ".,;:!?)]}'\"")
+	return scanTokens(text, winScan)
+}
+
+// mayHoldForeign is false only when no foreignHead alternative can match: each needs ":/", `:\`, `\\` or "~".
+func mayHoldForeign(text string) bool {
+	return strings.Contains(text, ":/") || strings.Contains(text, `:\`) || strings.Contains(text, `\\`) ||
+		strings.Contains(text, "~")
 }

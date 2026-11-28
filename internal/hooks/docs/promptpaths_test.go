@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -282,5 +283,66 @@ func TestResolvePathsSkipsAutomatedDelivery(t *testing.T) {
 	}
 	if res := ResolvePaths(&core.Input{Prompt: msg + "\nread " + f}); res.SystemMessage == "" {
 		t.Error("typed text beside it must still resolve paths")
+	}
+}
+
+// wholeTextTokens is the old scanTokens, both patterns over the whole text: the reference for fieldMatches.
+func wholeTextTokens(text string, s tokenScan) []pathToken {
+	seen := map[string]bool{}
+	var out []pathToken
+	add := func(raw, p string) {
+		if p != "" && !seen[raw] {
+			seen[raw] = true
+			out = append(out, pathToken{raw, p})
+		}
+	}
+	quoted := s.quoted()
+	blanked := quoted.ReplaceAllStringFunc(text, func(m string) string {
+		q := strings.Join(quoted.FindStringSubmatch(m)[1:], "")
+		add(q, q)
+		return strings.Repeat(" ", len(m))
+	})
+	for _, sub := range s.bare().FindAllStringSubmatch(blanked, -1) {
+		m := sub[len(sub)-1]
+		add(m, strings.TrimRight(m, s.trim))
+	}
+	return out
+}
+
+// FuzzScanTokensMatchWholeText holds the per-field scan to the whole-text regexp scan for both token families.
+func FuzzScanTokensMatchWholeText(f *testing.F) {
+	for _, seed := range []string{
+		"", "/a", " /a", "x/a /b", `a\ /b\ c d`, "\t/x\n/y\r/z\f/w", `"/q a" '/r b'`, `C:\x y`, `\\srv\s`,
+		"file:///p", "~/a ~u/b", "u@h:/p", "https://h.io/a/b", "é/a ü:/b", "\xff/a \xe2\x82 /b", `"C:\a b" x`,
+		"/a,/b;(/c) [/d] {/e}", "a\\ /b", `x\ y/z`, "..//.~/a _/b ./c", "path:/x", "ab:/x:/y", `"/a\n/b"`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, text string) {
+		for name, s := range map[string]tokenScan{"posix": posixScan, "win": winScan} {
+			if got, want := scanTokens(text, s), wholeTextTokens(text, s); !slices.Equal(got, want) {
+				t.Errorf("%s %q: fields %q; whole text %q", name, text, got, want)
+			}
+		}
+	})
+}
+
+// BenchmarkResolvePaths holds fixed: no path exists on disk, so the cost is the scan; pastelog is a 20 KB pasted log.
+func BenchmarkResolvePaths(b *testing.B) {
+	log := strings.Repeat("2026-11-28 build ok: compiled /nonexistent/x/internal/foo.go in 3ms see https://example.com/a/b\n", 200)
+	for _, c := range []struct{ name, prompt string }{
+		{"plain", "please fix the bug in the parser and rerun the tests"},
+		{"url", "see https://github.com/edotau/claude-code/pull/12 for context"},
+		{"path", "look at /nonexistent/hp-safety/go.mod please"},
+		{"notification", "<task-notification>\n" + log + "</task-notification>"},
+		{"pastelog", "why does this fail?\n" + log},
+	} {
+		b.Run(c.name, func(b *testing.B) {
+			in := &core.Input{Prompt: c.prompt}
+			b.ReportAllocs()
+			for b.Loop() {
+				ResolvePaths(in)
+			}
+		})
 	}
 }
