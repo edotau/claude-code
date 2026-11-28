@@ -28,18 +28,8 @@ func FastPath(cmd string) (rewritten string, decided bool) {
 	return "", noSegmentRewrites(cmd)
 }
 
-// extraRewriteWords are heads `rtk rewrite` wraps that its --help (and so rtk_rewrite_words) does not list.
-var extraRewriteWords = []string{"ansible-playbook", "biome", "hadolint", "markdownlint", "mise", "nx", "shellcheck",
-	"turbo", "yamllint"}
-
-// rewriteWords are the words rtk rewrite may act on: rtk_rewrite_words plus extraRewriteWords.
-var rewriteWords = sync.OnceValue(func() map[string]bool {
-	words := shell.GuardSet("rtk_rewrite_words")
-	for _, w := range extraRewriteWords {
-		words[w] = true
-	}
-	return words
-})
+// rewriteWords are the words rtk rewrite may act on, loaded once from guards.json.
+var rewriteWords = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_rewrite_words") })
 
 // wordRun is one word of a command, and versioned a versioned spelling of one (gcc-13, python3.12).
 var wordRun = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\w.+-]+`) })
@@ -247,13 +237,29 @@ func parseWordLists(value string) ([][]string, bool) {
 	return out, true
 }
 
-// plainHeads never run a command word they are given, so rtk leaves their segment as typed (verified on rtk 1.1.0).
-var plainHeads = map[string]bool{"echo": true, "printf": true, "cd": true, "pwd": true, "mkdir": true, "rm": true,
-	"cp": true, "mv": true, "touch": true, "chmod": true, "sort": true, "uniq": true, "cut": true, "tr": true,
-	"sed": true, "awk": true, "true": true, "false": true, "sleep": true, "which": true, "type": true,
-	"export": true, "tee": true, "basename": true, "dirname": true, "realpath": true, "readlink": true, "ln": true}
+// nestedRunSections are guards.json sections whose heads can execute another command word inside their segment.
+var nestedRunSections = []string{
+	"shell_keywords", "shell_names", "wrapper_names", "sudo_prefix_extras", "evaluators", "run_arg_commands",
+}
 
-// noSegmentRewrites reports rtk leaves every segment of cmd as typed: no rtk word, a plain or rtk head, or excluded.
+// nestedRunHeads are command-position words that may run a nested command from their arguments.
+var nestedRunHeads = sync.OnceValue(func() map[string]bool {
+	m := map[string]bool{"noglob": true}
+	for _, sec := range nestedRunSections {
+		for _, w := range shell.GuardWords(sec) {
+			m[w] = true
+		}
+	}
+	return m
+})
+
+// isLeafHead reports a bare command head that neither rtk rewrites nor runs a nested command from its arguments.
+func isLeafHead(head string) bool {
+	return head != "" && head != rtkName && !isRewriteWord(head) &&
+		!nestedRunHeads()[head] && !strings.ContainsAny(head, "=/'\"")
+}
+
+// noSegmentRewrites reports rtk leaves every segment of cmd as typed: no rtk word, a leaf or rtk head, or excluded.
 func noSegmentRewrites(cmd string) bool {
 	if strings.Contains(cmd, "$(") || strings.Contains(cmd, "<<") || strings.ContainsAny(cmd, "`\\") {
 		return false
@@ -274,7 +280,7 @@ func noSegmentRewrites(cmd string) bool {
 
 // segmentStays reports one segment rtk leaves as typed.
 func segmentStays(f []string) bool {
-	if len(f) == 0 || plainHeads[f[0]] || f[0] == rtkName || !slices.ContainsFunc(f, func(w string) bool {
+	if len(f) == 0 || isLeafHead(f[0]) || f[0] == rtkName || !slices.ContainsFunc(f, func(w string) bool {
 		return slices.ContainsFunc(wordRun().FindAllString(w, -1), isRewriteWord)
 	}) {
 		return true

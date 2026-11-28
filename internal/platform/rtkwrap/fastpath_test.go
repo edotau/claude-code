@@ -2,44 +2,57 @@ package rtkwrap
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
-// fastPathCases span skips, simple rewrites, exclusions, prefixed and quoted mentions, wrappers, pipes and chains.
-var fastPathCases = []string{
-	// no rtk word, or one only in argument position
-	"npm-check", "echo hello", "echo git status", "echo 'git status'", `echo "go test"`, "printf '%s' git",
-	"cd ~/go", "mkdir -p go/test", "rm -rf go", "export X=git", "which git", "type git", "sed -n 1p go.mod",
-	"cd x && echo go", "echo a > git", "pwd; echo ls", "true", "tee go",
-	// simple rewrites
-	"git status", "git status -s", "git log --oneline -5", "git diff HEAD~1", "git show --stat", "git branch -a",
-	"git add -A", "git push origin HEAD", "git pull --rebase", "git fetch --all", "git stash list",
-	"go test ./...", "go test -run 'X|Y' ./...", "go test -json ./...", "go build -o x .", "go test -v2",
-	"go test '-v'", "ls", "ls -la", "ls *.go", "ls 'a b'", "find . -name '*.md'", "grep -rn TODO .",
-	"grep -E 'a|b' f", "rg -n foo internal", "wc -l x", "du -sh", "df -h", "ps aux", "stat f", "tree -L 2",
-	"gh pr list", "gh api x", "docker ps -a", "docker logs -f x", "kubectl get pods", "kubectl describe pod x",
-	"curl -s http://x", "diff -u a b", "make", "make test V=1", "jq -r .a f", "golangci-lint run ./...",
-	// heads rtk declines or rewrites differently: never decided as rewrites
-	"find", "grep", "rg", "curl", "diff", "git", "go", "kubectl", "gh", "docker compose up", "golangci-lint version",
-	"gh auth status", "docker inspect x", "go run .", "go mod tidy", "git rebase -i", "cat foo", "head -5 foo",
-	"tail -f x", "ls  -la", "git -C foo status", "mise run x", "shellcheck x", "biome x",
-	// excluded
-	"git grep x", "go vet ./...", "go test -v ./x", "go test -list x", "go  test -v", "cd x && go test -v",
-	// already prefixed
-	"rtk git status", "rtk bypass git status", "rtk proxy git status", "rtk git status && echo done",
-	// wrappers, quoting, comments, pipes, redirects, substitutions, chains
-	"FOO=1 git status", "time ls", "env ls", "nice git status", "noglob git status", "sudo ls", "xargs grep x",
-	"bash -c 'ls'", "'ls'", "./ls", "/bin/ls", "(ls)", "{ ls; }", "if ls; then :; fi", "! ls", "ls &",
-	"ls > out", "ls 2>&1", "ls | wc -l", "git status | head", "ls # git", "echo $(git status)", "echo `ls`",
-	"cat <<EOF\ngit status\nEOF", "git status && ls", "echo hi; ls", "true || ls", "git status\nls",
-	"go test -v; ls", "sleep 1; ls", "echo git status | tee x",
-	// quoted arguments stay single words; git commit past global options is never wrapped
-	`ls "dir with spaces"`, "git -c k=v status",
+// buildFastPathCases synthesizes the FastPath grammar test matrix from simpleRules and guards.json.
+func buildFastPathCases() []string {
+	var out []string
+	for _, h := range []string{"npm-check", "echo", "printf", "cd", "mkdir", "rm", "export", "which", "type", "sed", "true", "tee"} {
+		out = append(out, h+" git status", h+" 'go test'")
+	}
+	for _, head := range slices.Sorted(maps.Keys(simpleRules)) {
+		r := simpleRules[head]
+		switch {
+		case len(r.subs) > 0:
+			out = append(out, head, head+" unknown-sub x")
+			for _, sub := range r.subs {
+				out = append(out, head+" "+sub, head+" "+sub+" x")
+			}
+		case r.minArgs > 0:
+			out = append(out, head, head+" x", head+" -n x")
+		default:
+			out = append(out, head, head+" -a", head+" 'a b'", head+` "dir with spaces"`)
+		}
+	}
+	for _, flag := range shell.GuardWords("rtk_go_test_raw_flags") {
+		out = append(out, "go test -"+flag+" ./x")
+	}
+	for _, w := range []string{"env", "sudo", "nice", "time", "noglob", "xargs"} {
+		out = append(out, w+" git status", w+" ls")
+	}
+	for _, tmpl := range []string{
+		"FOO=1 %s", "%s | wc -l", "%s && ls", "echo hi; %s", "true || %s", "%s\nls",
+		"%s > out", "%s 2>&1", "%s # git", "echo $(%s)", "echo `%s`", "bash -c '%s'",
+		"'%s'", "./%s", "/bin/%s", "(%s)", "{ %s; }", "if %s; then :; fi", "! %s", "%s &",
+	} {
+		out = append(out, fmt.Sprintf(tmpl, "ls"))
+	}
+	return append(out,
+		"git grep x", "go vet ./...", "go  test -v", "cd x && go test -v",
+		"rtk git status", "rtk bypass git status", "rtk proxy git status", "rtk git status && echo done",
+		"cat foo", "head -5 foo", "tail -f x", "ls  -la", "git -C foo status", "git -c k=v status",
+		"mise run x", "shellcheck x", "biome x", "cat <<EOF\ngit status\nEOF",
+	)
 }
 
 func TestFastPathQuotedAndCommit(t *testing.T) {
@@ -62,11 +75,12 @@ func TestRTKFastPathMatchesRTK(t *testing.T) {
 		t.Skip("rtk is not installed")
 	}
 	t.Setenv(paths.RTKBinaryEnv, "") // bin is the rtk the fast path stands in for
-	if len(fastPathCases) < 40 {
-		t.Fatalf("only %d cases", len(fastPathCases))
+	cases := buildFastPathCases()
+	if len(cases) < 40 {
+		t.Fatalf("only %d cases", len(cases))
 	}
 	decided := 0
-	for _, cmd := range fastPathCases {
+	for _, cmd := range cases {
 		got, ok := FastPath(cmd)
 		if !ok {
 			continue
@@ -81,7 +95,7 @@ func TestRTKFastPathMatchesRTK(t *testing.T) {
 		}
 	}
 	if decided < 20 {
-		t.Errorf("FastPath decided only %d of %d cases", decided, len(fastPathCases))
+		t.Errorf("FastPath decided only %d of %d cases", decided, len(cases))
 	}
 }
 
