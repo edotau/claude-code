@@ -39,12 +39,21 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	cmd.Dir = cwd
 	proc.OwnGroup(cmd) // the timeout kills the export's whole group, so a grandchild cannot hold the pipe open
 	cmd.WaitDelay = proc.ExecWaitDelay
-	out, err := os.CreateTemp("", "opencode-export-*.json") // a file, not a pipe: opencode exits before a pipe drains
+	_ = os.MkdirAll(agentTranscriptDir(), 0o700)                    // pruneSeen ages out a file a killed hook leaves here
+	out, err := os.CreateTemp(agentTranscriptDir(), "export-*.tmp") // a file: opencode exits before a pipe drains
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = out.Close(); _ = os.Remove(out.Name()) }()
 	cmd.Stdout = out
+	go func() { // the size cap a pipe's reader used to enforce: stop the export once the file passes it
+		for ctx.Err() == nil {
+			if info, err := out.Stat(); err == nil && info.Size() > exportMaxBytes {
+				cancel()
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
@@ -145,10 +154,8 @@ func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) 
 		_ = enc.Encode(synthLine("text", map[string]any{"text": at.FinalText}))
 	}
 	dest := filepath.Join(agentTranscriptDir(), filepath.Base(sessionID)+".jsonl")
-	if cur, err := os.ReadFile(dest); err == nil && bytes.Equal(cur, buf.Bytes()) {
-		return dest, nil
-	}
-	return dest, paths.AtomicWriteNoSync(dest, buf.Bytes(), 0o600) // rebuilt from the session on every Stop
+	_, err := paths.WriteIfChanged(dest, buf.Bytes(), 0o600)
+	return dest, err
 }
 
 // agentTranscriptDir holds synthesized transcripts; pruneSeen ages them out.

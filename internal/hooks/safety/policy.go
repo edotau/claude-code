@@ -28,7 +28,6 @@ type policy struct {
 	read     map[string]policyGlobs
 	tools    map[string][]permission.Rule
 	twin     map[string]string // raw absolute glob -> its folded symlink-resolved glob, when that differs
-	noDeny   bool              // settings.json has no permissions.deny: the template's policy applies
 }
 
 // pathRule is a Read, Grep or Glob row with its raw glob (ParseRule's ~ expansion loses the anchor).
@@ -75,24 +74,12 @@ func templatePolicy() policy {
 
 // livePolicy is the user settings policy; a missing or broken settings.json falls back to the template's.
 func livePolicy() policy {
-	p, err := policyCache.Get(settings.SettingsFile(), readLivePolicy)
+	p, err := policyCache.Get(settings.SettingsFile(), readPolicy)
 	if err != nil {
 		noteFallback(err)
 		return templatePolicy()
 	}
-	if p.noDeny {
-		return templatePolicy()
-	}
 	return p
-}
-
-// readLivePolicy caches a deny-less settings.json as noDeny, so the next call skips the reread; errNoDeny is silent.
-func readLivePolicy() (policy, error) {
-	p, err := readPolicy()
-	if errors.Is(err, errNoDeny) {
-		return policy{noDeny: true}, nil
-	}
-	return p, err
 }
 
 // readPolicy is settings.LivePermissions with a stat-sized buffer: on a 5 KB file 38 to 31 allocs, 13.7 to 8.4 KB.

@@ -980,27 +980,6 @@ func BenchmarkScan(b *testing.B) {
 	})
 }
 
-// BenchmarkScanDenyLess is a launch's settings.json: no permissions.deny, so the template's rows apply.
-func BenchmarkScanDenyLess(b *testing.B) {
-	cfg := b.TempDir()
-	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	file := filepath.Join(cfg, "settings.json")
-	if err := os.WriteFile(file, []byte(`{"env":{"A":"1"},"hooks":{}}`), 0o600); err != nil {
-		b.Fatal(err)
-	}
-	time.Sleep(paths.RacyWindow) // the stamp cache keeps only a file older than its racy window
-	for _, cmd := range []string{"git status", "rm -rf ./build"} {
-		b.Run(strings.Fields(cmd)[0], func(b *testing.B) {
-			b.ReportAllocs()
-			in := core.ParseInput(hosttest.BashPayload(cmd))
-			benchSink = Scan(in)
-			for b.Loop() {
-				benchSink = Scan(in)
-			}
-		})
-	}
-}
-
 // A `dir/**` deny whose prefix holds a wildcard also blocks the matched directory itself.
 func TestMatchesProtectedWildcardPrefixRoot(t *testing.T) {
 	globs := []string{"/repo/a*/**"}
