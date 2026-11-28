@@ -1,27 +1,38 @@
 package memory
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/assets"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
+	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
+var idRefRE = regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
+
 // idRef is a block reference: a persisted 8-hex id (or id-alias) or a z-prefixed contentRef.
-var idRef = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(z[0-9a-f]{8}|[0-9a-f]{8}(-[a-z0-9-]+)?)$`)
-})
+func idRef() *regexp.Regexp { return idRefRE }
 
 // SearchOptions is one `memory search`; Expand lets a lone block reference resolve to its block.
 type SearchOptions struct {
@@ -290,7 +301,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(ctx, out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	hasStore := scaffolded()
+	hasStore := bankExists()
 	var rotated int
 	err := withBankLock(BankLockWait, func() error {
 		var serr error
@@ -464,20 +475,7 @@ func FormatReport(w io.Writer, check bool) (dirty bool, err error) {
 
 // FormatOwn wraps the bank under the lock, commits the change and lists what it wrapped.
 func FormatOwn(w io.Writer) error {
-	own, err := bankFmtTargets()
-	if err != nil {
-		return err
-	}
-	var changed []string
-	err = withBankLock(BankLockWait, func() (ferr error) {
-		changed, ferr = formatFiles(own, false)
-		if len(changed) > 0 { // commit what was written even when a later file failed
-			if cerr := commitStore("fmt: wrap bank lines", StoreRepo().dropCredentialShaped(storeRels(changed), nil)...); cerr != nil {
-				ferr = errors.Join(ferr, cerr)
-			}
-		}
-		return ferr
-	})
+	changed, err := formatBank(false)
 	for _, f := range changed {
 		fmt.Fprintln(w, f)
 	}
@@ -555,4 +553,365 @@ func TimelineReport(w io.Writer, n int) error {
 		}
 	}
 	return nil
+}
+
+// dreamPreview is `memory update --dream --dry-run`'s deterministic report of the mechanical steps only.
+type dreamPreview struct {
+	Dir           string
+	Oversized     []string // bank files over cap
+	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
+	SessionRotate int      // sessionHistory entries that would rotate to archive/
+	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
+	HookP95       []dreamBenchEntry
+	HookP95Err    error
+	RtkMisses     []rtkMiss
+	RtkErr        error
+}
+
+// Any reports whether the preview found anything a real dream run would change mechanically.
+func (p dreamPreview) Any() bool {
+	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0 || len(p.HookP95) > 0
+}
+
+// Report renders the preview as `memory update --dream --dry-run`'s stdout.
+func (p dreamPreview) Report() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "bank: %s\n", p.Dir)
+	if len(p.Oversized) > 0 {
+		fmt.Fprintf(&b, "over cap: %s\n", strings.Join(p.Oversized, ", "))
+	}
+	if p.Archivable > 0 {
+		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
+	}
+	if p.SessionRotate > 0 {
+		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
+	}
+	for _, u := range p.Unreadable {
+		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
+	}
+	writeDreamP95(&b, p.HookP95, p.HookP95Err)
+	writeDreamRtk(&b, p.RtkMisses, p.RtkErr)
+	if !p.Any() && len(p.Unreadable) == 0 {
+		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
+	}
+	return b.String()
+}
+
+// previewDream computes dreamPreview without writing anything.
+func previewDream() dreamPreview {
+	var p dreamPreview
+	// the telemetry scan and the rtk spawn are independent of the bank reads, so they run alongside them
+	parallel.Rethrow(parallel.All(2, func(i int) error {
+		if i == 1 {
+			p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
+			p.RtkMisses, p.RtkErr = readDreamRtk()
+			return nil
+		}
+		local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
+		p.Dir, p.Oversized, p.Unreadable = paths.MemorySubDir(""), local.Oversized, local.Unreadable
+		for name, capLines := range archiveCaps {
+			_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
+			p.Archivable += len(overflow)
+		}
+		_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
+		p.SessionRotate = len(rotate)
+		return nil
+	})...)
+	return p
+}
+
+const dreamRotationSize = 2
+
+type dreamBenchState struct {
+	RankedAt time.Time `json:"ranked_at"`
+	Ranking  []string  `json:"ranking"`
+	Last     string    `json:"last"`
+}
+
+type dreamGoPackage struct {
+	Dir          string
+	ImportPath   string
+	Imports      []string
+	TestGoFiles  []string
+	XTestGoFiles []string
+}
+
+func dreamBenchRotation(out io.Writer) error {
+	root := paths.ConfigDir()
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		return fmt.Errorf("skipped: harness source: %w", err)
+	}
+	dir := filepath.Join(paths.StateDir(), "bench")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	ran, err := paths.TryFileLock(filepath.Join(dir, "rotation.lock"), 0, func() error {
+		return rotateDreamBench(root, filepath.Join(dir, "rotation.json"), out)
+	})
+	if !ran && err == nil {
+		fmt.Fprintln(out, "memory dream: rotation: skipped (already running)")
+	}
+	return err
+}
+
+func rotateDreamBench(root, file string, out io.Writer) error {
+	state, err := loadDreamBenchRanking(root, file)
+	if err != nil {
+		return err
+	}
+	selected := nextDreamBenchPackages(state.Ranking, state.Last)
+	if len(selected) == 0 {
+		fmt.Fprintln(out, "memory dream: rotation: skipped (no benchmark packages)")
+	}
+	var errs []error
+	for _, pkg := range selected {
+		if err := dreamBenchIdle(); err != nil {
+			dreamStepError(out, "rotation: skipped "+pkg, err)
+			break
+		}
+		err := runDreamBench(root, pkg, out)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", pkg, err))
+		}
+		state.Last = pkg
+		if err := saveDreamBenchState(file, state); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func loadDreamBenchRanking(root, file string) (dreamBenchState, error) {
+	state, err := readDreamBenchState(file)
+	if err != nil {
+		return state, err
+	}
+	if age := time.Since(state.RankedAt); age >= 0 && age < 24*time.Hour {
+		return state, nil
+	}
+	state.Ranking, err = rankDreamBenchPackages(root)
+	if err != nil {
+		return state, err
+	}
+	state.RankedAt = time.Now()
+	return state, saveDreamBenchState(file, state)
+}
+
+func readDreamBenchState(file string) (dreamBenchState, error) {
+	var state dreamBenchState
+	data, err := os.ReadFile(file)
+	if errors.Is(err, os.ErrNotExist) {
+		return state, nil
+	}
+	if err != nil {
+		return state, err
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return state, fmt.Errorf("rotation state: %w", err)
+	}
+	for _, pkg := range state.Ranking {
+		if !filepath.IsLocal(pkg) || strings.Contains(pkg, `\`) {
+			return state, fmt.Errorf("rotation package is not local: %q", pkg)
+		}
+	}
+	return state, nil
+}
+
+func nextDreamBenchPackages(ranking []string, last string) []string {
+	if len(ranking) == 0 {
+		return nil
+	}
+	start := (slices.Index(ranking, last) + 1) % len(ranking)
+	selected := make([]string, 0, min(dreamRotationSize, len(ranking)))
+	for i := range cap(selected) {
+		selected = append(selected, ranking[(start+i)%len(ranking)])
+	}
+	return selected
+}
+
+func rankDreamBenchPackages(root string) ([]string, error) {
+	pkgs, err := listDreamBenchPackages(root)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, pkg := range pkgs {
+		for _, imported := range pkg.Imports {
+			counts[imported]++
+		}
+	}
+	slices.SortFunc(pkgs, func(a, b dreamGoPackage) int {
+		if n := counts[b.ImportPath] - counts[a.ImportPath]; n != 0 {
+			return n
+		}
+		return strings.Compare(a.ImportPath, b.ImportPath)
+	})
+	var ranking []string
+	for _, pkg := range pkgs {
+		has, err := dreamPackageHasBench(pkg)
+		if err != nil {
+			return nil, err
+		}
+		if !has {
+			continue
+		}
+		rel, err := filepath.Rel(root, pkg.Dir)
+		if err != nil || !filepath.IsLocal(rel) {
+			return nil, fmt.Errorf("go list directory outside harness: %s", pkg.Dir)
+		}
+		ranking = append(ranking, filepath.ToSlash(rel))
+	}
+	return ranking, nil
+}
+
+func listDreamBenchPackages(root string) ([]dreamGoPackage, error) {
+	data, err := dreamBenchCommand(root, time.Minute, "go", "list", "-json", "./...")
+	if err != nil {
+		return nil, fmt.Errorf("importer ranking: %w", err)
+	}
+	var pkgs []dreamGoPackage
+	dec := json.NewDecoder(bytes.NewReader(data))
+	for {
+		var pkg dreamGoPackage
+		err := dec.Decode(&pkg)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("go list JSON: %w", err)
+		}
+		pkgs = append(pkgs, pkg)
+	}
+	return pkgs, nil
+}
+
+func dreamPackageHasBench(pkg dreamGoPackage) (bool, error) {
+	files := append(slices.Clone(pkg.TestGoFiles), pkg.XTestGoFiles...)
+	for _, name := range files {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(pkg.Dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return false, err
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv == nil && dreamBenchmarkName(fn.Name.Name) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func dreamBenchmarkName(name string) bool {
+	rest, ok := strings.CutPrefix(name, "Benchmark")
+	if !ok {
+		return false
+	}
+	for _, r := range rest {
+		return !unicode.IsLower(r)
+	}
+	return true
+}
+
+func dreamBenchIdle() error {
+	var data []byte
+	var err error
+	switch runtime.GOOS {
+	case "linux":
+		data, err = os.ReadFile("/proc/loadavg")
+	case "darwin":
+		data, err = dreamBenchCommand("", 5*time.Second, "sysctl", "-n", "vm.loadavg")
+	default:
+		return fmt.Errorf("load average unavailable on %s", runtime.GOOS)
+	}
+	if err != nil {
+		return fmt.Errorf("load average unavailable: %w", err)
+	}
+	fields := strings.Fields(strings.Trim(string(data), "{} \n\t"))
+	if len(fields) == 0 {
+		return errors.New("load average is empty")
+	}
+	load, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || !(load >= 0 && load < float64(runtime.NumCPU())/2) {
+		return fmt.Errorf("load %s is not below %.1f", fields[0], float64(runtime.NumCPU())/2)
+	}
+	return nil
+}
+
+func dreamBenchCommand(root string, timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir, cmd.WaitDelay = root, time.Second
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %s", name, err, strings.TrimSpace(stderr.String()))
+	}
+	return data, nil
+}
+
+func runDreamBench(root, pkg string, out io.Writer) error {
+	data, err := dreamBenchCommand(root, 35*time.Minute, "claude-code", "review", "bench", "--path", filepath.Join(root, pkg), "--count", "5", "--format", "json")
+	if err != nil {
+		return err
+	}
+	var report bench.Report
+	if err := json.Unmarshal(data, &report); err != nil {
+		return fmt.Errorf("review bench JSON: %w", err)
+	}
+	queued := 0
+	for _, result := range report.Packages {
+		for _, score := range result.Benchmarks {
+			if !dreamBenchMoved(score) {
+				continue
+			}
+			entry := dreamBenchEntry{At: time.Now(), Source: "dream-rotation", Module: score.Name, Pkg: result.Pkg, Deltas: score.Deltas}
+			if d, ok := score.Deltas["sec/op"]; ok {
+				before, e1 := strconv.ParseFloat(d.Old, 64)
+				after, e2 := strconv.ParseFloat(d.New, 64)
+				if err := errors.Join(e1, e2); err != nil {
+					return fmt.Errorf("benchmark duration: %w", err)
+				}
+				const msPerSecond = float64(time.Second / time.Millisecond)
+				entry.BeforeMS, entry.AfterMS = before*msPerSecond, after*msPerSecond
+			}
+			if err := queueDreamBench(entry); err != nil {
+				return err
+			}
+			queued++
+		}
+	}
+	fmt.Fprintf(out, "memory dream: rotation: %s (%d significant benchmark(s) queued)\n", pkg, queued)
+	return nil
+}
+
+func dreamBenchMoved(score bench.Score) bool {
+	for _, delta := range score.Deltas {
+		if delta.Significant {
+			return true
+		}
+	}
+	return false
+}
+
+// LastDreamResults returns the newest n records, newest first; a missing file is none.
+func LastDreamResults(n int) ([]DreamResult, error) {
+	data, err := os.ReadFile(dreamResultsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	var out []DreamResult
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		var r DreamResult
+		if json.Unmarshal([]byte(lines[i]), &r) == nil {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }

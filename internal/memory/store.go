@@ -30,12 +30,7 @@ var fileCaps = map[string]int{
 
 // bankExists reports whether any typed file exists in the bank.
 func bankExists() bool {
-	for _, name := range BankFiles() {
-		if _, err := os.Stat(Path(name)); err == nil {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(Path(n)) })
 }
 
 // Init ensures the bank exists and seeds missing files (never overwrites); returns the dir holding them.
@@ -515,4 +510,45 @@ func DatedName(name string, now time.Time) string {
 		}
 	}
 	return now.Format(dateLayout) + "-" + rest
+}
+
+const (
+	archiveSrc   = `(activeContext|progress|decisionLog|conventions|sessionHistory)`
+	archiveMonth = `\d{4}-(?:0[1-9]|1[0-2])`
+	archiveDate  = archiveMonth + `-(?:0[1-9]|[12]\d|3[01])`
+	archiveSlug  = `[A-Za-z0-9][A-Za-z0-9_-]*`
+	archiveWord  = `[A-Za-z][A-Za-z0-9_-]*`
+)
+
+// archiveNameRE matches src-first, src-archive and date-first overflow names; one source group is set.
+var archiveNameRE = regexp.MustCompile(`^(?:` + archiveSrc + `-` + archiveMonth + `(?:-\d{2}-` + archiveSlug + `|-` + archiveWord + `)?|` +
+	archiveSrc + `-archive|` +
+	archiveDate + `-` + archiveSrc + `-overflow(?:-` + archiveSlug + `)?)\.md$`)
+
+// ArchiveSource maps an archive file name to its bank source; ok is false for any other name.
+func ArchiveSource(name string) (src string, ok bool) {
+	m := archiveNameRE.FindStringSubmatch(name)
+	if m == nil {
+		return "", false
+	}
+	for _, g := range m[1:] {
+		if g != "" {
+			return g, true
+		}
+	}
+	return "", false
+}
+
+// importMaxFile caps one file a scan reads.
+const importMaxFile = 4 << 20
+
+// skipImportDir reports a store folder a bank scan never enters: git, locks and anything outside the flat folders.
+func skipImportDir(rel, name string) bool {
+	return name == ".git" || name == "locks" || name == ".locks" ||
+		rel != "." && !slices.Contains(flatSubs, strings.Split(rel, "/")[0])
+}
+
+// foldSkips reports the generated router and lock files, which do not travel.
+func foldSkips(rel string) bool {
+	return rel == routerFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }

@@ -113,7 +113,7 @@ func readChain(path string) (string, bool) {
 }
 
 func writeChain(path, sessionID string) {
-	if err := paths.AtomicWrite(path, []byte(sessionID+"\n"), 0o600); err != nil {
+	if err := paths.AtomicWriteNoSync(path, []byte(sessionID+"\n"), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "session-start: write chain %s: %v\n", path, err)
 	}
 }
@@ -138,6 +138,9 @@ func scaffoldSafe(cwd string) bool {
 	}
 	if fi, err := os.Stat(filepath.Join(cwd, ".claude")); err == nil && fi.IsDir() {
 		return true
+	}
+	if _, err := os.Stat(filepath.Join(cwd, ".git")); err != nil {
+		return false
 	}
 	top := GitToplevel(cwd)
 	return top != "" && paths.SamePath(top, cwd)
@@ -476,11 +479,13 @@ func repoFocus() []string {
 
 // nativeLinked reports whether Claude Code's native memory dir for root is the symlink into dir.
 func nativeLinked(root, dir string) bool {
-	r := filepath.Clean(root)
-	if known, ok := nativeRoots.Load(r); ok {
+	clean := filepath.Clean(root)
+	r := clean
+	if known, ok := nativeRoots.Load(clean); ok {
 		r = known.(string)
-	} else if top, _ := gitMain(r); top != "" {
+	} else if top, _ := gitMain(clean); top != "" {
 		r = paths.CanonDeep(top)
+		nativeRoots.Store(clean, r)
 	}
 	target := nativeLinkTarget(projectsMemory(paths.ProjectSlug(r)))
 	return target != "" && paths.SamePath(target, dir)

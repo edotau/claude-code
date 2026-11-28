@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,87 +9,24 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/dev/plans"
+	"github.com/edotau/claude-code/internal/dev/review/bench"
 	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
+	"github.com/edotau/claude-code/internal/platform/settings"
 )
-
-// dreamPreview is `memory update --dream --dry-run`'s deterministic report of the mechanical steps only.
-type dreamPreview struct {
-	Dir           string
-	Oversized     []string // bank files over cap
-	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
-	SessionRotate int      // sessionHistory entries that would rotate to archive/
-	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
-	HookP95       []dreamBenchEntry
-	HookP95Err    error
-	RtkMisses     []rtkMiss
-	RtkErr        error
-}
-
-// Any reports whether the preview found anything a real dream run would change mechanically.
-func (p dreamPreview) Any() bool {
-	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0 || len(p.HookP95) > 0
-}
-
-// Report renders the preview as `memory update --dream --dry-run`'s stdout.
-func (p dreamPreview) Report() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "bank: %s\n", p.Dir)
-	if len(p.Oversized) > 0 {
-		fmt.Fprintf(&b, "over cap: %s\n", strings.Join(p.Oversized, ", "))
-	}
-	if p.Archivable > 0 {
-		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
-	}
-	if p.SessionRotate > 0 {
-		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
-	}
-	for _, u := range p.Unreadable {
-		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
-	}
-	writeDreamP95(&b, p.HookP95, p.HookP95Err)
-	writeDreamRtk(&b, p.RtkMisses, p.RtkErr)
-	if !p.Any() && len(p.Unreadable) == 0 {
-		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
-	}
-	return b.String()
-}
-
-// previewDream computes dreamPreview without writing anything.
-func previewDream() dreamPreview {
-	var p dreamPreview
-	// the telemetry scan and the rtk spawn are independent of the bank reads, so they run alongside them
-	parallel.Rethrow(parallel.All(2, func(i int) error {
-		if i == 1 {
-			p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
-			p.RtkMisses, p.RtkErr = readDreamRtk()
-			return nil
-		}
-		local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
-		p.Dir, p.Oversized, p.Unreadable = paths.MemorySubDir(""), local.Oversized, local.Unreadable
-		for name, capLines := range archiveCaps {
-			_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
-			p.Archivable += len(overflow)
-		}
-		_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
-		p.SessionRotate = len(rotate)
-		return nil
-	})...)
-	return p
-}
 
 const dreamInterval = 24 * time.Hour
 
@@ -600,12 +538,7 @@ func (r *dreamRan) preflightSide(b Batch) error {
 			return fmt.Errorf("test proposals file: %w", err)
 		}
 	}
-	for _, t := range b.PlanTasks {
-		if err := plans.CheckOpen(t.Plan, t.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return checkOpenPlanTasks(b.PlanTasks)
 }
 
 func preflightCandidates(cands []candidate) error {
@@ -731,53 +664,7 @@ func oneLineFields(fields ...string) error {
 func (r *dreamRan) note(name string) {
 	if !slices.Contains(r.changed, name) {
 		r.changed = append(r.changed, name)
-		sort.Strings(r.changed)
-	}
-}
-
-var planShaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
-
-// applyPlanTask closes a task only when plan and id are in the open-task list the model was shown.
-func (r *dreamRan) applyPlanTask(t PlanTaskOp) error {
-	if err := r.checkPlanTask(t); err != nil {
-		return err
-	}
-	r.plan.checkpoint(t.Plan)
-	var err error
-	wrote := false
-	switch t.Action {
-	case "done":
-		wrote, err = plans.MarkDone(t.Plan, t.ID, t.Sha)
-	case "strike":
-		wrote, err = plans.StrikeWith(t.Plan, t.ID, t.Reason, t.Evidence)
-	}
-	if err == nil && !wrote {
-		return errors.New("a peer closed the task first")
-	}
-	if err == nil {
-		r.plan.record(t.Plan, t.ID)
-		r.note("plans/" + filepath.Base(t.Plan))
-	}
-	return err
-}
-
-func (r *dreamRan) checkPlanTask(t PlanTaskOp) error {
-	if r.plan == nil {
-		return errors.New("no plans in this checkout")
-	}
-	if !slices.ContainsFunc(r.plan.open, func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
-		return errors.New("not an open task of the listed plans")
-	}
-	if !slices.ContainsFunc(plans.OpenTasks(r.plan.root), func(o plans.OpenTask) bool { return o.Plan == t.Plan && o.ID == t.ID }) {
-		return errors.New("the task is already closed")
-	}
-	switch {
-	case t.Action == "done" && planShaRE.MatchString(t.Sha):
-		return nil
-	case t.Action == "strike":
-		return plans.CheckStrike(t.Reason, t.Evidence)
-	default:
-		return fmt.Errorf("action %q with sha %q is not valid", t.Action, t.Sha)
+		slices.Sort(r.changed)
 	}
 }
 
@@ -821,7 +708,7 @@ func (r *dreamRan) recordApplied(results []OpResult, planned map[string]Doc, app
 		}
 		r.changed = append(r.changed, name)
 	}
-	sort.Strings(r.changed)
+	slices.Sort(r.changed)
 }
 
 // dreamWritePresent checks only the batch's entry delta, allowing unrelated concurrent entries in the file.
@@ -936,26 +823,6 @@ func appendDreamResult(r DreamResult) error {
 	})
 }
 
-// LastDreamResults returns the newest n records, newest first; a missing file is none.
-func LastDreamResults(n int) ([]DreamResult, error) {
-	data, err := os.ReadFile(dreamResultsPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	var out []DreamResult
-	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
-		var r DreamResult
-		if json.Unmarshal([]byte(lines[i]), &r) == nil {
-			out = append(out, r)
-		}
-	}
-	return out, nil
-}
-
 // dreamLogKeep is how many per-run dream logs stay in the state dir, the new one included.
 const dreamLogKeep = 50
 
@@ -972,7 +839,7 @@ func openDreamLog() (*os.File, error) {
 // pruneDreamLogs keeps the newest keep stamped dream logs plus any a result record names (not dream-launchd.log).
 func pruneDreamLogs(dir string, keep int) {
 	logs, _ := filepath.Glob(filepath.Join(dir, "dream-[0-9]*.log"))
-	sort.Strings(logs)
+	slices.Sort(logs)
 	named := map[string]bool{} // a log a retained result record names stays
 	recs, _ := LastDreamResults(dreamResultsKeep)
 	for _, r := range recs {
@@ -985,139 +852,326 @@ func pruneDreamLogs(dir string, keep int) {
 	}
 }
 
-// dreamPlans is the plan phase: the session checkout and its plans and citable evidence from before the run.
-type dreamPlans struct {
-	root   string
-	before plans.Snapshot
-	cite   plans.Cite
-	open   []plans.OpenTask     // listed in the prompt; the only tasks a typed plan_tasks entry may close
-	wrote  map[string]planWrite // typed plan_tasks writes by plan: what finish may undo
+const (
+	dreamRtkTimeout = 60 * time.Second
+	dreamRtkTop     = 10
+)
+
+var (
+	rtkWordRe = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,32}$`)
+	rtkFlagRe = regexp.MustCompile(`^-(?:[A-Za-z]|-[a-z][a-z-]{1,20})$`) // one bare flag; "-ePAT" or "--k=v" carry values
+)
+
+type rtkMiss struct {
+	Command string `json:"command"`
+	Count   int    `json:"count"`
 }
 
-// planWrite is the tasks this run closed in one plan and the plan's bytes right after its last write.
-type planWrite struct {
-	ids     map[string]bool
-	text    []byte
-	tainted bool // a peer changed the plan between two of this run's writes: nothing earlier is ours to undo or drop
-}
-
-// owns is true only for a task this run wrote in a plan nobody has touched since (compare-and-swap on the bytes).
-func (d *dreamPlans) owns(plan, id string) bool {
-	w, ok := d.wrote[plan]
-	cur, err := os.ReadFile(plan)
-	return ok && w.ids[id] && err == nil && bytes.Equal(cur, w.text)
-}
-
-// checkpoint drops the earlier ids of plan when a peer changed it since this run's last write there.
-func (d *dreamPlans) checkpoint(plan string) {
-	if w, ok := d.wrote[plan]; ok {
-		if cur, err := os.ReadFile(plan); err != nil || !bytes.Equal(cur, w.text) {
-			w.ids, w.tainted = nil, true
-			d.wrote[plan] = w
-		}
-	}
-}
-
-// record notes that this run just wrote id in plan.
-func (d *dreamPlans) record(plan, id string) {
-	if d.wrote == nil {
-		d.wrote = map[string]planWrite{}
-	}
-	w := d.wrote[plan]
-	if w.ids == nil {
-		w.ids = map[string]bool{}
-	}
-	w.ids[id] = true
-	w.text, _ = os.ReadFile(plan) // a failed read leaves nil, so owns is false
-	d.wrote[plan] = w
-}
-
-// startPlanPhase snapshots the checkout's plans; nil when cwd is no checkout or has no plans home.
-func startPlanPhase(cwd string) *dreamPlans {
-	top := GitToplevel(cwd)
-	if top == "" {
-		return nil
-	}
-	if _, err := os.Stat(plans.Home(top)); err != nil {
-		return nil
-	}
-	return &dreamPlans{root: top, before: plans.TakeSnapshot(top), cite: storeCites(), open: plans.OpenTasks(top)}
-}
-
-// promptBlock is the open tasks the plan phase judges, as compact JSON; empty when no recent plan has one.
-func (d *dreamPlans) promptBlock() string {
-	if d == nil {
+// rtkMissWord keeps the command word and its first flag only, never paths or arguments.
+func rtkMissWord(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 || !rtkWordRe.MatchString(f[0]) {
 		return ""
 	}
-	b, err := json.Marshal(d.open)
-	if len(d.open) == 0 || err != nil {
-		return ""
+	if len(f) > 1 && rtkFlagRe.MatchString(f[1]) {
+		return f[0] + " " + f[1]
 	}
-	return assets.MemoryOpenTasks(string(b))
+	return f[0]
 }
 
-// finish re-checks every plan change made during the run and prints one line; it never fails the dream.
-func (d *dreamPlans) finish(out io.Writer) []plans.Change {
-	if d == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+// readDreamRtk lists the top commands run without rtk over the last 7 days.
+var readDreamRtk = func() ([]rtkMiss, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dreamRtkTimeout)
 	defer cancel()
-	mine := map[[2]string]bool{} // judged before any revert rewrites a plan's bytes
-	for plan, w := range d.wrote {
-		for id := range w.ids {
-			mine[[2]string{plan, id}] = d.owns(plan, id)
+	cmd := exec.CommandContext(ctx, "rtk", "discover", "--all", "--since", "7", "--format", "json")
+	cmd.Env = append(os.Environ(), "RTK_SUPPRESS_HOOK_WARNING=1", "RTK_TELEMETRY_DISABLED=1")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("rtk discover skipped: %w", err)
+	}
+	var doc struct {
+		Supported []rtkMiss `json:"supported"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		return nil, fmt.Errorf("rtk discover skipped: bad json: %w", err)
+	}
+	var out []rtkMiss
+	for _, m := range doc.Supported {
+		if w := rtkMissWord(m.Command); w != "" && m.Count > 0 && len(out) < dreamRtkTop {
+			out = append(out, rtkMiss{Command: w, Count: m.Count})
 		}
 	}
-	own := func(plan, id string) bool { return mine[[2]string{plan, id}] }
-	rep, err := plans.RecheckOwned(ctx, d.root, JobDream, d.before, d.cite, own)
-	if err == nil && len(rep.Kept)+len(rep.Reverted)+len(rep.Flagged) == 0 && !rep.TextChanged {
-		return nil
-	}
-	line := rep.Line()
-	if err != nil {
-		line += "; re-check errors: " + strings.Join(strings.Fields(err.Error()), " ")
-	}
-	fmt.Fprintln(out, "memory dream:", line)
-	return rep.Reverted
+	return out, nil
 }
 
-// dropReverted removes the changed entry of each plan whose every write of this run finish reverted.
-func (r *dreamRan) dropReverted(reverted []plans.Change) {
-	if r.plan == nil {
-		return
+func writeDreamRtk(out io.Writer, misses []rtkMiss, err error) {
+	fmt.Fprintf(out, "memory dream: rtk misses: %d command(s)\n", len(misses))
+	for _, m := range misses {
+		fmt.Fprintf(out, "memory dream: rtk miss %s x%d\n", m.Command, m.Count)
 	}
-	for plan, w := range r.plan.wrote {
-		left := len(w.ids)
-		if w.tainted {
+	dreamStepError(out, "rtk discover", err)
+}
+
+// rtkPromptBlock asks the agent for one rtk candidate record from the misses; empty when there are none.
+func rtkPromptBlock(misses []rtkMiss) string {
+	if len(misses) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(misses)
+	return assets.MemoryRTKMisses(string(b))
+}
+
+const (
+	dreamP95Window       = 7 * 24 * time.Hour
+	dreamP95MinRuns      = 200
+	dreamP95Growth       = 1.2
+	dreamBenchQueueAge   = 14 * 24 * time.Hour
+	dreamBenchQueueLimit = 200
+)
+
+type dreamBenchEntry struct {
+	At       time.Time              `json:"at"`
+	Source   string                 `json:"source"`
+	Module   string                 `json:"module"`
+	Pkg      string                 `json:"pkg"`
+	BeforeMS float64                `json:"before_ms"`
+	AfterMS  float64                `json:"after_ms"`
+	Deltas   map[string]bench.Delta `json:"deltas,omitempty"`
+}
+
+type dreamHookRow struct {
+	T      time.Time `json:"t"`
+	Module string    `json:"module"`
+	MS     *float64  `json:"ms"`
+	Sid    string    `json:"sid"`
+	N      int       `json:"n"`
+}
+
+type dreamHookWindows struct{ before, after []float64 }
+
+func readDreamP95(dir string, now time.Time) ([]dreamBenchEntry, error) {
+	windows := map[string]*dreamHookWindows{}
+	start := now.Add(-2 * dreamP95Window)
+	var errs []error
+	day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, now.Location())
+	for ; !day.After(now); day = day.AddDate(0, 0, 1) {
+		file := filepath.Join(dir, "telemetry-"+day.Format("20060102")+".jsonl")
+		f, err := os.Open(file)
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		for id := range w.ids {
-			if slices.ContainsFunc(reverted, func(c plans.Change) bool { return c.Plan == plan && c.ID == id }) {
-				left--
-			}
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
-		if left == 0 {
-			r.changed = slices.DeleteFunc(r.changed, func(n string) bool { return n == "plans/"+filepath.Base(plan) })
+		err = scanDreamP95(f, now, windows)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(file), err))
 		}
+		if err := f.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	var flags []dreamBenchEntry
+	modules := make([]string, 0, len(windows))
+	for module := range windows {
+		modules = append(modules, module)
+	}
+	slices.Sort(modules)
+	for _, module := range modules {
+		w := windows[module]
+		if min(len(w.before), len(w.after)) < dreamP95MinRuns {
+			continue
+		}
+		before, after := dreamP95(w.before), dreamP95(w.after)
+		if after > before*dreamP95Growth {
+			flags = append(flags, dreamBenchEntry{At: now, Source: "dream-p95", Module: module,
+				Pkg: dreamHookPackage(module), BeforeMS: before, AfterMS: after})
+		}
+	}
+	return flags, errors.Join(errs...)
+}
+
+func scanDreamP95(r io.Reader, now time.Time, windows map[string]*dreamHookWindows) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(nil, 1<<20)
+	invalid, folded := 0, 0
+	for scanner.Scan() {
+		var row dreamHookRow
+		if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
+			invalid++
+			continue
+		}
+		if row.outsideDreamWindow(now) {
+			continue
+		}
+		if row.N > 1 {
+			folded++
+			continue
+		} // Folded durations are maxima, not individual observations.
+		if !row.validDreamDuration() {
+			invalid++
+			continue
+		}
+		w := windows[row.Module]
+		if w == nil {
+			w = &dreamHookWindows{}
+			windows[row.Module] = w
+		}
+		if row.T.Before(now.Add(-dreamP95Window)) {
+			w.before = append(w.before, *row.MS)
+		} else {
+			w.after = append(w.after, *row.MS)
+		}
+	}
+	var err error
+	if invalid+folded > 0 {
+		err = fmt.Errorf("ignored %d invalid and %d folded rows", invalid, folded)
+	}
+	return errors.Join(err, scanner.Err())
+}
+
+func (row dreamHookRow) outsideDreamWindow(now time.Time) bool {
+	return row.Sid == "livechec" || row.T.Before(now.Add(-2*dreamP95Window)) || !row.T.Before(now)
+}
+
+func (row dreamHookRow) validDreamDuration() bool {
+	return row.Module != "" && row.MS != nil && *row.MS >= 0 && !math.IsInf(*row.MS, 0)
+}
+
+func dreamP95(values []float64) float64 {
+	sorted := slices.Sorted(slices.Values(values))
+	return sorted[len(sorted)-1-len(sorted)/20]
+}
+
+func dreamHookPackage(module string) string {
+	groups := map[string]string{
+		"safety": "safety", "safety-edit": "safety", "permission": "safety", "rtk": "safety",
+		"docs": "docs", "paths": "docs", "memory": "memhook", "format": "quality", "review": "quality",
+		"worktree": "wthook",
+	}
+	for _, group := range settings.Registry {
+		if !slices.ContainsFunc(group.Events, func(s settings.EventSpec) bool { return s.Name == module }) {
+			continue
+		}
+		if module == "docs-plan" || module == "worktree-busy" {
+			return "internal/hooks"
+		}
+		if sub, ok := groups[group.Name]; ok {
+			return "internal/hooks/" + sub
+		}
+		return "internal/hooks"
+	}
+	return module
+}
+
+func dreamP95Line(flag dreamBenchEntry) string {
+	return fmt.Sprintf("hook p95 %s: %.3f -> %.3f ms (>20%%; >=%d runs/window)", flag.Module, flag.BeforeMS, flag.AfterMS, dreamP95MinRuns)
+}
+
+func writeDreamP95(out io.Writer, flags []dreamBenchEntry, err error) {
+	fmt.Fprintf(out, "memory dream: hook p95: %d regression(s)\n", len(flags))
+	for _, flag := range flags {
+		fmt.Fprintln(out, "memory dream:", dreamP95Line(flag))
+	}
+	dreamStepError(out, "hook p95", err)
+}
+
+func dreamStepError(out io.Writer, step string, err error) {
+	if err != nil {
+		fmt.Fprintf(out, "memory dream: %s: %s\n", step, strings.Join(strings.Fields(err.Error()), " "))
 	}
 }
 
-// storeCites is the evidence a strike may cite, read before the run so the job cannot cite what it wrote.
-func storeCites() plans.Cite {
-	ids := map[string]bool{}
-	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), "archive"), "decisionLog*.md")...)
-	for _, f := range logs {
-		b, _ := os.ReadFile(f) // a missing log cites nothing
-		for _, m := range idMarker().FindAllStringSubmatch(string(b), -1) {
-			ids[m[1]] = true
+// ReportFailure is set by internal/worktree (memory cannot import it); nil is a no-op.
+var ReportFailure func(kind, subject, detail string) error
+
+func dreamPerformance(out io.Writer) []string {
+	flags, err := readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
+	writeDreamP95(out, flags, err)
+	var notice []string
+	for _, flag := range flags {
+		notice = append(notice, dreamP95Line(flag))
+		dreamStepError(out, "hook p95 queue", queueDreamBench(flag))
+		if ReportFailure != nil {
+			dreamStepError(out, "hook p95 failure", ReportFailure("hook_p95", flag.Module, dreamP95Line(flag)))
 		}
 	}
-	notes := map[string]bool{}
-	for _, dir := range []string{"feedback", "notes"} {
-		for _, f := range transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), dir), "*.md") {
-			notes[dir+"/"+filepath.Base(f)] = true
-		}
+	dreamStepError(out, "rotation", dreamBenchRotation(out))
+	return notice
+}
+
+func queueDreamBench(entry dreamBenchEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
 	}
-	return func(kind, ref string) bool { return kind == "decision" && ids[ref] || kind == "note" && notes[ref] }
+	file := filepath.Join(paths.StateDir(), "bench", "queue.jsonl")
+	return paths.WithFileLockWithin(file, 5*time.Second, func() error {
+		kept, err := compactDreamBenchQueue(file, entry, time.Now())
+		if err != nil {
+			return err
+		}
+		if err := paths.AtomicWrite(file, kept, 0o600); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(append(data, '\n'))
+		return errors.Join(err, f.Close())
+	})
+}
+
+func compactDreamBenchQueue(file string, incoming dreamBenchEntry, now time.Time) ([]byte, error) {
+	data, err := os.ReadFile(file)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	type row struct {
+		entry dreamBenchEntry
+		line  string
+	}
+	latest := map[string]row{}
+	cutoff := now.Add(-dreamBenchQueueAge)
+	incomingKey := dreamBenchQueueKey(incoming)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		var entry dreamBenchEntry
+		if json.Unmarshal([]byte(line), &entry) != nil || entry.At.Before(cutoff) {
+			continue
+		}
+		key := dreamBenchQueueKey(entry)
+		if key == incomingKey {
+			continue
+		}
+		if entry.At.Before(latest[key].entry.At) {
+			continue
+		}
+		latest[key] = row{entry: entry, line: line}
+	}
+	rows := make([]row, 0, len(latest))
+	for _, r := range latest {
+		rows = append(rows, r)
+	}
+	slices.SortFunc(rows, func(a, b row) int { return a.entry.At.Compare(b.entry.At) })
+	rows = rows[max(0, len(rows)-dreamBenchQueueLimit+1):]
+	var kept []byte
+	for _, row := range rows {
+		kept = append(append(kept, row.line...), '\n')
+	}
+	return kept, nil
+}
+
+func dreamBenchQueueKey(entry dreamBenchEntry) string {
+	name := entry.Module
+	if name == "" {
+		name = entry.Pkg
+	}
+	return entry.Source + "\x00" + name
+}
+
+func saveDreamBenchState(file string, state dreamBenchState) error {
+	return paths.WriteJSON(file, state)
 }

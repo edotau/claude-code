@@ -649,7 +649,8 @@ func TestLogicalNameMatchesTypedStemExactlyOrArchive(t *testing.T) {
 		"/x/decisionLog-2026-10.md":   "decisionLog.md",
 		"/x/sessionHistory-notes.md":  "sessionHistory-notes.md",
 		"/x/conventionsGuide.md":      "conventionsGuide.md",
-		"/x/decisionLog-2026-10-x.md": "decisionLog-2026-10-x.md",
+		"/x/decisionLog-2026-10-x.md": "decisionLog.md", // a worded archive, as ArchiveSource names it
+		"/x/decisionLog-2026-13.md":   "decisionLog-2026-13.md",
 	}
 	for path, want := range cases {
 		if got := logicalName(path); got != want {

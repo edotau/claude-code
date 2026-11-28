@@ -280,7 +280,7 @@ func settleBankWith(now time.Time, extra []string, subject string) (rotated int,
 	return settleDB(now, extra, subject)
 }
 
-// settleDB settles under the held bank lock: guard, file steps on the export, guard, index, commit.
+// settleDB settles under the held bank lock: one guard pass, file steps synced to the db, index, commit.
 func settleDB(now time.Time, extra []string, subject string) (rotated int, err error) {
 	edb, closeDB, err := openSettleExport()
 	if err != nil {
@@ -291,18 +291,18 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	if err := moveBankCopies(root); err != nil {
 		return 0, err
 	}
-	ierr, held, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
+	_, held, err := guardPass(edb, root) // imports outside edits first, so the file steps see them
 	if err != nil {
 		return 0, err
 	}
 	if edb != nil && len(held) == 0 {
 		retireFilesTruth() // the guard imported the Markdown a files truth left behind, with no conflict kept apart
 	}
-	if rotated, err = settleFilesSkipping(now, held); err != nil {
+	swept, rotated, err := settleFilesSkipping(now, held)
+	if err != nil {
 		return rotated, err
 	}
-	gerr, _, err := guardPass(edb, root) // imports the file steps' result (the rotation) and exports the db
-	if err != nil {
+	if err := syncSettledDB(edb, held, now, swept); err != nil {
 		return rotated, err
 	}
 	if err := pruneHeld(time.Now()); err != nil { // retention runs on the clock, not the settle stamp
@@ -312,20 +312,58 @@ func settleDB(now time.Time, extra []string, subject string) (rotated int, err e
 	if err != nil {
 		return rotated, err
 	}
-	return rotated, errors.Join(commitBanks(subject), ierr, gerr, rerr)
+	return rotated, errors.Join(commitBanks(subject), rerr)
 }
 
-// settleFilesSkipping runs the file steps except those whose paths the first guard pass left conflicted.
-func settleFilesSkipping(now time.Time, held []string) (rotated int, err error) {
+// settleFilesSkipping runs the file steps except those whose paths the guard pass left conflicted.
+func settleFilesSkipping(now time.Time, held []string) (swept []string, rotated int, err error) {
 	if len(held) > 0 {
 		fmt.Fprintln(os.Stderr, "notice: memory settle skipped conflicted paths:", strings.Join(held, ", "))
 	}
 	if !conflictsTouch(held, "sessionHistory.md", "archive/sessionHistory-"+now.Format("2006-01")+".md") { // a rotation would overwrite the kept side
 		if rotated, err = settleDir(now); err != nil {
-			return rotated, err
+			return nil, rotated, err
 		}
 	}
-	return rotated, sweepNotes(held)
+	swept, err = sweepNotes(held)
+	return swept, rotated, err
+}
+
+// syncSettledDB imports only the files settleFilesSkipping modified on disk, avoiding a second ExportGuardLocked pass.
+func syncSettledDB(edb ExportDB, held []string, now time.Time, swept []string) error {
+	if edb == nil {
+		return nil
+	}
+	candidates := append([]string{"sessionHistory.md", "decisionLog.md", "conventions.md",
+		"archive/sessionHistory-" + now.Format("2006-01") + ".md"}, swept...)
+	for _, p := range ownedFiles("archive") {
+		if rel := "archive/" + filepath.Base(p); !slices.Contains(candidates, rel) {
+			candidates = append(candidates, rel)
+		}
+	}
+	for _, rel := range candidates {
+		if !conflictsTouch(held, rel) {
+			if err := syncSettledRel(edb, rel); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func syncSettledRel(edb ExportDB, rel string) error {
+	data, err := os.ReadFile(Path(rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	last, err := edb.Rendered(rel)
+	if err != nil || sha256Hex(data) == last {
+		return err
+	}
+	return edb.Import(rel, last)
 }
 
 // conflictsTouch reports whether a conflicted path is one of rels or a stranded hold copy of it.
@@ -406,11 +444,6 @@ func commitBanks(subject string, scope ...string) error {
 	}
 	_, _, err = repo.Commit(rels, subject, "")
 	return err
-}
-
-// scaffolded reports whether the bank has any typed file.
-func scaffolded() bool {
-	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(Path(n)) })
 }
 
 // fileSnapshot is a file's bytes before an append; existed is false when it was absent.
@@ -580,30 +613,33 @@ var noteDirs = []string{"feedback", "notes", techdebtDir}
 const techdebtDir = "techdebt"
 
 // sweepNotes moves top-level native notes into feedback/ or notes/, leaving any whose target is in held.
-func sweepNotes(held []string) error {
+func sweepNotes(held []string) ([]string, error) {
 	dir := paths.MemoryStoreDir()
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	var swept []string
 	for _, e := range ents {
 		folder := NoteFolder(e.Name())
 		if e.IsDir() || folder == "" {
 			continue
 		}
+		rel := folder + "/" + e.Name()
 		to := filepath.Join(dir, folder, e.Name())
-		if conflictsTouch(held, folder+"/"+e.Name()) {
+		if conflictsTouch(held, rel) {
 			continue // the target is conflicted: a rename would be imported over the db row
 		}
 		if _, err := os.Stat(to); err == nil {
 			continue // a same-named note already lives in the folder: leave the stray for a person to merge
 		}
 		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-			return err
+			return swept, err
 		}
 		if err := os.Rename(filepath.Join(dir, e.Name()), to); err != nil {
-			return err
+			return swept, err
 		}
+		swept = append(swept, rel)
 	}
-	return nil
+	return swept, nil
 }

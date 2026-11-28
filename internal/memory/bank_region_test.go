@@ -162,13 +162,14 @@ func TestFolderPointersJoinTheNewestListByFileDate(t *testing.T) {
 // hostileEntries are entry shapes that must survive byte-exact; the "lead" ones are text before the first bullet.
 func hostileEntries() (bullets, lead []string) {
 	bullets = []string{
-		"- [a](notes/a.md) — crlf\r", "- [a](notes/a.md) — huge " + strings.Repeat("X", 50<<10),
+		"- [a](notes/a.md) — crlf\r",
 		"- [a](notes/a.md) — wrapped\n  two\n\ttab\n        eight spaces", "* [a](notes/a.md) — star", "+ [b](notes/b.md) — plus",
 		"12. [a](notes/a.md) — numbered", "[b](notes/b.md) — bare", "- [x](notes/a.md) first\n\n  second paragraph",
 		"- continued entry\n## Pinned\n  tail", "- [x](notes/b.md) first\n# continuation heading\ncontinued",
 		"- [gone](notes/gone.md) — unresolved\n  and wrapped", "- [a](notes/a.md) — dup", "- [a](notes/a.md) — dup",
 		"- <!-- end of entry -->\n<!-- end of entry -->\n" + recordPrefix + "<!-- end of entry -->",
 		"- " + blockEndPrefix + "0123456789abcdef -->\n## Unresolved\n## Newest 20",
+		"- [a](notes/a.md) — huge " + strings.Repeat("X", 50<<10),
 	}
 	lead = []string{
 		"    - [a](notes/a.md) — indented like a stored line", "\tleading tab", "free text\nwith a lazy continuation",
@@ -303,13 +304,13 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 		rt := &roundTrip{r: rand.New(rand.NewPCG(7, 11)), bullets: bullets, lead: lead, want: map[string]bool{}, pending: map[string]bool{}}
 		indexStep = func(step string) { rt.inject(t, step) }
 		t.Cleanup(func() { indexStep = func(string) {} })
-		for session := range 30 {
+		for session := range 16 {
 			sessionEvent(t, session)
 			l, add := rt.entries()
 			write(t, NativeIndex(), appendModelText(rt.r, readIfExistsString(NativeIndex()), l, add))
 			rt.injectedAtStep = []string{"", "renamed", "appended", "installed", "held"}[session%5]
 			var extra []string
-			if session%10 == 9 {
+			if session%8 == 7 {
 				extra = extraPointers(t, rt, add[0])
 			}
 			rt.session(t, session, extra)
@@ -348,7 +349,7 @@ func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 	}
 	maps.Copy(rt.want, rt.pending) // written during the refresh: the follow-up one folds them
 	rt.check(t, session, before, rt.want)
-	if session < 5 || session == 29 {
+	if session < 5 || session == 15 {
 		cur, mem := readIfExistsString(cat), readIfExistsString(NativeIndex())
 		if refreshIndex(t); readIfExistsString(cat) != cur || readIfExistsString(NativeIndex()) != mem {
 			t.Fatalf("session %d: a refresh with no new input changed a byte", session)

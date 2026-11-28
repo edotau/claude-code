@@ -1,21 +1,27 @@
 package memory
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/routing/inflight"
+	"github.com/edotau/claude-code/internal/routing/models"
 )
 
 // Update gate in work units (edits + turns/2); a re-arm needs 10 new units AND 15 min: chatty re-arms evict history.
@@ -420,4 +426,314 @@ func recountSubagents(matches []string, sizes map[string]int64, sidecar string, 
 		writeSidecar(sidecar, next)
 	}
 	return sum
+}
+
+// StoreCopy is a throwaway git clone of the store for the fallback to read; a var so tests need no repo.
+var StoreCopy = func(ctx context.Context) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "memory-fallback-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	if out, cerr := exec.CommandContext(ctx, "git", "clone", "--quiet", "--local", paths.MemoryStoreDir(), dir).CombinedOutput(); cerr != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("git clone of the store: %v: %s", cerr, strings.TrimSpace(string(out)))
+	}
+	return dir, cleanup, nil
+}
+
+// CodeModeRun is the one code-mode Pi dispatch behind the typed-write fallback; ask registers it.
+var CodeModeRun func(ctx context.Context, prompt, workdir, schema, model string) (answer, who string, err error)
+
+// CodeFallback allows one CodeModeRun per job: a second call fails without dispatching.
+type CodeFallback struct {
+	Model string // "" is opus
+	used  atomic.Bool
+	last  atomic.Pointer[string] // how the one dispatch ended
+}
+
+type fallbackKey struct{}
+
+// WithCodeFallback carries the job's one fallback so the runner and the typed writer share it.
+func WithCodeFallback(ctx context.Context, f *CodeFallback) context.Context {
+	return context.WithValue(ctx, fallbackKey{}, f)
+}
+
+// JobCodeFallback is the fallback WithCodeFallback set, or nil.
+func JobCodeFallback(ctx context.Context) *CodeFallback {
+	f, _ := ctx.Value(fallbackKey{}).(*CodeFallback)
+	return f
+}
+
+// FallbackModel maps the fallback's model name to a catalog id or alias; an unknown id is an error.
+func FallbackModel(name string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		name = models.Opus
+	}
+	if !models.IsKnownSpelling(name) {
+		return "", fmt.Errorf("model %q is not in the catalog", name)
+	}
+	return name, nil
+}
+
+// outcome is how the one dispatch ended, or that it is still running.
+func (f *CodeFallback) outcome() string {
+	if p := f.last.Load(); p != nil {
+		return *p
+	}
+	return "still running"
+}
+
+// Used reports whether the job's one dispatch was taken.
+func (f *CodeFallback) Used() bool { return f.used.Load() }
+
+// Run asks the code-mode agent, over a git copy of the store, for a typed Batch; the workdir argument is ignored.
+func (f *CodeFallback) Run(ctx context.Context, prompt, workdir, schema string) (answer, who string, err error) {
+	if CodeModeRun == nil {
+		return "", "", errors.New("code-mode fallback unavailable: this process registered no agent (a hook never dispatches one)")
+	}
+	if !f.used.CompareAndSwap(false, true) {
+		return "", "", fmt.Errorf("code-mode fallback already used for this job (%s)", f.outcome())
+	}
+	dir, cleanup, err := StoreCopy(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	defer cleanup()
+	prompt = strings.ReplaceAll(prompt, paths.MemoryStoreDir(), dir) + "\n\nWrite nothing and run no memory command: answer with the typed batch only."
+	answer, who, err = CodeModeRun(ctx, prompt, dir, schema, f.Model)
+	if err == nil {
+		if _, derr := decodeBatch(answer); derr != nil {
+			err = fmt.Errorf("code-mode answer rejected: %w", derr)
+		}
+	}
+	out := who + " answered"
+	if err != nil {
+		out, answer = who+" failed: "+err.Error(), ""
+	}
+	f.last.Store(&out)
+	return answer, who, err
+}
+
+// Retry gives the one fallback a failed first answer and applies the corrected Batch; both failures are named.
+func (f *CodeFallback) Retry(ctx context.Context, prompt, workdir, schema, first string, failed error, apply func(answer string) error) error {
+	prompt += assets.MemoryRetryNote(failed.Error())
+	answer, who, err := f.Run(ctx, prompt, workdir, schema)
+	if err == nil {
+		if err = apply(answer); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("typed write failed on %s (%v); code-mode fallback on %s failed: %w", cmp.Or(first, "the first model"), failed, cmp.Or(who, f.Model, "opus"), err)
+}
+
+// ValidateBatchAnswer reports why a typed answer is unusable; nil means it decodes and validates.
+func ValidateBatchAnswer(answer string) error {
+	_, err := decodeBatch(answer)
+	return err
+}
+
+// UpdateIdleAfter: a transcript this quiet is an ended session. Poll and lifetime bound the watcher.
+const (
+	UpdateIdleAfter = 10 * time.Minute
+	updateWatchLife = 24 * time.Hour
+)
+
+// updateWatchPoll is the mtime poll gap; a var so tests can tighten it.
+var updateWatchPoll = time.Minute
+
+func watchClaimPath(sessionID string) string {
+	return filepath.Join(paths.MemoryStateDir(), "watch-"+filepath.Base(sessionID))
+}
+
+// spawnIdleWatcher starts THIS session's watcher once: a claim file makes every later Stop a no-op.
+func spawnIdleWatcher(sessionID, transcript, cwd string) {
+	if sessionID == "" {
+		return
+	}
+	claim := watchClaimPath(sessionID)
+	if !claimWatcher(claim) {
+		return // claimed by an earlier Stop (or the state dir is unwritable — the Stop gate still runs)
+	}
+	args := []string{"--session", sessionID, "--transcript", transcript, "--cwd", cwd,
+		"--owner", strconv.Itoa(inflight.SessionOwner())}
+	if !spawn.watcher(args, cwd) {
+		_ = os.Remove(claim) // let the next Stop try again
+	}
+}
+
+// claimWatcher creates the claim file; one naming a dead watcher pid is a killed watcher's leftover and is retaken.
+func claimWatcher(claim string) bool {
+	for range 2 {
+		f, err := os.OpenFile(claim, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_ = f.Close()
+			return true
+		}
+		if !retakeDeadClaim(claim) {
+			return false
+		}
+	}
+	return false
+}
+
+// retakeDeadClaim removes a dead watcher's claim under a lock, re-checking it so two Stops never delete each other's.
+func retakeDeadClaim(claim string) bool {
+	retaken := false
+	ran, err := paths.TryFileLock(claim+".lock", 0, func() error {
+		if watcherDead(claim) {
+			retaken = os.Remove(claim) == nil
+		}
+		return nil
+	})
+	return ran && err == nil && retaken
+}
+
+// claimGrace is how long an empty claim counts as a watcher still starting before it is a dead leftover.
+const claimGrace = time.Minute
+
+// watcherDead reports whether the claim names a pid that is gone, or is empty for longer than claimGrace.
+func watcherDead(claim string) bool {
+	b, err := os.ReadFile(claim)
+	if err != nil {
+		return false
+	}
+	pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
+	if perr != nil {
+		fi, serr := os.Stat(claim)
+		return len(b) == 0 && serr == nil && time.Since(fi.ModTime()) > claimGrace
+	}
+	return ownerDead(pid)
+}
+
+// releaseEmptyClaim removes the empty claim spawnIdleWatcher made for a watcher that exits before writing its pid.
+func releaseEmptyClaim(session string) {
+	if session == "" {
+		return
+	}
+	if fi, err := os.Stat(watchClaimPath(session)); err == nil && fi.Size() == 0 {
+		_ = os.Remove(watchClaimPath(session))
+	}
+}
+
+// WatchOptions are `memory watch`'s parsed flags; Stderr receives its messages.
+type WatchOptions struct {
+	Session, Transcript, CWD string
+	Idle                     time.Duration
+	Owner                    int
+	Stderr                   io.Writer
+}
+
+// IdleUpdateWatch is `claude-code memory watch`: the detached per-session watcher described above.
+func IdleUpdateWatch(o WatchOptions) int {
+	stderr := o.Stderr
+	if o.Session == "" || o.Transcript == "" || o.Idle <= 0 {
+		fmt.Fprintln(stderr, "memory watch: --session, --transcript and a positive --idle are required")
+		releaseEmptyClaim(o.Session)
+		return 2
+	}
+	if fi, err := os.Stat(o.CWD); err != nil || !fi.IsDir() {
+		fmt.Fprintf(stderr, "memory watch: --cwd %q is not a directory\n", o.CWD)
+		releaseEmptyClaim(o.Session)
+		return 2
+	}
+	// The claim holds this pid so a later Stop retakes it after a kill; the defer frees it for a fresh watcher.
+	if err := os.WriteFile(watchClaimPath(o.Session), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		fmt.Fprintf(stderr, "memory watch: write claim: %v\n", err)
+		_ = os.Remove(watchClaimPath(o.Session)) // an empty claim would never be retaken; the stamp dedupes a rival
+	}
+	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }()
+	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
+	deadline := time.Now().Add(updateWatchLife)
+	for time.Now().Before(deadline) {
+		time.Sleep(updateWatchPoll)
+		if w.poll() {
+			return 0
+		}
+	}
+	return 0
+}
+
+// watchLoop is the watcher's per-session state across polls.
+type watchLoop struct {
+	tr, cwd, session string
+	idle             time.Duration
+	owner            int
+	seen             time.Time // mtime last evaluated: the transcript is append-only, so unchanged ⇒ same edit count
+	stderr           io.Writer
+}
+
+// poll runs one watch iteration and reports whether the watcher should exit.
+func (w *watchLoop) poll() (exit bool) {
+	if ownerDead(w.owner) {
+		idleUpdateOnce(w.tr, w.cwd, w.session, w.stderr) // no SessionEnd on a crash; the stamp makes it a no-op if one ran
+		return true
+	}
+	fi, err := os.Stat(w.tr)
+	if err != nil {
+		return os.IsNotExist(err) // transcript gone ends the watcher; any other error retries next poll
+	}
+	if time.Since(fi.ModTime()) < w.idle {
+		return false // main transcript alone is still active: skip the subagent globs entirely
+	}
+	latest := newestActivity(w.tr, fi.ModTime())
+	if time.Since(latest) < w.idle || !latest.After(w.seen) {
+		return false // a subagent is still active, or already evaluated at this mtime
+	}
+	w.dispatch(latest)
+	return false
+}
+
+// dispatch runs the idle update for the activity at latest and notes it; a failed spawn is retried by the next poll.
+func (w *watchLoop) dispatch(latest time.Time) {
+	dispatched, spawnFailed := idleUpdateOnce(w.tr, w.cwd, w.session, w.stderr)
+	if !spawnFailed {
+		w.seen = latest
+	}
+	if dispatched {
+		fmt.Fprintf(w.stderr, "memory watch: %s quiet for %s — final update dispatched\n", w.session, w.idle.String())
+	}
+}
+
+// newestActivity is the newest mtime across the main and its subagent transcripts: a busy subagent keeps it live.
+func newestActivity(tr string, mainMtime time.Time) time.Time {
+	latest := mainMtime
+	dir := inflight.SubagentDir(tr)
+	if dir == "" {
+		return latest
+	}
+	for _, m := range agentTranscripts(dir) {
+		if fi, err := os.Stat(m); err == nil && fi.ModTime().After(latest) {
+			latest = fi.ModTime()
+		}
+	}
+	return latest
+}
+
+// idleUpdateOnce dispatches the final update for uncovered work; spawnFailed = a due worker did not start.
+func idleUpdateOnce(tr, cwd, session string, note io.Writer) (dispatched, spawnFailed bool) {
+	cwd = SessionRoot(session, cwd)
+	withStampLock(session, func() { // same session lock as UpdateIfNew
+		covered := 0
+		if st, ok := readStamp(stampPath(session)); ok {
+			covered = st.edits
+		}
+		edits := countSessionEdits(session, tr)
+		if edits < updateMinEdits || edits <= covered {
+			return
+		}
+		if !dispatchUpdate(UpdateRequest{SessionID: session, Transcript: tr, CWD: cwd}, "idle", edits, time.Now()) {
+			fmt.Fprintf(note, "memory watch: worker not spawned for %s (%d uncovered edits)\n", session, edits-covered)
+			spawnFailed = true
+			return
+		}
+		dispatched = true
+	})
+	return dispatched, spawnFailed
+}
+
+// ownerDead trusts the probe only where it works: off unix Alive is always false, which would disable the watcher.
+func ownerDead(pid int) bool {
+	return pid > 0 && proc.Alive(os.Getpid()) && !proc.Alive(pid)
 }

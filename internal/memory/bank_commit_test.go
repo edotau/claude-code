@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,6 +195,27 @@ func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	}
 }
 
+var decoyTmpl struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+func buildDecoyTmpl() {
+	decoyTmpl.dir, decoyTmpl.err = os.MkdirTemp("", "memdecoy-")
+	if decoyTmpl.err != nil {
+		return
+	}
+	r := storeRepo{Dir: decoyTmpl.dir}
+	if decoyTmpl.err = r.Ensure(); decoyTmpl.err != nil {
+		return
+	}
+	if decoyTmpl.err = os.WriteFile(filepath.Join(r.Dir, "staged.md"), []byte("staged, never committed\n"), 0o600); decoyTmpl.err != nil {
+		return
+	}
+	_, decoyTmpl.err = r.run("add", "-A", "--", "staged.md", ".gitignore")
+}
+
 // storeFixture isolates config and sets a hostile inherited git env at a decoy repo; tests assert it stays untouched.
 func storeFixture(t *testing.T) (store string, decoy storeRepo) {
 	t.Helper()
@@ -202,14 +224,15 @@ func storeFixture(t *testing.T) (store string, decoy storeRepo) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	decoyTmpl.once.Do(buildDecoyTmpl)
+	if decoyTmpl.err != nil {
+		t.Fatal(decoyTmpl.err)
+	}
 	decoy = storeRepo{Dir: filepath.Join(t.TempDir(), "decoy")}
-	if err := decoy.Ensure(); err != nil {
+	if err := os.CopyFS(decoy.Dir, os.DirFS(decoyTmpl.dir)); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(decoy.Dir, "staged.md"), "staged, never committed\n")
-	if _, err := decoy.run("add", "-A", "--", "staged.md", ".gitignore"); err != nil {
-		t.Fatal(err)
-	}
+	markCopied(filepath.Join(decoy.Dir, ".git"))
 	t.Setenv("GIT_DIR", filepath.Join(decoy.Dir, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy.Dir)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(decoy.Dir, ".git", "index"))

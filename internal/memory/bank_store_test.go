@@ -3,9 +3,11 @@ package memory
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -500,5 +502,179 @@ func TestWithBaseFillsAndRefusesRead(t *testing.T) {
 	nb := Batch{Ops: []Op{{Op: "update", ID: "absent", Read: "z9", Text: "x"}}}
 	if got, err := withBase(nb, contentRefs(docs)); err != nil || got.Ops[0].Read != "z9" {
 		t.Errorf("a read with no entry: %+v err=%v", got.Ops, err)
+	}
+}
+
+func TestArchiveSource(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		wantSrc string
+		wantOK  bool
+	}{
+		{"month", "conventions-2026-10.md", "conventions", true},
+		{"dream", "decisionLog-2026-11-20-dream.md", "decisionLog", true},
+		{"trim", "progress-2026-11-20-trim.md", "progress", true},
+		{"focus", "activeContext-2026-11-20-focus.md", "activeContext", true},
+		{"repo slug", "decisionLog-2026-11-19-sample-repo.md", "decisionLog", true},
+		{"month repo slug", "sessionHistory-2026-08-digitalbtd-rapid.md", "sessionHistory", true},
+		{"month one word", "sessionHistory-2026-08-digitalbtd.md", "sessionHistory", true},
+		{"src archive", "conventions-archive.md", "conventions", true},
+		{"merged no source", "merged-claude-code-progress.md", "", false},
+		{"overflow", "2026-11-18-decisionLog-overflow.md", "decisionLog", true},
+		{"overflow repo slug", "2026-11-18-sessionHistory-overflow-sample-repo.md", "sessionHistory", true},
+		{"unplaceable gemini", "2026-10-21-gemini-history-snapshot.md", "", false},
+		{"unplaceable harness", "2026-11-01-harness-progress-snapshot.md", "", false},
+		{"invented source month", "invented-2026-10.md", "", false},
+		{"invented source overflow", "2026-11-18-invented-overflow.md", "", false},
+		{"invented source slug", "invented-2026-11-19-repo.md", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src, ok := ArchiveSource(tt.file)
+			if src != tt.wantSrc || ok != tt.wantOK {
+				t.Errorf("ArchiveSource(%q) = %q, %v; want %q, %v", tt.file, src, ok, tt.wantSrc, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestGrammarOfArchiveUsesSource(t *testing.T) {
+	for name, want := range map[string]Grammar{
+		"archive/2026-11-01-decisionLog-overflow.md": GrammarDated,
+		"archive/conventions-2026-11-20-trim.md":     GrammarBullets,
+		"archive/progress-2026-11.md":                GrammarSections,
+		"archive/conventions-archive.md":             GrammarBullets,
+		"archive/2026-10-21-gemini-snapshot.md":      GrammarSections,
+	} {
+		if got := GrammarOf(name); got != want {
+			t.Errorf("GrammarOf(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// wantFile asserts path holds want; an empty want means the file must not exist.
+func wantFile(t *testing.T, path, want string) {
+	t.Helper()
+	if !pathExists(path) {
+		if want != "" {
+			t.Errorf("%s missing", path)
+		}
+		return
+	}
+	if got := aliasRead(t, path); got != want {
+		t.Errorf("%s = %q, want %q", path, got, want)
+	}
+}
+
+func aliasRead(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
+
+func TestBankPaths(t *testing.T) {
+	isolatedConfig(t)
+	s := paths.MemoryStoreDir()
+	for got, want := range map[string]string{
+		Path("activeContext.md"):               "activeContext.md",
+		paths.MemorySub("reports", "x.md"):     "reports/x.md",
+		paths.MemorySub("techdebt", "area.md"): "techdebt/area.md",
+		NativeIndex():                          "MEMORY.md",
+	} {
+		if got != filepath.Join(s, want) {
+			t.Errorf("got %s, want %s", got, filepath.Join(s, want))
+		}
+	}
+	if got := paths.MemorySubDir("reports"); got != filepath.Join(s, "reports") {
+		t.Errorf("paths.MemorySubDir(reports) = %s", got)
+	}
+}
+
+func TestRequireFlatNewerRefusesOlderNotes(t *testing.T) {
+	isolatedConfig(t)
+	stamp := filepath.Join(paths.MemoryStoreDir(), layoutFile)
+	if err := os.MkdirAll(filepath.Dir(stamp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ stamp, wantErr string }{
+		{"flat 9", "store is flat 9, this binary writes flat 4: install a newer claude-code"}, {"flat 4", ""},
+	} {
+		if err := os.WriteFile(stamp, []byte(tc.stamp+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := stampLayout(); (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && fmt.Sprint(err) != tc.wantErr) {
+			t.Errorf("stampLayout on %q = %v, want %q", tc.stamp, err, tc.wantErr)
+		}
+		if b, _ := os.ReadFile(stamp); string(b) != tc.stamp+"\n" {
+			t.Errorf("stamp = %q, want %q untouched", b, tc.stamp)
+		}
+	}
+}
+
+func TestStampLayoutUpgradesOlderStamp(t *testing.T) {
+	for v := 1; v < storeVersion; v++ {
+		t.Run(strconv.Itoa(v), func(t *testing.T) {
+			isolatedConfig(t)
+			write(t, Path(layoutFile), fmt.Sprintf("flat %d\n", v))
+			const body = "# Notes\n\n## repeated\nbody\n\n## repeated\nundated and id-less\n"
+			write(t, Path("decisionLog.md"), body)
+			if err := EnsureBank(""); err != nil {
+				t.Fatal(err)
+			}
+			if b, err := os.ReadFile(Path(layoutFile)); err != nil || string(b) != layoutFlat+"\n" {
+				t.Fatalf("stamp = %q, err=%v", b, err)
+			}
+			if b, err := os.ReadFile(Path("decisionLog.md")); err != nil || string(b) != body {
+				t.Fatalf("existing data changed: %q, err=%v", b, err)
+			}
+		})
+	}
+}
+
+func TestStampLayoutRefusesMalformedAndUnreadable(t *testing.T) {
+	for _, stamp := range []string{"", " \n", "flat +4", "flat -1", "flat 0", "flat nope", "flat 4 extra", "other 4", "directory"} {
+		t.Run(stamp, func(t *testing.T) {
+			isolatedConfig(t)
+			if stamp == "directory" {
+				write(t, filepath.Join(Path(layoutFile), "keep"), "stored data")
+			} else {
+				write(t, Path(layoutFile), stamp)
+			}
+			ran := false
+			err := withBankLock(BankLockWait, func() error { ran = true; return nil })
+			if err == nil || ran {
+				t.Fatalf("refusal err=%v, writer ran=%t", err, ran)
+			}
+			p, want := Path(layoutFile), stamp
+			if stamp == "directory" {
+				p, want = filepath.Join(p, "keep"), "stored data"
+			}
+			if b, err := os.ReadFile(p); err != nil || string(b) != want {
+				t.Fatalf("refused stamp changed: %q, err=%v", b, err)
+			}
+		})
+	}
+}
+
+func TestStampLayoutWaitsForWriterLock(t *testing.T) {
+	isolatedConfig(t)
+	write(t, Path(layoutFile), "flat 3\n")
+	if err := WithBankLock(BankLockWait, func() error {
+		err := withBankLock(time.Millisecond, func() error { t.Error("writer ran without lock"); return nil })
+		if !errors.Is(err, ErrBankBusy) {
+			t.Errorf("busy writer err=%v", err)
+		}
+		if b, err := os.ReadFile(Path(layoutFile)); err != nil || string(b) != "flat 3\n" {
+			t.Errorf("busy writer changed stamp: %q, err=%v", b, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

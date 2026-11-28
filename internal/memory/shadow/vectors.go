@@ -42,10 +42,9 @@ type sqlVectors struct{}
 
 // open returns nil, nil when no shadow db and no legacy file exist: nothing to read, nothing to create.
 func (sqlVectors) open(create bool) (*sql.DB, error) {
-	_, serr := os.Stat(ShadowDBPath())
-	if errors.Is(serr, fs.ErrNotExist) && !create {
-		if _, lerr := os.Stat(memory.EmbedDBPath()); lerr != nil {
-			return nil, nil
+	if !create {
+		if db, done, err := openExistingVectors(); done {
+			return db, err
 		}
 	}
 	ctx := context.Background()
@@ -58,6 +57,33 @@ func (sqlVectors) open(create bool) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func openExistingVectors() (*sql.DB, bool, error) {
+	_, serr := os.Stat(ShadowDBPath())
+	_, lerr := os.Stat(memory.EmbedDBPath())
+	if errors.Is(serr, fs.ErrNotExist) && lerr != nil {
+		return nil, true, nil
+	}
+	if serr == nil && lerr != nil {
+		if db, err := openReadOnlyAtCurrentSchema(); db != nil || err != nil {
+			return db, true, err
+		}
+	}
+	return nil, false, nil
+}
+
+// openReadOnlyAtCurrentSchema opens ShadowDBPath read-only when it is already at SchemaVersion.
+func openReadOnlyAtCurrentSchema() (*sql.DB, error) {
+	db, err := sqlite.Open(ShadowDBPath(), sqlite.Options{ReadOnly: true, Busy: recallReadTimeout})
+	if err != nil {
+		return nil, nil
+	}
+	if v, err := sqlite.Version(db); err == nil && v == SchemaVersion() {
+		return db, nil
+	}
+	_ = db.Close()
+	return nil, nil
 }
 
 func (sqlVectors) Present() bool {
@@ -250,7 +276,7 @@ func (s sqlVectors) Head() (memory.VectorHead, error) {
 		return memory.VectorHead{}, err
 	}
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM embed_rows`).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT 1 FROM embed_rows LIMIT 1)`).Scan(&n); err != nil {
 		return memory.VectorHead{}, err
 	}
 	return memory.VectorHead{Model: rec.Model, MintedAt: rec.MintedAt, Rows: n > 0}, nil
@@ -306,29 +332,61 @@ func (s sqlVectors) Put(w memory.VectorWrite) (stored bool, err error) {
 	}
 	defer db.Close()
 	ctx := context.Background()
+	var mintedAt int64
 	err = sqlite.Tx(ctx, db, func(tx *sql.Tx) error {
-		stored = false
-		if owned, err := claimOwnedBy(ctx, tx, w.Owner); err != nil || !owned { // taken over or expired: refuse
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM embed_claim WHERE id = 1`); err != nil {
-			return err
-		}
-		cur, err := readRecord(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if cur.MintedAt >= w.Started && cur.MintedAt <= time.Now().UnixNano() {
-			return nil
-		}
-		stored = true
-		return writeRecord(ctx, tx, w.Merge(cur))
+		var txErr error
+		stored, mintedAt, txErr = putTx(ctx, tx, w)
+		return txErr
 	})
+	if stored && err == nil {
+		writeMintedStamp(mintedAt)
+	}
 	return stored && err == nil, err
+}
+
+func putTx(ctx context.Context, tx *sql.Tx, w memory.VectorWrite) (bool, int64, error) {
+	if owned, err := claimOwnedBy(ctx, tx, w.Owner); err != nil || !owned { // taken over or expired: refuse
+		return false, 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM embed_claim WHERE id = 1`); err != nil {
+		return false, 0, err
+	}
+	cur, err := readRecord(ctx, tx)
+	if err != nil || (cur.MintedAt >= w.Started && cur.MintedAt <= time.Now().UnixNano()) {
+		return false, 0, err
+	}
+	next := w.Merge(cur)
+	return true, next.MintedAt, writeRecord(ctx, tx, next)
+}
+
+func mintedStampPath() string { return ShadowDBPath() + ".minted" }
+
+func writeMintedStamp(mintedAt int64) {
+	p := mintedStampPath()
+	if mintedAt <= 0 {
+		_ = os.Remove(p)
+		return
+	}
+	if err := os.WriteFile(p, nil, 0o600); err == nil {
+		at := time.Unix(0, mintedAt)
+		_ = os.Chtimes(p, at, at)
+	}
+}
+
+func mintedStampValid(now time.Time) bool {
+	st, err := os.Stat(mintedStampPath())
+	if err != nil {
+		return false
+	}
+	_, dberr := os.Stat(ShadowDBPath())
+	return dberr == nil && memory.EmbedValid(memory.VectorRecord{MintedAt: st.ModTime().UnixNano()}, now)
 }
 
 // RefreshDue is due when no store exists or the record is outside its lease and no claim is live.
 func (s sqlVectors) RefreshDue(now time.Time) bool {
+	if mintedStampValid(now) {
+		return false
+	}
 	db, err := s.open(false)
 	if err != nil {
 		return false
@@ -343,6 +401,7 @@ func (s sqlVectors) RefreshDue(now time.Time) bool {
 		return false
 	}
 	if memory.EmbedValid(rec, now) {
+		writeMintedStamp(rec.MintedAt)
 		return false
 	}
 	var exp int64

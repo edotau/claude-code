@@ -183,11 +183,54 @@ func storeTemplate(t *testing.T) string {
 // gitRepo makes a real disposable repository with one commit at <parent>/<name>.
 func gitRepo(t *testing.T, parent, name string) string {
 	t.Helper()
-	return hosttest.RepoAt(t, filepath.Join(parent, name))
+	if runtime.GOOS == "windows" {
+		return hosttest.RepoAt(t, filepath.Join(parent, name))
+	}
+	repoTmpl.once.Do(func() { buildRepoTmpl(t) })
+	if repoTmpl.err != nil {
+		t.Fatal(repoTmpl.err)
+	}
+	dir := filepath.Join(parent, name)
+	if err := os.CopyFS(dir, os.DirFS(repoTmpl.dir)); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+var repoTmpl struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+func buildRepoTmpl(t *testing.T) {
+	t.Helper()
+	repoTmpl.dir, repoTmpl.err = os.MkdirTemp("", "memrepo-")
+	if repoTmpl.err != nil {
+		return
+	}
+	hosttest.In(t, repoTmpl.dir, "init", "-q", "-b", "main")
+	hosttest.In(t, repoTmpl.dir, "config", "user.name", "t")
+	hosttest.In(t, repoTmpl.dir, "config", "user.email", "t@t.com")
+	hosttest.In(t, repoTmpl.dir, "commit", "--allow-empty", "-q", "-m", "init")
+	samples, _ := filepath.Glob(filepath.Join(repoTmpl.dir, ".git", "hooks", "*.sample"))
+	for _, s := range samples {
+		_ = os.Remove(s)
+	}
 }
 
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
+	for k, v := range map[string]string{
+		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.com",
+		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.com",
+		"GIT_CONFIG_COUNT": "5",
+		"GIT_CONFIG_KEY_2": "core.filesRefLockTimeout", "GIT_CONFIG_VALUE_2": "0",
+		"GIT_CONFIG_KEY_3": "commit.gpgsign", "GIT_CONFIG_VALUE_3": "false",
+		"GIT_CONFIG_KEY_4": "protocol.file.allow", "GIT_CONFIG_VALUE_4": "always",
+	} {
+		_ = os.Setenv(k, v)
+	}
 	tb := &hosttest.MainTB{}
 	StubSpawn(tb, true) // no memory test may launch a real detached worker
 	if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
@@ -206,8 +249,10 @@ func TestMain(m *testing.M) {
 	}
 	cleanup()
 	hosttest.Cleanup()
-	if storeTmpl.dir != "" {
-		_ = os.RemoveAll(storeTmpl.dir)
+	for _, d := range []string{storeTmpl.dir, repoTmpl.dir, decoyTmpl.dir, filepath.Dir(e2eBuild.bin)} {
+		if d != "" && d != "." {
+			_ = os.RemoveAll(d)
+		}
 	}
 	os.Exit(code)
 }

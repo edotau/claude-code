@@ -780,7 +780,6 @@ func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecor
 			f.start(ctx) // the secret read (a keyring exec) runs while the cache loads
 		}
 	}
-	rows := within(ctx, readEmbedCache)
 	stop = RecallStage("embed-head")
 	head, err := within(ctx, vectorStore().Head)()
 	stop()
@@ -792,7 +791,7 @@ func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecor
 	case head.Model == "" || !head.Rows:
 		return "", vectorHead{}, nil, errors.New("no embedding cache")
 	}
-	return profile, head, rows, nil
+	return profile, head, within(ctx, readEmbedCache), nil
 }
 
 // errEmbedMismatch marks a query that cannot use the cache (model or dimension): local config, not an endpoint failure.
@@ -1003,7 +1002,7 @@ func embeddingModelFor(ctx context.Context, p *providers.Provider) (string, erro
 
 // openDatabricksEmbed is profile's embeddings client; credentials come only from providers.Authorize.
 func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClient, error) {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return nil, err
 	}
