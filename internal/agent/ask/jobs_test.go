@@ -603,3 +603,35 @@ func TestMsgToolsSendThenReadOnce(t *testing.T) {
 		t.Errorf("sent=%q err=%v first=%q again=%q badErr=%v", sent, err, first, again, badErr)
 	}
 }
+
+// An env dispatch id that is stale or not an ancestor is ignored, so --from stays required outside a session.
+func TestMsgDispatchIgnoresStaleID(t *testing.T) {
+	vaulttest.Use(t)
+	rec := agent.NewRecord("codex", agent.RunOptions{}, time.Now())
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(proc.DispatchIDEnv, rec.ID)
+	if got, ok := msgDispatch(); !ok || got.Agent != "codex" {
+		t.Fatalf("live dispatch = %+v, %v", got, ok)
+	}
+	rec.PID = 1
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := msgDispatch(); ok {
+		t.Fatal("accepted a dispatch that is no ancestor")
+	}
+}
+
+func TestMsgSendCallParentNote(t *testing.T) {
+	t.Setenv(proc.DispatchIDEnv, "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if text, err := msgSendCall("claude", json.RawMessage(`{"to":"@parent","text":"progress"}`)); err != nil || text != "no dispatcher to notify" {
+		t.Fatalf("parent note = %q, %v", text, err)
+	}
+	if _, err := msgSendCall("claude", json.RawMessage(`{"to":"@parent","text":"x","files":["f"]}`)); err == nil {
+		t.Fatal("parent note swallowed an attachment")
+	}
+}

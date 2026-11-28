@@ -3,8 +3,11 @@ package mcpstdio
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+
+	_ "github.com/edotau/claude-code/internal/platform/nonet"
 )
 
 // TestInitializeNegotiatesProtocolVersion: echo a supported requested revision, else fall back to newest.
@@ -43,5 +46,26 @@ func TestDefaultProtocolVersionIsHonest(t *testing.T) {
 	}
 	if supportedProtocolVersions["2026-07-28"] {
 		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake")
+	}
+}
+
+// CancelOnClose cancels a blocked call when input ends; without it Serve would join the call forever.
+func TestServeCancelOnClose(t *testing.T) {
+	started := make(chan struct{})
+	srv := &Server{CancelOnClose: true, Tools: []Tool{{Name: "wait", Call: func(ctx context.Context, _ json.RawMessage) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}}}}
+	r, w := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(context.Background(), r, io.Discard) }()
+	if _, err := io.WriteString(w, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait"}}`+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	w.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

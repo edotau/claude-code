@@ -511,3 +511,80 @@ func TestRenderGeminiMCP(t *testing.T) {
 		t.Errorf("second render (err %v) not byte-identical:\n%s\nvs\n%s", err, first, second)
 	}
 }
+
+func TestHarnessMCPReviewGeminiOwnership(t *testing.T) {
+	for _, server := range []any{
+		nil, "malformed", map[string]any{"command": "/custom/claude-code", "args": []string{"user", "server"}},
+		map[string]any{"command": "claude-code", "args": []string{"agents", "mcp", "--from", "mine"}},
+	} {
+		home := agenttest.Scratch(t)
+		path := agyMCPPath(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"harness": server, "msg": server}})
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		var plan agentconfig.RenderPlan
+		if _, err := renderGeminiMCP(home, agentconfig.RenderOptions{}.Stage(&plan), io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if err := plan.Apply(); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(path); !bytes.Equal(raw, got) {
+			t.Fatalf("user server changed: %s -> %s", raw, got)
+		}
+		if geminiHarnessAllowed(home) {
+			t.Fatal("custom harness granted managed tools")
+		}
+	}
+}
+
+func TestHarnessMCPReviewGeminiMigration(t *testing.T) {
+	home := agenttest.Scratch(t)
+	path := agyMCPPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"msg": geminiMCPEntry(true)}})
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !legacyGeminiMsg(home) {
+		t.Fatal("did not recognize exact legacy entry")
+	}
+	perms := map[string]any{"permissions": map[string]any{"allow": []any{"mcp(msg/msg_send)", "mcp__msg__msg_read", "keep"}}}
+	if !retireGeminiMsgRules(perms) {
+		t.Fatal("did not remove old grants")
+	}
+	p, _ := agyPermissions(perms)
+	if !reflect.DeepEqual(p["allow"], []any{"keep"}) {
+		t.Fatalf("grants = %v", p)
+	}
+	render := func() []byte {
+		var plan agentconfig.RenderPlan
+		if _, err := renderGeminiMCP(home, agentconfig.RenderOptions{}.Stage(&plan), io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if err := plan.Apply(); err != nil {
+			t.Fatal(err)
+		}
+		got, _ := os.ReadFile(path)
+		return got
+	}
+	first := render()
+	var doc struct {
+		Servers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(first, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := doc.Servers["msg"]; exists || !sameGeminiMCP(doc.Servers["harness"], geminiMCPEntry(false)) {
+		t.Fatalf("bad migration %s", first)
+	}
+	if second := render(); !bytes.Equal(first, second) {
+		t.Fatal("migration not idempotent")
+	}
+}

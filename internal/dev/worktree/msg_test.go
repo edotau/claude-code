@@ -1,11 +1,15 @@
 package worktree
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
 func msgPost(t *testing.T, from, text string, files ...string) {
@@ -59,5 +63,62 @@ func TestMsgReadersSeeOnlyNewForeignPosts(t *testing.T) {
 	}
 	if statErr != nil || roomsErr != nil || !errors.Is(badErr, ErrMsgInput) {
 		t.Fatalf("copy stat %v, chats %v, bad name %v", statErr, roomsErr, badErr)
+	}
+}
+
+func TestPostMsgKeepsSenderOutOfInbox(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := PostMsg("@owner", "sender", "one", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(chatCursor("@owner", "sender")); !os.IsNotExist(err) {
+		t.Fatalf("sender joined inbox: %v", err)
+	}
+	if err := joinChat("@owner", "sender"); err != nil {
+		t.Fatal(err)
+	} // pre-migration store
+	if _, err := PostMsg("#room", "sender", "room", nil); err != nil {
+		t.Fatal(err)
+	}
+	chats, err := ChatsFor("sender")
+	if err != nil || !slices.Equal(chats, []string{"#room"}) {
+		t.Fatalf("sender chats %v, %v", chats, err)
+	}
+	if raw, err := os.ReadFile(chatCursor("@owner", "sender")); err != nil || string(raw) != "0" {
+		t.Fatalf("legacy cursor changed: %q, %v", raw, err)
+	}
+	chats, err = ChatsFor("owner")
+	if err != nil || !slices.Contains(chats, "@owner") {
+		t.Fatalf("owner chats %v, %v", chats, err)
+	}
+	msgs, err := ReadMsgs("@owner", "owner")
+	if err != nil || len(msgs) != 1 || msgs[0].Text != "one" {
+		t.Fatalf("owner lost message: %v, %v", msgs, err)
+	}
+	if _, err := PostMsg("@sender", "owner", "reply", nil); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err = ReadMsgs("@sender", "sender")
+	if err != nil || len(msgs) != 1 || msgs[0].Text != "reply" {
+		t.Fatalf("sender lost reply: %v, %v", msgs, err)
+	}
+}
+
+func TestCallerNameWithinSkipsOuterSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(paths.SessionIDEnv, "child-session")
+	raw, _ := json.Marshal(sessionReg{PID: os.Getpid(), SessionID: "child-session", Name: "child-name"})
+	path := filepath.Join(paths.ConfigDir(), "sessions", "fixture.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CallerNameWithin(os.Getppid()); got != "child-name" {
+		t.Fatalf("child name = %q", got)
+	}
+	if got := CallerNameWithin(os.Getpid()); got != "" {
+		t.Fatalf("inherited outer session = %q", got)
 	}
 }

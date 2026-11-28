@@ -20,6 +20,7 @@ import (
 	acts "github.com/edotau/claude-code/internal/agent/actions"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/routing/route"
 )
@@ -28,17 +29,17 @@ import (
 const localAgent = "local"
 
 // actionArgv is the action's verb argv, built from typed fields; gate and diff come from the actions table.
-func actionArgv(action string, own []string, agentName, model string) []string {
+func actionArgv(action string, own []string, agentName, model, workdir string) []string {
 	switch action {
 	case "gate", "diff":
-		argv, _, _ := acts.Argv(action, ownArgs(action, own))
+		argv, _, _ := acts.Argv(action, ownArgs(action, own, workdir))
 		return argv
 	case "scope":
-		argv := []string{"worktree", "gate", "--format", "json"}
-		if len(own) > 0 {
-			argv = append(argv, "--scope", strings.Join(own, ","))
+		argv, _, err := acts.Argv("gate", ownArgs("gate", own, workdir))
+		if err != nil {
+			return nil
 		}
-		return argv
+		return append([]string{"worktree", "gate", "--format", "json"}, argv[3:]...)
 	case "gateway":
 		argv := []string{"gateway", "--format", "json", "--fallback", "none"}
 		if agentName != "" {
@@ -53,12 +54,19 @@ func actionArgv(action string, own []string, agentName, model string) []string {
 }
 
 // ownArgs is the brief's own list as the table's typed arguments for gate (scope) or diff (paths).
-func ownArgs(action string, own []string) json.RawMessage {
+func ownArgs(action string, own []string, workdir string) json.RawMessage {
 	key := map[string]string{"gate": "scope", "diff": "paths"}[action]
-	if cwd, err := os.Getwd(); err == nil && action == "gate" { // briefs name files by absolute path; the gate scope is relative
+	cwd, err := os.Getwd()
+	if workdir != "" {
+		cwd, err = filepath.Abs(workdir)
+	}
+	if err == nil && action == "gate" { // match the child's cwd, not the dispatcher's
 		own = slices.Clone(own)
 		for i, p := range own {
-			if rel, err := filepath.Rel(cwd, p); err == nil && filepath.IsAbs(p) && filepath.IsLocal(rel) {
+			if !filepath.IsAbs(p) {
+				continue
+			}
+			if rel, err := filepath.Rel(paths.CanonDeep(cwd), paths.CanonDeep(p)); err == nil && filepath.IsLocal(rel) {
 				own[i] = rel
 			}
 		}
@@ -110,7 +118,11 @@ func actionCheck(f *askFlags) error {
 	if why := actionRefusal(f); why != "" {
 		return fmt.Errorf("brief action runs no model: not with %s", why)
 	}
-	if _, _, err := acts.Argv(f.action, ownArgs(f.action, f.actionOwn)); err != nil {
+	action := f.action
+	if action == "scope" {
+		action = "gate"
+	}
+	if _, _, err := acts.Argv(action, ownArgs(action, f.actionOwn, f.workdir)); err != nil {
 		return fmt.Errorf("brief own: %w", err)
 	}
 	if f.action == "gateway" && len(f.actionOwn) > 0 {
@@ -155,7 +167,7 @@ func runAction(ctx context.Context, fs *flag.FlagSet, f *askFlags, out io.Writer
 		return code
 	}
 	begin := time.Now()
-	buf, stderr, runErr := runActionChild(ctx, f, exe, actionArgv(f.action, f.actionOwn, agentName, f.model))
+	buf, stderr, runErr := runActionChild(ctx, f, exe, actionArgv(f.action, f.actionOwn, agentName, f.model, f.workdir))
 	runErr = errors.Join(runErr, finishAction(&rec, buf, stderr, runErr, time.Since(begin)))
 	return reportAction(out, f, rec, buf.String(), runErr)
 }
@@ -209,13 +221,16 @@ func runActionChild(ctx context.Context, f *askFlags, exe string, argv []string)
 // redGate is an error when `worktree gate --run`'s JSON reports a nonzero exit; the verb itself always exits 0.
 func redGate(out []byte) error {
 	var g struct {
-		Exit int `json:"exit"`
+		Exit *int `json:"exit"`
 	}
 	if err := json.Unmarshal(out, &g); err != nil {
 		return fmt.Errorf("gate output unreadable: %w", err)
 	}
-	if g.Exit != 0 {
-		return fmt.Errorf("gate exited %d", g.Exit)
+	if g.Exit == nil {
+		return errors.New("gate output has no exit result")
+	}
+	if *g.Exit != 0 {
+		return fmt.Errorf("gate exited %d", *g.Exit)
 	}
 	return nil
 }
@@ -244,6 +259,9 @@ func finishAction(rec *agent.Record, buf, stderr *capBuffer, runErr error, took 
 	return errors.Join(logErr, saveErr)
 }
 
+// Only one gate per server may run at a time; waiting also consumes the tools timeout.
+var tableGateSlot = make(chan struct{}, 1)
+
 // runTableAction runs a table action in this binary under the dispatch tools timeout; a failure carries the output.
 func runTableAction(ctx context.Context, spec acts.Spec, raw json.RawMessage) (string, error) {
 	argv, err := spec.Argv(raw)
@@ -254,23 +272,61 @@ func runTableAction(ctx context.Context, spec acts.Spec, raw json.RawMessage) (s
 	if err != nil {
 		return "", err
 	}
+	return runTableCommand(ctx, spec.Name, exe, argv)
+}
+
+// acquireTableGate takes the single gate slot for a gate call; other tools hold none.
+func acquireTableGate(ctx context.Context, name string) (func(), error) {
+	if name != "gate" {
+		return func() {}, nil
+	}
+	select {
+	case tableGateSlot <- struct{}{}:
+		return func() { <-tableGateSlot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// tableText joins stdout and stderr under the output cap, marking a cut.
+func tableText(out, stderr *capBuffer) string {
+	text := out.String() + stderr.String()
+	cut := out.cut || stderr.cut || len(text) > actionOutCap
+	if len(text) > actionOutCap {
+		text = text[:actionOutCap]
+	}
+	if cut {
+		text += "\n[output cut at 1 MiB]\n"
+	}
+	return text
+}
+
+// runTableCommand is the bounded process owner shared by the table's tools.
+func runTableCommand(ctx context.Context, name, exe string, argv []string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, agent.DefaultToolsTimeout)
 	defer cancel()
-	out := &capBuffer{}
+	release, err := acquireTableGate(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	out, stderr := &capBuffer{}, &capBuffer{}
 	cmd := exec.CommandContext(ctx, exe, argv...)
-	cmd.Stdout, cmd.Stderr = out, out
+	cmd.Stdout, cmd.Stderr = out, stderr
 	proc.TreeCancel(cmd, 0)
 	cmd.WaitDelay = proc.ExecWaitDelay
 	runErr := cmd.Run()
-	text := out.String()
-	if out.cut {
-		text += "\n[output cut at 1 MiB]\n"
+	cleanupErr := proc.TreeSweep(cmd)
+	if ee, ok := errors.AsType[*exec.ExitError](runErr); ok && name == "diff" && ee.ExitCode() == 3 && ctx.Err() == nil {
+		runErr = nil // outside --path is a finding in the JSON, not a failed gate
 	}
-	if ee, ok := errors.AsType[*exec.ExitError](runErr); ok && spec.Name == "diff" && ee.ExitCode() == 3 {
-		return text, nil // agents diff exits 3 for files outside --path: a finding in its JSON, not a failure
+	if runErr == nil && name == "gate" {
+		runErr = redGate(out.Bytes()) // worktree gate reports failure in JSON, not its process exit
 	}
+	runErr = errors.Join(ctx.Err(), runErr, cleanupErr)
+	text := tableText(out, stderr)
 	if runErr != nil {
-		return "", fmt.Errorf("%s failed: %v\n%s", spec.Name, cmp.Or(ctx.Err(), runErr), text)
+		return "", fmt.Errorf("%s failed: %v\n%s", name, runErr, text)
 	}
 	return text, nil
 }

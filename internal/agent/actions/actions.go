@@ -4,7 +4,9 @@ package actions
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -62,10 +64,16 @@ func decode(name string, raw json.RawMessage, into any) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}
+	if len(raw) > 64<<10 || bytes.TrimSpace(raw)[0] != '{' {
+		return fmt.Errorf("%s: arguments must be an object of at most 64 KiB", name)
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {
 		return fmt.Errorf("%s: invalid arguments: %w", name, err)
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("%s: trailing data after arguments", name)
 	}
 	return nil
 }
@@ -74,6 +82,9 @@ func gateArgv(raw json.RawMessage) ([]string, error) {
 	var a gateArgs
 	if err := decode("gate", raw, &a); err != nil {
 		return nil, err
+	}
+	if len(a.Scope) > 256 {
+		return nil, errors.New("gate: at most 256 scope entries")
 	}
 	for _, s := range a.Scope {
 		if strings.HasPrefix(s, "-") || !filepath.IsLocal(s) || !scopeEntry.MatchString(s) {
@@ -92,9 +103,12 @@ func diffArgv(raw json.RawMessage) ([]string, error) {
 	if err := decode("diff", raw, &a); err != nil {
 		return nil, err
 	}
+	if len(a.Paths) > 256 {
+		return nil, errors.New("diff: at most 256 paths")
+	}
 	argv := []string{"agents", "diff", "--format", "json"}
 	for _, p := range a.Paths {
-		if p == "" || strings.HasPrefix(p, "-") {
+		if p == "" || strings.HasPrefix(p, "-") || strings.ContainsAny(p, ",\x00") {
 			return nil, fmt.Errorf("diff: path %q is empty or looks like a flag", p)
 		}
 		argv = append(argv, "--path", p)

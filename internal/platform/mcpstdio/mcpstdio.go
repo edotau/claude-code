@@ -41,6 +41,7 @@ type Tool struct {
 type Server struct {
 	Name, Version string
 	Tools         []Tool
+	CancelOnClose bool // cancel in-flight calls when input ends or a write fails, instead of joining them
 }
 
 // rpcRequest is one JSON-RPC 2.0 request. Missing "id" (checked separately) marks a notification.
@@ -148,6 +149,8 @@ func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 
 // Serve bounds concurrent JSON-RPC requests, serializes replies, and joins in-flight work at EOF.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	slots := make(chan struct{}, requestConcurrency)
 	reader := bufio.NewReaderSize(in, readBufferBytes)
 	enc := json.NewEncoder(out)
@@ -161,16 +164,33 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		defer mu.Unlock()
 		if writeErr == nil {
 			writeErr = enc.Encode(resp)
+			if writeErr != nil && s.CancelOnClose {
+				cancel()
+			}
 		}
 	}
-	var readErr error
+	readErr := s.readLoop(ctx, reader, send, slots, &wg)
+	if s.CancelOnClose {
+		cancel()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if writeErr != nil {
+		return writeErr
+	}
+	return readErr
+}
+
+// readLoop launches one call per request line until EOF, a read error or ctx ends; EOF is nil.
+func (s *Server) readLoop(ctx context.Context, reader *bufio.Reader, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) error {
 	for {
 		raw, tooLong, err := readRequestLine(reader)
 		if err != nil {
-			if err != io.EOF {
-				readErr = err
+			if err == io.EOF {
+				return nil
 			}
-			break
+			return err
 		}
 		if tooLong {
 			send(rpcError(nil, rpcParseError, "Parse error: line too long"))
@@ -181,18 +201,10 @@ func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			continue
 		}
 		if !admitRequest(ctx, slots) {
-			readErr = context.Cause(ctx)
-			break
+			return context.Cause(ctx)
 		}
-		s.launch(ctx, req, send, slots, &wg)
+		s.launch(ctx, req, send, slots, wg)
 	}
-	wg.Wait()
-	mu.Lock()
-	defer mu.Unlock()
-	if writeErr != nil {
-		return writeErr
-	}
-	return readErr
 }
 
 func admitRequest(ctx context.Context, slots chan struct{}) bool {

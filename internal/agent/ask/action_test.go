@@ -2,6 +2,7 @@ package ask
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +45,31 @@ func TestActionChildKeepsStderrOutOfAnswer(t *testing.T) {
 }
 
 func TestActionArgvGatewayNeverFallsBack(t *testing.T) {
-	if got := strings.Join(actionArgv("gateway", nil, "", ""), " "); !strings.Contains(got, "--fallback none") {
+	if got := strings.Join(actionArgv("gateway", nil, "", "", ""), " "); !strings.Contains(got, "--fallback none") {
 		t.Errorf("gateway argv %q lacks --fallback none", got)
+	}
+}
+
+// A brief's absolute own path becomes relative to the child's workdir, not the dispatcher's cwd.
+func TestActionArgvWorkdir(t *testing.T) {
+	work := t.TempDir()
+	t.Chdir(t.TempDir())
+	own := []string{filepath.Join(work, "pkg")}
+	for _, action := range []string{"gate", "scope"} {
+		if got := actionArgv(action, own, "", "", work); !strings.HasSuffix(strings.Join(got, " "), "--scope pkg") {
+			t.Errorf("%s argv = %q", action, got)
+		}
+		if err := actionCheck(&askFlags{action: action, actionOwn: own, workdir: work, format: "json"}); err != nil {
+			t.Errorf("%s check: %v", action, err)
+		}
+	}
+}
+
+// worktree gate exits 0 even when red; a missing or nonzero exit field must fail the action.
+func TestRedGate(t *testing.T) {
+	for out, fail := range map[string]bool{`{"exit":0}`: false, `{"exit":7}`: true, `{"exit":null}`: true, `{}`: true} {
+		if err := redGate([]byte(out)); (err != nil) != fail {
+			t.Errorf("redGate(%s) = %v", out, err)
+		}
 	}
 }

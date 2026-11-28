@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -339,6 +340,30 @@ func CallerName() string {
 	id := os.Getenv(paths.SessionIDEnv)
 	for _, e := range readSessionRegistry() {
 		if id != "" && e.SessionID == id {
+			return e.memberName()
+		}
+	}
+	return ""
+}
+
+// AncestorPIDs is this process's pid then its parents', nearest first, capped and cycle-safe.
+func AncestorPIDs() []int {
+	var out []int
+	for p := os.Getpid(); p > 1 && len(out) < 128 && !slices.Contains(out, p); p = proc.Parent(p) {
+		out = append(out, p)
+	}
+	return out
+}
+
+// CallerNameWithin is the registered live session's name below dispatchPID, so an inherited parent session is skipped.
+func CallerNameWithin(dispatchPID int) string {
+	chain := AncestorPIDs()
+	if i := slices.Index(chain, dispatchPID); i >= 0 {
+		chain = chain[:i]
+	}
+	id := os.Getenv(paths.SessionIDEnv)
+	for _, e := range readSessionRegistry() {
+		if id != "" && e.SessionID == id && slices.Contains(chain, e.PID) && proc.Alive(e.PID) && !startChanged(e.PID, e.ProcStart) {
 			return e.memberName()
 		}
 	}

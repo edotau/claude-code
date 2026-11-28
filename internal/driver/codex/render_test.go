@@ -754,3 +754,20 @@ func TestCodexRendersMsgMCPServer(t *testing.T) {
 		})
 	}
 }
+
+func TestHarnessMCPReviewCodexOwnership(t *testing.T) {
+	for _, raw := range []string{
+		"[mcp_servers]\nharness = { command = \"mine\" }\n",
+		"mcp_servers.harness.command = \"mine\"\n",
+		"mcp_servers = { harness = { command = \"mine\" } }\n",
+		"[mcp_servers.harness.env]\nSECRET = \"keep\"\n",
+		"[mcp_servers.'harness']\ncommand = \"mine\"\n",
+	} {
+		if got := codexMsgSection("", raw); got != "" {
+			t.Errorf("added conflicting table to %s: %s", raw, got)
+		}
+	}
+	if got := codexMsgSection("", "[mcp_servers.other]\ncommand = \"keep\"\n"); !strings.Contains(got, "[mcp_servers.harness]") {
+		t.Fatalf("missing harness: %s", got)
+	}
+}

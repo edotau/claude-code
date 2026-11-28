@@ -313,24 +313,32 @@ func renderCopilotMCP(home string, o agentconfig.RenderOptions, out io.Writer) (
 	path := mcpConfigPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "copilot-mcp", func(obj map[string]any, _ bool) bool {
 		servers, ok := obj["mcpServers"].(map[string]any)
-		if raw, set := obj["mcpServers"]; set && !ok && raw != nil {
+		if _, set := obj["mcpServers"]; set && !ok {
 			fmt.Fprintf(out, "copilot-mcp: skipped: %s has a non-object mcpServers\n", path)
 			return false
 		}
 		if servers == nil {
 			servers = map[string]any{}
 		}
-		if cur, ok := servers[MsgMCPName].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != filepath.Base(argv[0]) {
+		if cur, set := servers[MsgMCPName]; set && !sameCopilotMCP(cur, entry) {
 			fmt.Fprintf(out, "copilot-mcp: skipped: %s declares its own %s server\n", path, MsgMCPName)
 			return false
 		}
-		if old, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(old["command"])) == filepath.Base(argv[0]) {
+		legacy := map[string]any{"type": "local", "command": argv[0], "args": []string{"agents", "msg", "--mcp", "--from", "copilot"}, "tools": []string{"*"}}
+		if old, ok := servers["msg"]; ok && sameCopilotMCP(old, legacy) {
 			delete(servers, "msg") // the server's name before it carried more than messages
 		}
 		servers[MsgMCPName] = entry
 		obj["mcpServers"] = servers
 		return true
 	})
+}
+
+// A command basename alone proves no ownership: preserve custom args, fields and malformed entries.
+func sameCopilotMCP(a, b any) bool {
+	x, ex := json.Marshal(a)
+	y, ey := json.Marshal(b)
+	return ex == nil && ey == nil && agentconfig.SameJSONObject(x, y)
 }
 
 var agentEvents = map[string]string{

@@ -415,10 +415,8 @@ func msgFail(err error) int {
 
 // msgSender is --from, else the asked agent of the dispatch it runs in, else the calling Claude session's name.
 func msgSender(from string) (string, int) {
-	if id := os.Getenv(proc.DispatchIDEnv); from == "" && id != "" { // a dispatch inherits its parent's session id
-		if rec, err := agent.LoadRecord(id); err == nil {
-			from = rec.Agent
-		}
+	if rec, ok := msgDispatch(); from == "" && ok {
+		from = cmp.Or(worktree.CallerNameWithin(rec.PID), rec.Agent)
 	}
 	if from == "" {
 		from = worktree.CallerName()
@@ -427,6 +425,15 @@ func msgSender(from string) (string, int) {
 		return "", helptext.FailUsage("agents msg: --from <name> is required outside a Claude session")
 	}
 	return from, 0
+}
+
+// msgDispatch is the env's dispatch only when it runs, is live and is an ancestor; a stale id is ignored.
+func msgDispatch() (agent.Record, bool) {
+	rec, err := agent.LoadRecord(os.Getenv(proc.DispatchIDEnv))
+	if err != nil || rec.Status != "running" || !agent.RecordLive(rec) || !slices.Contains(worktree.AncestorPIDs(), rec.PID) {
+		return agent.Record{}, false
+	}
+	return rec, true
 }
 
 // SendMsg posts text (stdin when "-") and the files to chat as from.
@@ -524,6 +531,19 @@ func msgSendCall(sender string, raw json.RawMessage) (string, error) {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return "", fmt.Errorf("invalid tool arguments: %v", err)
 	}
+	if a.To == ParentChat {
+		if len(a.Files) != 0 {
+			return "", errors.New("parent notes take text, not attachments")
+		}
+		sent, err := worktree.NoteDispatcher(a.Text)
+		if err != nil {
+			return "", err
+		}
+		if !sent {
+			return "no dispatcher to notify", nil
+		}
+		return "parent notified", nil
+	}
 	msg, err := worktree.PostMsg(a.To, sender, a.Text, a.Files)
 	if err != nil {
 		return "", err
@@ -572,7 +592,7 @@ func ServeHarness(from string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	srv := &mcpstdio.Server{Name: "harness", Version: "1.0.0", Tools: tools}
+	srv := &mcpstdio.Server{Name: "harness", Version: "1.0.0", Tools: tools, CancelOnClose: true}
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil && ctx.Err() == nil {
 		return helptext.Fail("agents mcp: %v", err)
 	}

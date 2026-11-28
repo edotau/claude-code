@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -30,7 +31,12 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		return false, fmt.Errorf("gemini-settings: agent settings: %w", err)
 	}
 	if rec.Extras[extraUseGuardRules] == "false" {
-		return false, nil
+		if !legacyGeminiMsg(home) {
+			return false, nil
+		}
+		return agentconfig.CommitJSONObject(agySettingsPath(home), o, out, "gemini-settings", func(obj map[string]any, _ bool) bool {
+			return retireGeminiMsgRules(obj)
+		})
 	}
 	cfg, err := loadAgentConfig()
 	if err != nil {
@@ -38,14 +44,24 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
 	}
 	g := cfg.Guard()
+	allow := slices.Clone(g.Allow)
+	if geminiHarnessAllowed(home) {
+		allow = append(allow, agyMsgAllowRules...)
+	}
 	lists := map[string][]string{
-		"allow": agyGuardRules(append(slices.Clone(g.Allow), agyMsgAllowRules...), home, out),
+		"allow": agyGuardRules(allow, home, out),
 		"ask":   agyGuardRules(g.Ask, home, out),
 		"deny":  agyGuardRules(g.Deny, home, out),
 	}
 	path := agySettingsPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
-		return applyAgySettings(obj, existed, path, lists, g.DefaultMode, out)
+		if !applyAgySettings(obj, existed, path, lists, g.DefaultMode, out) {
+			return false
+		}
+		if legacyGeminiMsg(home) {
+			retireGeminiMsgRules(obj)
+		}
+		return true
 	})
 }
 
@@ -61,20 +77,86 @@ func renderGeminiMCP(home string, o agentconfig.RenderOptions, out io.Writer) (b
 				return false
 			}
 		}
-		if cur, ok := servers["harness"].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != "claude-code" {
+		entry := geminiMCPEntry(false)
+		if cur, set := servers["harness"]; set && !sameGeminiMCP(cur, entry) {
 			fmt.Fprintf(out, "gemini-mcp: skipped: %s declares its own harness server\n", path)
 			return false
 		}
-		if old, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(old["command"])) == "claude-code" {
+		if old, ok := servers["msg"]; ok && sameGeminiMCP(old, geminiMCPEntry(true)) {
 			delete(servers, "msg") // the server's name before it carried more than messages
 		}
-		servers["harness"] = map[string]any{
-			"command": filepath.Join(paths.BinDir(), "claude-code"),
-			"args":    []string{"agents", "mcp", "--from", "gemini"},
-		}
+		servers["harness"] = entry
 		obj["mcpServers"] = servers
 		return true
 	})
+}
+
+func retireGeminiMsgRules(obj map[string]any) bool {
+	perms, ok := agyPermissions(obj)
+	if !ok {
+		return false
+	}
+	allow, ok := perms["allow"].([]any)
+	if !ok {
+		return false
+	}
+	n := len(allow)
+	perms["allow"] = slices.DeleteFunc(allow, func(v any) bool {
+		s, _ := v.(string)
+		return s == "mcp(msg/msg_send)" || s == "mcp(msg/msg_read)" || s == "mcp__msg__msg_send" || s == "mcp__msg__msg_read"
+	})
+	return len(perms["allow"].([]any)) != n
+}
+
+// A preserved user harness server must not gain the harness's automatic grants.
+func geminiHarnessAllowed(home string) bool {
+	raw, existed, err := agentconfig.ReadExisting(agyMCPPath(home))
+	if err != nil {
+		return false
+	}
+	if !existed || len(bytes.TrimSpace(raw)) == 0 {
+		return true
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil || doc == nil {
+		return false
+	}
+	servers, ok := doc["mcpServers"].(map[string]any)
+	if _, set := doc["mcpServers"]; set && !ok {
+		return false
+	}
+	h, set := servers["harness"]
+	return !set || sameGeminiMCP(h, geminiMCPEntry(false))
+}
+
+func geminiMCPEntry(legacy bool) map[string]any {
+	args := []string{"agents", "mcp", "--from", "gemini"}
+	if legacy {
+		args = []string{"agents", "msg", "--mcp", "--from", "gemini"}
+	}
+	return map[string]any{"command": filepath.Join(paths.BinDir(), "claude-code"), "args": args}
+}
+
+func sameGeminiMCP(a, b any) bool {
+	x, ex := json.Marshal(a)
+	y, ey := json.Marshal(b)
+	return ex == nil && ey == nil && agentconfig.SameJSONObject(x, y)
+}
+
+// legacyGeminiMsg is true only for the msg entry we rendered; a user-owned msg grant stays.
+func legacyGeminiMsg(home string) bool {
+	raw, err := os.ReadFile(agyMCPPath(home))
+	var doc struct {
+		Servers map[string]any `json:"mcpServers"`
+	}
+	if err != nil || json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	if h, set := doc.Servers["harness"]; set && !sameGeminiMCP(h, geminiMCPEntry(false)) {
+		return false
+	}
+	old, exists := doc.Servers["msg"]
+	return sameGeminiMCP(old, geminiMCPEntry(true)) || !exists && sameGeminiMCP(doc.Servers["harness"], geminiMCPEntry(false))
 }
 
 // applyAgySettings merges translated allow/ask/deny lists and defaultMode into obj.

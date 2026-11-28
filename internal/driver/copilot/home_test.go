@@ -402,3 +402,60 @@ func renderMCPOnce(t *testing.T, home string) []byte {
 	raw, _ := os.ReadFile(mcpConfigPath(home))
 	return raw
 }
+
+func TestRenderMCPKeepsUserServers(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, server := range []any{nil, "bad", map[string]any{"command": "/custom/claude-code", "args": []string{"custom"}}} {
+		home := t.TempDir()
+		path := mcpConfigPath(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"harness": server, "msg": server}})
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got := renderMCPOnce(t, home); !bytes.Equal(raw, got) {
+			t.Fatalf("user server changed: %s -> %s", raw, got)
+		}
+	}
+	home := t.TempDir()
+	path := mcpConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"mcpServers":{"msg":{"command":"claude-code","args":["user","server"]}}}`)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	first := renderMCPOnce(t, home)
+	var doc struct {
+		Servers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(first, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Servers["msg"] == nil || doc.Servers["harness"] == nil {
+		t.Fatalf("missing servers: %s", first)
+	}
+	if second := renderMCPOnce(t, home); !bytes.Equal(first, second) {
+		t.Fatal("not idempotent")
+	}
+}
+
+func TestRenderMCPLeavesMalformedConfig(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, raw := range []string{`{"mcpServers":null}`, `{"mcpServers":[]}`, `{"mcpServers":`, `null`} {
+		home := t.TempDir()
+		path := mcpConfigPath(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got := renderMCPOnce(t, home); string(got) != raw {
+			t.Fatalf("malformed config changed: %s -> %s", raw, got)
+		}
+	}
+}

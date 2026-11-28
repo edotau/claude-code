@@ -425,9 +425,20 @@ func MCPTableRange(raw []byte, name string) (start, end int) {
 	return start, len(raw)
 }
 
+// codexHasHarness is true for any harness spelling (inline or dotted), so no conflicting table is added.
+func codexHasHarness(raw string) bool {
+	if start, _ := MCPTableRange([]byte(raw), "harness"); start >= 0 {
+		return true
+	}
+	key := `(?:mcp_servers|"mcp_servers"|'mcp_servers')`
+	harness := `(?:harness|"harness"|'harness')`
+	re := regexp.MustCompile(`(?m)^\s*(?:\[\s*` + key + `\s*(?:\]|\.\s*` + harness + `(?:\s*\.|\s*\]))|` + key + `\s*(?:=|\.\s*` + harness + `(?:\s*\.|\s*=)))`)
+	return re.MatchString(raw)
+}
+
 // codexMsgSection adds the harness MCP server (agents mcp) to the managed section unless the owner declared one.
 func codexMsgSection(section, stripped string) string {
-	if start, _ := MCPTableRange([]byte(stripped), "harness"); start >= 0 {
+	if codexHasHarness(stripped) {
 		return section
 	}
 	bin := filepath.Join(paths.BinDir(), "claude-code")
