@@ -82,8 +82,28 @@ func matchesDispatchTitle(s Session, l Dispatch) bool {
 		strings.HasPrefix(textutil.OneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
 }
 
+const reapStampFile = ".reap.stamp"
+
+var reapCooldown = 30 * time.Second
+
+// reapDue gates silent background reaps behind a stamp file so short-lived CLI calls exit without scanning.
+func reapDue(dir string) bool {
+	stamp := filepath.Join(dir, reapStampFile)
+	if reapCooldown > 0 {
+		if fi, err := os.Stat(stamp); err == nil && time.Since(fi.ModTime()) < reapCooldown {
+			return false
+		}
+	}
+	_ = os.MkdirAll(dir, 0o700)
+	_ = os.WriteFile(stamp, nil, 0o600)
+	return true
+}
+
 // Reap errors out lost running dispatches, removes dead inflight markers, stops orphaned children; dryRun only prints.
 func Reap(dryRun bool, out, errw io.Writer) int {
+	if !dryRun && out == io.Discard && !reapDue(paths.DispatchDir()) {
+		return 0
+	}
 	verb := "reaped"
 	if dryRun {
 		verb = "would reap"

@@ -149,9 +149,10 @@ func TestAncestryUnregisteredParentFailsClosed(t *testing.T) {
 // The ancestry walk decodes only records whose pid is in the chain and caches every pid in .children.idx.
 func TestAncestryRecordsUseChildIndex(t *testing.T) {
 	setConfigDir(t)
-	mine := Record{ID: "mine", Agent: "claude", PID: os.Getpid(), Status: "done", Time: time.Now()}
+	mine := Record{ID: "mine", Agent: "claude", PID: os.Getpid(), Status: "running", Time: time.Now()}
 	other := Record{ID: "other", Agent: "claude", PID: os.Getpid() + 1, Status: "running", Time: time.Now()}
-	for _, rec := range []Record{mine, other} {
+	done := Record{ID: "done", Agent: "claude", PID: os.Getpid() + 2, Status: "done", Time: time.Now()}
+	for _, rec := range []Record{mine, other, done} {
 		if err := rec.Save(); err != nil {
 			t.Fatal(err)
 		}
@@ -447,5 +448,58 @@ func TestReplayOverlayRejectsUnregisteredLegacyEndpoint(t *testing.T) {
 	rec := Record{Request: RunOptions{Route: route.Route{Provider: "databricks", Profile: "dev", Endpoint: "https://unregistered.example"}}}
 	if _, _, err := rec.ReplayOverlay(nil, agentconfig.Overlay{}); err == nil {
 		t.Fatal("legacy replay bypassed the registry endpoint check")
+	}
+}
+
+func TestScanAncestorsSkipsHistoricalWhenActiveIndexed(t *testing.T) {
+	setConfigDir(t)
+	live := Record{ID: "live", Agent: "claude", PID: os.Getpid(), Status: "running", Time: time.Now()}
+	hist := Record{ID: "hist", Agent: "claude", PID: os.Getpid() + 1, Status: "ok", Time: time.Now()}
+	for _, r := range []Record{live, hist} {
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := paths.DispatchDir()
+	next, recs, _ := scanAncestors(dir, map[int]int{live.PID: 0})
+	if len(recs) != 1 || recs[0].ID != live.ID || len(next) != 1 {
+		t.Fatalf("active-indexed scan = %v, recs=%+v; want only live", next, recs)
+	}
+	_ = os.RemoveAll(activeDir(dir))
+	next, recs, _ = scanAncestors(dir, map[int]int{hist.PID: 0})
+	if len(recs) != 1 || recs[0].ID != hist.ID || len(next) != 2 {
+		t.Fatalf("fallback scan = %v, recs=%+v; want both records", next, recs)
+	}
+}
+
+func TestPruneThrottledByStampCooldown(t *testing.T) {
+	setConfigDir(t)
+	oldKeep, oldCool := dispatchKeep, pruneCooldown
+	dispatchKeep, pruneCooldown = 1, 10*time.Minute
+	t.Cleanup(func() { dispatchKeep, pruneCooldown = oldKeep, oldCool })
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	total := dispatchKeep + dispatchPruneMargin + 2
+	for i := range total {
+		r := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Minute))
+		r.Status = "ok"
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := paths.DispatchDir()
+	if names, _ := recordNames(dir); len(names) != total {
+		t.Fatalf("cooldown active: got %d records, want %d unpruned", len(names), total)
+	}
+	past := time.Now().Add(-11 * time.Minute)
+	if err := os.Chtimes(filepath.Join(dir, pruneStampFile), past, past); err != nil {
+		t.Fatal(err)
+	}
+	last := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Hour))
+	last.Status = "ok"
+	if err := last.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := recordNames(dir); len(names) != dispatchKeep {
+		t.Fatalf("expired stamp: got %d records, want %d", len(names), dispatchKeep)
 	}
 }

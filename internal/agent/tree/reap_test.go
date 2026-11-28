@@ -587,3 +587,34 @@ func TestReapReconcilesActiveIndex(t *testing.T) {
 		t.Fatalf("Reap did not remove ghost marker: %v", err)
 	}
 }
+
+func TestReapSilentStampCooldown(t *testing.T) {
+	reapSocketConfig(t)
+	oldCool := reapCooldown
+	reapCooldown = 30 * time.Second
+	t.Cleanup(func() { reapCooldown = oldCool })
+	if code := Reap(false, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("initial silent Reap = %d", code)
+	}
+	sock := filepath.Join(paths.DispatchDir(), "orphan.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := Reap(false, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("throttled silent Reap = %d", code)
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("throttled silent Reap removed socket during cooldown: %v", err)
+	}
+	past := time.Now().Add(-time.Minute)
+	stamp := filepath.Join(paths.DispatchDir(), reapStampFile)
+	if err := os.Chtimes(stamp, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if code := Reap(false, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("expired-stamp silent Reap = %d", code)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Fatalf("silent Reap after cooldown did not remove socket: %v", err)
+	}
+}

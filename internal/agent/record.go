@@ -532,9 +532,29 @@ func (r Record) saveLocked() error {
 	noteActiveGen()
 	syncActiveMarker(dir, r.ID, r.Status == "running")
 	if errors.Is(readErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
-		pruneDispatches(dir, r.ID)
+		pruneThrottled(dir, r.ID)
 	}
 	return nil
+}
+
+const pruneStampFile = ".prune.stamp"
+
+var pruneCooldown = 10 * time.Minute
+
+// pruneThrottled gates pruneDispatches behind a stamp file so rapid saves skip full directory scans.
+func pruneThrottled(dir string, keep ...string) {
+	stamp := filepath.Join(dir, pruneStampFile)
+	if pruneCooldown > 0 {
+		if fi, err := os.Stat(stamp); err == nil && time.Since(fi.ModTime()) < pruneCooldown {
+			return
+		}
+	}
+	indexed := activeIndexValid(dir)
+	_ = os.WriteFile(stamp, nil, 0o600)
+	pruneDispatches(dir, keep...)
+	if indexed {
+		touchActiveIndexed(dir)
+	}
 }
 
 // activeDir is the sidecar directory holding one marker file per running dispatch record.
@@ -750,7 +770,7 @@ func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	rec.Finish(res, err, 0)
 	rec.Attempts = res.Hops // Finish keeps attempts only past one hop
 	claimRecord(rec)        // the one write is concluded; a failed claim leaves nothing behind
-	pruneDispatches(paths.DispatchDir(), rec.ID)
+	pruneThrottled(paths.DispatchDir(), rec.ID)
 }
 
 // failKind: cancelled on request, policy for pre-start refusals, availability when no model answered, else quality.
@@ -799,7 +819,7 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 		notify(fmt.Sprintf("dispatch %s record not saved: %v", r.ID, serr))
 	}
 	r.warnCutoff(notify)
-	pruneDispatches(paths.DispatchDir(), r.ID) // claimRecord pre-creates the file, so Save never sees a new record
+	pruneThrottled(paths.DispatchDir(), r.ID)
 }
 
 // activeRecord keeps a live dispatch (see Record.Alive) and any record it cannot read out of the prune.
@@ -1094,6 +1114,7 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	var rec Record
 	if jobRec != nil {
 		rec = *jobRec
+		rec.Request.Prompt = req.Prompt
 	} else {
 		rec = NewRecord(name, req, time.Now())
 		rec.Role = string(dispatchRole(ctx, req.Prompt))

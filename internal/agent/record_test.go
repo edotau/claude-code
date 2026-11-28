@@ -26,12 +26,12 @@ import (
 	"github.com/edotau/claude-code/internal/platform/schemas"
 )
 
-// keep sets dispatchKeep to n for the test.
+// keep sets dispatchKeep to n for the test and disables the prune stamp cooldown.
 func keep(t *testing.T, n int) {
 	t.Helper()
-	old := dispatchKeep
-	dispatchKeep = n
-	t.Cleanup(func() { dispatchKeep = old })
+	old, oldCool := dispatchKeep, pruneCooldown
+	dispatchKeep, pruneCooldown = n, 0
+	t.Cleanup(func() { dispatchKeep, pruneCooldown = old, oldCool })
 }
 
 // A record saves as running, finishes with its outcome, loads by prefix, and the log prunes the oldest.

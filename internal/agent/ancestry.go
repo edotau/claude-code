@@ -111,7 +111,7 @@ func ancestorRecords(dir string, chain map[int]int) []Record {
 // scanAncestors is the index with every record's pid and the records whose pid is in chain, decoding only those.
 func scanAncestors(dir string, chain map[int]int) (map[string]childEntry, []Record, bool) {
 	old := readChildIndex(dir)
-	names, _ := recordNames(dir) // unreadable records fail open, like dispatch history
+	names := ancestorRecordNames(dir)
 	next := make(map[string]childEntry, len(names))
 	changed := false
 	var recs []Record
@@ -128,6 +128,21 @@ func scanAncestors(dir string, chain map[int]int) (map[string]childEntry, []Reco
 		}
 	}
 	return next, recs, changed
+}
+
+// ancestorRecordNames lists running sidecar markers first, falling back to dir only when active/ is unreadable.
+func ancestorRecordNames(dir string) []string {
+	if entries, err := os.ReadDir(activeDir(dir)); err == nil {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".json") {
+				names = append(names, e.Name())
+			}
+		}
+		return names
+	}
+	names, _ := recordNames(dir)
+	return names
 }
 
 func readChildIndex(dir string) map[string]childEntry {
