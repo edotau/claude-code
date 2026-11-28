@@ -1,7 +1,9 @@
 package ask
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/driver/gemini"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
@@ -51,6 +54,9 @@ func VSCode(name string, here bool, args []string) int {
 		return helptext.FailUsage("%v", err)
 	}
 	if !opts.ProfileFlag && opts.Overlay == "" { // first party by design: no route, no pin
+		if codeArgs, err = vsCodeWorkspaces(codeArgs, vault.OwnLoginProfiles[name], opts.PrintEnv); err != nil {
+			return helptext.Fail("%s vscode: %v", name, err)
+		}
 		return vsCodeFirstParty(name, codeArgs, opts.PrintEnv)
 	}
 	return vsCodeRouted(name, here, args, opts, codeArgs)
@@ -59,6 +65,9 @@ func VSCode(name string, here bool, args []string) int {
 // vsCodeRouted opens VS Code on the typed route: a new window when it runs, else a detached start that becomes it.
 func vsCodeRouted(name string, here bool, args []string, opts agent.LaunchOptions, codeArgs []string) int {
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, nil)
+	if err == nil {
+		codeArgs, err = vsCodeWorkspaces(codeArgs, plan.Profile, opts.PrintEnv)
+	}
 	if err != nil {
 		return helptext.Fail("%s vscode: %v", name, err)
 	}
@@ -98,6 +107,28 @@ func vsCodeWindow(plan *agent.Plan, main int, dry bool, codeArgs []string) error
 	plan.Binary = filepath.Join(vsCodeApp, "Contents", "Resources", "app", "bin", "code")
 	plan.Argv = append([]string{"--new-window"}, codeArgs...)
 	return nil
+}
+
+// vsCodeWorkspaces swaps each folder for a per-route workspace file: VS Code gives an open folder one window only.
+func vsCodeWorkspaces(codeArgs []string, route string, dry bool) ([]string, error) {
+	out := slices.Clone(codeArgs)
+	for i, a := range out {
+		abs, err := filepath.Abs(a)
+		if st, serr := os.Stat(abs); err != nil || serr != nil || !st.IsDir() {
+			continue // a file, flag or missing path goes to VS Code as typed
+		}
+		dir := filepath.Join(paths.StateDir(), "vscode", textutil.SHA256Hex([]byte(abs))[:12]) // one per folder
+		ws := filepath.Join(dir, strings.TrimPrefix(filepath.Base(abs), ".")+"-"+route+".code-workspace")
+		doc, err := json.Marshal(map[string]any{"folders": []map[string]string{{"path": abs}}})
+		if err == nil && !dry {
+			err = cmp.Or(os.MkdirAll(dir, 0o700), paths.AtomicWrite(ws, doc, 0o600))
+		}
+		if err != nil {
+			return nil, err
+		}
+		out[i] = ws
+	}
+	return out, nil
 }
 
 // vsCodeMain is the running VS Code's main process id, 0 when VS Code is not running (pgrep misses it on macOS).
