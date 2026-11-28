@@ -111,3 +111,6 @@ dev-mods/
 
 # settings.WriteWithBackup lock beside settings.json
 /settings.json.lock
+
+# local, unversioned helper scripts (scripts/jev: the Jev trainer and its tool installer)
+/scripts/
