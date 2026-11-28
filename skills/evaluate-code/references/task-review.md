@@ -1,7 +1,7 @@
 # Task-brief review — vet a request before implementation
 
 Read-only: refine the request, never implement. Run in main, `Plan`, or
-`claude-code agents ask --overlay '{"agent":"codex"}'`; `rules/workflows/master-workflow.md` phases 1 and 4.
+`claude-code agents ask --overlay '{"agent":"codex"}'`; `rules/harness/workflow-tree.md` → Workflow, phases 1 and 4.
 Input: request, CLAUDE.md, `rtk git status --short`, `rtk git diff --stat`.
 Verdicts: `../SKILL.md` → Verdicts.
 

@@ -40,7 +40,7 @@ copilot's models too.
 ## Owns
 
 - **Test repair** — briefs name `rules/standards/testing-guidelines.md` → TEST; a regression is reported, never greened.
-- **Authorized landings** — briefs name `rules/standards/worktree-git.md` → LAST-MILE.
+- **Authorized landings** — briefs name `rules/harness/workflow-tree.md` → LAST-MILE.
 - **Mechanical edits and diff review** in the files and scope the brief names.
 
 ## Procedure

@@ -1,6 +1,6 @@
 # Shared-Checkout Coordination
 
-Policy: [Git and Worktrees](../../../rules/standards/worktree-git.md#worktrees).
+Policy: [Git and Worktrees](../../../rules/harness/workflow-tree.md#worktrees).
 
 ## Claims are warnings, not isolation
 
@@ -19,7 +19,7 @@ uncommitted dependencies (verification procedure: the standard's LAST-MILE).
 
 Conflict notices go to the session recorded in the lane ledger; `worktree-busy` and `worktree-claim-check`
 drain them. Read the notices and actual diff; never infer collection or landing from a leaf's completion.
-Collection: `rules/standards/worktree-git.md` → Worktrees.
+Collection: `rules/harness/workflow-tree.md` → Worktrees.
 
 ## Registry coordination is policy
 

@@ -16,7 +16,7 @@ wave owns overlapping work.
 - The manager sends ready, disjoint leaves together, with a complete brief per `prompts.md`; each owns one checklist
   line. New tests wait for the manager's live check; repairs of existing tests may run beside implementation.
 - Fan-in: `../SKILL.md` → Fan-in.
-- Collection, landing and commit authority: `rules/standards/worktree-git.md` → Worktrees.
+- Collection, landing and commit authority: `rules/harness/workflow-tree.md` → Worktrees.
   Record checked results without a hash when commits are held; add the resulting hash only after an authorized commit.
 
 Explicitly requested batch scripts use `claude-code agents ask --batch` per its help. They do not bypass ownership,
@@ -35,7 +35,7 @@ A fleet leaf stays terminal; use the validation and commit rules in `../SKILL.md
 Main plans waves, dispatches, decides and integrates:
 
 1. Dispatch each row when its dependencies and owned files are free; refill after every hand-back.
-2. Collect completed work through `rules/standards/worktree-git.md` → Worktrees; fan-in does not start a lane review.
+2. Collect completed work through `rules/harness/workflow-tree.md` → Worktrees; fan-in does not start a lane review.
 3. Fix reported defects within the owner's priority; main handles what a leaf could not fix (R25, R28).
 4. Act on routine decisions and record `DECISION:`; approval boundaries remain in `rules/standards/principles.md`.
 5. Give briefs verified context, a line cap and the matching test files; another package's test file is allowed

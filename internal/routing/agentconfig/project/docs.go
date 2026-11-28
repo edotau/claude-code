@@ -72,7 +72,6 @@ var externalDrops = []externalDrop{
 	{file: "CLAUDE.md", linePrefix: "Injected into **every** session"},
 	{file: "CLAUDE.md", linePrefix: "Depth lives elsewhere:"},
 	{file: "quality.md", heading: "## Simplify — the gate behind `skills/simplify`"},
-	{file: "worktree-git.md", heading: "## Worktrees"},
 }
 
 // dropForExternal removes the externalDrops entries for the file at path from body; absent entries are skipped.

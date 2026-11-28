@@ -7,7 +7,7 @@ description: >-
 
 # Using Git Worktrees
 
-Tree selection and lifecycle: [Git and Worktrees](../../rules/standards/worktree-git.md#worktrees).
+Tree selection and lifecycle: [Git and Worktrees](../../rules/harness/workflow-tree.md#worktrees).
 
 ## Verbs
 
@@ -33,7 +33,7 @@ worktrees are not reseeded. Implementation: `internal/dev/worktree/{seed,venvove
 
 ## The lane protocol
 
-Follow [Worktrees](../../rules/standards/worktree-git.md#worktrees) for creation, collection and commit authorization.
+Follow [Worktrees](../../rules/harness/workflow-tree.md#worktrees) for creation, collection and commit authorization.
 
 Current `collapse` cherry-picks lane commits and runs build/vet, not tests. It removes only a fully collected,
 unchanged, clean, idle lane; inspect any retained lane before cleanup. A failed pick is rolled back in the collector.

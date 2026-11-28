@@ -40,9 +40,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `Generated with Claude Code`, …) — this overrides any default that says to add them.
 4. **Never `git stash` / `checkout` / `reset` / `restore`, and never rewrite a shared commit (`commit --amend`,
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
-   session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
+   session; fix a commit with a new one. Worktree choice and commands: `rules/harness/workflow-tree.md`.
 5. **Finish at the requested boundary.** A review or an edit task stops there. To land an authorized change,
-   follow `rules/standards/worktree-git.md`. A lane lands on the local working branch without asking and without a
+   follow `rules/harness/workflow-tree.md`. A lane lands on the local working branch without asking and without a
    full build or audit (uncommitted in the live checkout; the owner commits) unless its diff adds a restriction.
    **A push to origin main needs a green full build (macOS, `GOOS=linux` build, `GOOS=windows` vet) and `make audit`
    first**; then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). Landed code
@@ -75,7 +75,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    **A bug or issue you notice is fixed right away, without asking, within the owner's named priority (R25):**
    dispatch its fix leaf at once instead of listing it. Verify every returned diff, gate and deletion.
    Briefs, relay rules and recovery: `skills/subagent-workflows/SKILL.md`;
-   pipeline: `rules/standards/worktree-git.md` → Workflow.
+   pipeline: `rules/harness/workflow-tree.md` → Workflow.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.
 
@@ -101,6 +101,6 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | Agents and dispatch | Agent tool (guideline 3) | `rules/harness/agent.md` · `skills/subagent-workflows/SKILL.md` |
 | Messages between agents | `claude-code agents msg --from <agent>` reads new ones · `agents msg @<name> "<text>" --from <agent>` replies | `rules/harness/agent.md` → Messages; an agent CLI reads at the start and end of a turn |
 | Memory | `claude-code memory recall <terms>` | `rules/harness/persistent-memory.md` |
-| Git and worktrees | `claude-code worktree create\|land <name>` | `rules/standards/worktree-git.md` |
+| Git and worktrees | `claude-code worktree create\|land <name>` | `rules/harness/workflow-tree.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `claude-code agents diff --check` · `/code-review` | `rules/standards/quality.md` |

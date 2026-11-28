@@ -28,7 +28,7 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 ## Several worktrees: collapse, then test once
 
 Here n counts lanes in a parallel wave.
-Tree selection, commits, collection, landing and cleanup: `worktree-git.md` → Worktrees.
+Tree selection, commits, collection, landing and cleanup: `rules/harness/workflow-tree.md` → Worktrees.
 
 Before hand-back, a subagent validates only its owned work, cheaply:
 

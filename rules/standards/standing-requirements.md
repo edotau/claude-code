@@ -23,7 +23,7 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R8 Typed model:** no silent swaps; unserved models fail with nearest ids; reports name the model. Enforced by
   `unservedError`; retry policy remains prose.
 - **R9 Memory recall:** every brief carries recall. Enforced by `dispatch-effort` and ask's `withRecall`.
-- **R10 File-blocked:** when 2+ tasks wait on one file, propose a lane; `worktree-git.md`.
+- **R10 File-blocked:** when 2+ tasks wait on one file, propose a lane; `rules/harness/workflow-tree.md`.
 - **R11 make:** leaf targets/checks follow `quality.md`: lint, scoped diff checks, audit/install/fmt/build/verify/
   bootstrap and fixing `lint-<kind>` in the harness tree.
 - **R12 Dispatch time:** `timeout` is wall time, 45m default, no maximum; a run with no stream event and no token
@@ -55,7 +55,7 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
   at the head (owner, 2026-11-28). A push to origin needs a green full build and `make audit` first, then Mac
   install/live check; WSL follows R19. Landed code may be imperfect: sessions tell each other over `agents msg` what
   broke, agree who takes the fix and keep moving; this is coordination, not a gate. Added restrictions wait for
-  approval (`CLAUDE.md`, `worktree-git.md`).
+  approval (`CLAUDE.md`, `rules/harness/workflow-tree.md`).
 - **R24 Fast tier:** builds/gates, predetermined edits and renames/moves use `Tier: fast` and overlay `model:auto`
   (exclude Codex on Databricks); judgment stays standard/deep (R5). Enforced by `fastTask`.
 - **R25 Fix as found:** fix bugs, diagnostics, dead code and stale docs now within the owner's priority; no asks or
@@ -75,7 +75,7 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R30 No agent policy:** dispatched agents and memory jobs carry no permission policy; only `safety-scan` applies
   (`agent.md` → Dispatch behavior).
 - **R31 Land on completion:** finished lanes land locally uncommitted or queue for main. Enforced by `lane-land`;
-  `worktree-git.md` → Worktrees.
+  `rules/harness/workflow-tree.md` → Worktrees.
 - **R33 Peer coordination:** message holders of needed files/plans/areas immediately (`ListAgents`, `SendMessage`),
   record holdings/landing times in the plan, work free areas, and re-check after their estimate. Never idle on peers
   or edit files they hold.

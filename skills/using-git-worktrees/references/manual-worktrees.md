@@ -3,7 +3,7 @@
 Harness verbs, seeding, landing and refusals: [the skill](../SKILL.md#verbs).
 This reference is for repositories where those verbs do not apply. The recommendations below are **prose**, not
 harness hook enforcement; Git's own checks are named where relevant. Authorization and shared-history policy:
-[Git and Worktrees](../../../rules/standards/worktree-git.md#worktrees).
+[Git and Worktrees](../../../rules/harness/workflow-tree.md#worktrees).
 
 ## Create outside the checkout
 

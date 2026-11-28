@@ -38,13 +38,13 @@ reporting.
 
 **Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
 new file and reports its API surface; the manager makes the integration edit and owns decisions. Leaves remain
-terminal (an external `ask` is allowed). Commit authority: `rules/standards/worktree-git.md` → Worktrees.
+terminal (an external `ask` is allowed). Commit authority: `rules/harness/workflow-tree.md` → Worktrees.
 
 ## Every brief adds
 
 ```text
 Agent: <in-context | pi (default for code leaves) | work agent matching the selected leaf type>
-Shared tree: follow CLAUDE.md hard rule 4 and rules/standards/worktree-git.md.
+Shared tree: follow CLAUDE.md hard rule 4 and rules/harness/workflow-tree.md.
 Confirm each write with `rtk git diff --stat -- <file>`.
 Terminal leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree: fix the side the spec

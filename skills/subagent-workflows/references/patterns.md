@@ -31,7 +31,7 @@ scope: find -> merge findings -> rederive blind -> fix -> repair affected tests 
 task -> size -> repair | audit | evaluate | plan
 ```
 
-- Tiers follow `rules/workflows/master-workflow.md` Phase 0.
+- Tiers follow `rules/harness/workflow-tree.md` → Workflow.
 - Specialists by model alias: Haiku sizes, gates and records; Sonnet finds, fixes and tests; `opus`/`fable` for
   planning, security, architecture and judgment calls.
 
@@ -60,7 +60,7 @@ main -> explore -> plan -> parallel leaves -> collector -> sign-off
   `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once.
 - Tournament: baseline the evaluation, send the same brief to each candidate, then re-measure the results.
   A tie is not a win. Preserve losing work for the owner's decision; integrate the winner through the collector.
-  Tree selection and cleanup: `rules/standards/worktree-git.md` → Worktrees.
+  Tree selection and cleanup: `rules/harness/workflow-tree.md` → Worktrees.
 
 ### Not used
 

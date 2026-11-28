@@ -26,8 +26,8 @@ silently make one match the other.
 ("fix the code", "make the tests pass", "get CI green") is not a statement of intended behavior and does not promote
 the tests above the spec.
 
-> The code changed one line; the task wanted a typo fixed, and `rules/workflows/master-workflow.md` defines TRIVIAL as
-> a single-line fix — so the two agreed and I made the edit.
+> The code changed one line; the task wanted a typo fixed, and `rules/harness/workflow-tree.md` → Workflow defines
+> TRIVIAL as a single-line fix — so the two agreed and I made the edit.
 
 ## AUTH — before an irreversible or outward-facing action
 

@@ -68,7 +68,7 @@ substitute an agent or manufacture a receipt. Hook gates: [hook-details.md](refe
 
 ### Phase 0: intake and triage
 
-Tier in `rules/workflows/master-workflow.md` → Phase 0 picks the shape; a one-line edit runs inline.
+Tier in `rules/harness/workflow-tree.md` → Workflow picks the shape; a one-line edit runs inline.
 
 | Shape | Do |
 | --- | --- |
@@ -92,14 +92,14 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
 - **Report (out):** ≤8-line verdict (`DONE` · `DONE_WITH_CONCERNS` · `NEEDS_CONTEXT` · `BLOCKED` or review verdict),
   `Ran on:` receipt (`self` only for in-context), per-item outcome, gate results, decisions needed, and report path
   `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`. Scratch only under `/tmp/<job>/`, removed before hand-back.
-- **Ownership:** one writer per file; leaves stay terminal; commit authority: `rules/standards/worktree-git.md` →
+- **Ownership:** one writer per file; leaves stay terminal; commit authority: `rules/harness/workflow-tree.md` →
   Worktrees.
 
 ### Phase 2: dispatch — Concurrency, Dispatch workflow (R32) and Owner layer
 
 - **Concurrency:** cap in `rules/harness/hooks.md`. Dispatch every unblocked task and refill on each hand-back,
   spreading leaves across Databricks profiles (R20) and vendor CLIs.
-- **Dispatch workflow (R32):** tree selection/collection in `rules/standards/worktree-git.md` → Worktrees; validation
+- **Dispatch workflow (R32):** tree selection/collection in `rules/harness/workflow-tree.md` → Worktrees; validation
   in `rules/standards/testing-guidelines.md` → Several worktrees: collapse, then test once. Pi/external agents
   implement and fix; Claude verifies cheap checks; main integrates. Reviewer family differs from author's (R6); review
   loop: `rules/standards/quality.md` → Completion.
@@ -113,7 +113,7 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
 
 - **Fan-in:** treat reports as claims — inspect diff, removed-code callers, ownership and producer/consumer seams.
   Simplify once over the merged diff before the shared other-family review.
-- **Landing & finish:** follow `rules/standards/worktree-git.md` → Worktrees, `skills/using-git-worktrees/SKILL.md` →
+- **Landing & finish:** follow `rules/harness/workflow-tree.md` → Worktrees, `skills/using-git-worktrees/SKILL.md` →
   The lane protocol, and `rules/standards/quality.md`. Send gaps to a still-running owner; never relaunch a
   user-stopped leaf; a budget-ended task gets a narrower new task, not a resend (R34). Plan ticks/strikes:
   `rules/standards/standing-requirements.md` → R1 and R2.

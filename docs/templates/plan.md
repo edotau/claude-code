@@ -117,7 +117,7 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 — one package (or ≤3 tightly coupled files), ≤10 findings or edits, fits one 45-minute leaf — and names its `leaf:` (a
 `subagent_type`, `claude` for MEDIUM+ changes), `Agent:` (requested agent or in-context) and `owns:` files
 (`skills/subagent-workflows/SKILL.md` -> Leaf types). A commit names its task with `worktree commit --task <id>`
-(ticking rules: `rules/standards/worktree-git.md`; name a task only on its last commit).
+(ticking rules: `rules/harness/workflow-tree.md`; name a task only on its last commit).
 Start with a repo path; later entries may abbreviate against the previous one: a bare name sits in its
 directory, `<dir>/<file>` drops the shared leading part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 `- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/cli.go`

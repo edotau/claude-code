@@ -37,7 +37,7 @@ var (
 	laneSerialWait   = time.Hour // another lane's judgement or promotion runs first, never concurrently
 )
 
-// laneResolveWith settles a rebase conflict in the lane (worktree-git.md → Land on completion).
+// laneResolveWith settles a rebase conflict in the lane (workflow-tree.md → Land on completion).
 const laneResolveWith = "pi"
 
 // laneUnfinished is the verdict of a run that never showed it finished: queue it, never land it.

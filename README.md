@@ -74,7 +74,7 @@ Safety). Batches, retries, remote hosts and reviews: `claude-code agents ask -h`
 [`rules/harness/agent.md`](rules/harness/agent.md). Examples:
 [`skills/subagent-workflows/references/agent-verbs.md`](skills/subagent-workflows/references/agent-verbs.md).
 In-session fan-out:
-[`rules/standards/worktree-git.md`](rules/standards/worktree-git.md) → Workflow.
+[`rules/harness/workflow-tree.md`](rules/harness/workflow-tree.md) → Workflow.
 
 ## Providers and credentials
 
@@ -93,7 +93,7 @@ The guards are Claude Code hooks (`internal/hooks/safety/`, `internal/hooks/wtho
 other agent CLIs (`internal/agent/`). "Main" is the interactive session you drive; a "leaf" is a dispatched agent or
 subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-message rules, see
-[`rules/standards/worktree-git.md`](rules/standards/worktree-git.md).
+[`rules/harness/workflow-tree.md`](rules/harness/workflow-tree.md).
 
 | Situation | What happens | Applies to |
 | --- | --- | --- |

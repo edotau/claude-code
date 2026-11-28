@@ -139,7 +139,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 - **docs-plan — one module on PostToolUse `Write|Edit|ExitPlanMode|Bash` (Bash async) and Stop**, by the tool it gets:
   Write/Edit mirrors to a dated repo-tagged file from first write (slug from Suggested slug or H1, shared lock);
   ExitPlanMode files the approved text, adds a missing checklist, verifies and removes the draft; Bash ticks commits per
-  `worktree-git.md` rule 3. Verify in scratch; red stays open; coverage never ticks.
+  `workflow-tree.md` rule 3. Verify in scratch; red stays open; coverage never ticks.
   Ready tasks get context, never a block. Autofill claims ready briefs while slots remain and sends one detached
   ask batch through overlay at sonnet tier (R35); `HARNESS_AUTOFILL=off` stops it. Its Stop slot hosts the watchdog.
 - **memory-update — Stop:** never blocks; detached update plus handoff at `HARNESS_CONTEXT_STEWARD_PCT` (default 75,
@@ -183,7 +183,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   leaf or job finishes and queues it: ready (finished, `UNFIXED: none`, no safety/hookspec/settings path) or held
   with its reason (a cut-off job names `agents ask --retry <id> --recover --runner pi|cli`). It never touches the live
   checkout; every prompt lists queued lanes with their
-  `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `worktree-git.md` → Worktrees.
+  `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `workflow-tree.md` → Worktrees.
 
 **dispatch-effort and spawn mod:** `harness_spawn:ready` plus session id marks readiness; query computes changed
 description/prompt/type/model without claims or recall. With the marker, pretools only emit recall, while required

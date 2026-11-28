@@ -42,7 +42,7 @@ a writable tier (never `CLAUDE.md`, `rules/harness/`).
 | Architecture insight | `~/.claude/memory/decisionLog.md` | Dated entry, newest first |
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
-| Git/commit/worktree pattern | `rules/standards/worktree-git.md` | Conventional commits, branch/PR workflow |
+| Git/commit/worktree pattern | `rules/harness/workflow-tree.md` | Conventional commits, branch/PR workflow |
 | Docs/communication pattern | `rules/harness/documentation.md` or `rules/standards/principles.md` | Markdown/living-docs, or response style |
 | Model-selection insight | `rules/harness/providers.md` | Model selection |
 | Session-learned fact | `~/.claude/memory/<topic>.md` (+ `MEMORY.md` TOC entry; root from `claude-code memory path`) | Appropriate topic |

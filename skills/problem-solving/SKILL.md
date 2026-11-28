@@ -25,7 +25,7 @@ only the facts `TASK:`, `AUTH:`, `ISSUE:`, `PENDING:` stand for, as plain prose,
 | Done criteria, gate chain, claim discipline | `references/verify.md` |
 | Acting on review feedback | `references/feedback.md` |
 | Plan artifact, task breakdown | `Plan` agent (`agents/Plan.md`) |
-| Scope tiering (TRIVIAL→EPIC) | `rules/workflows/master-workflow.md` |
+| Scope tiering (TRIVIAL→EPIC) | `rules/harness/workflow-tree.md` → Workflow |
 | Detectors over a plan | `claude-code plan goals\|assumptions` |
 
 ## Usage
