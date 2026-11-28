@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/vault"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/proxyteam"
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/providers"
 )
 
@@ -244,4 +245,17 @@ func proxyListenerChecks(ctx context.Context) []check {
 		rows[i] = check{Name: "proxy listener", OK: l.Current, Detail: detail}
 	}
 	return rows
+}
+
+// jevRow is the Open-Jev classifier server: up with the model it reports, off, or a soft ✗ when down.
+func jevRow(ctx context.Context) check {
+	state, target, model := jev.Server(ctx)
+	parts := []string{state}
+	if state != "off" {
+		parts = append(parts, target)
+	}
+	if model != "" {
+		parts = append(parts, model)
+	}
+	return check{Name: "jev", OK: state != "down", Detail: strings.Join(parts, " · ") + " (claude-code gateway jev)"}
 }

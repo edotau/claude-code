@@ -67,7 +67,8 @@ type PassState struct {
 type Status struct {
 	Server  string      `json:"server"` // up, down or off
 	URL     string      `json:"url"`
-	State   string      `json:"state"` // running, complete or not running
+	Model   string      `json:"model,omitempty"` // what the server says it serves
+	State   string      `json:"state"`           // running, complete or not running
 	PID     int         `json:"pid,omitempty"`
 	Labels  string      `json:"labels"`
 	Options string      `json:"options"`
@@ -634,13 +635,8 @@ func matchTail(p string, re *regexp.Regexp, n int) []string {
 
 // Status reads the Jev server and the job's files; it changes nothing.
 func (j Job) Status(ctx context.Context) Status {
-	st := Status{URL: cmp.Or(strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL), Server: "up"}
-	switch err := Probe(ctx); {
-	case errors.Is(err, ErrOff):
-		st.Server = "off"
-	case err != nil:
-		st.Server = "down"
-	}
+	var st Status
+	st.Server, st.URL, st.Model = Server(ctx)
 	st.PID = j.PID()
 	switch {
 	case st.PID > 0:
@@ -660,7 +656,7 @@ func (j Job) Status(ctx context.Context) Status {
 
 // Text prints the status the way the shell script did, with the server line first.
 func (s Status) Text(w io.Writer) {
-	fmt.Fprintf(w, "server: %s (%s)\n", s.Server, s.URL)
+	fmt.Fprintf(w, "server: %s (%s)%s\n", s.Server, s.URL, map[bool]string{true: " " + s.Model}[s.Model != ""])
 	switch s.State {
 	case "running":
 		fmt.Fprintf(w, "RUNNING (pid %d)\n", s.PID)

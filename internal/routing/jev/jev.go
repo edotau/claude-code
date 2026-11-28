@@ -74,6 +74,31 @@ func Probe(ctx context.Context) error {
 	return nil
 }
 
+// Server is the Jev server's state (up, down or off), its URL and the model it reports ("" when it reports none).
+func Server(ctx context.Context) (state, target, model string) {
+	target = cmp.Or(strings.TrimRight(proc.Value(ctx, urlEnv), "/"), defaultURL)
+	switch err := Probe(ctx); {
+	case errors.Is(err, ErrOff):
+		return "off", target, ""
+	case err != nil:
+		return "down", target, ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target+"/health", nil)
+	if err != nil {
+		return "up", target, ""
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "up", target, ""
+	}
+	defer resp.Body.Close()
+	var h struct{ Model, Method string }
+	_ = json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&h) // an unreadable reply leaves the model empty
+	return "up", target, strings.TrimSpace(h.Model + " " + h.Method)
+}
+
 // Error classes recorded on a dispatch; never a URL or body.
 const (
 	ClassDown        = "down"

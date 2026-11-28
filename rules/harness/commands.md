@@ -85,6 +85,10 @@ Default off: proxy, duration, session. Other keys: path, model, provider, contex
 - Memory sandbox: `rules/workflows/memory-bank.md` → Verbs.
 - Remote execution, browser, web, MCP and cleanup: `network.md`.
 - Databricks metadata: `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user|sp]`.
+- Open-Jev classifier: `claude-code gateway jev` (flags only; bare = `--status`: server, served model, job, passes).
+  `--train [--bg|--fresh|--labels DIR|--tasks LIST] [-- trainer options]`, `--attach`, `--stop`, `--options`;
+  `--trainer DIR --out DIR` are remembered after first use. `train-jev.sh` is a thin front for it; `doctor` has a
+  `jev` row.
 - Housekeeping: `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` removes; preview first as needed.
   `doctor --audit [--days 7]`, `configure history snapshot|log|diff`.
 - Theme: `configure theme [--palettes|--reset] [<palette>]`, `configure theme apply`.
