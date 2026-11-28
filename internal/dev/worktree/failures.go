@@ -272,6 +272,9 @@ var failureParse struct {
 func ListFailures(root string) ([]Failure, error) {
 	file := failuresLog(root)
 	st, serr := os.Stat(file)
+	if os.IsNotExist(serr) {
+		return nil, nil
+	}
 	failureParse.Lock()
 	defer failureParse.Unlock()
 	if c := &failureParse; serr == nil && c.file == file && c.size == st.Size() && c.mod.Equal(st.ModTime()) {
@@ -306,33 +309,50 @@ func parseFailures(raw []byte) []Failure {
 // FailuresSinceWithin returns up to limit unseen records and the skipped count; a lock timeout leaves the cursor.
 func FailuresSinceWithin(root, slug string, limit int, wait time.Duration) (lines []Failure, more int, err error) {
 	cursor := filepath.Join(root, "cursors", "s-"+SessionSlug(slug))
+	if !failuresDue(root, cursor) {
+		return nil, 0, nil
+	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, 0, err
 	}
 	err = paths.WithFileLockWithin(failuresLog(root), wait, func() error {
-		seen, fresh := readInt(cursor), time.Now().Add(-failureFresh).Unix()
-		_, known := os.Stat(cursor)
-		last := seen
 		recs, lerr := ListFailures(root)
 		if lerr != nil {
 			return lerr
 		}
-		for _, r := range recs {
-			last = max(last, r.Seq)
-			switch {
-			case r.Seq <= seen || known != nil && r.Time < fresh:
-			case len(lines) < limit:
-				lines = append(lines, r)
-			default:
-				more++
-			}
-		}
-		if known == nil && last == seen { // nothing new: the cursor already holds last
-			return nil
-		}
-		return paths.AtomicWriteNoSync(cursor, strconv.AppendInt(nil, last, 10), 0o600)
+		lines, more, err = selectNewFailures(cursor, limit, recs)
+		return err
 	})
 	return lines, more, err
+}
+
+func selectNewFailures(cursor string, limit int, recs []Failure) (lines []Failure, more int, err error) {
+	seen, fresh := readInt(cursor), time.Now().Add(-failureFresh).Unix()
+	_, known := os.Stat(cursor)
+	last := seen
+	for _, r := range recs {
+		last = max(last, r.Seq)
+		if r.Seq <= seen || known != nil && r.Time < fresh {
+			continue
+		}
+		if len(lines) < limit {
+			lines = append(lines, r)
+		} else {
+			more++
+		}
+	}
+	if known == nil && last == seen {
+		return lines, more, nil
+	}
+	return lines, more, paths.AtomicWriteNoSync(cursor, strconv.AppendInt(nil, last, 10), 0o600)
+}
+
+func failuresDue(root, cursor string) bool {
+	if _, err := os.Stat(failuresLog(root)); os.IsNotExist(err) {
+		return false
+	}
+	seq := readInt(filepath.Join(root, "seq"))
+	return seq <= 0 || readInt(cursor) < seq
 }
 
 // ClaimFailure returns id's holder: slug when it won, else the first claimant ("autofix" for an autofix branch).

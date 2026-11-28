@@ -62,8 +62,8 @@ func List(repo *Repo) ([]Entry, error) {
 		return nil, err
 	}
 	entries, err := unionFilesystem(repo, registered)
-	if err != nil {
-		return nil, err
+	if err != nil || len(entries) == 0 {
+		return entries, err
 	}
 	target, targetErr := currentBranch(repo.Main)
 	if targetErr == nil {
@@ -114,10 +114,12 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	files := map[string]map[string]bool{}
-	if out, err := gitCmd(ctx, "-C", repo.Main, "status", "--porcelain", "-z", "--untracked-files=no").Output(); err == nil {
-		files["main"] = statusFiles(string(out))
-	}
 	reads := readLanes(ctx, repo, entries, target)
+	if slices.ContainsFunc(reads, func(r laneReads) bool { return len(r.changed) > 0 }) {
+		if out, err := gitCmd(ctx, "-C", repo.Main, "status", "--porcelain", "-z", "--untracked-files=no").Output(); err == nil {
+			files["main"] = statusFiles(string(out))
+		}
+	}
 	for i := range entries {
 		e, r := &entries[i], &reads[i]
 		if err := cmp.Or(r.countErr, r.diffErr); err != nil {
@@ -129,6 +131,10 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 			files[laneLabel(entries, e.Path)] = nameSet(textutil.SplitNUL(string(r.changed)))
 		}
 	}
+	fillOverlaps(entries, files)
+}
+
+func fillOverlaps(entries []Entry, files map[string]map[string]bool) {
 	for i := range entries {
 		name := laneLabel(entries, entries[i].Path)
 		for other, set := range files {
