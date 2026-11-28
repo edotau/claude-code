@@ -1003,12 +1003,15 @@ var shaPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompil
 // ValidSHA is a 7-40 digit lower-case hex commit id, safe to use in a state path.
 func ValidSHA(sha string) bool { return shaPattern().MatchString(sha) }
 
-// DeferTick reports what sha would tick and starts one detached verifier per plan; it ticks the green ones later.
+// DeferTick marks a lane commit's tasks at once; on the trunk it starts one detached verifier per plan and ticks later.
 func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []string, error) {
 	if len(sha) != 40 { // a full sha needs no resolving; a short one does
 		if full, err := proc.RunGit(context.Background(), top, "rev-parse", "--verify", sha+"^{commit}"); err == nil && ValidSHA(strings.TrimSpace(full)) {
 			sha = strings.TrimSpace(full)
 		}
+	}
+	if WorktreeName(top) != "" { // a lane commit only marks its tasks; the head verifies once, when the work lands
+		return TickCommit(top, sha, files, nil)
 	}
 	pending, tied, err := PendingCommit(top, sha, files)
 	var errs []error
@@ -1020,12 +1023,8 @@ func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []s
 		errs = append(errs, serr)
 		pending[i].Ticked = nil
 		if started {
-			then := "ticking"
-			if r.Lane != "" {
-				then = "marking it in lane " + r.Lane
-			}
 			pending[i].Notes = append([]string{"plans: verifying " + strings.Join(r.IDs, ", ") + " on " + sha[:min(7, len(sha))] +
-				" before " + then + "; the result is a notice on your next prompt"}, r.Notes...)
+				" before ticking; the result is a notice on your next prompt"}, r.Notes...)
 		}
 	}
 	return pending, tied, errors.Join(append(errs, err)...)

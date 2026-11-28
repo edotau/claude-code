@@ -341,15 +341,15 @@ func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {
 	summary := hosttest.In(t, lane, "commit", "-m", "feat: landing\n\nTask: "+slug+" 1.1")
 	sha := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "--short=7", "HEAD"))
 	tick("git -C "+fmt.Sprintf("%q", lane)+" commit -m trailer", summary)
-	before, err := os.ReadFile(plan)
-	if err != nil || string(before) != body {
-		t.Fatalf("lane ticked: %s, %v", before, err)
+	before, err := os.ReadFile(plan) // a lane commit marks the task in its lane at once; the box stays open
+	if err != nil || !strings.HasPrefix(string(before), strings.TrimSuffix(body, "\n")+" <!-- lane ") {
+		t.Fatalf("lane commit must mark, not tick: %s, %v", before, err)
 	}
 	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	before, _ = os.ReadFile(plan)
-	if string(before) != body {
+	if strings.Contains(string(before), "[x]") {
 		t.Fatal("unlanded sha ticked through main")
 	}
 	args := []string{"merge", "--ff-only", "landing"}
@@ -365,7 +365,7 @@ func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {
 	}
 	note := runDocs(t, Tick, map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": "git " + strings.Join(args, " ")}, "tool_response": map[string]any{"stdout": out, "is_error": failed}})
 	got, _ := os.ReadFile(plan)
-	if !strings.Contains(string(got), "[x] 1.1 Landing owns: a/one.go ("+sha+")") || !strings.Contains(note, "ticked") {
+	if !strings.Contains(string(got), "[x] 1.1 Landing owns: a/one.go") || !strings.Contains(string(got), sha) || !strings.Contains(note, "ticked") {
 		t.Fatalf("landing: %s, %s", got, note)
 	}
 }
