@@ -39,12 +39,19 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	cmd.Dir = cwd
 	proc.OwnGroup(cmd) // the timeout kills the export's whole group, so a grandchild cannot hold the pipe open
 	cmd.WaitDelay = proc.ExecWaitDelay
-	var out bytes.Buffer
-	cmd.Stdout = &capWriter{buf: &out, max: exportMaxBytes}
+	out, err := os.CreateTemp("", "opencode-export-*.json") // a file, not a pipe: opencode exits before a pipe drains
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = out.Close(); _ = os.Remove(out.Name()) }()
+	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
-	return out.Bytes(), nil
+	if info, err := out.Stat(); err != nil || info.Size() > exportMaxBytes {
+		return nil, os.ErrInvalid
+	}
+	return os.ReadFile(out.Name())
 }
 
 type exportKey struct{ sessionID, cwd string }
@@ -80,19 +87,6 @@ func exportFor(sessionID, cwd string) ([]byte, error) {
 		m.data = data
 	}
 	return data, err
-}
-
-// capWriter fails a write that would grow buf past max, so the child is cut off before memory grows unbounded.
-type capWriter struct {
-	buf *bytes.Buffer
-	max int
-}
-
-func (w *capWriter) Write(p []byte) (int, error) {
-	if w.buf.Len()+len(p) > w.max {
-		return 0, os.ErrInvalid
-	}
-	return w.buf.Write(p)
 }
 
 // SynthAgentTranscript writes a Claude-shaped transcript for an opencode, copilot or codex session; !ok fails open.
