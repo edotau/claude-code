@@ -86,7 +86,7 @@ func TestStartJevShadowExitsOnDispatchCancel(t *testing.T) {
 
 	cancel()
 	waitGoroutines(t, base)
-	if j := takeJev(id); j == nil || j.Error != jev.ClassTimeout {
+	if j := takeJev(id); j == nil || j.Warning != jev.ClassTimeout {
 		t.Errorf("takeJev after cancel = %+v, want timeout class", j)
 	}
 }
@@ -101,7 +101,7 @@ func TestTakeJevStopsAnUnansweredShadow(t *testing.T) {
 	waitGoroutinesAbove(t, base)
 
 	j := takeJev(id) // the run ended first: timeout class, and the in-flight call is cancelled
-	if j == nil || j.Error != jev.ClassTimeout || j.Keyword != tierName("summarize the fallback changes") {
+	if j == nil || j.Warning != jev.ClassTimeout || j.Keyword != tierName("summarize the fallback changes") {
 		t.Errorf("takeJev = %+v, want timeout with keyword %q", j, tierName("summarize the fallback changes"))
 	}
 	waitGoroutines(t, base)
@@ -256,7 +256,7 @@ func checkPhase11HelperGuard(t *testing.T, class string) {
 		class = jev.ClassDown
 	}
 	j, _ := askJevClassify(ctx, "helper guard "+class)
-	if j.Error != class || j.Helper != "" {
+	if j.Warning != class || j.Helper != "" {
 		t.Fatalf("got %+v, want error %s without helper", j, class)
 	}
 }
@@ -331,7 +331,7 @@ func TestPhase11SlowHelperDoesNotDelayAgent(t *testing.T) {
 	}
 	tctx, tcancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer tcancel()
-	if j := jevTierAnswer(tctx, "slow helper brief"); j.Error != jev.ClassTimeout {
+	if j := jevTierAnswer(tctx, "slow helper brief"); j.Warning != jev.ClassTimeout {
 		t.Fatalf("tier should wait on its own deadline for the helper: %+v", j)
 	}
 }

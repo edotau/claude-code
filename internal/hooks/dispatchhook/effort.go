@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
 )
@@ -43,7 +44,7 @@ func withJevHookBudget(ctx context.Context) (context.Context, context.CancelFunc
 	if ctx.Value(jevHookKey{}) != nil {
 		return ctx, func() {}
 	}
-	jevCtx, cancel := context.WithTimeout(ctx, jevHookBudget)
+	jevCtx, cancel := context.WithTimeout(ctx, jev.Budget(jevHookBudget))
 	return context.WithValue(ctx, jevHookKey{}, jevCtx), cancel
 }
 

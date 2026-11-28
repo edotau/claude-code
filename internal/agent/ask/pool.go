@@ -193,7 +193,7 @@ func jevByTask(ctx context.Context, tasks []batchTask) map[string][]agent.JevPai
 // waitDeps waits for every earlier task a < i that Open-Jev says i confidently needs before i claims a slot.
 func (b *batchRun) waitDeps(ctx context.Context, t batchTask, i int) error {
 	for _, p := range b.jev[t.ID] {
-		if p.B == i && p.Error == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
+		if p.B == i && p.Warning == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
 			select {
 			case <-b.finished[p.A]:
 			case <-ctx.Done():
@@ -276,7 +276,7 @@ func (b *batchRun) feed(ctx context.Context, tasks []batchTask, queue []int, don
 
 func (b *batchRun) hasDeps(t batchTask, i int) bool {
 	for _, p := range b.jev[t.ID] {
-		if p.B == i && p.Error == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
+		if p.B == i && p.Warning == "" && p.Needs == "yes" && p.Confidence >= jev.Confident {
 			return true
 		}
 	}

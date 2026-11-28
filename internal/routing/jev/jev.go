@@ -202,7 +202,7 @@ func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Resu
 	if backedOff(target) {
 		return Result{}, nil, ErrDown
 	}
-	body, err := post(ctx, timeout, base, defaultURL, "/v1/systemone",
+	body, err := post(ctx, Budget(timeout), base, defaultURL, "/v1/systemone",
 		map[string]any{"state": state, "questions": qs})
 	if errors.Is(err, ErrOff) {
 		return Result{}, nil, err
@@ -215,6 +215,34 @@ func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Resu
 
 // Backoff marker: a short cross-process TTL so a down or slow Jev costs one timeout, not one per process.
 const backoffTTL = 30 * time.Second
+
+// trainingStretch multiplies every Open-Jev budget while its training job shares the GPU; tune it with the budgets.
+const trainingStretch = 2.5
+
+// training reports the remembered job's worker is alive with its recorded start time, once per process.
+var training = sync.OnceValue(func() bool {
+	if testing.Testing() { // a test binary never reads the machine's job
+		return false
+	}
+	r, err := loadRemembered()
+	if err != nil || r.Out == "" {
+		return false
+	}
+	j := Job(r)
+	pid, err := strconv.Atoi(readTrim(j.file("pid")))
+	return err == nil && j.recorded(pid) // start time, not the executable: the hook binary is not the worker's
+})
+
+// Budget is d, stretched while training runs: a slower answer then is expected, not a fault.
+func Budget(d time.Duration) time.Duration {
+	if training() {
+		return time.Duration(float64(d) * trainingStretch)
+	}
+	return d
+}
+
+// Training reports whether the training job is running on this machine.
+func Training() bool { return training() }
 
 // slowThreshold: a real brief takes about 1 s, and 800 ms backed the server off on most replies; tests shrink it.
 var slowThreshold = 2 * time.Second
@@ -341,7 +369,7 @@ func nextBackoff(s backoffState, err error, elapsed time.Duration) backoffState 
 	switch {
 	case errors.Is(err, ErrDown), errors.Is(err, ErrTimeout), errors.Is(err, errServer):
 		s = backoffState{Until: backoffNow().Add(backoffTTL).UnixNano()}
-	case elapsed > slowThreshold:
+	case elapsed > Budget(slowThreshold):
 		s.Slow++
 		if s.Slow >= 2 {
 			s = backoffState{Until: backoffNow().Add(backoffTTL).UnixNano()}

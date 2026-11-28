@@ -233,7 +233,7 @@ func proxyListenerChecks(ctx context.Context) []check {
 	return rows
 }
 
-// jevRow is the Open-Jev classifier server: up with the model it reports, off, or a soft ✗ when down.
+// jevRow is the Open-Jev classifier server: up with its model, off, or a warning when down (keywords pick the tier).
 func jevRow(ctx context.Context) check {
 	state, target, model := jev.Server(ctx)
 	parts := []string{state}
@@ -243,5 +243,12 @@ func jevRow(ctx context.Context) check {
 	if model != "" {
 		parts = append(parts, model)
 	}
-	return check{Name: "jev", OK: state != "down", Detail: strings.Join(parts, " · ") + " (claude-code gateway jev)"}
+	if jev.Training() {
+		parts = append(parts, "training is running, so its answers get longer budgets")
+	}
+	detail := strings.Join(parts, " · ") + " (claude-code gateway jev)"
+	if state == "down" {
+		detail = "warn " + detail + ": dispatch uses the keyword tier until it is back"
+	}
+	return check{Name: "jev", OK: state != "down", Detail: detail}
 }

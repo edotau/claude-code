@@ -25,7 +25,7 @@ type JevShadow struct {
 	Helper     string  `json:"helper,omitempty"`  // local Qwen's tier, asked only when Open-Jev is unsure
 	Final      string  `json:"final,omitempty"`   // Open-Jev if confident, else fast when Qwen says fast, else keyword
 	Keyword    string  `json:"keyword,omitempty"` // TaskTier's pick for the same brief: fast | standard | deep
-	Error      string  `json:"error,omitempty"`   // down | timeout | bad-response | off
+	Warning    string  `json:"warning,omitempty"` // down | timeout | bad-response | off: the keyword tier was used
 }
 
 type jevCall struct {
@@ -63,7 +63,7 @@ func takeJev(id string) *JevShadow {
 	case j := <-call.done:
 		return &j
 	default:
-		return &JevShadow{Keyword: call.keyword, Final: call.keyword, Error: jev.ClassTimeout}
+		return &JevShadow{Keyword: call.keyword, Final: call.keyword, Warning: jev.ClassTimeout}
 	}
 }
 
@@ -128,7 +128,7 @@ func (c *jevClassification) run(brief string) {
 	defer close(c.tierReady)
 	c.text = jevBrief(brief)
 	res, err := jev.Tier(c.ctx, c.text)
-	c.shadow = JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
+	c.shadow = JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Warning: jev.Class(err)}
 	c.tierErr = err
 	close(c.tierAsked)
 	if err != nil || res.Confidence >= jev.Confident {
@@ -191,7 +191,7 @@ func jevClassify(ctx context.Context, brief string) (JevShadow, jev.Result) {
 	if c.wait(ctx, c.tierReady) && c.wait(ctx, c.agentReady) {
 		return c.shadow, c.agent
 	}
-	return JevShadow{Keyword: tierName(brief), Error: jev.ClassTimeout}, jev.Result{}
+	return JevShadow{Keyword: tierName(brief), Warning: jev.ClassTimeout}, jev.Result{}
 }
 
 // jevTierAnswer is the shared tier answer and any low-confidence helper opinion, without waiting for the agent.
@@ -201,7 +201,7 @@ func jevTierAnswer(ctx context.Context, brief string) JevShadow {
 	if c.wait(ctx, c.tierReady) {
 		return c.shadow
 	}
-	return JevShadow{Keyword: tierName(brief), Error: jev.ClassTimeout}
+	return JevShadow{Keyword: tierName(brief), Warning: jev.ClassTimeout}
 }
 
 // jevAgentAnswer is the shared agent answer, which follows the tier's.
@@ -266,7 +266,7 @@ type JevPair struct {
 	Needs      string  `json:"needs,omitempty"` // yes | no
 	Confidence float64 `json:"confidence,omitempty"`
 	Ms         int64   `json:"ms,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	Warning    string  `json:"warning,omitempty"`
 }
 
 // jevPairSlots bounds concurrent pair calls: Jev and the local model share one GPU.
@@ -290,8 +290,8 @@ func JevPairs(ctx context.Context, tasks []string) []JevPair {
 			return asked{}, nil // cancelled before dialing: not on the record, as in the serial early return
 		}
 		res, err := jev.Needs(ctx, tasks[p[0]], tasks[p[1]])
-		pair := JevPair{A: p[0], B: p[1], Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Error: jev.Class(err)}
-		if pair.Error != jev.ClassDown && pair.Error != jev.ClassOff {
+		pair := JevPair{A: p[0], B: p[1], Needs: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Warning: jev.Class(err)}
+		if pair.Warning != jev.ClassDown && pair.Warning != jev.ClassOff {
 			err = nil
 		}
 		return asked{pair: pair, ran: true}, err
@@ -329,9 +329,9 @@ func jevBrief(prompt string) string {
 // routed is the tier a confident Open-Jev or the Qwen helper decides, and which did; a helper never turns deep to fast.
 func (j JevShadow) routed() (tier, source string) {
 	switch {
-	case j.Error == "" && j.Confidence >= jev.Confident && j.Keyword == "deep" && j.Pick != "deep":
+	case j.Warning == "" && j.Confidence >= jev.Confident && j.Keyword == "deep" && j.Pick != "deep":
 		return "", "" // the served checkpoint under-calls deep (2 of 18 real deep gold briefs right): keywords keep deep
-	case j.Error == "" && j.Confidence >= jev.Confident:
+	case j.Warning == "" && j.Confidence >= jev.Confident:
 		return j.Pick, "jev"
 	case j.Helper == "" || j.Helper == "fast" && j.Keyword == "deep":
 		return "", ""
