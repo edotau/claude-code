@@ -153,3 +153,12 @@ func TestBraceExpansionEndNestingAndQuotes(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkTokensSegments(b *testing.B) {
+	const cmd = `git -C "/a b/c" log --oneline && echo 'x y' | grep -E "foo|bar" ; (cd ./dir && make test) || true`
+	for range b.N {
+		for _, seg := range Segments(cmd) {
+			_ = Tokens(seg)
+		}
+	}
+}

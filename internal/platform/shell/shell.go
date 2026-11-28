@@ -12,12 +12,14 @@ import (
 
 // Segments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
 func Segments(cmd string) []string {
-	segs, _ := SegmentsSep(cmd)
-	return segs
+	out, _ := splitSegments(cmd, false)
+	return out
 }
 
 // SegmentsSep is Segments plus the separator that ended each segment ("" for the last).
-func SegmentsSep(cmd string) (out, seps []string) {
+func SegmentsSep(cmd string) (out, seps []string) { return splitSegments(cmd, true) }
+
+func splitSegments(cmd string, keepSeps bool) (out, seps []string) {
 	start := 0
 	var quote byte
 	for i := 0; i < len(cmd); i++ {
@@ -31,11 +33,18 @@ func SegmentsSep(cmd string) (out, seps []string) {
 		}
 		if separatorStarts(cmd, i) {
 			sep, end := separatorAt(cmd, i)
-			out, seps = append(out, cmd[start:i]), append(seps, sep)
+			out = append(out, cmd[start:i])
+			if keepSeps {
+				seps = append(seps, sep)
+			}
 			start, i = end+1, end
 		}
 	}
-	return append(out, cmd[start:]), append(seps, "")
+	out = append(out, cmd[start:])
+	if keepSeps {
+		seps = append(seps, "")
+	}
+	return out, seps
 }
 
 // QuoteAt marks each byte: 0 outside quotes, ' inside '…', $'…' or after a backslash, " inside "…".
