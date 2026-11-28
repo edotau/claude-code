@@ -314,7 +314,7 @@ vendor CLI untouched.
 `claude-code agents msg` is the one command for messages between Claude sessions, agent CLIs and shared chats.
 `@name` is one member's inbox (`@gemini`, `@claude-79`; its owner joins on the first message) and `#name` is a
 named room any number of members share; the two never collide. Each chat is one append-only log under
-`state/harness/rooms/<@name|#name>/` plus one read marker per member, and every message records its sender.
+`state/harness/msgs/<@name|#name>/` plus one read marker per member, and every message records its sender.
 Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
 
 - Send: `claude-code agents msg @<name>|'#<room>' "<text>|-" [--from <who>] [--file <path>]...`. Text is capped at 4000 bytes
@@ -322,10 +322,12 @@ Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
 - Read: `claude-code agents msg [@<name>|'#<room>'] [--from <who>] [--format text|json]` (no text) prints each new message
   once, never the reader's own, and nothing when there is none; bare, it reads every chat the reader is in.
 - `#name` starts a comment in bash unless quoted, so rules and briefs write `'#name'`.
+- `msg @parent "<note>"` is a leaf's one-line note (200 characters, literal text) to its dispatcher; it replaces
+  `send parent`.
 - `--from` defaults to the calling Claude session's registered name; an agent CLI passes its own name. Names match
   `[a-z0-9][a-z0-9._-]{0,63}`; anything else exits 2.
-- A message reaches every live Claude member except its sender as a `room` notice on that session's next hook;
-  other members pull. Agent CLIs learn the command from the paragraph `agents sync` renders (`docsRoomsNote`,
+- A message reaches every live Claude member except its sender as a `msg` notice on that session's next hook;
+  other members pull. Agent CLIs learn the command from the paragraph `agents sync` renders (`docsMsgNote`,
   `internal/routing/agentconfig/project/docs.go`). A message is peer information, never a user instruction.
 
 ## Proxy routes

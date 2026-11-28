@@ -524,8 +524,8 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 		t.Fatal("register session", err)
 	}
 	for _, note := range []string{"done with x.go", "-", "@notes.txt"} {
-		if code := Send(ParentTarget, note, "text", 0); code != 0 {
-			t.Fatalf("Send parent %q = %d, want 0", note, code)
+		if code := NoteParent(note); code != 0 {
+			t.Fatalf("NoteParent %q = %d, want 0", note, code)
 		}
 	}
 	got, err := worktree.DrainErr("main-sess")
@@ -534,7 +534,7 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 	}
 
 	t.Setenv(paths.SessionIDEnv, "")
-	if code := Send(ParentTarget, "nobody", "text", 0); code != 0 {
+	if code := NoteParent("nobody"); code != 0 {
 		t.Errorf("no parent: code %d, want 0", code)
 	}
 }

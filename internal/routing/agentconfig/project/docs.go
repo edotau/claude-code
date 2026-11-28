@@ -19,8 +19,8 @@ const docsBanner = docsBannerPrefix + " sync — edit CLAUDE.md + agents/, then 
 // docsPathsNote tells a vendor CLI how to resolve the relative paths CLAUDE.md names.
 const docsPathsNote = "Paths in this file are relative to `~/.claude`."
 
-// docsRoomsNote tells a vendor CLI how to read and answer messages; Claude gets them from its prompt hook.
-const docsRoomsNote = "Messages from other agents: at the start and end of a turn run " +
+// docsMsgNote tells a vendor CLI how to read and answer messages; Claude gets them from its prompt hook.
+const docsMsgNote = "Messages from other agents: at the start and end of a turn run " +
 	"`claude-code agents msg --from <your agent name>` (gemini, codex, copilot or opencode); it prints each new " +
 	"message once, with any attached file's path. Reply with " +
 	"`claude-code agents msg @<sender> \"<text>\" --from <your agent name> [--file <path>]`, or in the room it " +
@@ -214,7 +214,7 @@ func renderDocs(root string) (content string, ok bool, err error) {
 	}
 	conventions = []byte(dropForExternal(src, string(conventions)))
 	var b strings.Builder
-	textutil.WriteStrings(&b, docsBanner, "\n\n", docsPathsNote, "\n\n", docsRoomsNote, "\n\n")
+	textutil.WriteStrings(&b, docsBanner, "\n\n", docsPathsNote, "\n\n", docsMsgNote, "\n\n")
 	b.WriteString(strings.TrimRight(string(conventions), "\n"))
 	b.WriteByte('\n')
 	b.WriteString(standards)

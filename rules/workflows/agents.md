@@ -14,7 +14,7 @@ Roster/dispatch: `CLAUDE.md`; briefs, relay, concurrency, escalation and test ag
 - Verbs: `skills/subagent-workflows/references/agent-verbs.md`; ask flags/lifecycle: `cost-routing.md`.
 - `claude-code agents sync [--agent a] [--dry-run|--check]` projects agents/instructions; install runs it.
 - `agents tree [--watch|--detail|--files]` shows sessions, held/free dirty files and leaf notes.
-  `agents send parent <note>` sends a leaf's note on the dispatcher's next prompt.
+  `agents msg @parent <note>` sends a leaf's note on the dispatcher's next prompt.
   `agents watch [--once]` lists stale jobs and next actions; hooks run it automatically.
 - `agents label <type> [--profile p] [--model m] --task F` prints the resolved description prefix;
   aliases/full ids work; Databricks labels use full ids. `review scope --range <r> --caps` checks scope.

@@ -21,11 +21,11 @@ internal/dev/worktree/landstats.go:trimAttempts	land-attempts
 internal/dev/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close
 internal/dev/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree ledger log line and task fill
 internal/dev/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger open
+internal/dev/worktree/msg.go:ReadMsgs	unversioned: text: a reader's chat cursor, the last Seq it saw
+internal/dev/worktree/msg.go:appendPost	msg-log
+internal/dev/worktree/msg.go:joinChat	unversioned: text: a new chat member's cursor, Seq 0
 internal/dev/worktree/resolve.go:SaveOperation	worktree-land-op
 internal/dev/worktree/resolve.go:WithLandLease	unversioned: text: lease holder pid and who, attribution for a waiting land
-internal/dev/worktree/rooms.go:ReadRoom	unversioned: text: a reader's room cursor, the last Seq it saw
-internal/dev/worktree/rooms.go:appendPost	room-log
-internal/dev/worktree/rooms.go:joinRoom	unversioned: text: a new room member's cursor, Seq 0
 internal/dev/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/dev/worktree/sessions.go:Append	notices
 internal/dev/worktree/sessions.go:DrainErr	notices

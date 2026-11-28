@@ -386,33 +386,33 @@ func resultExit(rec agent.Record) int {
 	return 1
 }
 
-// ParentTarget is the `agents send` target that addresses the calling leaf's dispatcher instead of a session.
-const ParentTarget = "parent"
+// ParentChat is the `agents msg` target that addresses the calling leaf's dispatcher instead of a session.
+const ParentChat = "@parent"
 
-// sendParent files task, literally, as a note in the dispatcher's inbox; with none (or a full one) it says so, exit 0.
-func sendParent(task string) int {
+// NoteParent files task, literally, as a note in the dispatcher's inbox; with none (or a full one) it says so, exit 0.
+func NoteParent(task string) int {
 	sent, err := worktree.NoteDispatcher(task)
 	switch {
 	case errors.Is(err, worktree.ErrNoteLimit):
-		fmt.Fprintf(os.Stderr, "agents send: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agents msg: %v\n", err)
 	case err != nil:
-		return helptext.Fail("agents send: %v", err)
+		return helptext.Fail("agents msg: %v", err)
 	case !sent:
-		fmt.Fprintln(os.Stderr, "agents send: no dispatcher to notify")
+		fmt.Fprintln(os.Stderr, "agents msg: no dispatcher to notify")
 	}
 	return 0
 }
 
-// roomFail exits 2 for a refused input and 1 for any other error.
-func roomFail(err error) int {
-	if errors.Is(err, worktree.ErrRoomInput) {
+// msgFail exits 2 for a refused input and 1 for any other error.
+func msgFail(err error) int {
+	if errors.Is(err, worktree.ErrMsgInput) {
 		return helptext.FailUsage("agents msg: %v", err)
 	}
 	return helptext.Fail("agents msg: %v", err)
 }
 
-// roomSender is --from, else the calling Claude session's name; a zero code means ok.
-func roomSender(from string) (string, int) {
+// msgSender is --from, else the calling Claude session's name; a zero code means ok.
+func msgSender(from string) (string, int) {
 	if from == "" {
 		from = worktree.CallerName()
 	}
@@ -424,7 +424,7 @@ func roomSender(from string) (string, int) {
 
 // SendMsg posts text (stdin when "-") and the files to chat as from.
 func SendMsg(room, text, from string, files []string) int {
-	sender, code := roomSender(from)
+	sender, code := msgSender(from)
 	if code != 0 {
 		return code
 	}
@@ -432,56 +432,56 @@ func SendMsg(room, text, from string, files []string) int {
 	if err != nil {
 		return helptext.Fail("agents msg: %v", err)
 	}
-	msg, err := worktree.PostRoom(room, sender, body, files)
+	msg, err := worktree.PostMsg(room, sender, body, files)
 	if msg.Seq > 0 {
 		fmt.Printf("%s %d sent\n", room, msg.Seq)
 	}
 	if err != nil {
-		return roomFail(err)
+		return msgFail(err)
 	}
 	return 0
 }
 
 // inboxItem is one unread post with its room, as the json inbox prints it.
 type inboxItem struct {
-	Room string `json:"room"`
+	Chat string `json:"chat"`
 	worktree.Message
 }
 
 // ReadMsgs prints the posts the reader has not seen in rooms (every chat it is in when none), then marks them seen.
 func ReadMsgs(rooms []string, from, format string) int {
-	reader, code := roomSender(from)
+	reader, code := msgSender(from)
 	if code != 0 {
 		return code
 	}
 	if format != helptext.Text && format != helptext.JSON {
 		return helptext.FailUsage("agents msg: --format must be text or json, not %q", format)
 	}
-	rooms, err := roomsToRead(rooms, reader)
+	rooms, err := chatsToRead(rooms, reader)
 	if err != nil {
-		return roomFail(err)
+		return msgFail(err)
 	}
 	items := []inboxItem{}
 	errs := []error{}
 	for _, room := range rooms {
-		msgs, rerr := worktree.ReadRoom(room, reader)
+		msgs, rerr := worktree.ReadMsgs(room, reader)
 		errs = append(errs, rerr)
 		for _, m := range msgs {
-			items = append(items, inboxItem{Room: room, Message: m})
+			items = append(items, inboxItem{Chat: room, Message: m})
 		}
 	}
 	errs = append(errs, printInbox(items, format))
 	if err := errors.Join(errs...); err != nil {
-		return roomFail(err)
+		return msgFail(err)
 	}
 	return 0
 }
 
-func roomsToRead(rooms []string, reader string) ([]string, error) {
+func chatsToRead(rooms []string, reader string) ([]string, error) {
 	if len(rooms) > 0 {
 		return rooms, nil
 	}
-	return worktree.RoomsFor(reader)
+	return worktree.ChatsFor(reader)
 }
 
 func printInbox(items []inboxItem, format string) error {
@@ -490,7 +490,7 @@ func printInbox(items []inboxItem, format string) error {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Room, it.Seq, it.From, it.Text)
+		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Chat, it.Seq, it.From, it.Text)
 		for _, f := range it.Files {
 			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
 		}
@@ -499,11 +499,8 @@ func printInbox(items []inboxItem, format string) error {
 	return err
 }
 
-// Send is `agents send`: a note to the dispatcher (id "parent"), a live turn, or a resume; exit 1 unless ok.
+// Send is `agents send`: a live turn, or a resume of a finished dispatch; exit 1 unless ok.
 func Send(id, task, format string, timeout time.Duration) int {
-	if id == ParentTarget {
-		return sendParent(task)
-	}
 	prompt, err := resolveAskPrompt(task)
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)

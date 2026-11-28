@@ -13,6 +13,7 @@
 # legacy-layout: dispatch-record
 # legacy-layout: login-state
 # legacy-layout: model-prices
+# legacy-layout: msg-log
 # legacy-layout: notices
 # legacy-layout: oauth-usage-cache
 # legacy-layout: opencode-auth-cache
@@ -22,7 +23,6 @@
 # legacy-layout: projections
 # legacy-layout: proxy-teams-last-good
 # legacy-layout: quota
-# legacy-layout: room-log
 # legacy-layout: route-fit
 # legacy-layout: router-runtime
 # legacy-layout: rtk-config
@@ -60,6 +60,7 @@ login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/rout
 memory-catchup-heads | cache | 1 | state/harness/memory/catchup-heads.json | internal/memory | keep
 memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/memory | keep
 model-prices | cache | 1 | state/harness/router/prices.json | internal/routing/catalog | keep
+msg-log | log | 1 | state/harness/msgs/*/log.jsonl | internal/dev/worktree | keep
 notices | log | 1 | state/harness/notices/*.jsonl | internal/dev/worktree | keep
 oauth-usage-cache | cache | 1 | state/harness/cache/claude-oauth-usage.json | internal/dev/usage | keep
 opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | internal/driver/opencode | keep
@@ -75,7 +76,6 @@ proxy-teams | wire | 1 | - | internal/proxy/proxyteam | keep
 proxy-teams-last-good | cache | 1 | state/harness/proxy/teams.last-good.json | internal/proxy/proxyteam | keep
 quota | derived | 0 | state/harness/quota.json | internal/routing/router | keep
 remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/remote/network/remote | keep
-room-log | log | 1 | state/harness/rooms/*/log.jsonl | internal/dev/worktree | keep
 route-auto | cache | 1 | state/harness/router/route-auto.json | internal/routing/router | keep
 route-fit | record | 1 | state/harness/router/fit.json | internal/routing/catalog | keep
 route-local | cache | 1 | state/harness/router/local.json | internal/routing/router | keep

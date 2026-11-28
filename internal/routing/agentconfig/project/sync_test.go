@@ -101,7 +101,7 @@ func TestSyncRendersVendorInstructionFilesNotRootCopies(t *testing.T) {
 	if code := Sync(Options{Out: io.Discard}); code != 0 {
 		t.Fatalf("Sync exit = %d, want 0", code)
 	}
-	want := docsBanner + "\n\n" + docsPathsNote + "\n\n" + docsRoomsNote + "\n\n# CLAUDE.md\n\nBody.\n"
+	want := docsBanner + "\n\n" + docsPathsNote + "\n\n" + docsMsgNote + "\n\n# CLAUDE.md\n\nBody.\n"
 	for vendor, tg := range targets {
 		rel := tg.docs
 		if rel == "" {

@@ -109,7 +109,7 @@ var agentsPage = helptext.Page{
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 9m30s]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
-		{"send", "message a live session, queue on a job, or notify parent"},
+		{"send", "send a turn to a live session, or resume a finished job"},
 		{"msg", "message an agent or chat: msg @name \"text\"; bare reads new"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
@@ -146,14 +146,14 @@ var agentsSubPages = map[string][3]string{
 		"file a live session or leaf holds. --dry-run lists what would change.",
 		"Exit 0 fixed or clean, 1 skipped file, missing tool or failed fixer, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
-		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
-		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
-		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
+		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session."},
 	"msg": {"msg [@name|'#name'] [<text | ->] [flags]", "Message one agent or Claude session (@gemini, @claude-79) or a " +
 		"named room ('#design'), and read what was sent. With text (or --file) it sends to the target; with a target " +
 		"and no text it prints that chat's new messages; bare it prints every new message for you. Every message " +
 		"shows its sender. Quote '#name': a bare # starts a shell comment. A live Claude member also gets each " +
-		"message as a notice on its next hook. Exit 0, 1 failed, 2 usage."},
+		"message as a notice on its next hook. msg @parent <note> is a leaf's one-line note (200 characters, literal " +
+		"text) to its dispatcher: exit 0 with \"no dispatcher to notify\" on stderr when none is live; it skips a " +
+		"repeat and refuses a sixth unread note. Exit 0, 1 failed, 2 usage."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
 		"An <id> shows that dispatch, whichever agent ran it.",
@@ -744,20 +744,24 @@ func cmdAgentsMsg(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	var chats []string
-	if len(pos) > 0 {
-		if !strings.HasPrefix(pos[0], "@") && !strings.HasPrefix(pos[0], "#") {
-			return helptext.FailUsage("agents msg: the target is @name (an agent) or '#name' (a room), got %q", pos[0])
-		}
-		chats = []string{pos[0]}
+	return runMsg(pos, *from, *format, files)
+}
+
+// runMsg sends when there is text or a file, else reads; pos[0] is the @name or #name target when present.
+func runMsg(pos []string, from, format string, files []string) int {
+	chats := pos[:min(len(pos), 1)]
+	if len(chats) == 1 && !strings.HasPrefix(chats[0], "@") && !strings.HasPrefix(chats[0], "#") {
+		return helptext.FailUsage("agents msg: the target is @name (an agent) or '#name' (a room), got %q", pos[0])
 	}
 	switch {
+	case len(pos) >= 2 && pos[0] == ask.ParentChat: // literal: "-" and "@file" are note text here
+		return ask.NoteParent(strings.Join(pos[1:], " "))
 	case len(pos) >= 2 || (len(chats) == 1 && len(files) > 0):
-		return ask.SendMsg(chats[0], strings.Join(pos[1:], " "), *from, files)
+		return ask.SendMsg(chats[0], strings.Join(pos[1:], " "), from, files)
 	case len(files) > 0:
 		return helptext.FailUsage("agents msg: --file needs a target, as in @gemini")
 	}
-	return ask.ReadMsgs(chats, *from, *format)
+	return ask.ReadMsgs(chats, from, format)
 }
 
 // cmdAgentsSend is `agents send <id> <task>`.
