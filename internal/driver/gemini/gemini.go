@@ -151,8 +151,12 @@ func (geminiEngine) Render(_ context.Context, _ *providers.Registry, sel provide
 	if err != nil {
 		return gd, err
 	}
+	md, err := renderGeminiMCP(home, o, out)
+	if err != nil {
+		return gd || md, err
+	}
 	hd, err := renderGeminiHooks(home, o, out)
-	return gd || hd, err
+	return gd || md || hd, err
 }
 
 func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
@@ -162,6 +166,7 @@ func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
 	}
 	return []agentconfig.LabelPath{
 		{Label: "gemini-settings", Path: agySettingsPath(home)},
+		{Label: "gemini-mcp", Path: agyMCPPath(home)},
 		{Label: "gemini-hooks", Path: agyHooksPath(home)},
 	}, nil
 }

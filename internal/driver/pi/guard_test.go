@@ -3,6 +3,7 @@ package pi
 import (
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -66,5 +67,24 @@ func TestGuardPinsVerifiedPi(t *testing.T) {
 	body, err := renderGuard("/bin/x", 7000)
 	if err != nil || !strings.Contains(string(body), "VERIFIED_PI: string = "+strconv.Quote(tools.PiPin)) {
 		t.Fatalf("guard does not carry the install pin %s: %v", tools.PiPin, err)
+	}
+}
+
+func TestGuardDefinesMsgAction(t *testing.T) {
+	g, err := WriteGuard(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(g.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\n  msg: { label:", `const MSG_READ = ["agents", "msg", "--from", "pi"]`, `pi.on("before_agent_start"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("guard lacks %s", want)
+		}
+	}
+	if !slices.Contains(strings.Split(guardTools, ","), "msg") {
+		t.Error("guardTools lacks msg")
 	}
 }

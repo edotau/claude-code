@@ -710,3 +710,47 @@ func TestCodexRestartNoticeOnlyOnRouteChange(t *testing.T) {
 		t.Fatalf("unchanged file must not print the notice:\n%s", second)
 	}
 }
+
+// The managed block carries one msg MCP table, a hand-written one is not duplicated, and a re-render is byte-identical.
+func TestCodexRendersMsgMCPServer(t *testing.T) {
+	for name, fixture := range map[string]string{
+		"fresh":   "[mcp_servers.other]\ncommand = \"keep\"\n",
+		"foreign": "[mcp_servers.msg]\ncommand = \"mine\"\n\n[mcp_servers.other]\ncommand = \"keep\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := agenttest.Scratch(t)
+			path := filepath.Join(home, ".codex", "config.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(fixture), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			render := func() string {
+				var out bytes.Buffer
+				if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+					t.Fatalf("render: %v\n%s", err, out.String())
+				}
+				raw, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(raw)
+			}
+			first := render()
+			t.Log(first)
+			if n := strings.Count(first, "[mcp_servers.msg]"); n != 1 {
+				t.Fatalf("msg tables = %d, want 1:\n%s", n, first)
+			}
+			if !strings.Contains(first, "[mcp_servers.other]\ncommand = \"keep\"") {
+				t.Errorf("foreign table lost:\n%s", first)
+			}
+			if got := strings.Contains(first, `args = ["agents", "msg", "--mcp", "--from", "codex"]`); got != (name == "fresh") {
+				t.Errorf("managed msg args present = %v:\n%s", got, first)
+			}
+			if second := render(); second != first {
+				t.Errorf("second render differs:\n%s\n---\n%s", first, second)
+			}
+		})
+	}
+}

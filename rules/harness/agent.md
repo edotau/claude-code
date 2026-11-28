@@ -317,10 +317,12 @@ named room any number of members share; the two never collide. Each chat is one 
 `state/harness/msgs/<@name|#name>/` plus one read marker per member, and every message records its sender.
 Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
 
-- Send: `claude-code agents msg @<name>|'#<room>' "<text>|-" [--from <who>] [--file <path>]...`. Text is capped at 4000 bytes
-  and each file at 8 MiB; a file is copied into the chat and listed with its copy path.
-- Read: `claude-code agents msg [@<name>|'#<room>'] [--from <who>] [--format text|json]` (no text) prints each new message
-  once, never the reader's own, and nothing when there is none; bare, it reads every chat the reader is in.
+- Send: `claude-code agents msg @<name>|'#<room>' "<text>|-" [--from <who>] [--file <path>]...`. Text is capped at 4000
+  bytes and each file at 8 MiB; a file is copied into the chat and listed with its copy path.
+- Read: `claude-code agents msg [@<name>|'#<room>'] [--from <who>] [--format text|json]` (no text) prints each new
+  message once, never the reader's own, and nothing when there is none; bare, it reads every chat the reader is in.
+- `claude-code agents msg --mcp --from <agent>` serves `msg_send` (`to`, `text`, `files`) and `msg_read` (`chat`) as a
+  stdio MCP server on the same store; the sender is fixed by `--from`, never a tool argument.
 - `#name` starts a comment in bash unless quoted, so rules and briefs write `'#name'`.
 - `msg @parent "<note>"` is a leaf's one-line note (200 characters, literal text) to its dispatcher; it replaces
   `send parent`.

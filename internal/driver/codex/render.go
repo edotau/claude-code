@@ -332,11 +332,16 @@ func readCodexConfig(home string) (path string, raw []byte, existed bool, err er
 func codexProviderConfig(ctx context.Context, reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
 	stripped := stripCodexBanner(raw) // sans any prior banner, for the user-value check
 	section, err := codexProviderSection(ctx, reg, sel, stripped, out)
-	if errors.Is(err, errNoBlock) {
-		return stripped, nil
-	}
-	if err != nil {
+	noBlock := errors.Is(err, errNoBlock)
+	if err != nil && !noBlock {
 		return "", err
+	}
+	if section == "" && !noBlock && codexBannerRE().MatchString(raw) {
+		return raw, nil // provider skipped: keep the prior managed block as it is
+	}
+	section = codexMsgSection(section, stripped)
+	if noBlock && section == "" {
+		return stripped, nil
 	}
 	return insertCodexSection(raw, section), nil
 }
@@ -384,4 +389,51 @@ func codexTrustAndSettings(next, hooksPath string, mergedHooks []byte) (string, 
 		return "", err
 	}
 	return patchCodexSettings(next, prefs)
+}
+
+// mcpExtras pre-approves an MCP server's tools (so `codex exec` never prompts) and passes the keyring address.
+const mcpExtras = "default_tools_approval_mode = \"approve\"\nenv_vars = [\"DBUS_SESSION_BUS_ADDRESS\", \"XDG_RUNTIME_DIR\"]\n"
+
+// MCPTable is the config.toml text of one [mcp_servers.<name>] table running bin with args, tools pre-approved.
+func MCPTable(name, bin string, args []string) string {
+	return fmt.Sprintf("[mcp_servers.%s]\ncommand = %q\nargs = [\"%s\"]\n%s", name, bin, strings.Join(args, `", "`), mcpExtras)
+}
+
+// MCPTableRange locates the [mcp_servers.<name>] table in raw (start -1 when absent), skipping multiline strings.
+func MCPTableRange(raw []byte, name string) (start, end int) {
+	q := regexp.QuoteMeta(name)
+	header := regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:` + q + `|"` + q + `"|'` + q + `')\s*\]\s*(?:#.*)?$`)
+	start, offset, cut := -1, 0, 0
+	multiline, depth := "", 0
+	for _, line := range strings.SplitAfter(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		clean := multiline == "" && depth == 0
+		if clean && strings.HasPrefix(trimmed, "[") {
+			if start >= 0 {
+				return start, cut
+			}
+			if header.MatchString(trimmed) {
+				start = offset
+			}
+		}
+		offset += len(line)
+		if !clean || !strings.HasPrefix(trimmed, "#") {
+			cut = offset
+		}
+		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
+	}
+	return start, len(raw)
+}
+
+// codexMsgSection adds the msg MCP server (msg_send, msg_read) to the managed section unless the owner declared one.
+func codexMsgSection(section, stripped string) string {
+	if start, _ := MCPTableRange([]byte(stripped), "msg"); start >= 0 {
+		return section
+	}
+	bin := filepath.Join(paths.BinDir(), "claude-code")
+	table := MCPTable("msg", bin, []string{"agents", "msg", "--mcp", "--from", "codex"})
+	if section == "" {
+		return codexBannerSection(strings.TrimRight(table, "\n"))
+	}
+	return strings.TrimSuffix(section, "\n"+codexManagedEnd+"\n") + "\n\n" + strings.TrimRight(table, "\n") + "\n" + codexManagedEnd + "\n"
 }

@@ -98,7 +98,7 @@ func interactivePlugin(h *agent.Headless) (string, error) {
 	if h != nil {
 		return "", nil
 	}
-	return writePlugin()
+	return writePlugin(true)
 }
 
 // opencodeHarnessWith builds per-launch instructions, commands, tools-off policy and the guard plugin URL.

@@ -33,6 +33,8 @@ type Options struct {
 	Fleet bool
 	// SessionConfig.Memory.Enabled
 	EnableMemory bool
+	// MsgMCP is the msg MCP server argv (binary first), loaded only on a tools run; empty loads no MCP.
+	MsgMCP []string
 	// non-empty resumes this session instead of creating a new one
 	SessionID string
 	// system text, sent as SystemMessage in append mode (replace would drop the SDK guardrails)

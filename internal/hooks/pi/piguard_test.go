@@ -242,3 +242,26 @@ func TestMain(m *testing.M) {
 	cleanup()
 	os.Exit(code)
 }
+
+func TestPiMsgArgv(t *testing.T) {
+	cases := []struct {
+		in   map[string]any
+		want string
+	}{
+		{map[string]any{"to": "#probe", "text": "@x -y"}, "agents msg --from pi -- #probe @x -y"},
+		{map[string]any{"to": "@a", "files": []any{"/t/f"}}, "agents msg --from pi --file /t/f -- @a"},
+		{map[string]any{"to": "#probe"}, "agents msg --from pi #probe"},
+		{map[string]any{}, "agents msg --from pi"},
+	}
+	for _, c := range cases {
+		if got, err := piActionArgv("msg", c.in, ""); err != nil || strings.Join(got, " ") != c.want {
+			t.Errorf("%v: argv = %q, %v; want %q", c.in, got, err, c.want)
+		}
+	}
+	for _, in := range []map[string]any{{"to": "#r", "text": "-"}, {"to": "r", "text": "x"}, {"text": "x"},
+		{"to": "@a", "files": []any{"rel"}}, {"to": "@a b"}, {"x": 1}} {
+		if _, err := piActionArgv("msg", in, ""); err == nil {
+			t.Errorf("msg %v: want a refusal", in)
+		}
+	}
+}

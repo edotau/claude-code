@@ -9,8 +9,8 @@ paths:
 `make compile` builds both with `bin/.build-stamp`; non-hook verbs or stamp mismatch hand over to claude-code.
 Safety treats both binaries alike.
 
-Declare hooks only in `internal/platform/settings/hookspec.go` (one Spec per invocation); handlers live in internal/hooks.
-Change both, install projections, hand-edit existing Claude settings (`settings-management.md`).
+Declare hooks only in `internal/platform/settings/hookspec.go` (one Spec per invocation); handlers live in
+internal/hooks. Change both, install projections, hand-edit existing Claude settings (`settings-management.md`).
 `claude-code agents sync` renders native hooks/configs; `agents sync --check` detects drift.
 
 ## Groups and the dispatcher
@@ -155,6 +155,8 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 - **memory-start / memory-recall / memory-compact / memory-end:** lifecycle: `memory-bank.md` → Who writes what.
   Recall uses up to two bodies/three pointers in 900 chars, at least four prompt terms and two–three matching terms.
   Start lists up to five recent open plans; compact waits at most 75s for steward within its 90s budget.
+- **msg-inbox / msg-inbox-start — prompt / SessionStart (gemini):** unread `agents msg` posts as context, marked
+  peer information; none is silent; never blocks.
 - **paths-resolve — prompt:** report existing paths; translate Windows/WSL.
 - **codex-agent-route / codex-routing-result / codex-routing-start / codex-subagent-start:** Codex only.
 - **secrets-out / secrets-end — Bash post / SessionEnd:** Claude-only, never block; mask vault credentials

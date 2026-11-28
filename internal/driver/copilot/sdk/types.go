@@ -20,6 +20,9 @@ type Model = copilot.Model
 // MinMultiProviderCLI is the oldest CLI supporting named providers.
 const MinMultiProviderCLI = copilot.MinMultiProviderCLI
 
+// MsgMCPName is the harness message MCP server's name.
+const MsgMCPName = copilot.MsgMCPName
+
 // WellKnownModel maps a gateway model to Copilot's catalog form.
 func WellKnownModel(id string) string { return copilot.WellKnownModel(id) }
 

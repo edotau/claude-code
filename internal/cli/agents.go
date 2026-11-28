@@ -49,7 +49,7 @@ func agentsSpec() *helptext.Node {
 		"list":   {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":    {Flags: ask.CompletionFlags()},
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
-		"msg":    {Flags: []helptext.Flag{flag("from"), flag("file"), flag("format")}},
+		"msg":    {Flags: []helptext.Flag{flag("from"), flag("file"), flag("format"), boolFlag("mcp")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
@@ -153,7 +153,8 @@ var agentsSubPages = map[string][3]string{
 		"shows its sender. Quote '#name': a bare # starts a shell comment. A live Claude member also gets each " +
 		"message as a notice on its next hook. msg @parent <note> is a leaf's one-line note (200 characters, literal " +
 		"text) to its dispatcher: exit 0 with \"no dispatcher to notify\" on stderr when none is live; it skips a " +
-		"repeat and refuses a sixth unread note. Exit 0, 1 failed, 2 usage."},
+		"repeat and refuses a sixth unread note. --mcp serves msg_send and msg_read over stdio MCP as --from. " +
+		"Exit 0, 1 failed, 2 usage."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
 		"An <id> shows that dispatch, whichever agent ran it.",
@@ -738,11 +739,18 @@ func cmdAgentsMsg(args []string) int {
 	fs := agentsFlags("msg")
 	from := fs.String("from", "", "who you are; default the calling Claude session's name")
 	format := fs.String("format", helptext.Text, "how reads print: text or json")
+	mcp := fs.Bool("mcp", false, "serve msg_send and msg_read as a stdio MCP server")
 	var files []string
 	helptext.ListVar(fs, &files, "file", "PATH", "attach a file (up to 8 MiB); repeatable", false)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
+	}
+	if *mcp {
+		if len(pos) > 0 || len(files) > 0 {
+			return helptext.FailUsage("agents msg: --mcp takes no target, text or --file")
+		}
+		return ask.ServeMsgs(*from)
 	}
 	return runMsg(pos, *from, *format, files)
 }

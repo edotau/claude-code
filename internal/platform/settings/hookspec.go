@@ -164,6 +164,11 @@ var Registry = []Group{
 		// A pasted path (Windows, POSIX or client-only) resolves for the model, naming images and large files.
 		{Name: "paths-resolve", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 	}},
+	{Name: "msg", Events: []EventSpec{
+		// Unread messages arrive as context; gemini (agy) injects only at SessionStart, so it gets the second spec.
+		{Name: "msg-inbox", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
+		{Name: "msg-inbox-start", Event: EventSessionStart, Budget: 5 * sec, Agents: []string{"gemini"}},
+	}},
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; neither blocks.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}},

@@ -96,11 +96,22 @@ func buildSessionConfig(o Options) *copilot.SessionConfig {
 	case !o.Fleet:
 		cfg.ExcludedTools, cfg.AgentDirectories = leafExcludedTools, nil
 	}
+	cfg.MCPServers = msgServers(o)
 	if o.MultiProvider() {
 		cfg.Provider = nil
 		cfg.Providers, cfg.Models = namedProviders(o)
 	}
 	return cfg
+}
+
+// msgServers is the one stdio msg server a tools run gets; tools-off, or no argv, loads no MCP at all.
+func msgServers(o Options) map[string]copilot.MCPServerConfig {
+	if !o.AllowAllTools || len(o.MsgMCP) == 0 {
+		return nil
+	}
+	return map[string]copilot.MCPServerConfig{MsgMCPName: copilot.MCPStdioServerConfig{
+		Command: o.MsgMCP[0], Args: o.MsgMCP[1:], Tools: []string{"*"},
+	}}
 }
 
 // hookDirectories loads only the harness hooks dir; EnableConfigDiscovery would also pull ambient MCP and instructions.
@@ -151,7 +162,7 @@ func buildResumeSessionConfig(o Options) *copilot.ResumeSessionConfig {
 		SessionLimits: c.SessionLimits, Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
 		SkillDirectories: c.SkillDirectories, AgentDirectories: c.AgentDirectories, Providers: c.Providers, Models: c.Models,
 		AvailableTools: c.AvailableTools, ExcludedTools: c.ExcludedTools, SkipCustomInstructions: c.SkipCustomInstructions,
-		OrganizationCustomInstructions: c.OrganizationCustomInstructions, Hooks: c.Hooks,
+		OrganizationCustomInstructions: c.OrganizationCustomInstructions, Hooks: c.Hooks, MCPServers: c.MCPServers,
 	}
 }
 

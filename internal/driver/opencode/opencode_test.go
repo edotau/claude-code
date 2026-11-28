@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -25,6 +26,41 @@ import (
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
 )
+
+func TestOpencodeMsgMCPAndToolsOff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	_, body, _, _, err := agentconfig.OpencodeOverlayRendered(func() (string, string, bool) { return "", "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		MCP map[string]struct {
+			Command []string `json:"command"`
+			Enabled bool     `json:"enabled"`
+			Type    string   `json:"type"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	msg, _ := json.Marshal(cfg.MCP["msg"])
+	if string(msg) != `{"command":["claude-code","agents","msg","--mcp","--from","opencode"],"enabled":true,"type":"local"}` {
+		t.Fatalf("msg = %s", msg)
+	}
+	off := map[string]any{}
+	opencodeToolsOff(off)
+	servers, _ := off["mcp"].(map[string]any)
+	if off["permission"] != "deny" || len(servers) != len(cfg.MCP) {
+		t.Fatalf("tools-off = %v", off)
+	}
+	for name := range cfg.MCP {
+		if !reflect.DeepEqual(servers[name], map[string]any{"enabled": false}) {
+			t.Errorf("tools-off %s = %v", name, servers[name])
+		}
+	}
+}
 
 func TestMutateOpencodeConfigEnvPolicies(t *testing.T) {
 	set := func(c map[string]any) { c["k"] = "v" }

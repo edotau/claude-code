@@ -354,3 +354,51 @@ func TestRunMalformedCopilotHooksWritesNothing(t *testing.T) {
 		t.Errorf("reported unapplied writes:\n%s", out.String())
 	}
 }
+
+// The mcp-config render adds the msg server, keeps a foreign server and is byte-identical when run again.
+func TestRenderCopilotMCPMergesMsgServer(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	path := mcpConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"mcpServers":{"mine":{"type":"local","command":"/bin/mine"}}}`
+	if err := os.WriteFile(path, []byte(foreign), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := renderMCPOnce(t, home)
+	var got struct {
+		MCPServers map[string]struct {
+			Type, Command string
+			Args          []string
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(first, &got); err != nil {
+		t.Fatalf("mcp-config.json not valid JSON: %v\n%s", err, first)
+	}
+	msg, want := got.MCPServers[MsgMCPName], MsgMCPCommand()
+	if msg.Type != "local" || msg.Command != want[0] || !slices.Equal(msg.Args, want[1:]) {
+		t.Errorf("msg entry = %+v, want local %v", msg, want)
+	}
+	if got.MCPServers["mine"].Command != "/bin/mine" {
+		t.Errorf("foreign server dropped: %s", first)
+	}
+	if again := renderMCPOnce(t, home); !bytes.Equal(first, again) {
+		t.Errorf("second render changed the file:\n%s\n---\n%s", first, again)
+	}
+}
+
+// renderMCPOnce stages and applies one mcp-config render into home and returns the file it left.
+func renderMCPOnce(t *testing.T, home string) []byte {
+	t.Helper()
+	var plan agentconfig.RenderPlan
+	if _, err := renderCopilotMCP(home, agentconfig.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(mcpConfigPath(home))
+	return raw
+}

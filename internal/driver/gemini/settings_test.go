@@ -128,7 +128,7 @@ func checkMergedSettings(t *testing.T, raw []byte) {
 	checkMergedPermissions(t, got, raw)
 }
 
-// checkMergedPermissions requires allow untouched and deny as the user's rule plus the live denies.
+// checkMergedPermissions requires allow kept with msg tools added and deny as the user's rule plus the live denies.
 func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 	t.Helper()
 	perms, ok := got["permissions"].(map[string]any)
@@ -136,8 +136,9 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 		t.Fatalf("permissions key missing or wrong type: %s", raw)
 	}
 	allow, ok := perms["allow"].([]any)
-	if !ok || len(allow) != 1 || allow[0] != "read_url(antigravity.google)" {
-		t.Errorf("permissions.allow dropped or altered: %s", raw)
+	wantAllow := []any{"read_url(antigravity.google)", "mcp(msg/msg_send)", "mcp(msg/msg_read)"}
+	if !ok || !reflect.DeepEqual(allow, wantAllow) {
+		t.Errorf("permissions.allow = %v, want %v: %s", allow, wantAllow, raw)
 	}
 	deny, ok := perms["deny"].([]any)
 	if !ok {
@@ -371,8 +372,8 @@ func TestRenderGeminiHooksShapePerEvent(t *testing.T) {
 			t.Errorf("Stop entry must be a flat handler: %+v", e)
 		}
 	}
-	if len(h["SessionStart"]) != 1 || len(h["Stop"]) != 3 {
-		t.Errorf("SessionStart/Stop handlers = %d/%d, want 1/3", len(h["SessionStart"]), len(h["Stop"]))
+	if len(h["SessionStart"]) != 2 || len(h["Stop"]) != 3 {
+		t.Errorf("SessionStart/Stop handlers = %d/%d, want 2/3", len(h["SessionStart"]), len(h["Stop"]))
 	}
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		for _, g := range h[event] {
@@ -474,4 +475,39 @@ func stagedHooks(home string) (bool, error) {
 		return changed, err
 	}
 	return changed, plan.Apply()
+}
+
+// renderGeminiMCP merges msg into mcp_config.json even with useGuardRules=false, keeps foreign servers, is idempotent.
+func TestRenderGeminiMCP(t *testing.T) {
+	home := agenttest.Scratch(t)
+	_ = vault.SetAgentRecord("gemini", vault.AgentRecord{Extras: map[string]string{extraUseGuardRules: "false"}})
+	path := agyMCPPath(home)
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	seed := `{"other":"keep","mcpServers":{"foreign":{"command":"npx","args":["-y","srv"]}}}`
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: io.Discard, Agents: []string{"gemini"}}
+	if _, err := agent.RenderConfigs(opts); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(path)
+	var doc struct {
+		Other      string                    `json:"other"`
+		MCPServers map[string]map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(first, &doc); err != nil || doc.Other != "keep" || doc.MCPServers["foreign"]["command"] != "npx" {
+		t.Fatalf("mcp_config.json = %s (err %v)", first, err)
+	}
+	wantMsg := map[string]any{
+		"command": filepath.Join(filepath.Dir(settings.SettingsFile()), "bin", "claude-code"),
+		"args":    []any{"agents", "msg", "--mcp", "--from", "gemini"},
+	}
+	if !reflect.DeepEqual(doc.MCPServers["msg"], wantMsg) {
+		t.Errorf("msg server = %v, want %v", doc.MCPServers["msg"], wantMsg)
+	}
+	_, err := agent.RenderConfigs(opts)
+	if second, _ := os.ReadFile(path); err != nil || !bytes.Equal(first, second) {
+		t.Errorf("second render (err %v) not byte-identical:\n%s\nvs\n%s", err, first, second)
+	}
 }

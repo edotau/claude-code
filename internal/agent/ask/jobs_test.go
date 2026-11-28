@@ -583,3 +583,23 @@ func TestCheckResumablePiOwnSession(t *testing.T) {
 		t.Error("pi-carried claude ask resumed as claude")
 	}
 }
+
+func TestMsgToolsSendThenReadOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	call := func(sender, tool, args string) (string, error) {
+		for _, tl := range msgTools(sender) {
+			if tl.Name == tool {
+				return tl.Call(context.Background(), json.RawMessage(args))
+			}
+		}
+		t.Fatalf("no tool %s", tool)
+		return "", nil
+	}
+	sent, err := call("a", "msg_send", `{"to":"#t","text":"hi"}`)
+	first, _ := call("b", "msg_read", `{"chat":"#t"}`)
+	again, _ := call("b", "msg_read", `{}`)
+	_, badErr := call("a", "msg_send", `{"to":"nobody","text":"x"}`)
+	if err != nil || sent != "#t 1 sent" || !strings.Contains(first, "#t 1 from a: hi") || again != "no new messages" || badErr == nil {
+		t.Errorf("sent=%q err=%v first=%q again=%q badErr=%v", sent, err, first, again, badErr)
+	}
+}

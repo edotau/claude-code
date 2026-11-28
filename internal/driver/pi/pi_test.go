@@ -250,7 +250,7 @@ func TestAfterPutsPromptLast(t *testing.T) {
 	if got := p.Argv[len(p.Argv)-1]; got != "do it" || !slices.Contains(p.Argv, "--no-builtin-tools") || !slices.Contains(p.Argv, g.Path) {
 		t.Errorf("argv = %v", p.Argv)
 	}
-	if !slices.Contains(p.Env, guardToolsEnv+"=read,bash,edit,write,grep,find,ls,gate,handback,report") {
+	if !slices.Contains(p.Env, guardToolsEnv+"=read,bash,edit,write,grep,find,ls,gate,handback,report,msg") {
 		t.Errorf("env = %v", p.Env)
 	}
 	if slices.Contains(p.Argv, "--tools") {

@@ -243,6 +243,9 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 	if note != "" {
 		o.EffortNotes = []string{note}
 	}
+	if req.Tools {
+		o.MsgMCP = MsgMCPCommand()
+	}
 	if home, err := paths.CopilotHome(); err == nil {
 		o.InstructionDirs = existingDirs(home)
 		o.SkillDirs = existingDirs(filepath.Join(home, "skills"))
@@ -483,6 +486,7 @@ func (copilotEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
 	return []agentconfig.LabelPath{
 		{Label: "copilot-hooks", Path: hooksPath(home)},
 		{Label: "copilot-settings", Path: settingsPath(home)},
+		{Label: "copilot-mcp", Path: mcpConfigPath(home)},
 	}, nil
 }
 

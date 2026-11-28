@@ -12,10 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -49,41 +47,12 @@ func ClaudeJSONWired(path string) bool {
 	return ok && filepath.Base(s.Command) == "claude-code" && slices.Equal(s.Args, webSearchArgs)
 }
 
-// codexMCPHeader recognizes the web_search table, including quoted keys and trailing comments.
-var codexMCPHeader = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^\[\s*(?:mcp_servers|"mcp_servers"|'mcp_servers')\s*\.\s*(?:web_search|"web_search"|'web_search')\s*\]\s*(?:#.*)?$`)
-})
-
-// codexMCPRange locates the real table, ignoring multiline strings and arrays and comments above the next header.
-func codexMCPRange(raw []byte) (start, end int) {
-	start, offset, cut := -1, 0, 0
-	multiline, depth := "", 0
-	for _, line := range strings.SplitAfter(string(raw), "\n") {
-		trimmed := strings.TrimSpace(line)
-		clean := multiline == "" && depth == 0
-		if clean && strings.HasPrefix(trimmed, "[") {
-			if start >= 0 {
-				return start, cut
-			}
-			if codexMCPHeader().MatchString(trimmed) {
-				start = offset
-			}
-		}
-		offset += len(line)
-		if !clean || !strings.HasPrefix(trimmed, "#") {
-			cut = offset
-		}
-		multiline, depth = agentconfig.TOMLLineState(line, multiline, depth)
-	}
-	return start, len(raw)
-}
-
 func CodexWired(path string) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	start, end := codexMCPRange(raw)
+	start, end := codex.MCPTableRange(raw, "web_search")
 	if start < 0 {
 		return false
 	}
@@ -202,9 +171,6 @@ func mcpAddWebSearch(ctx context.Context, claude, bin string) ([]byte, error) {
 	return exec.CommandContext(ctx, claude, argv...).CombinedOutput()
 }
 
-// codexMCPExtras pre-approves web_search (mode "approve") and passes the keyring address so it opens the vault.
-const codexMCPExtras = "default_tools_approval_mode = \"approve\"\nenv_vars = [\"DBUS_SESSION_BUS_ADDRESS\", \"XDG_RUNTIME_DIR\"]\n"
-
 // RegisterCodexMCP replaces (or appends) the web_search table, sealing the previous file in the vault backups.
 func RegisterCodexMCP(path, bin string) error {
 	return codex.WithConfigLock(path, func() error { return registerCodexMCPLocked(path, bin) })
@@ -215,8 +181,8 @@ func registerCodexMCPLocked(path, bin string) error {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	block := fmt.Sprintf("[mcp_servers.web_search]\ncommand = %q\nargs = %s\n%s\n", bin, codexArgs, codexMCPExtras)
-	start, end := codexMCPRange(raw)
+	block := codex.MCPTable("web_search", bin, webSearchArgs) + "\n"
+	start, end := codex.MCPTableRange(raw, "web_search")
 	var next []byte
 	if start < 0 {
 		next = []byte(agentconfig.AppendTOML(string(raw), block))

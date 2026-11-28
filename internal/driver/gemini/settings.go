@@ -13,11 +13,15 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/settings"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/agentid"
 )
+
+// agyMsgAllowRules are the msg MCP tool grants added to agy's allow list so `agy -p` calls them without prompting.
+var agyMsgAllowRules = []string{"mcp__msg__msg_send", "mcp__msg__msg_read"}
 
 func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings(agentid.Gemini)
@@ -35,13 +39,38 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 	}
 	g := cfg.Guard()
 	lists := map[string][]string{
-		"allow": agyGuardRules(g.Allow, home, out),
+		"allow": agyGuardRules(append(slices.Clone(g.Allow), agyMsgAllowRules...), home, out),
 		"ask":   agyGuardRules(g.Ask, home, out),
 		"deny":  agyGuardRules(g.Deny, home, out),
 	}
 	path := agySettingsPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
 		return applyAgySettings(obj, existed, path, lists, g.DefaultMode, out)
+	})
+}
+
+// renderGeminiMCP merges the harness msg MCP server into ~/.gemini/config/mcp_config.json, keeping other servers.
+func renderGeminiMCP(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	path := agyMCPPath(home)
+	return agentconfig.CommitJSONObject(path, o, out, "gemini-mcp", func(obj map[string]any, _ bool) bool {
+		servers := map[string]any{}
+		if v, has := obj["mcpServers"]; has {
+			var ok bool
+			if servers, ok = v.(map[string]any); !ok {
+				fmt.Fprintf(out, "gemini-mcp: skipped: %s has a non-object mcpServers\n", path)
+				return false
+			}
+		}
+		if cur, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != "claude-code" {
+			fmt.Fprintf(out, "gemini-mcp: skipped: %s declares its own msg server\n", path)
+			return false
+		}
+		servers["msg"] = map[string]any{
+			"command": filepath.Join(paths.BinDir(), "claude-code"),
+			"args":    []string{"agents", "msg", "--mcp", "--from", "gemini"},
+		}
+		obj["mcpServers"] = servers
+		return true
 	})
 }
 
@@ -250,6 +279,11 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 
 // agyHooksPath is agy's global hooks.json, where renderGeminiHooks installs the hooks.
 func agyHooksPath(home string) string { return filepath.Join(home, ".gemini", "config", "hooks.json") }
+
+// agyMCPPath is agy's global mcp_config.json, where renderGeminiMCP installs the msg MCP server.
+func agyMCPPath(home string) string {
+	return filepath.Join(home, ".gemini", "config", "mcp_config.json")
+}
 
 // agySettingsPath is agy's settings.json, where renderGeminiSettings writes the guard denies.
 func agySettingsPath(home string) string {

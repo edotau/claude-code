@@ -2,8 +2,6 @@
 package websearch
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,24 +11,22 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
 	"github.com/edotau/claude-code/internal/platform/httpx"
-	"github.com/edotau/claude-code/internal/platform/parallel"
+	"github.com/edotau/claude-code/internal/platform/mcpstdio"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/platform/vault"
 )
 
 const (
-	defaultProtocolVersion = "2025-11-25"
-	serverName             = "websearch"
-	serverVersion          = "1.0.0"
-	userAgent              = "claude-code-websearch/" + serverVersion
-	toolName               = "web_search"
-	extractToolName        = "web_extract"
+	serverName      = "websearch"
+	serverVersion   = "1.0.0"
+	userAgent       = "claude-code-websearch/" + serverVersion
+	toolName        = "web_search"
+	extractToolName = "web_extract"
 	// MaxExtractURLs is the maximum number of URLs one extract call accepts.
 	MaxExtractURLs      = 20
 	extractPageCapRunes = 12000 // per-page bound on extract output
@@ -66,71 +62,6 @@ type tavilyResult struct {
 	Content string `json:"content"`
 }
 
-// rpcRequest is one JSON-RPC 2.0 request. Missing "id" (checked separately) marks a notification.
-type rpcRequest struct {
-	ID     json.RawMessage `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
-}
-
-func result(id json.RawMessage, res any) map[string]any {
-	return map[string]any{"jsonrpc": "2.0", "id": rawID(id), "result": res}
-}
-
-func rpcError(id json.RawMessage, code int, message string) map[string]any {
-	return map[string]any{"jsonrpc": "2.0", "id": rawID(id), "error": map[string]any{"code": code, "message": message}}
-}
-
-// rawID returns the id as-is, or JSON null when absent, so error responses always carry an id field.
-func rawID(id json.RawMessage) any {
-	if len(id) == 0 {
-		return nil
-	}
-	return id
-}
-
-// toolError is an isError tool result, not a JSON-RPC error, so the model sees the failure and reacts.
-func toolError(text string) map[string]any {
-	res := toolText(text)
-	res["isError"] = true
-	return res
-}
-
-func toolText(text string) map[string]any {
-	return map[string]any{"content": []map[string]string{{"type": "text", "text": text}}}
-}
-
-func toolDescriptor() map[string]any {
-	return map[string]any{
-		"name":        toolName,
-		"description": assets.WebSearchDescription(),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string", "description": assets.WebSearchQueryDescription()},
-				"max_results": map[string]any{"type": "integer",
-					"description": fmt.Sprintf(assets.WebSearchMaxResultsDescription(), DefaultMaxResults), "default": DefaultMaxResults},
-			},
-			"required": []string{"query"},
-		},
-	}
-}
-
-func extractDescriptor() map[string]any {
-	return map[string]any{
-		"name":        extractToolName,
-		"description": assets.WebExtractDescription(),
-		"inputSchema": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"urls": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
-					"minItems": 1, "maxItems": MaxExtractURLs, "description": assets.WebExtractURLsDescription()},
-			},
-			"required": []string{"urls"},
-		},
-	}
-}
-
 // Searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
 type Searcher func(ctx context.Context, query string, maxResults int) (string, error)
 
@@ -139,191 +70,78 @@ type Server struct {
 	Search Searcher
 }
 
-// supportedProtocolVersions are the MCP revisions served; 2026-07-28 is absent: it retires initialize.
-var supportedProtocolVersions = map[string]bool{
-	"2024-11-05": true, "2025-03-26": true, "2025-06-18": true, "2025-11-25": true,
+// tools builds the two MCP tools; search falls back to the Tavily backend.
+func (s *Server) tools() []mcpstdio.Tool {
+	return []mcpstdio.Tool{{
+		Name:        toolName,
+		Description: assets.WebSearchDescription(),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": assets.WebSearchQueryDescription()},
+				"max_results": map[string]any{"type": "integer",
+					"description": fmt.Sprintf(assets.WebSearchMaxResultsDescription(), DefaultMaxResults), "default": DefaultMaxResults},
+			},
+			"required": []string{"query"},
+		},
+		Call: s.searchCall,
+	}, {
+		Name:        extractToolName,
+		Description: assets.WebExtractDescription(),
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"urls": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"minItems": 1, "maxItems": MaxExtractURLs, "description": assets.WebExtractURLsDescription()},
+			},
+			"required": []string{"urls"},
+		},
+		Call: extractToolCall,
+	}}
 }
 
-// negotiateProtocolVersion echoes the client's revision when supported, else our newest (the spec's rule).
-func negotiateProtocolVersion(params json.RawMessage) string {
-	var p struct {
-		ProtocolVersion string `json:"protocolVersion"`
+func (s *Server) searchCall(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
 	}
-	if err := json.Unmarshal(params, &p); err == nil && supportedProtocolVersions[p.ProtocolVersion] {
-		return p.ProtocolVersion
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return "", fmt.Errorf("invalid tool arguments: %v", err)
 	}
-	return defaultProtocolVersion
-}
-
-// handle dispatches one request. A notification (no id) gets no reply, whatever its method.
-func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
-	if len(req.ID) == 0 {
-		return nil
+	if strings.TrimSpace(args.Query) == "" {
+		return "", toolFailure("`query` must be a non-empty string.")
 	}
-	switch req.Method {
-	case "initialize":
-		return result(req.ID, map[string]any{
-			"protocolVersion": negotiateProtocolVersion(req.Params),
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
-		})
-	case "ping":
-		return result(req.ID, map[string]any{})
-	case "tools/list":
-		return result(req.ID, map[string]any{"tools": []map[string]any{toolDescriptor(), extractDescriptor()}})
-	case "tools/call":
-		return s.handleToolsCall(ctx, req)
-	case "notifications/initialized":
-		return nil
-	}
-	return rpcError(req.ID, -32601, fmt.Sprintf("Method not found: %q", req.Method))
-}
-
-func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string]any {
-	var p struct {
-		Name      string `json:"name"`
-		Arguments struct {
-			Query      string   `json:"query"`
-			MaxResults int      `json:"max_results"`
-			URLs       []string `json:"urls"`
-		} `json:"arguments"`
-	}
-	if err := json.Unmarshal(req.Params, &p); err != nil {
-		return result(req.ID, toolError(fmt.Sprintf("invalid tool arguments: %v", err)))
-	}
-	if p.Name == extractToolName {
-		return result(req.ID, extractToolResult(ctx, p.Arguments.URLs))
-	}
-	if p.Name != toolName {
-		return rpcError(req.ID, -32602, fmt.Sprintf("Unknown tool: %q", p.Name))
-	}
-	if strings.TrimSpace(p.Arguments.Query) == "" {
-		return result(req.ID, toolError("`query` must be a non-empty string."))
-	}
-	maxResults := p.Arguments.MaxResults
-	if maxResults <= 0 {
-		maxResults = DefaultMaxResults
+	if args.MaxResults <= 0 {
+		args.MaxResults = DefaultMaxResults
 	}
 	search := s.Search
 	if search == nil {
 		search = SearchText
 	}
-	text, err := search(ctx, p.Arguments.Query, maxResults)
+	text, err := search(ctx, args.Query, args.MaxResults)
 	if err != nil {
-		return result(req.ID, toolError("websearch: "+err.Error()))
+		return "", errors.New("websearch: " + err.Error())
 	}
 	if strings.TrimSpace(text) == "" {
-		return result(req.ID, toolError("No results found."))
+		return "", toolFailure("No results found.")
 	}
-	return result(req.ID, toolText(text))
+	return text, nil
 }
 
-// Serve bounds concurrent JSON-RPC requests, serializes replies, and joins in-flight work at EOF.
+func extractToolCall(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args struct {
+		URLs []string `json:"urls"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return "", fmt.Errorf("invalid tool arguments: %v", err)
+	}
+	return extractToolResult(ctx, args.URLs)
+}
+
+// Serve runs the stdio MCP loop over the two web tools.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	slots := make(chan struct{}, requestConcurrency)
-	reader := bufio.NewReaderSize(in, 64*1024)
-	enc := json.NewEncoder(out)
-	var (
-		wg       sync.WaitGroup
-		mu       sync.Mutex // guards enc and writeErr
-		writeErr error
-	)
-	send := func(resp map[string]any) {
-		mu.Lock()
-		defer mu.Unlock()
-		if writeErr == nil {
-			writeErr = enc.Encode(resp)
-		}
-	}
-	var readErr error
-	for {
-		raw, tooLong, err := readRequestLine(reader)
-		if err != nil {
-			if err != io.EOF {
-				readErr = err
-			}
-			break
-		}
-		if tooLong {
-			send(rpcError(nil, -32700, "Parse error: line too long"))
-			continue
-		}
-		req, ok := parseRequest(raw, send)
-		if !ok {
-			continue
-		}
-		if !admitRequest(ctx, slots) {
-			readErr = context.Cause(ctx)
-			break
-		}
-		s.launch(ctx, req, send, slots, &wg)
-	}
-	wg.Wait()
-	mu.Lock()
-	defer mu.Unlock()
-	if writeErr != nil {
-		return writeErr
-	}
-	return readErr
+	return (&mcpstdio.Server{Name: serverName, Version: serverVersion, Tools: s.tools()}).Serve(ctx, in, out)
 }
-
-func admitRequest(ctx context.Context, slots chan struct{}) bool {
-	select {
-	case slots <- struct{}{}:
-		return true
-	default:
-	}
-	select {
-	case slots <- struct{}{}:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-func (s *Server) launch(ctx context.Context, req rpcRequest, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) {
-	wg.Add(1)
-	finish := func() { <-slots; wg.Done() }
-	parallel.Go(func() {
-		if resp := s.handle(ctx, req); resp != nil {
-			send(resp)
-		}
-		finish()
-	}, func(error) {
-		defer finish()
-		send(rpcError(req.ID, rpcInternalError, "Internal error"))
-	})
-}
-
-// readRequestLine reads one capped line; an unterminated last line is served and the next read reports EOF.
-func readRequestLine(r *bufio.Reader) (raw []byte, tooLong bool, err error) {
-	raw, tooLong, err = textutil.ReadLineCapped(r, maxLineBytes)
-	if err == io.EOF && (len(raw) > 0 || tooLong) {
-		err = nil
-	}
-	return raw, tooLong, err
-}
-
-// parseRequest decodes one line; ok is false for a blank line (skipped) or bad JSON (answered via send).
-func parseRequest(raw []byte, send func(map[string]any)) (req rpcRequest, ok bool) {
-	line := bytes.TrimSpace(raw)
-	if len(line) == 0 {
-		return req, false
-	}
-	if err := json.Unmarshal(line, &req); err != nil {
-		send(rpcError(nil, -32700, "Parse error"))
-		return req, false
-	}
-	return req, true
-}
-
-const rpcInternalError = -32603
-
-// requestConcurrency matches robots fan-out and caps simultaneous outbound tool requests.
-const requestConcurrency = 8
-
-// maxLineBytes caps one JSON-RPC line; a longer line is drained and answered with a parse error.
-const maxLineBytes = 4 * 1024 * 1024
 
 // SearchText is the default backend; requestTimeout is layered on the caller's ctx, not replacing it.
 func SearchText(ctx context.Context, query string, maxResults int) (string, error) {
@@ -516,18 +334,18 @@ func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]st
 }
 
 // extractToolResult validates urls like the CLI, then renders pages; a key/fetch error or all-failed is a tool error.
-func extractToolResult(ctx context.Context, urls []string) map[string]any {
+func extractToolResult(ctx context.Context, urls []string) (string, error) {
 	if len(urls) == 0 || len(urls) > MaxExtractURLs {
-		return toolError(fmt.Sprintf("`urls` must hold 1-%d URLs (got %d).", MaxExtractURLs, len(urls)))
+		return "", toolFailure(fmt.Sprintf("`urls` must hold 1-%d URLs (got %d).", MaxExtractURLs, len(urls)))
 	}
 	text, ok, err := Extract(ctx, urls)
 	if err != nil {
-		return toolError("websearch: " + err.Error())
+		return "", errors.New("websearch: " + err.Error())
 	}
 	if ok == 0 {
-		return toolError(text)
+		return "", errors.New(text)
 	}
-	return toolText(text)
+	return text, nil
 }
 
 // Extract reads each URL as markdown via Tavily into `# <url>` blocks; an error means nothing rendered.
@@ -626,3 +444,8 @@ func formatResults(answer string, results []tavilyResult) string {
 	}
 	return strings.Join(blocks, "\n\n")
 }
+
+// toolFailure is a tool error whose text reaches the client verbatim, full stop included.
+type toolFailure string
+
+func (e toolFailure) Error() string { return string(e) }

@@ -467,6 +467,8 @@ var native = map[string]core.Runner{
 	"memory-start":         dispatchhook.WithDispatchLabels(memhook.Start),
 	"memory-recall":        dispatchhook.WithDispatchLabels(memhook.Recall),
 	"paths-resolve":        docs.ResolvePaths,
+	"msg-inbox":            wthook.Inbox,
+	"msg-inbox-start":      wthook.Inbox,
 	"memory-update":        memhook.Stop,
 	"review-simplicity":    quality.ReviewSimplicity,
 	"review-handback":      quality.ReviewHandback,

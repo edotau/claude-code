@@ -191,40 +191,6 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
-// TestInitializeNegotiatesProtocolVersion: echo a supported requested revision, else fall back to newest.
-func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
-	for name, tc := range map[string]struct{ params, want string }{
-		"echoes a supported revision":     {`{"protocolVersion":"2025-06-18"}`, "2025-06-18"},
-		"echoes the newest supported":     {`{"protocolVersion":"2025-11-25"}`, "2025-11-25"},
-		"echoes the oldest supported":     {`{"protocolVersion":"2024-11-05"}`, "2024-11-05"},
-		"absent version falls back":       {`{}`, defaultProtocolVersion},
-		"unknown future version falls to": {`{"protocolVersion":"2099-01-01"}`, defaultProtocolVersion},
-		"garbage version falls back":      {`{"protocolVersion":"not-a-version"}`, defaultProtocolVersion},
-	} {
-		t.Run(name, func(t *testing.T) {
-			srv := &Server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
-			resps := drive(t, srv, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":`+tc.params+`}`)
-			if len(resps) != 1 {
-				t.Fatalf("got %d responses, want 1", len(resps))
-			}
-			res, _ := resps[0]["result"].(map[string]any)
-			if got := res["protocolVersion"]; got != tc.want {
-				t.Errorf("protocolVersion = %v, want %s", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestDefaultProtocolVersionIsHonest: never advertise 2026-07-28, which this tools-only server can't serve.
-func TestDefaultProtocolVersionIsHonest(t *testing.T) {
-	if defaultProtocolVersion != "2025-11-25" || !supportedProtocolVersions[defaultProtocolVersion] {
-		t.Errorf("defaultProtocolVersion = %s, want 2025-11-25 and supported", defaultProtocolVersion)
-	}
-	if supportedProtocolVersions["2026-07-28"] {
-		t.Error("must not advertise 2026-07-28: stateless core, no initialize handshake")
-	}
-}
-
 // TestServeDispatchesToolCallsConcurrently: the barrier backend deadlocks unless two searches overlap.
 func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 	var inFlight atomic.Int32

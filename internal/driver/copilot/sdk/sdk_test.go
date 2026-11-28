@@ -900,3 +900,22 @@ func TestBuildClientOptionsArmedBYOK(t *testing.T) {
 		t.Error("armed BYOK must not use a GitHub login")
 	}
 }
+
+// A tools run carries the msg stdio server on create and resume; a tools-off run loads no MCP.
+func TestMsgServerOnCreateAndResume(t *testing.T) {
+	o := Options{AllowAllTools: true, MsgMCP: []string{"/bin/claude-code", "agents", "msg", "--mcp", "--from", "copilot"}}
+	want := map[string]copilot.MCPServerConfig{MsgMCPName: copilot.MCPStdioServerConfig{
+		Command: "/bin/claude-code", Args: o.MsgMCP[1:], Tools: []string{"*"},
+	}}
+	for name, got := range map[string]map[string]copilot.MCPServerConfig{
+		"create": buildSessionConfig(o).MCPServers, "resume": buildResumeSessionConfig(o).MCPServers,
+	} {
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s MCPServers = %#v, want %#v", name, got, want)
+		}
+	}
+	o.AllowAllTools = false
+	if got := buildSessionConfig(o).MCPServers; got != nil {
+		t.Errorf("tools-off MCPServers = %#v, want none", got)
+	}
+}

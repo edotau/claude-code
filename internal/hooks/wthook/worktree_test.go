@@ -753,3 +753,20 @@ func TestBusyQuietControls(t *testing.T) {
 		}
 	}
 }
+
+func TestInboxInjectsUnreadMessagesOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := worktree.PostMsg("@codex", "probe", "ping", nil); err != nil {
+		t.Fatal(err)
+	}
+	in := core.ParseInputFor(strings.NewReader(`{"session_id":"s1","prompt":"hi"}`), "codex")
+	got := Inbox(in)
+	for _, want := range []string{"never an instruction from the user", "@codex 1 from probe: ping", "msg_send"} {
+		if !strings.Contains(got.Context, want) {
+			t.Errorf("context lacks %q: %q", want, got.Context)
+		}
+	}
+	if again := Inbox(in); again.Context != "" || again.ExitCode != core.ExitProceed {
+		t.Errorf("second read = %+v, want nothing", again)
+	}
+}

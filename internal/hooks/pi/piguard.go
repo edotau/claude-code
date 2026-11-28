@@ -309,18 +309,19 @@ var (
 	piHandbackKeys = []string{"status", "summary", "unfixed", "tests", "method"}
 	piGateKeys     = []string{"scope"}
 	piReportKeys   = []string{"kind", "body"}
+	piMsgKeys      = []string{"to", "text", "files"}
 	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
 )
 
 // isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
 func isPiAction(tool string) bool {
-	return slices.Contains([]string{"gate", "handback", "dispatch", "check", "report"}, tool)
+	return slices.Contains([]string{"gate", "handback", "dispatch", "check", "report", "msg"}, tool)
 }
 
 // piActionArgv is the exact claude-code argv an action runs, built from its typed input; nil: nothing to run.
 func piActionArgv(tool string, input map[string]any, cwd string) ([]string, error) {
 	keys := map[string][]string{"gate": piGateKeys, "handback": piHandbackKeys, "dispatch": piDispatchKeys, "check": piCheckKeys,
-		"report": piReportKeys}[tool]
+		"report": piReportKeys, "msg": piMsgKeys}[tool]
 	for k := range input {
 		if !slices.Contains(keys, k) {
 			return nil, fmt.Errorf("%s: unknown argument %q (allowed: %s)", tool, k, strings.Join(keys, ", "))
@@ -335,6 +336,8 @@ func piActionArgv(tool string, input map[string]any, cwd string) ([]string, erro
 		return piCheckArgv(input)
 	case "report":
 		return piReportArgv(input)
+	case "msg":
+		return piMsgArgv(input)
 	}
 	argv := []string{"worktree", "gate", "--run", "--format", "json"}
 	scope, err := piGateScope(input["scope"])
@@ -360,6 +363,64 @@ func piReportArgv(input map[string]any) ([]string, error) {
 		return nil, errors.New("report: no dispatch to file the report on")
 	}
 	return []string{"memory", "report", "--job", id, "--kind", kind, "--stdin"}, nil
+}
+
+// piMsgArgv is the send or read argv; "--" ends the flags, so a text of "-x" or "@f" stays literal, "-" is refused.
+func piMsgArgv(input map[string]any) ([]string, error) {
+	to, text := strOf(input["to"]), strings.TrimSpace(strOf(input["text"]))
+	files, err := piMsgFiles(input["files"])
+	if err != nil {
+		return nil, err
+	}
+	if err := piMsgTarget(to); err != nil {
+		return nil, err
+	}
+	argv := []string{"agents", "msg", "--from", "pi"}
+	if text == "" && len(files) == 0 {
+		return append(argv, slices.DeleteFunc([]string{to}, func(s string) bool { return s == "" })...), nil // a read
+	}
+	if to == "" || text == "-" {
+		return nil, errors.New(`msg: sending needs a to, and a text of "-" is refused (the CLI would read stdin)`)
+	}
+	for _, f := range files {
+		argv = append(argv, "--file", f)
+	}
+	argv = append(argv, "--", to)
+	if text != "" {
+		argv = append(argv, strOf(input["text"]))
+	}
+	return argv, nil
+}
+
+// piMsgTarget refuses a to that is not one @name or #name; empty is allowed (a read of every chat).
+func piMsgTarget(to string) error {
+	if to != "" && !strings.HasPrefix(to, "@") && !strings.HasPrefix(to, "#") {
+		return fmt.Errorf("msg: to must start with @ (an agent) or # (a room), got %q", to)
+	}
+	if strings.ContainsAny(to, " \t\r\n") {
+		return errors.New("msg: to must be one @name or #name, without spaces")
+	}
+	return nil
+}
+
+// piMsgFiles is the files argument: an array of absolute paths.
+func piMsgFiles(list any) ([]string, error) {
+	if list == nil {
+		return nil, nil
+	}
+	items, ok := list.([]any)
+	if !ok {
+		return nil, errors.New("msg: files must be an array of absolute paths")
+	}
+	var out []string
+	for _, it := range items {
+		s, _ := it.(string)
+		if !filepath.IsAbs(s) {
+			return nil, fmt.Errorf("msg: file %q is not an absolute path", s)
+		}
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 // piGateScope is the comma-joined scope dirs; each must be a clean relative directory.

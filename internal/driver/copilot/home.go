@@ -237,6 +237,16 @@ func hooksPath(home string) string {
 
 func settingsPath(home string) string { return filepath.Join(home, ".copilot", "settings.json") }
 
+func mcpConfigPath(home string) string { return filepath.Join(home, ".copilot", "mcp-config.json") }
+
+// MsgMCPName is the harness message MCP server (agents msg --mcp) copilot gets, interactive and headless.
+const MsgMCPName = "msg"
+
+// MsgMCPCommand is the msg server's argv: the absolute harness binary, then its args; the sender is copilot.
+func MsgMCPCommand() []string {
+	return []string{filepath.Join(paths.BinDir(), "claude-code"), "agents", "msg", "--mcp", "--from", "copilot"}
+}
+
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
 func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.Selection, home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	body, err := CopilotJSON()
@@ -251,7 +261,11 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 	if err != nil {
 		return drift, err
 	}
-	drift = drift || sd
+	md, err := renderCopilotMCP(home, o, out)
+	if err != nil {
+		return drift, err
+	}
+	drift = drift || sd || md
 	target, note, err := copilotSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
@@ -288,6 +302,30 @@ func renderCopilotSettings(home string, o agentconfig.RenderOptions, out io.Writ
 				obj[k] = false // no footer the harness blocks on every commit, no second server-side memory store
 			}
 		}
+		return true
+	})
+}
+
+// renderCopilotMCP merges the msg server into mcp-config.json; the owner's other servers stay as they are.
+func renderCopilotMCP(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
+	argv := MsgMCPCommand()
+	entry := map[string]any{"type": "local", "command": argv[0], "args": argv[1:], "tools": []string{"*"}}
+	path := mcpConfigPath(home)
+	return agentconfig.CommitJSONObject(path, o, out, "copilot-mcp", func(obj map[string]any, _ bool) bool {
+		servers, ok := obj["mcpServers"].(map[string]any)
+		if raw, set := obj["mcpServers"]; set && !ok && raw != nil {
+			fmt.Fprintf(out, "copilot-mcp: skipped: %s has a non-object mcpServers\n", path)
+			return false
+		}
+		if servers == nil {
+			servers = map[string]any{}
+		}
+		if cur, ok := servers[MsgMCPName].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != filepath.Base(argv[0]) {
+			fmt.Fprintf(out, "copilot-mcp: skipped: %s declares its own %s server\n", path, MsgMCPName)
+			return false
+		}
+		servers[MsgMCPName] = entry
+		obj["mcpServers"] = servers
 		return true
 	})
 }

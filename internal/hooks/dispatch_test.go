@@ -271,6 +271,7 @@ var pointerBound = map[string]core.Runner{
 	"worktree-clean-end": wthook.CleanEnd, "worktree-fixnow": wthook.FixNow, "lane-land": lane.Land, "lane-land-queue": lane.Queue,
 	"secrets-out": secrets.Out, "secrets-end": secrets.End, "web-tavily": webTavily,
 	"review-handback": quality.ReviewHandback, "review-notified": quality.ReviewHandback, "review-decide": quality.ReviewDecide,
+	"msg-inbox": wthook.Inbox, "msg-inbox-start": wthook.Inbox,
 }
 
 // Bind routes every hook name to its own handler: a probe only it reacts to, else its runner's identity.

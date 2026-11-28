@@ -337,3 +337,36 @@ func CallerName() string {
 	}
 	return ""
 }
+
+// InboxItem is one unread post with its room, as the json inbox prints it.
+type InboxItem struct {
+	Chat string `json:"chat"`
+	Message
+}
+
+// CollectInbox reads rooms as reader, keeping the posts of every room that read and joining the errors.
+func CollectInbox(rooms []string, reader string) ([]InboxItem, error) {
+	items := []InboxItem{}
+	errs := []error{}
+	for _, room := range rooms {
+		msgs, rerr := ReadMsgs(room, reader)
+		errs = append(errs, rerr)
+		for _, m := range msgs {
+			items = append(items, InboxItem{Chat: room, Message: m})
+		}
+	}
+	return items, errors.Join(errs...)
+}
+
+// InboxText is the text-format inbox: one line per post, then one per attached file.
+func InboxText(items []InboxItem) string {
+	var b strings.Builder
+	for _, it := range items {
+		// Continuation lines are indented: a post's own newline must not read as the next post's header.
+		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Chat, it.Seq, it.From, strings.ReplaceAll(strings.TrimRight(it.Text, "\n"), "\n", "\n  "))
+		for _, f := range it.Files {
+			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
+		}
+	}
+	return b.String()
+}

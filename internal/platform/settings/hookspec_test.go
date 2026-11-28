@@ -301,14 +301,14 @@ func TestSpecsFor(t *testing.T) {
 		{"copilot", "native", -1, "worktree-claim-check", "rtk-rewrite", nil},
 		{"codex", "native", -1, "worktree-claim", "worktree-busy", nil},
 		{"codex", "native", -1, "safety-scan", "rtk-rewrite", nil},
-		{"gemini", "native", 11, "safety-scan", "rtk-rewrite", []string{
+		{"gemini", "native", 12, "safety-scan", "rtk-rewrite", []string{
 			"docs-placement", "docs-plan", "docs-plan", "format-stop", "memory-start",
-			"memory-update", "review-simplicity", "safety-scan", "safety-scan", "worktree-claim", "worktree-claim-check"}},
+			"memory-update", "msg-inbox-start", "review-simplicity", "safety-scan", "safety-scan", "worktree-claim", "worktree-claim-check"}},
 		{"copilot", "native", -1, "memory-end", "memory-compact", nil},
 		{"opencode", "plugin", -1, "worktree-claim", "memory-end", nil},
 		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan", "docs-plan",
-			"format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",
+			"format-stop", "memory-end", "memory-recall", "memory-start", "memory-update", "msg-inbox",
 			"paths-resolve", "review-simplicity", "safety-scan", "safety-scan"}},
 		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},
