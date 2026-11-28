@@ -17,6 +17,14 @@ func DatabricksCodexTemplate() []byte { return read("databricks/templates/codex.
 // TmuxConf is the harness tmux config seeded only where none exists.
 func TmuxConf() []byte { return read("setup/tmux.conf") }
 
+// VSCodeKeybindingsTemplate is the first-party VS Code keybindings template.
+func VSCodeKeybindingsTemplate() []byte { return read("ui/vscode/keybindings.template.json") }
+
+// VSCodeMachineSettingsTemplate is the first-party VS Code settings template.
+func VSCodeMachineSettingsTemplate() []byte {
+	return read("ui/vscode/machine-settings.template.json")
+}
+
 // PiSystemPrompt is the short harness system prompt of a Pi tools run.
 func PiSystemPrompt() string { return strings.TrimSpace(string(read("pi/system-prompt.txt"))) }
 

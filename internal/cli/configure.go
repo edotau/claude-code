@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/cli/menu"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/cli/ui/tui"
+	"github.com/edotau/claude-code/internal/cli/vscode"
 	"github.com/edotau/claude-code/internal/dev/configure"
 	"github.com/edotau/claude-code/internal/dev/desktop"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -77,6 +78,7 @@ var configurePage = helptext.Page{
 		{"routing", "weights, spend caps, served-aware and opencode knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
 		{"theme", "status line palette, tool themes (see theme -h)"},
+		{"vscode", "merge VS Code settings and keybindings (flags only)"},
 		{"history", "config snapshots: snapshot, log, diff (see history -h)"},
 		{"restore", "reset settings.json to the template (backup first)"},
 		{"revert", "put agent configs back from their backups"},
@@ -106,7 +108,7 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 
 // removedForms maps each retired flag to the form that replaces it.
 var removedForms = map[string]string{
-	"--history": "configure history", "--theme": "configure theme",
+	"--history": "configure history", "--theme": "configure theme", "--vscode": "configure vscode",
 	"--restore": "configure restore", "--revert": "configure revert", "--fmt": "configure fmt",
 	"--agents": "configure restore --agent all", "--profile": "switch <profile>", "--list": "vault ls providers",
 }
@@ -162,7 +164,7 @@ func (o *configureOpts) setMode(section string) {
 	o.restore, o.revert = section == "restore", section == "revert"
 }
 
-// configureRoute runs `desktop|history|theme ...` or refuses a retired flag; ok is false otherwise.
+// configureRoute runs `desktop|history|theme|vscode ...` or refuses a retired flag; ok is false otherwise.
 func configureRoute(args []string) (code int, ok bool) {
 	if len(args) == 0 {
 		return 0, false
@@ -174,6 +176,8 @@ func configureRoute(args []string) (code int, ok bool) {
 		return cmdHistory(args[1:]), true
 	case "theme":
 		return cmdTheme(args[1:]), true
+	case "vscode":
+		return vscode.Run(args[1:]), true
 	}
 	if arg, use := removedForm(args); arg != "" {
 		return helptext.FailUsage("configure: %s is removed; use `claude-code %s`", arg, use), true
@@ -544,6 +548,6 @@ func configureSpec() *helptext.Node {
 	fs, _ := configureFlags()
 	flags := helptext.FlagsOf(fs, map[string]func() []string{"agent": agentNames})
 	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: flags,
-		Sub: map[string]*helptext.Node{"history": historySpec(), "theme": themeSpec(),
+		Sub: map[string]*helptext.Node{"history": historySpec(), "theme": themeSpec(), "vscode": vscode.Spec(),
 			"restore": {Flags: flags}, "revert": {Flags: flags}, "fmt": {Flags: flags}}}
 }

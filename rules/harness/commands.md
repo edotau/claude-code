@@ -27,6 +27,8 @@ Use `claude-code <verb> -h` for flags; this file maps tasks to their owning comm
 
 - `claude-code configure` reuses env, vault and CLI logins and asks only for missing values.
   Pages: provider, models, agents, github, remote, codex, routing, databricks; `--check` reports missing values.
+- `configure vscode [--check|--dry-run]`: merge the settings and keybindings templates into VS Code, with backups;
+  flags only. Templates: `internal/assets/ui/vscode/`.
 - `configure codex`: effort, verbosity and config_route in the vault.
 - `configure provider <p> options.warehouse_id=<id> options.prices='<json>'`: Databricks costs in USD/million tokens.
 - `configure routing weights.price=0.4 weights.latency=0.2`: headroom fills to 1 (defaults 0.4/0.4/0.2).

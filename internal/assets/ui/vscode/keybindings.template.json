@@ -1,0 +1,32 @@
+[
+  {
+    "key": "ctrl+alt+1",
+    "mac": "cmd+alt+1",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "Claude", "location": "editor" }
+  },
+  {
+    "key": "ctrl+alt+2",
+    "mac": "cmd+alt+2",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "Codex", "location": "editor" }
+  },
+  {
+    "key": "ctrl+alt+3",
+    "mac": "cmd+alt+3",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "OpenCode", "location": "editor" }
+  },
+  {
+    "key": "ctrl+alt+4",
+    "mac": "cmd+alt+4",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "Gemini", "location": "editor" }
+  },
+  {
+    "key": "ctrl+alt+5",
+    "mac": "cmd+alt+5",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "Copilot", "location": "editor" }
+  }
+]

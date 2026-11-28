@@ -142,6 +142,8 @@ var inventory = []struct {
 	{"databricks/templates/claude.json", "json", "DatabricksClaudeTemplate", DatabricksClaudeTemplate},
 	{"databricks/templates/codex.toml", "toml", "DatabricksCodexTemplate", DatabricksCodexTemplate},
 	{"setup/tmux.conf", "conf", "TmuxConf", TmuxConf},
+	{"ui/vscode/keybindings.template.json", "jsonc", "VSCodeKeybindingsTemplate", VSCodeKeybindingsTemplate},
+	{"ui/vscode/machine-settings.template.json", "jsonc", "VSCodeMachineSettingsTemplate", VSCodeMachineSettingsTemplate},
 	{"pi/system-prompt.txt", "txt", "PiSystemPrompt", func() []byte { return read("pi/system-prompt.txt") }},
 	{"pi/guard/index.ts", "typescript", "PiGuardSource", func() []byte { return []byte(PiGuardSource()) }},
 	{"hooks/claim.tmpl", "tmpl", "HookClaimHowTo", func() []byte { return read("hooks/claim.tmpl") }},

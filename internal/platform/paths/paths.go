@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -650,6 +651,28 @@ func WriteIfUnchanged(dest string, old, next []byte, mode os.FileMode, label str
 		return backup, err
 	}
 	return backup, AtomicWrite(dest, next, mode)
+}
+
+// vscodeGOOS picks VSCodeSettings' platform layout; a seam so tests run every branch on any host.
+var vscodeGOOS = runtime.GOOS
+
+// VSCodeSettings is the platform's VS Code Machine settings path; outside a vscode-server it is the User scope.
+func VSCodeSettings() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch vscodeGOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", "Code", "User", "settings.json"), nil
+	case "windows":
+		return filepath.Join(home, "AppData", "Roaming", "Code", "User", "settings.json"), nil
+	default:
+		if info, statErr := os.Stat(filepath.Join(home, ".vscode-server")); statErr == nil && info.IsDir() {
+			return filepath.Join(home, ".vscode-server", "data", "Machine", "settings.json"), nil
+		}
+		return filepath.Join(home, ".config", "Code", "User", "settings.json"), nil
+	}
 }
 
 // SelfBinary is the resolved absolute path of the running harness binary.

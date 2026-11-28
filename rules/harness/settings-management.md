@@ -45,6 +45,29 @@ It keeps a backup in `state/harness/backups/`; explicit `--fmt --check --out <fi
 - Show proposed `permissions.allow` additions in a table and wait for the owner's pick, including
   `/fewer-permission-prompts`.
 
+## Fullscreen mouse settings (change together)
+
+Wheel scrolling and selection are decided by four keys read as one set; changing one alone flips the others' effect.
+Source: <https://code.claude.com/docs/en/fullscreen> → Keep native text selection, Mouse wheel scrolling.
+
+| Key | Where |
+| --- | --- |
+| `tui` (`fullscreen`) | `~/.claude/settings.json` |
+| `CLAUDE_CODE_DISABLE_MOUSE`, `CLAUDE_CODE_DISABLE_MOUSE_CLICKS`, `CLAUDE_CODE_SCROLL_SPEED` | its `env` block |
+| `terminal.integrated.macOptionClickForcesSelection`, `copyOnSelection`, `mouseWheelScrollSensitivity` | VS Code user settings, merged by `claude-code configure vscode` |
+
+| `env` in fullscreen | Wheel scrolls the conversation | Plain drag | Terminal's own highlight |
+| --- | --- | --- | --- |
+| neither variable | yes | Claude Code's selection, copies on release | Option-drag (macOS), Shift-drag |
+| `CLAUDE_CODE_DISABLE_MOUSE_CLICKS=1` | yes | nothing | Option-drag (macOS), Shift-drag |
+| `CLAUDE_CODE_DISABLE_MOUSE=1` (wins over the other) | no; VS Code sends the wheel as Up/Down keys | terminal's | plain drag |
+
+- No set gives wheel scrolling and the terminal's highlight on a plain drag: the wheel needs mouse capture, and
+  capture hands a plain drag to Claude Code.
+- Option-drag needs `macOptionClickForcesSelection: true`. `mouseWheelScrollSensitivity` has no effect in fullscreen;
+  `CLAUDE_CODE_SCROLL_SPEED` sets the wheel distance and only applies while the mouse is captured.
+- A new session reads the set at launch; a running one keeps its own.
+
 ## Worktree render
 
 cwd does not isolate writes. Reset only this checkout with

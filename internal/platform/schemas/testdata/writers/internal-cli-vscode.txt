@@ -1,0 +1,1 @@
+internal/cli/vscode/vscode.go:writeGuarded	unversioned: foreign: VS Code settings.json, keybindings.json and backup
