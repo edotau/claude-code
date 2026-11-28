@@ -21,10 +21,10 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `state/vault.db` | The vault (untracked): pins, custom env, provider/agent overlays (`vault ls`, edited in `configure`), sealed secrets (`vault set\|get`) |
 | `agents/<name>.md` | Subagents, flat; `name:` **must equal the file stem** |
 | `commands/<command>.md` | Slash commands, flat — thin launchers into an agent (`discover-models` into `claude-code models discover`) |
-| `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
+| `rules/` | `standards/` (unscoped files always-on) · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
-| `plans/` | Implementation plans (native `plansDirectory`), gitignored; home and naming: `rules/harness/docs-placement.md` |
-| `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
+| `plans/` | Implementation plans (native `plansDirectory`), gitignored; home and naming: `rules/harness/documentation.md` |
+| `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/harness/persistent-memory.md`) |
 | `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`, `mods/codemode`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (`<repo>` = checkout dir without a leading dot: `~/worktrees/claude/`) |
 
@@ -75,7 +75,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    **A bug or issue you notice is fixed right away, without asking, within the owner's named priority (R25):**
    dispatch its fix leaf at once instead of listing it. Verify every returned diff, gate and deletion.
    Briefs, relay rules and recovery: `skills/subagent-workflows/SKILL.md`;
-   pipeline: `rules/workflows/master-workflow.md`.
+   pipeline: `rules/standards/worktree-git.md` → Workflow.
 4. **Tag notable moments** in replies, one per line: `DECISION:` (what, rejected alt, why) · `BUG:` · `NEXT:` ·
    `NOTE:` — the memory update files them.
 
@@ -98,9 +98,9 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | --- | --- | --- |
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
-| Agents and dispatch | Agent tool (guideline 3) | `rules/workflows/agents.md` · `skills/subagent-workflows/SKILL.md` |
+| Agents and dispatch | Agent tool (guideline 3) | `rules/harness/agent.md` · `skills/subagent-workflows/SKILL.md` |
 | Messages between agents | `claude-code agents msg --from <agent>` reads new ones · `agents msg @<name> "<text>" --from <agent>` replies | `rules/harness/agent.md` → Messages; an agent CLI reads at the start and end of a turn |
-| Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
+| Memory | `claude-code memory recall <terms>` | `rules/harness/persistent-memory.md` |
 | Git and worktrees | `claude-code worktree create\|land <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
 | Test, lint, review | `go test ./internal/<pkg>` · `claude-code agents diff --check` · `/code-review` | `rules/standards/quality.md` |

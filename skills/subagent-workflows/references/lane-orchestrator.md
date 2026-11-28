@@ -6,7 +6,7 @@ Dispatch syntax and relay behavior: `../SKILL.md` → Leaf types. Keep leaves te
 
 ## Lane plan
 
-Keep `lanes/<lane>.md` under the plans home beside the plan (`rules/harness/docs-placement.md` → Plan); a
+Keep `lanes/<lane>.md` under the plans home beside the plan (`rules/harness/documentation.md` → Placement); a
 convention, no gate reads it. Each checklist line names one verifiable outcome, owned absolute paths, the selected leaf
 type and its dependencies. Split tasks before they need a nested orchestration layer. One writer per file; a later
 wave owns overlapping work.

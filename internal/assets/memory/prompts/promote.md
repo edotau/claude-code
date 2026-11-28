@@ -8,13 +8,13 @@ rule or skill so it stands alone**, or **gate `claude-md`**. That's this referen
 
 ## The promotion gradient
 
-Full ladder: `rules/workflows/memory-bank.md` → Promotion ladder. In short: `rules`
+Full ladder: `rules/harness/persistent-memory.md` → Promotion ladder. In short: `rules`
 (`rules/standards/` or `rules/software/<lang>/`, enforced) or `skill` (`skills/<name>/SKILL.md`, how-to) → `claude-md`
 (`CLAUDE.md` → Hard rules, always on).
 
 **`--to claude-md` is dream-gated:** the verb refuses outside `memory update --dream`'s reflection step, which
 requires 3+ memory entries AND a hard prohibition. Elsewhere, route a CLAUDE.md-worthy entry to `rules/standards/`
-instead and note that the dream gate will consider it later. `promote` also never targets `rules/workflows/`
+instead and note that the dream gate will consider it later. `promote` also never targets `rules/harness/`
 (human-authored process).
 
 ## `--to rules`: durable, enforceable doctrine
@@ -32,7 +32,7 @@ promote. (Run `claude-code memory review` first if you need candidates.)
 
 Pick the writable target by signal type with the table below. Replace `<lang>` with the project's
 primary language dir (`python`, `go`, …). Honor a target the user names only if it is
-a writable tier (never `CLAUDE.md`, `rules/workflows/`).
+a writable tier (never `CLAUDE.md`, `rules/harness/`).
 
 | Signal Type | Target File | Section |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 | Hook/tooling issue | `rules/harness/hooks.md` | Hook-specific section |
 | Testing pattern | `rules/software/<lang>/testing.md` or `rules/standards/quality.md` | Test conventions |
 | Git/commit/worktree pattern | `rules/standards/worktree-git.md` | Conventional commits, branch/PR workflow |
-| Docs/communication pattern | `rules/standards/documentation.md` or `rules/standards/principles.md` | Markdown/living-docs, or response style |
+| Docs/communication pattern | `rules/harness/documentation.md` or `rules/standards/principles.md` | Markdown/living-docs, or response style |
 | Model-selection insight | `rules/harness/providers.md` | Model selection |
 | Session-learned fact | `~/.claude/memory/<topic>.md` (+ `MEMORY.md` TOC entry; root from `claude-code memory path`) | Appropriate topic |
 | Project state change | `~/.claude/memory/activeContext.md` | "Current Focus" / "Next Steps" |
@@ -51,7 +51,7 @@ a writable tier (never `CLAUDE.md`, `rules/workflows/`).
 
 **Routing priority**: Rules files > memory bank > `CLAUDE.md` (last resort, promotion-gated). This
 path writes only to the **writable** tiers — `rules/standards/` and `rules/software/<lang>/`. It
-never edits `rules/workflows/` (human-authored process), and never writes to `CLAUDE.md` directly —
+never edits `rules/harness/` (human-authored process), and never writes to `CLAUDE.md` directly —
 only `memory update --dream` promotes learnings there after the recurrence + hard-prohibition test passes.
 
 ### Step 3: Distill into a rule
@@ -134,7 +134,7 @@ entry under cap):
 3. Confirm the index no longer references a deleted file (no dangling links).
 4. Run `claude-code memory index`.
 
-This frees `MEMORY.md` space (caps: `rules/workflows/memory-bank.md` → Caps) and stops one rule living in two tiers.
+This frees `MEMORY.md` space (caps: `rules/harness/persistent-memory.md` → Caps) and stops one rule living in two tiers.
 
 ## Report
 

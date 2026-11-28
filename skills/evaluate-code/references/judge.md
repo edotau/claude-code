@@ -25,7 +25,7 @@ transcript audit: `../SKILL.md`; pre-code review: `task-review.md`.
    - Invalid settings: flag schema-rejected keys (`claude-code doctor`), not hand edits.
    - Secrets outside vault/provider `auth.command`: `CLAUDE.md` hard rule 2 (`claude-code vault set`).
    - Commit/shared-checkout violations: `CLAUDE.md` hard rules 3–4; `rules/standards/worktree-git.md`.
-   - Harness Markdown at repo root/ignored docs: `rules/harness/docs-placement.md`.
+   - Harness Markdown at repo root/ignored docs: `rules/harness/documentation.md`.
    - Hook/settings/roster change missing Impact Checklist, template/install/projection updates:
      `rules/harness/change-protocol.md`.
    - Unreconciled imports: foreign skill/agent/doc headers, absent commands/paths, links to nonexistent directories;

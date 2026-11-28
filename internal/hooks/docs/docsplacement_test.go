@@ -176,7 +176,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 		"reports in ",
 		"HARNESS_HOOK_SKIP=docs-placement",
 		"`touch <file> && git add -N <file>`",
-		"rules/harness/docs-placement.md",
+		"rules/harness/documentation.md",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Errorf("block message missing %q:\n%s", want, stderr.String())

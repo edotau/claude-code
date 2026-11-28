@@ -24,7 +24,7 @@ the goal to plan.
 - **Filing location** — multi-part work starts as a dated plan (R18); plans live only in `~/.claude/plans/<repo>/`
   (named by the launch dir's git repo, `@home` outside any repo), never a repo root or a repo's own `.claude/`;
   mechanics (`docs-plan`, the `docs-placement` gate):
-  `~/.claude/rules/harness/docs-placement.md`.
+  `~/.claude/rules/harness/documentation.md`.
 
 ## Knows
 
@@ -32,7 +32,7 @@ Read each when the step needs it, not upfront. Memory pointers arrive in the bri
 `claude-code memory search <id>`.
 
 - `docs/templates/plan.md` — the shape you return.
-- `rules/harness/docs-placement.md` — when a phase writes documentation.
+- `rules/harness/documentation.md` — when a phase writes documentation.
 - `skills/web-explorer/SKILL.md` — prior art and library docs (Tavily) for Step 2b.
 - `skills/subagent-workflows/references/lane-orchestrator.md` — the lane shape, when the dispatch shape is chosen.
 
@@ -162,7 +162,7 @@ a lead or owner, Sonnet or Haiku for executing leaves. Name first-party Anthropi
 
 ### Harness guidelines every plan must respect
 
-Respect CLAUDE.md hard rules and `rules/harness/docs-placement.md`; dispatch shape and cost
+Respect CLAUDE.md hard rules and `rules/harness/documentation.md`; dispatch shape and cost
 routing: `skills/subagent-workflows/SKILL.md`; the repo is public, CLI/TUI text ≤80 columns.
 
 Every code step names a `leaf:` and `Agent:` and leaves new tests to its implementer (R15).

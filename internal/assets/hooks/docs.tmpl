@@ -2,7 +2,7 @@
 {{if .Dest}}Re-issue the write to {{.Dest}}.{{else}}Plans belong in {{.Home}}, reports in {{.Reports}}, handoffs in {{.Handoffs}}; re-issue the write there.{{end}} A genuine repo doc the user
 asked for: `touch <file> && git add -N <file>` (`-f` if ignored), then re-issue the write.
 Or launch with HARNESS_HOOK_SKIP=docs-placement.
--> rules/harness/docs-placement.md
+-> rules/harness/documentation.md
 {{end}}
 
 {{define "retired"}}{{/* fields: . */}}{{.}} (retired: handoffs and reports live in the memory store){{end}}

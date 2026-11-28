@@ -123,7 +123,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   Fail open on veto/error/timeout; Codex/OpenCode env-altered calls pass. Pi code mode bypasses it.
 - **bash-timeout — Claude Bash PreToolUse:** raise foreground ask/wait/result-follow timeout to job timeout +10s,
   capped at 600000ms; never lower a larger setting or block. Long waits need shorter polling.
-- **docs-placement — write/edit/Bash PreToolUse:** `docs-placement.md`; ordinary leaf Bash blocks become notes,
+- **docs-placement — write/edit/Bash PreToolUse:** `documentation.md` → Placement; ordinary leaf Bash blocks become notes,
   but Plan-agent placement still blocks. First plans need template headings.
 - **dispatch-effort — Agent/Task/Workflow PreToolUse:** retype pi to coworker; Codemode:off selects Claude,
   on/only may select coworker. Header must occupy a whole line, not a command flag.
@@ -152,7 +152,7 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
 - **review-grep-exit — Bash failure:** explain no-match exit 1 and count-check handling; never block.
 - **review-decide — Stop:** main-only, once, on an unanswered fix/review question or unquoted fixed ask;
   stop_hook_active prevents loops (R28).
-- **memory-start / memory-recall / memory-compact / memory-end:** lifecycle: `memory-bank.md` → Who writes what.
+- **memory-start / memory-recall / memory-compact / memory-end:** lifecycle: `persistent-memory.md` → Who writes what.
   Recall uses up to two bodies/three pointers in 900 chars, at least four prompt terms and two–three matching terms.
   Start lists up to five recent open plans; compact waits at most 75s for steward within its 90s budget.
 - **msg-inbox / msg-inbox-start — prompt / SessionStart (gemini):** unread `agents msg` posts as context, marked
