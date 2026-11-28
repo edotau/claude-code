@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // Given beats keep arriving, Then the watch re-arms its one timer (no new timer per beat) and trips once when quiet.
@@ -30,5 +33,28 @@ func TestIdleTimeoutBeatReusesTimer(t *testing.T) {
 	}
 	if w.timer != first || kills.Load() != 1 {
 		t.Fatalf("same timer = %v, kills = %d; want the one timer re-armed and one trip", w.timer == first, kills.Load())
+	}
+}
+
+// Token movement keeps a quiet run alive; with none, the idle window trips.
+func TestIdleTimeoutTokenFlowKeepsRunAlive(t *testing.T) {
+	ctx, feed := withTokenFeed(context.Background())
+	tripped := make(chan struct{}, 1)
+	w := NewIdleTimeout("x", 60*time.Millisecond, func() { tripped <- struct{}{} })
+	w.Follow(ctx)
+	for i := 1; i <= 6; i++ {
+		time.Sleep(25 * time.Millisecond)
+		feed.note(&wire.Usage{OutputTokens: i * 10})
+	}
+	select {
+	case <-tripped:
+		t.Fatal("stopped while tokens were flowing")
+	default:
+	}
+	feed.note(&wire.Usage{OutputTokens: 60}) // unchanged total is no movement
+	select {
+	case <-tripped:
+	case <-time.After(time.Second):
+		t.Fatal("no idle stop without token movement")
 	}
 }

@@ -422,6 +422,7 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	}
 	cmd, tail := childCmd(ctx, bin, p, req)
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
+	idle.Follow(ctx)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
 	ti := newToolIdle(idle)
 	defer ti.stop() // a panic in the stream run must not leave the hold timers armed

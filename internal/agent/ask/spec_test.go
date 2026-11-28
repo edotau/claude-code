@@ -671,11 +671,11 @@ func TestRetryKeepsInheritedRunKeys(t *testing.T) {
 	}
 }
 
-// A typed --timeout outside the key's domain also drops the overlay's own timeout.
+// A typed --timeout 0 (outside the key's domain) also drops the overlay's own timeout.
 func TestTimeoutFlagOutsideDomainClearsOverlayKey(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(route.OverlayVar, "")
-	for _, d := range []string{"0", "48h"} {
+	for _, d := range []string{"0"} {
 		fs, f := askFlagSet()
 		if err := fs.Parse([]string{"--timeout", d}); err != nil {
 			t.Fatal(err)
@@ -689,7 +689,7 @@ func TestTimeoutFlagOutsideDomainClearsOverlayKey(t *testing.T) {
 	}
 }
 
-// An explicit --direct=false clears the overlay's endpoint direct; --timeout keeps its old domain (0, over 24h).
+// An explicit --direct=false clears the overlay's endpoint direct; --timeout takes 48h (no maximum).
 func TestDirectFalseAndTimeoutFlagDomain(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(route.OverlayVar, "")

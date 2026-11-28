@@ -241,7 +241,7 @@
       "type": "string"
     },
     "timeout": {
-      "description": "Go duration, e.g. 9m30s; at most 24h",
+      "description": "Go duration, e.g. 9m30s",
       "pattern": "^(?:(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:ns|us|µs|μs|ms|s|m|h))+$",
       "type": "string"
     },

@@ -25,9 +25,10 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R10 File-blocked:** when 2+ tasks wait on one file, propose a lane; `worktree-git.md`.
 - **R11 make:** leaf targets/checks follow `quality.md`: lint, scoped diff checks, audit/install/fmt/build/verify/
   bootstrap and fixing `lint-<kind>` in the harness tree.
-- **R12 Dispatch timeout:** 15m default (up to 30m in plan task before dispatch; never extend mid-run; split larger
-  tasks). A timeout is reported with what it left (R34); past Bash's 10m cap use `--background` and
-  `agents wait`. Enforced by `DefaultToolsTimeout`.
+- **R12 Dispatch time:** `timeout` is wall time, 45m default, no maximum; a run with no stream event and no token
+  flow for 15m is stopped as idle. An end on either limit is reported with what it left (record, lane, files, stop
+  point), never taken over by rule (R34); split tasks rather than extend. Past Bash's 10m cap use `--background` and
+  `agents wait`. Enforced by `DefaultToolsTimeout`, `IdleLimit`.
 - **R13 Guard walls:** `safety-scan` blocks deny matches and AI attribution (`hooks.md`). CLAUDE.md writes are
   main-session-only (leaves hand back the edit); lint/type suppressions ask in main, deny in agents.
 - **R13 New walls:** new restrictions need the owner's yes; show permission additions as a table first.

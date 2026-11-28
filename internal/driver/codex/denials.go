@@ -64,6 +64,7 @@ const (
 
 func (s *denialSink) runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result) (wire.Result, error) {
 	idle := agent.NewIdleTimeout(name, agent.IdleLimitFor(name), nil)
+	idle.Follow(ctx)
 	res, err := agent.RunStreamWith(ctx, name, cmd, tail, res, s, parseCodexIdle(idle), agent.StreamOpts{Idle: idle})
 	res.Denials = s.denials
 	return res, err

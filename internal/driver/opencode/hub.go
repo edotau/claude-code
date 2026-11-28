@@ -138,6 +138,7 @@ func (l hubDispatch) runStream(ctx context.Context, bin string, p agent.CLIPrep,
 		return p.Result, err
 	}
 	w, opts, parse := l.idleWatch(cmd, host)
+	w.Follow(ctx)
 	defer w.Stop()
 	res, runErr := agent.RunStreamWith(ctx, l.agent, cmd, tail, p.Result, sink, parse, opts)
 	runErr = accountRefusal(l.agent, runErr)

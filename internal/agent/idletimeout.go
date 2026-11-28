@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // ErrSilent is a stall after the child's first model output: a slow turn, so the account is not benched for it.
@@ -108,6 +111,61 @@ func (w *IdleTimeout) Beat(what string) {
 	}
 	w.armed, w.due = true, time.Now().Add(w.d)
 	w.timer.Reset(w.d)
+}
+
+// pulse restarts the window on token flow; unlike Beat it leaves a paused (tool running) window paused.
+func (w *IdleTimeout) pulse() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	armed := w.armed
+	w.mu.Unlock()
+	if armed {
+		w.Beat("tokens")
+	}
+}
+
+// tokenFeed fans a run's token movement out to its idle watches: grown usage is a sign of life on a quiet stream.
+type tokenFeed struct {
+	mu      sync.Mutex
+	total   int
+	watches []*IdleTimeout
+}
+
+type tokenFeedKey struct{}
+
+// withTokenFeed gives ctx's run a feed; the run's tally notes each usage event on it.
+func withTokenFeed(ctx context.Context) (context.Context, *tokenFeed) {
+	f := &tokenFeed{}
+	return context.WithValue(ctx, tokenFeedKey{}, f), f
+}
+
+func (f *tokenFeed) note(u *wire.Usage) {
+	if f == nil || u == nil {
+		return
+	}
+	f.mu.Lock()
+	grew := u.Total() > f.total
+	f.total = max(f.total, u.Total())
+	ws := slices.Clone(f.watches)
+	f.mu.Unlock()
+	if grew {
+		for _, w := range ws {
+			w.pulse()
+		}
+	}
+}
+
+// Follow counts token flow on ctx's run as a beat; a driver calls it right after NewIdleTimeout.
+func (w *IdleTimeout) Follow(ctx context.Context) {
+	f, _ := ctx.Value(tokenFeedKey{}).(*tokenFeed)
+	if w == nil || f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.watches = append(f.watches, w)
+	f.mu.Unlock()
 }
 
 // Rearm switches the window length to d and restarts it (the first-output window gives way to the idle one).

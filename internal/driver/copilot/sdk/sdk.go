@@ -421,6 +421,7 @@ func Ask(ctx context.Context, o Options, prompt string, images []string) (result
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	idle := agent.NewIdleTimeout("copilot", agent.IdleLimitFor("copilot"), stop)
+	idle.Follow(ctx)
 	defer idle.Stop()
 	col := assistantCollector{onUsage: o.OnUsage, transport: wire.TransportTracker{Start: started}, idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
 		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}

@@ -441,6 +441,7 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 		return wire.Result{}, err
 	}
 	idle := agent.NewIdleTimeout("gemini", agent.IdleLimitFor("gemini"), nil)
+	idle.Follow(ctx)
 	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseAgyEvents(bufio.NewReader(&beatReader{r: br, idle: idle}), &idleSink{Sink: sink, idle: idle}, false, wire.PickLog(logs))
 	}

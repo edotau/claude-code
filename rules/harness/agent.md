@@ -239,10 +239,10 @@ a fence; `auto` and session children add none. A closed inherited fence fixes pr
 or identity. Schema resets to 2. Caps take the smaller positive value (0 uncapped, negative/unset absent); admission
 uses the tighter overlay/legacy env cap, defaulting to width 8, tree tokens 20000000, depth 5. Budgets stay unset
 unless supplied, then cannot exceed the parent: USD is Claude-only (>0), credits Copilot-only (integer ≥30).
-Tool/persistence restrictions stick; timeout only shortens (positive Go duration, ≤24h). Append/resume may replace
-run restrictions and budgets, never widen caps/fence. Top-level `codexNetwork` enables network in `workspace-write`
-(inert in `danger-full-access`); `cloud` uses vendor cloud with its own login. Ask consumes derived run fields;
-`file` is launch-config only, not consumed by dispatch.
+Tool/persistence restrictions stick; timeout is wall time (positive Go duration, no maximum) and only shortens.
+Append/resume may replace run restrictions and budgets, never widen caps/fence. Top-level `codexNetwork` enables
+network in `workspace-write` (inert in `danger-full-access`); `cloud` uses vendor cloud with its own login.
+Ask consumes derived run fields; `file` is launch-config only, not consumed by dispatch.
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 

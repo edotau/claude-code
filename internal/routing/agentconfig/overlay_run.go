@@ -39,8 +39,6 @@ type runKeys struct {
 // tierNames mirrors agent.TierNames (agent imports this package).
 var tierNames = []string{"fast", "standard", "deep"}
 
-const maxTimeout = 24 * time.Hour
-
 // durationPattern is the Go duration syntax the schema and checkTimeout both enforce (no sign, a unit on every part).
 const durationPattern = `^(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:ns|us|µs|μs|ms|s|m|h))+$`
 
@@ -148,8 +146,8 @@ func (o Overlay) checkTimeout() error {
 	if o.Timeout == "" {
 		return nil
 	}
-	if d, err := time.ParseDuration(o.Timeout); err != nil || d <= 0 || d > maxTimeout || !durationRE.MatchString(o.Timeout) {
-		return errors.New("timeout: want a positive Go duration such as 9m30s, at most 24h")
+	if d, err := time.ParseDuration(o.Timeout); err != nil || d <= 0 || !durationRE.MatchString(o.Timeout) {
+		return errors.New("timeout: want a positive Go duration such as 9m30s")
 	}
 	return nil
 }

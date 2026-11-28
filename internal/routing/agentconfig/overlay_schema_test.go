@@ -38,7 +38,7 @@ var settingLimits = map[string]obj{
 	"budgetUSD":     {"exclusiveMinimum": 0},
 	"budgetCredits": {"minimum": 30},
 	"tier":          {"enum": []string{"fast", "standard", "deep"}},
-	"timeout":       {"pattern": durationPattern, "description": "Go duration, e.g. 9m30s; at most 24h"},
+	"timeout":       {"pattern": durationPattern, "description": "Go duration, e.g. 9m30s"},
 	"googleTools":   {"pattern": googleToolsPattern()},
 	"providerMode":  {"additionalProperties": obj{"enum": router.ProviderModes}},
 }

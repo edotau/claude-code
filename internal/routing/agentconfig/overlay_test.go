@@ -511,7 +511,7 @@ func TestOverlayRunKeys(t *testing.T) {
 	if err != nil || o.Agent != "codex" || o.Tools == nil || *o.Tools || o.NoPersist == nil || !*o.NoPersist || o.Timeout != "2m" || o.Empty() {
 		t.Fatalf("run keys did not decode: %+v, %v", o, err)
 	}
-	for _, bad := range []string{`{"tier":"huge"}`, `{"tier":""}`, `{"timeout":""}`, `{"googleTools":""}`, `{"timeout":"25h"}`, `{"timeout":"soon"}`, `{"timeout":"-1s"}`, `{"googleTools":"maps"}`,
+	for _, bad := range []string{`{"tier":"huge"}`, `{"tier":""}`, `{"timeout":""}`, `{"googleTools":""}`, `{"timeout":"soon"}`, `{"timeout":"-1s"}`, `{"googleTools":"maps"}`,
 		`{"agents":[1]}`, `{"tools":true,"noTools":true}`, `{"agent":" "}`, `{"debugFile":"a\nb"}`} {
 		if _, err := parseOverlay([]byte(bad)); err == nil {
 			t.Errorf("%s accepted", bad)
@@ -616,11 +616,8 @@ func TestOverlayRunKeysSchemaAgrees(t *testing.T) {
 			t.Errorf("%s=%q: want accepted=%v, Go err=%v, schema=%v", c.key, c.v, c.ok, err, accepts(c.key, c.v))
 		}
 	}
-	if _, err := parseOverlay([]byte(`{"timeout":"24h"}`)); err != nil {
-		t.Errorf("24h refused: %v", err)
-	}
-	if _, err := parseOverlay([]byte(`{"timeout":"24h1s"}`)); err == nil {
-		t.Error("a timeout past 24h was accepted")
+	if _, err := parseOverlay([]byte(`{"timeout":"72h"}`)); err != nil {
+		t.Errorf("72h refused: %v", err)
 	}
 }
 

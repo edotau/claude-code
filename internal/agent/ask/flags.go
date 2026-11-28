@@ -128,7 +128,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.codemode, "codemode", "", strings.Join(agentid.CodeModeAgents(), "|")+": "+strings.Join(route.Codemodes, "|")+"; off overrides CODEMODE; on/only need --tools; only is pi's")
 	fs.StringVar(&f.runner, "runner", "", strings.Join(route.Runners, "|")+": pi runner (default on Databricks) or the agent's own CLI")
 	fs.StringVar(&f.googleTools, "google-tools", "", "gemini: Google built-ins, comma list (search,url,code)")
-	fs.DurationVar(&f.timeout, "timeout", agent.DefaultToolsTimeout, "per-attempt deadline; a foreground ask past the 10m Bash cap runs --background")
+	fs.DurationVar(&f.timeout, "timeout", agent.DefaultToolsTimeout, "wall time, no maximum; idle 15m w/o tokens stops it; past 10m Bash cap use --background")
 	fs.BoolVar(&f.stdinFramed, "stdin-framed", false, "internal: prompt is stdin up to a NUL byte; the run is cancelled when stdin then closes")
 	fs.StringVar(&f.host, "host", "", "ssh host (alias, tailnet, auto); confinement rides")
 	fs.StringVar(&f.format, "format", "text", "stream text, print the JSON result envelope, or stream-json NDJSON events")
@@ -514,7 +514,7 @@ func resolveOutputSchema(arg string) (string, error) {
 	return body, nil
 }
 
-// askTimeout is the deadline: a fresh --tools run with neither --timeout nor an overlay timeout gets 15m.
+// askTimeout is the deadline: a fresh --tools run with neither --timeout nor an overlay timeout gets the 45m default.
 func askTimeout(fs *flag.FlagSet, ov agentconfig.Overlay, timeout time.Duration, retry, job string, tools bool) time.Duration {
 	if retry == "" && job == "" && tools && !timeoutHeld(fs, ov) {
 		return agent.DefaultToolsTimeout

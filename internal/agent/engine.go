@@ -575,8 +575,8 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
-// IdleLimit is how long any agent's stream may stay silent mid-run (a test shrinks it).
-var IdleLimit = 5 * time.Minute
+// IdleLimit is how long a run may go with no stream event and no token flow before it is stopped (tests shrink it).
+var IdleLimit = 15 * time.Minute
 
 // IdleLimitFor is the mid-stream idle limit for a roster agent, 0 for any other name.
 func IdleLimitFor(name string) time.Duration {

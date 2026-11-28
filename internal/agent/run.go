@@ -556,8 +556,8 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 	return p
 }
 
-// DefaultToolsTimeout is the per-attempt deadline of a tools run without an explicit timeout.
-const DefaultToolsTimeout = 15 * time.Minute
+// DefaultToolsTimeout is the wall time of a tools run without an explicit timeout; there is no maximum.
+const DefaultToolsTimeout = 45 * time.Minute
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type repickBudgetKey struct{}
@@ -869,6 +869,7 @@ func mergeWritten(wrote *[]string, proven []string, workDir string) *[]string {
 type tally struct {
 	wire.Sink
 	live                                   *activityLog
+	tokens                                 *tokenFeed
 	tools, geminiTools, toolProgress, text atomic.Int64
 	last                                   atomic.Value // the last event's type, with its tool name: where a budget end stopped
 	mu                                     sync.Mutex
@@ -940,6 +941,7 @@ func (t *tally) Emit(ev wire.Event) error {
 	case wire.EventText:
 		t.text.Add(int64(len(ev.Text)))
 	}
+	t.tokens.note(ev.Usage)
 	t.live.note(ev, t.toolCount())
 	return t.Sink.Emit(ev)
 }

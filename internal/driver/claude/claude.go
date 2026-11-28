@@ -72,6 +72,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 		return wire.Result{}, err
 	}
 	wd := newIdleWatch(claudeIdleLimit, nil) // RunEventStream binds the kill once the child starts
+	wd.Follow(ctx)
 	wd.row = cl.Set[providers.EnvSessionProfile]
 	wd.onModel = func(m string) { agent.NotePick(ctx, m) } // an unchanged model writes nothing
 	parse := func(br *bufio.Reader, sink wire.Sink, spoke func(), logs ...wire.StreamLog) (wire.Result, error) {

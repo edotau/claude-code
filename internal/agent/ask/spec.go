@@ -357,9 +357,9 @@ func settleTools(o agentconfig.Overlay) agentconfig.Overlay {
 	return o
 }
 
-// overlayTimeout is the key v unless d is outside its domain (positive, at most 24h); the flag takes wider ones.
+// overlayTimeout is the key v unless d is not positive; the flag takes 0 for "no deadline".
 func overlayTimeout(v string, d time.Duration) string {
-	if d <= 0 || d > 24*time.Hour {
+	if d <= 0 {
 		return ""
 	}
 	return v
