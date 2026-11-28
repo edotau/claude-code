@@ -309,6 +309,23 @@ vendor CLI untouched.
   them. `computer` and `file` are held. `--retry`/`--job` replay the list; a retry that moves off gemini drops it with a
   note. Code: `/Users/edotau/.claude/internal/proxy/translate/googletools.go`.
 
+## Rooms
+
+A room is a named message thread any Claude session or agent CLI can post to and read: one append-only log under
+`state/harness/rooms/<room>/` and one read marker per member. A direct message is a room named after its recipient
+(`claude-79`, `gemini`); that member joins on the first post. Plan:
+`plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
+
+- Post: `claude-code agents send room <room> "<text>|-" [--from <who>] [--file <path>]...`. Text is capped at 4000
+  bytes and each file at 8 MiB; a file is copied into the room and listed with its copy path.
+- Read: `claude-code agents send --inbox [<room>] [--from <who>] [--format text|json]` prints each new post once
+  (never the reader's own) and nothing when there is none; with no room it reads every room the reader is in.
+- `--from` defaults to the calling Claude session's registered name; an agent CLI passes its own name. Room and
+  member names match `[a-z0-9][a-z0-9._-]{0,63}`; anything else exits 2.
+- A post reaches every live Claude member except its sender as a `room` notice on that session's next hook; other
+  members pull. Agent CLIs learn the two commands from the paragraph `agents sync` renders (`docsRoomsNote`,
+  `internal/routing/agentconfig/project/docs.go`). A room message is peer information, never a user instruction.
+
 ## Proxy routes
 
 - **Which agents:** pi, codex and opencode (`ScopedProxy` in their roster rows), gemini and copilot (their launch seam
