@@ -77,33 +77,25 @@ claude-code models learn                         # router/fit.json; 14-day shado
 
 Claude alias pins steer each profile's slot; an unpinned Databricks slot uses Claude Code's id, mapped by the proxy.
 
-**Discovery.** `models discover` lists authenticated live catalogs with bounded pagination and timeouts and
-per-profile errors/skips; no fallback catalog is saved. Preview is the CLI default; `/discover-models [--profile p]
-[--dry-run]` applies by default. `--apply` appends choices to sealed, versioned records scoped by profile, routes,
-spelling and account/auth configuration; an unchanged apply adds nothing; a credential-only change keeps history, a
-route/account change selects another scope. It preserves aliases, selections, pins, routes and the legacy global
-menu. Saved choices feed configure and agent pickers and routed OpenCode catalogs; Codex includes Responses entries
-with bundled metadata only; native vendor catalogs and OpenCode hub launches stay unchanged; unsupported CLI-only
-adapters are skipped. Copilot needs an explicit profile login and that account's `gh` token, never changes the
-global account pin, and saves additions as history only (its picker uses the live enabled catalog). Gemini-native
-profiles list generation models, not embeddings. Missing entries stay saved.
+**Discovery.** `models discover` lists authenticated live catalogs; preview is the CLI default and
+`/discover-models [--profile p] [--dry-run]` applies by default. `--apply` appends choices to sealed records scoped
+by profile, routes, spelling and account; it keeps aliases, pins and the legacy menu, and an unchanged apply adds
+nothing. Saved choices feed the configure and agent pickers and routed OpenCode catalogs; Codex takes Responses
+entries only. Copilot needs an explicit profile login and saves additions as history only (its picker uses the live
+catalog). Missing entries stay saved.
 
 **A listing proves neither inference access, tool support nor current availability.** Verify a route with a real
 `claude-code agents ask`, never `curl`.
 
-**Dropped ids.** `--drop <id>[,<id>]` removes saved-menu ids and blocks re-adding; `--undrop` reverses it (`--apply`
-writes). On Databricks `--apply` probes new ids and `--verify` also probes saved ones (4 workers, 30 s each); preview
-never probes. Only an explicit 400 `This endpoint <id> is deprecated` or 403 `... available only via Unity Gateway`
-drops an id; the proxy records the same drop, reason and date from a real response. Pickers and auto skip dropped
-ids, discovery shows the reason, `opencode catalog sync --apply` skips them and `catalog add` refuses them until
-`--undrop`.
+**Dropped ids.** `models discover --drop <id>[,<id>] --apply` removes saved-menu ids and blocks re-adding;
+`--undrop` reverses it. Only an explicit 400 `This endpoint <id> is deprecated` or 403 `... available only via
+Unity Gateway` drops an id automatically (on `--apply`/`--verify` probes, or recorded by the proxy from a real
+response). Pickers, auto and `opencode catalog sync` skip dropped ids; `catalog add` refuses them.
 
-**Probe verdicts.** `models discover --apply|--verify`, `databricks check` and `opencode catalog sync --verify`
-stream when supported. A 2xx needs content and a wire terminator: Anthropic `message_stop`, Responses
-`response.completed|response.incomplete`, chat `[DONE]` or `finish_reason`; non-chat endpoints keep one
-non-streaming request. No content, no terminator or an error frame is `broken`, never auto-dropped; the others are
-`ok`, `deprecated`, `fail`, `transient`, `missing`. `databricks check` sends one Anthropic `max_tokens=1` message
-and never waits out a 429.
+**Probe verdicts** (`models discover --apply|--verify`, `databricks check`, `opencode catalog sync --verify`):
+`ok`, `deprecated`, `fail`, `transient`, `missing`, and `broken` (a 2xx stream with no content, no wire terminator
+or an error frame; never auto-dropped). `databricks check` sends one `max_tokens=1` message and never waits out a
+429.
 
 ### Vault
 
@@ -225,30 +217,23 @@ each alias per provider.
 ## Served-aware Databricks routing
 
 `configure routing` → `servedAware` (off by default) checks codex, copilot and opencode picks against the
-workspace's cached endpoint listing (`state/harness/preflight/served-<profile>.json`, fixed 24h TTL; a GitHub
-login's auto pool ages by its Copilot snapshot, `HARNESS_MODEL_CACHE_TTL`). Off, cold or stale reads as the static
-menu for ordinary picks; routing never touches the network. Auto pools and cold, stale or empty listings:
-`agent.md` → Model precedence.
+workspace's cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h). Off, cold or stale reads
+as the static menu; routing never touches the network. Auto pools and cold or empty listings: `agent.md` → Model
+precedence.
 
-- **Preflight:** credential-bound successes are reused from router state for 15 minutes; failures and unknowns
-  expire after 30 seconds and never block a launch. A token must cover the run timeout plus 2 minutes after
-  keepalive or a service-principal mint, unless one of those just renewed it (then a note, not a refusal).
-  Preflight refuses an unlisted name; a cold listing skips the check with a note.
-- **Listing facts:** the cache keeps each endpoint's `api_types`, `model_class` and the context and output limits
-  parsed from its description. A fresh listing's `api_types` decide "serves Responses" for codex and
-  `ResponsesServable` (Grok stays out of codex; opencode's routing is unchanged); a catalog limit beats the
-  listing's; no listing, old rule.
-- **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`, `<agent>
-  profile`, `configure` exit and a detached `models preflight --refresh` at session start (≤ once per 15 minutes).
-  That detached child also runs the daily learn steps (`models learn` fold, recall weights), stamped
-  `state/harness/preflight/learn-daily`.
-- **A swap ignores the alias:** an alias-derived pick (no `--model`, overlay `model` or record model) that is not
-  READY is replaced by the first READY entry in menu order, so a sonnet dispatch can land on an opus endpoint; menu
-  order is the control. A pinned or explicit model that is not READY is never swapped: its candidate is skipped
-  (`<m> is not served on <p>` in `gateway` skips).
+- **Preflight** refuses an unlisted name (a cold listing skips the check with a note) and needs a token that covers
+  the run timeout plus 2 minutes, unless keepalive or a service-principal mint just renewed it. Its failures never
+  block a launch for more than 30 seconds.
+- **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; when switched on, also `switch`,
+  `<agent> profile`, `configure` exit and a detached refresh at session start, which also runs the daily learn
+  steps.
+- **A swap ignores the alias:** an alias-derived pick that is not READY is replaced by the first READY entry in
+  menu order, so a sonnet dispatch can land on an opus endpoint; menu order is the control. A typed or record model
+  that is not READY is never swapped: it is skipped (`<m> is not served on <p>`).
 - **Live rescue:** a codex `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once on the next READY
   Responses model; an exact `--model` never retries.
-- An OpenCode own-plan usage limit fails in seconds as `quota`, holding `opencode·go` until its reported reset.
+- A fresh listing's `api_types` decide whether codex can use a model (Grok stays out of codex). An OpenCode
+  own-plan usage limit fails fast as `quota`, holding `opencode·go` until its reported reset.
 
 ## Databricks routes (key rule)
 
@@ -288,23 +273,15 @@ menu for ordinary picks; routing never touches the network. Auto pools and cold,
 - A dead user login (`needs_login`) is stored with its times in `state/harness/cache/login-state/<profile>.json`;
   doctor, `databricks check --all`, the status line and proxy errors report it. No timer re-probes it. Sealing a
   login, including `vault set`/`import` with `refresh`, clears it.
-- **Token states:** a cached token is fresh until expiry minus min(lifetime/2, 20 minutes) (10 minutes when the
-  lifetime is unknown). Inside that window the proxy serves the current token at once and runs one background
-  refresh per profile; from expiry minus a skew (1 minute, at most half the window) callers wait for an in-line
-  refresh. A failed background refresh cools down for 1 minute while the valid token keeps being served. A
-  short-lived command refreshes in line at the same early window. A running proxy also refreshes profiles used in
-  the last 24 h once under 15 minutes remain, under the per-profile lock.
-- **A sent exchange finishes:** a u2m refresh token is single-use, so a sent exchange always runs to its vault
-  write. Callers and a proxy stop cannot cancel it; proxy stop, CLI exit and the launcher's exec wait up to 2
-  minutes 15 seconds. A failed vault write reports the rotation as unsaved (`seal_failed`); a rotated token is
-  carried until sealed, and a stale one never replaces a newer vault copy. A process killed between send and save
-  loses that login: renew with `claude-code databricks login --profile <p>`.
-- **Throttling:** a service-principal mint (429, 5xx) and endpoint listing (429, 502, 503, 504) try 3 times, honour
-  `Retry-After` (waits capped at 8 s), else back off from 500 ms with full jitter, capped at 4 s. A u2m refresh or
-  login code is resent only when the request was never written, never after any HTTP reply. Model traffic uses the
-  proxy's cool-down instead (`Retry-After`, 30 s default, 5 minutes at most).
-- **One re-mint per rejection:** a 401/403 refresh adopts a token a peer minted after the rejected one instead of
-  minting again (in-process under the flight lock; across processes via the sealed vault copy).
+- **Refresh:** the proxy refreshes a token before it expires, in the background while the current one still
+  serves, and callers wait only in the last minute. A u2m refresh token is single-use, so a sent exchange always
+  runs to its vault write: proxy stop, CLI exit and the launcher wait for it (up to 2 minutes 15 seconds). A failed
+  vault write reports `seal_failed`; a process killed between send and save loses that login, renewed with
+  `claude-code databricks login --profile <p>`.
+- **Throttling:** service-principal mints and endpoint listings retry 3 times with back-off, honouring
+  `Retry-After`. A u2m refresh or login code is never resent after any HTTP reply. Model traffic uses the proxy's
+  cool-down instead (30 s default, 5 minutes at most). A 401/403 refresh adopts a token a peer just minted
+  instead of minting again.
 
 ## Proxy
 
@@ -342,20 +319,16 @@ DIR` are remembered after first use. `train-jev.sh` is a thin front for it; `doc
 
 ### Session tokens
 
-- Signed, not stored: HMAC over profiles, pid and its start time, issue and expiry (one year; the process is the
-  real limit) under a key derived from the router secret and the config dir, so every daemon of the config accepts
-  them. A token cannot be revoked: it ends when its process exits, at expiry, or when the router secret rotates (a
-  leftover `revoked.json` is ignored). Rotating `CLAUDE_CODE_ROUTER_SECRET` refuses every live signed token once (a
-  passthrough session then needs a relaunch).
-- Every 401 the proxy itself gives carries `X-Claude-Code-Proxy-Refusal: session-refused`. `resolve --proxy`
-  re-mints a refused armed token with its own scope (only its route's profile when the claims cannot be verified);
-  a headless run re-mints once; neither marks the provider.
-- A token the previous (stored-token) build minted keeps its old rules (7-day idle expiry, bound process, never
-  re-minted by `resolve --proxy`, unaffected by the secret) while `sessions.json` lists it. That file is read,
-  never written; renewed expiries persist in `legacy-renewals.json`, which only this build writes.
-- A token carries the launch's confinement fence (`fz`: the profiles the overlay confines it to; `open` when none).
-  A scoped proxy verifies and signs with the same key, binds a token it signs to its own pid and start time, and
-  never widens a fence.
+- Signed, not stored, under a key derived from the router secret and the config dir, so every daemon of the config
+  accepts them. A token cannot be revoked: it ends when its process exits, at expiry (one year) or when
+  `CLAUDE_CODE_ROUTER_SECRET` rotates, which refuses every live token once (a passthrough session then needs a
+  relaunch).
+- Every 401 the proxy itself gives carries `X-Claude-Code-Proxy-Refusal: session-refused`; `resolve --proxy` and a
+  headless run re-mint once, and neither marks the provider.
+- A token carries the launch's confinement fence (the profiles the overlay confines it to); a scoped proxy never
+  widens it.
+- Tokens from the previous stored-token build keep their old rules while `sessions.json` lists them; that file is
+  read, never written.
 
 ## Proxy teams and scopes
 
@@ -386,39 +359,21 @@ claude-code opencode catalog sync --profile dev [--dry-run|--apply] [--refresh] 
 claude-code opencode catalog check --profile dev --all
 ```
 
-- **Scope:** Databricks Serving Endpoints and existing authentication only. `--profile` is required (no pin
-  fallback, no positionals); other profile types are rejected before any request. Launches consume the menu without
-  sync; Copilot's registry separately validates identity each launch and lists on a missing or stale 24h snapshot
-  or a model miss. Gateway listings do not establish Serving Endpoints availability.
-- **Modes:** the default previews from the authenticated cache or discovers on a miss; `--refresh` forces discovery
-  with no stale fallback; `--verify` probes eligible entries; `--apply` saves the snapshot and results and adds
-  non-failures. `--apply` and `--dry-run` are exclusive. Preview saves no discovery, probes or menu (authentication
-  may refresh credentials). Apply seals new, refreshed or verified snapshots even with no additions; unchanged hits
-  are not rewritten; a discovery or auth failure saves nothing.
-- **Identity:** every sync validates SCIM `Me` (HTTP 200, nonempty identity ID, not explicitly inactive). That
-  proves identity, not endpoint permissions; a refreshed token for the same identity can reuse discovery.
-- **Cache:** discovery and sanitized probes are encrypted vault `cache` records (`vault ls cache`), apart from the
-  plaintext menu. Key `model-discovery/v1/<sha256 JSON scope>` covers profile, CLI profile, normalized workspace,
-  spelling rule, resolved Anthropic/chat/Responses URLs and subject ID; a route change invalidates reuse. Snapshots
-  hold no token, fingerprint, raw error or secret prefix. No TTL: use `--refresh` for catalog changes. An unlocked
-  vault key is required; auth or decryption failures fail closed. Refresh may replace bad JSON or schema only after
-  decryption, never inaccessible ciphertext, and keeps readable historical probes until `--verify` replaces them.
-- **What is added:** non-gateway `READY` endpoints with task `llm/v1/chat` and `databricks-` names that round-trip
-  to the exact serving name, sorted and deduplicated, then missing ones appended. Existing order, labels and
-  explicit Responses flags are kept, even for absent endpoints; new entries infer the flag, chat-only ids never use
-  Responses, redundant flags are not stored. Nothing is removed. Failed probes, historical cached ones included,
-  block additions; a listing-only entry with no known failure may be added as discovered/unverified. An empty or
-  no-change run does not write the menu.
-- **`--verify`:** uses the existing Responses flag, or infers for new entries: `/responses`, else Claude's native
-  `/v1/messages` when available, else `/chat/completions`. Routes are the resolved ones, never hardcoded bases, and
-  must stay under the workspace's HTTPS `/serving-endpoints` with no redirects. Four workers, 30 s per request,
-  5 min overall; token budgets 256 chat / 128 Responses / 32 Anthropic; an HTTP rejection retries without tools.
-  Success proves HTTP and tool-definition acceptance and a clean stream, not a tool call or a correct answer;
-  budget or API limits may fail it, with no model-specific exceptions. Only status, HTTP code, tool-definition
-  acceptance and latency are saved. After a successful manual verification `catalog add --responses` can select
-  Responses. `catalog check` keeps its legacy routes, 8/16-token budgets and result storage.
-- **Use:** the menu overlay is shared across profiles. OpenCode uses all entries; Codex uses Responses entries with
-  bundled metadata. Relaunch the CLI after applying; confirm access with `check --all`.
+- Databricks Serving Endpoints only; `--profile` is required. Launches consume the menu without syncing.
+- The default previews from the authenticated cache or discovers on a miss; `--refresh` forces discovery;
+  `--verify` probes eligible entries; `--apply` saves the snapshot and adds non-failures (exclusive with
+  `--dry-run`). Preview saves nothing; a discovery or auth failure saves nothing.
+- Every sync validates the identity (SCIM `Me`), which proves identity, not endpoint permissions.
+- Discovery and probe results are encrypted vault `cache` records (`vault ls cache`) keyed by profile, workspace,
+  routes and identity, with no TTL (use `--refresh`) and no token or raw error inside; a locked vault fails closed.
+- Added: READY chat endpoints with `databricks-` names, appended after existing entries. Existing order, labels and
+  Responses flags are kept and nothing is removed. A failed probe, cached ones included, blocks an addition; a
+  listing-only entry may be added as unverified.
+- `--verify` success proves the endpoint accepts the request and tool definitions and streams cleanly, not that a
+  tool call or answer is right. Routes stay under the workspace's `/serving-endpoints`. After a manual check,
+  `catalog add --responses` can select Responses.
+- The menu is shared across profiles: OpenCode uses all entries, Codex the Responses ones. Relaunch the CLI after
+  applying; confirm access with `check --all`.
 
 ## Databricks read-only API and cost
 
@@ -456,26 +411,19 @@ claude-code usage --cost --days 7           # estimate per profile and model
 `usage --cost` estimates local ledger tokens × profile prices, counting 1-hour cache writes as writes; it is not an
 invoice. There is no system-table billing report: never request grants; use paired SPs for Databricks needs.
 
-**Ledger stamps.** Every metered row of `state/usage/ledger.jsonl` carries `first_ms` (send to the first client
-byte), `total_ms` (send to the ledger write) and `cost_usd`, all of the attempt that served. `cost_usd` is the
-profile's `options.prices` row for the served model, else the Databricks list price, else 0 (another provider's
-list price is not used). A row with no token counts is not written; older rows omit the three fields.
+**Ledger.** Each metered row of `state/usage/ledger.jsonl` carries `first_ms`, `total_ms` and `cost_usd` for the
+attempt that served; `cost_usd` uses the profile's `options.prices`, else the Databricks list price, else 0.
 
-**Route weights.** The pick scores price, headroom and latency, default 0.4, 0.4 and 0.2 (`configure routing
-weights.price=<0-1>` and `weights.latency=<0-1>`; headroom is the remainder so the three sum to 1). Latency is the
-blended first-event time, (p50+p95)/2 of `first_ms`, over the last 7 days and at least 5 rows in the ledger's last
-2 MiB: the fastest measured candidate scores 1, a slower one fastest/own. With no measured candidate the latency
-weight drops out and price and headroom are rescaled; an unmeasured candidate among measured ones ties at 1. A
-weights map saved before latency existed still loads (missing latency is 0).
+**Route weights.** The pick scores price, headroom and latency (default 0.4, 0.4, 0.2; `configure routing
+weights.price=<0-1>` and `weights.latency=<0-1>`, headroom is the remainder). Latency comes from the ledger's
+first-byte times over the last 7 days; with no measurement it drops out and the other two are rescaled.
 
-**Spend cap.** `routing.spendCap.sessionUSD` and `spendCap.dayUSD` cap metered USD per session and per local day;
-off until set (`configure routing spendCap.sessionUSD=<usd>` / `spendCap.dayUSD=<usd>`; empty clears one), each in
-(0, 1000000]. At a cap the proxy drops metered rows from the attempt ladder and tries any remaining unmetered `cli`
-subscription rows; with none left it refuses with 402 `billing_error` and `X-Claude-Code-Proxy-Refusal: spend-cap`.
-Each metered failover hop rechecks the cap before calling upstream; a cap reached during failover refuses with 402
-and ends the ladder. Subscription rows and `count_tokens` are unaffected; a request with no session id is held only
-by the day cap. A ledger read error fails open and logs `proxy: spend cap unchecked`. Doctor reports caps and
-today's spend. Costs land after calls, so in-flight requests can overshoot by their cost.
+**Spend cap.** `configure routing spendCap.sessionUSD=<usd>` and `spendCap.dayUSD=<usd>` cap metered USD per
+session and per local day (off until set; empty clears). At a cap the proxy drops metered rows and tries any
+unmetered `cli` subscription rows; with none left it refuses with 402 `billing_error` and
+`X-Claude-Code-Proxy-Refusal: spend-cap`. Subscription rows and `count_tokens` are unaffected; a request with no
+session id is held only by the day cap. A ledger read error fails open. Costs land after calls, so in-flight
+requests can overshoot. Doctor reports caps and today's spend.
 
 **Gemini built-in tools.** `claude-code configure provider <p> options.google_tools=url,code` records the built-ins
 a Databricks row serves, from a probe (`search|url|code`; empty clears it). Unset means unprobed: the proxy sends
