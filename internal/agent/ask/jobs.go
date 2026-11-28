@@ -434,7 +434,7 @@ func SendMsg(room, text, from string, files []string) int {
 	}
 	msg, err := worktree.PostRoom(room, sender, body, files)
 	if msg.Seq > 0 {
-		fmt.Printf("@%s #%d sent\n", room, msg.Seq)
+		fmt.Printf("%s %d sent\n", room, msg.Seq)
 	}
 	if err != nil {
 		return roomFail(err)
@@ -490,7 +490,7 @@ func printInbox(items []inboxItem, format string) error {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		fmt.Fprintf(&b, "@%s #%d %s: %s\n", it.Room, it.Seq, it.From, it.Text)
+		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Room, it.Seq, it.From, it.Text)
 		for _, f := range it.Files {
 			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
 		}

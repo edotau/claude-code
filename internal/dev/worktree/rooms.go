@@ -72,9 +72,17 @@ func checkRoomName(kind, s string) error {
 	return nil
 }
 
+// checkChat accepts a chat id: @name (one member's inbox) or #name (a named room); the two never collide.
+func checkChat(chat string) error {
+	if chat == "" || !strings.ContainsRune("@#", rune(chat[0])) {
+		return fmt.Errorf("%w: chat %q starts with @ (a member) or # (a room)", ErrRoomInput, chat)
+	}
+	return checkRoomName("chat", chat[1:])
+}
+
 // PostRoom stores a post and its files, then notifies live Claude members; a notify error still returns the Message.
 func PostRoom(room, from, text string, files []string) (Message, error) {
-	if err := errors.Join(checkRoomName("room", room), checkRoomName("sender", from)); err != nil {
+	if err := errors.Join(checkChat(room), checkRoomName("sender", from)); err != nil {
 		return Message{}, err
 	}
 	if len(text) > roomTextMax {
@@ -96,7 +104,11 @@ func PostRoom(room, from, text string, files []string) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	if err := errors.Join(joinRoom(room, from), joinRoom(room, room)); err != nil { // a room named after a member is its inbox
+	owner := from
+	if room[0] == '@' { // @name is name's inbox: its owner is a member from the first message
+		owner = room[1:]
+	}
+	if err := errors.Join(joinRoom(room, from), joinRoom(room, owner)); err != nil {
 		return msg, err
 	}
 	return msg, notifyRoom(room, msg)
@@ -205,8 +217,11 @@ func joinRoom(room, name string) error {
 
 // ReadRoom returns the posts in room newer than reader's cursor that reader did not send, then advances the cursor.
 func ReadRoom(room, reader string) ([]Message, error) {
-	if err := errors.Join(checkRoomName("room", room), checkRoomName("reader", reader)); err != nil {
+	if err := errors.Join(checkChat(room), checkRoomName("reader", reader)); err != nil {
 		return nil, err
+	}
+	if _, err := os.Stat(roomLog(room)); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil // reading a chat nobody wrote to creates nothing, not even its lock
 	}
 	var out []Message
 	err := paths.WithFileLock(roomLog(room), func() error {
@@ -265,9 +280,9 @@ func notifyRoom(room string, msg Message) error {
 
 func roomNotice(room string, msg Message) string {
 	runes := []rune(strings.Join(strings.Fields(msg.Text), " "))
-	text := fmt.Sprintf("msg @%s · %s: %s", room, msg.From, string(runes[:min(len(runes), roomNoticeCut)]))
+	text := fmt.Sprintf("msg %s · from %s: %s", room, msg.From, string(runes[:min(len(runes), roomNoticeCut)]))
 	if len(runes) > roomNoticeCut || len(msg.Files) > 0 {
-		text += " read: claude-code agents msg @" + room
+		text += " read: claude-code agents msg '" + room + "'"
 	}
 	return text
 }

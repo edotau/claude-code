@@ -149,11 +149,11 @@ var agentsSubPages = map[string][3]string{
 		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
 		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
-	"msg": {"msg [@name|#name] [<text | ->] [flags]", "Message a Claude session, an agent CLI or a shared chat, and read " +
-		"what they sent. With text (or --file) it sends to the target; with a target and no text it prints that " +
-		"chat's new messages; bare it prints every new message for you. @name and #name are one namespace: a chat " +
-		"named after a member (@gemini, @claude-79) is that member's inbox. Quote #name in a shell, or use @name. " +
-		"A live Claude member also gets each message as a notice on its next hook. Exit 0, 1 failed, 2 usage."},
+	"msg": {"msg [@name|'#name'] [<text | ->] [flags]", "Message one agent or Claude session (@gemini, @claude-79) or a " +
+		"named room ('#design'), and read what was sent. With text (or --file) it sends to the target; with a target " +
+		"and no text it prints that chat's new messages; bare it prints every new message for you. Every message " +
+		"shows its sender. Quote '#name': a bare # starts a shell comment. A live Claude member also gets each " +
+		"message as a notice on its next hook. Exit 0, 1 failed, 2 usage."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
 		"An <id> shows that dispatch, whichever agent ran it.",
@@ -746,11 +746,10 @@ func cmdAgentsMsg(args []string) int {
 	}
 	var chats []string
 	if len(pos) > 0 {
-		name, ok := strings.CutPrefix(strings.Replace(pos[0], "#", "@", 1), "@")
-		if !ok {
-			return helptext.FailUsage("agents msg: the target starts with @ or #, as in @gemini (got %q)", pos[0])
+		if !strings.HasPrefix(pos[0], "@") && !strings.HasPrefix(pos[0], "#") {
+			return helptext.FailUsage("agents msg: the target is @name (an agent) or '#name' (a room), got %q", pos[0])
 		}
-		chats = []string{name}
+		chats = []string{pos[0]}
 	}
 	switch {
 	case len(pos) >= 2 || (len(chats) == 1 && len(files) > 0):

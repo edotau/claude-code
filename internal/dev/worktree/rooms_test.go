@@ -10,7 +10,7 @@ import (
 
 func roomPost(t *testing.T, from, text string, files ...string) {
 	t.Helper()
-	if _, err := PostRoom("duo", from, text, files); err != nil {
+	if _, err := PostRoom("#duo", from, text, files); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -18,7 +18,7 @@ func roomPost(t *testing.T, from, text string, files ...string) {
 // roomRead returns the comma-joined texts reader sees and the attachment copies among them.
 func roomRead(t *testing.T, reader string) (texts string, copies []string) {
 	t.Helper()
-	got, err := ReadRoom("duo", reader)
+	got, err := ReadRoom("#duo", reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +46,12 @@ func TestRoomReadersSeeOnlyNewForeignPosts(t *testing.T) {
 	again, _ := roomRead(t, "beta")
 	mine, _ := roomRead(t, "alpha")
 	rooms, roomsErr := RoomsFor("alpha")
-	_, badErr := PostRoom("../x", "alpha", "hi", nil)
+	_, badErr := PostRoom("#../x", "alpha", "hi", nil)
 	for _, c := range []struct{ name, got, want string }{
 		{"beta first read", got, "one,three"},
 		{"beta second read", again, ""},
 		{"alpha read", mine, "two"},
-		{"alpha rooms", strings.Join(rooms, ","), "duo"},
+		{"alpha rooms", strings.Join(rooms, ","), "#duo"},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s = %q, want %q", c.name, c.got, c.want)
