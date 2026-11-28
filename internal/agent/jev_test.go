@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
 // hangJev serves /v1/systemone only once the client leaves, so a shadow call stays mid-flight until cancel.

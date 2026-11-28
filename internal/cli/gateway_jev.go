@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
-	"github.com/edotau/claude-code/internal/routing/router/jev"
+	"github.com/edotau/claude-code/internal/routing/jev"
 )
 
 // jevOpts are `gateway jev`'s flag values.

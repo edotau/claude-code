@@ -22,9 +22,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/remote/egress"
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
-	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
 // hostBatchProxy gives a bare batch its own phase proxy; a batch whose lines or env name a group already has one.

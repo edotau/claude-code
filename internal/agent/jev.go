@@ -10,8 +10,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/providers"
-	"github.com/edotau/claude-code/internal/routing/router/jev"
 )
 
 // JevShadow is Open-Jev's answer for a dispatch's brief beside the keyword pick; Final is the tier TaskTier acts on.

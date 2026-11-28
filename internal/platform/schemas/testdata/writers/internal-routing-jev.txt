@@ -1,0 +1,4 @@
+internal/routing/jev/jev.go:writeBackoffAtomic	unversioned: ephemeral 30s backoff expiry stamp, safe to delete
+internal/routing/jev/job.go:Resolve	unversioned: remembered trainer and out directories, safe to delete
+internal/routing/jev/job.go:openLog	unversioned: the training job's append-only log in the owner's output dir
+internal/routing/jev/job.go:writeFile	unversioned: plain job files shared with the shell script (pid, jury, started, tasks, args)

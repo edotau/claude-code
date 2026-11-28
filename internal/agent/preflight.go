@@ -21,10 +21,10 @@ import (
 	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/catalog"
 	"github.com/edotau/claude-code/internal/routing/databricks/serving"
+	"github.com/edotau/claude-code/internal/routing/jev"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
-	"github.com/edotau/claude-code/internal/routing/router/jev"
 	endpoints "github.com/edotau/claude-code/internal/routing/served"
 )
 
