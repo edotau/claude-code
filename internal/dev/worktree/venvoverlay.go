@@ -82,6 +82,7 @@ func pyvenvVersion(venv string) string {
 			}
 		}
 	}
+	_ = sc.Err() // a read error leaves the version unknown, as a missing key does
 	return ""
 }
 
@@ -192,7 +193,8 @@ func nspkgLines(psp string) string {
 		data, _ := os.ReadFile(pth)
 		for line := range strings.SplitSeq(string(data), "\n") {
 			if strings.HasPrefix(line, "import") {
-				out.WriteString(strings.ReplaceAll(line, "sys._getframe(1).f_locals['sitedir']", strconv.Quote(psp)) + "\n")
+				out.WriteString(strings.ReplaceAll(line, "sys._getframe(1).f_locals['sitedir']", strconv.Quote(psp)))
+				out.WriteByte('\n')
 			}
 		}
 	}

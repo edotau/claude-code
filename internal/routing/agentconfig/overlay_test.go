@@ -611,7 +611,7 @@ func TestOverlayRunKeysSchemaAgrees(t *testing.T) {
 		{"googleTools", " search", false}, {"googleTools", "search,url", true}, {"googleTools", "search, url,  code", true},
 	}
 	for _, c := range cases {
-		_, err := parseOverlay([]byte(fmt.Sprintf(`{%q:%q}`, c.key, c.v)))
+		_, err := parseOverlay(fmt.Appendf(nil, `{%q:%q}`, c.key, c.v))
 		if (err == nil) != c.ok || accepts(c.key, c.v) != c.ok {
 			t.Errorf("%s=%q: want accepted=%v, Go err=%v, schema=%v", c.key, c.v, c.ok, err, accepts(c.key, c.v))
 		}

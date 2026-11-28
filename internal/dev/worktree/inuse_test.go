@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -434,7 +435,7 @@ func BenchmarkParseLsofCwd(b *testing.B) {
 	for i := range want {
 		pid := i + 1
 		cwd := "/co/my repo/" + strconv.Itoa(i)
-		input.WriteString("p" + strconv.Itoa(pid) + "\ncclaude\nfcwd\nn" + cwd + "\n")
+		fmt.Fprintf(&input, "p%d\ncclaude\nfcwd\nn%s\n", pid, cwd)
 		want[i] = procCwd{PID: pid, Cwd: cwd, Comm: "claude"}
 	}
 	out := input.String()

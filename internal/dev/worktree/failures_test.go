@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,8 +103,8 @@ func seedLog(t *testing.T, root string, n int, cursor string) {
 	big := strings.Repeat("x", 1000)
 	var b strings.Builder
 	for i := range n {
-		b.WriteString(`{"id":"` + FailureID(FailBench, strconv.Itoa(i)) + `","kind":"bench","subject":"` + strconv.Itoa(i) +
-			`","summary":"` + big + `","time":1,"seq":` + strconv.Itoa(i+1) + `}` + "\n")
+		fmt.Fprintf(&b, `{"id":"%s","kind":"bench","subject":"%d","summary":"%s","time":1,"seq":%d}`+"\n",
+			FailureID(FailBench, strconv.Itoa(i)), i, big, i+1)
 	}
 	for name, body := range map[string]string{"failures.jsonl": b.String(), "seq": strconv.Itoa(n), "cursors/s-s": cursor} {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o700); err != nil {
