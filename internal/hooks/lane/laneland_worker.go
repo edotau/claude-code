@@ -205,7 +205,10 @@ func laneHold(j laneJob, e worktree.Entry, repo *worktree.Repo, q *worktree.Queu
 		return true
 	}
 	land := laneLandCmd(j.lane)
-	switch {
+	switch coll := worktree.CollectorOf(repo, j.lane); {
+	case coll != "": // lanes converge in their collector first; the head verifies once, when the collector lands
+		q.Reason = "a collector is open"
+		q.Next = "claude-code worktree collapse " + coll + " " + filepath.Base(j.lane)
 	case len(e.Problems) > 0 || e.Busy != "" || e.DivergenceUnknown():
 		why := cmp.Or(e.Busy, strings.Join(e.Problems, "; "), "divergence unknown")
 		q.Reason, q.Detail, q.Next = "lane busy or unreadable", capText(why), land+" once it is free"

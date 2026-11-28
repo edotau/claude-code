@@ -346,3 +346,29 @@ func collapseVerify(ctx context.Context, dir string, files []string) error {
 	}
 	return nil
 }
+
+// CollectorOf is the open worktree lane was created inside: lane's first commit is on it and not on main; "" if none.
+func CollectorOf(repo *Repo, lane string) string {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	log, err := gitCmd(ctx, "-C", lane, "reflog", "show", "--format=%H", "HEAD").Output()
+	created := strings.Fields(string(log))
+	if err != nil || len(created) == 0 {
+		return ""
+	}
+	start := created[len(created)-1] // the oldest entry is the commit the lane was created at
+	if gitCmd(ctx, "-C", repo.Main, "merge-base", "--is-ancestor", start, "HEAD").Run() == nil {
+		return "" // created from the trunk: it is nobody's lane
+	}
+	out, _ := gitCmd(ctx, "-C", repo.Main, "worktree", "list", "--porcelain").Output()
+	for line := range strings.SplitSeq(string(out), "\n") {
+		dir, ok := strings.CutPrefix(line, "worktree ")
+		if !ok || dir == lane || dir == repo.Main {
+			continue
+		}
+		if gitCmd(ctx, "-C", dir, "merge-base", "--is-ancestor", start, "HEAD").Run() == nil {
+			return filepath.Base(dir)
+		}
+	}
+	return ""
+}
