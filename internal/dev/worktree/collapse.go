@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrCollapseStopped marks a collapse that refused up front or dropped a lane; the collector keeps its last good head.
@@ -88,6 +89,7 @@ func collapsePicks(ctx context.Context, repo *Repo, dir string, lanes []collapse
 			continue
 		}
 		afterCollapsePick(l)
+		recordCollapsed(l, req.Collector, before.head)
 		before.n, before.m = len(shas), laneCommits(ctx, dir, before)
 		count := fmt.Sprintf("%d commits", before.n)
 		if before.m > before.n {
@@ -100,6 +102,13 @@ func collapsePicks(ctx context.Context, repo *Repo, dir string, lanes []collapse
 		fmt.Fprintf(req.Out, "collapsed %s (%s); %s\n", l.name, count, outcome)
 	}
 	return picked, dropped, nil
+}
+
+// recordCollapsed notes the picked lane head in its ledger so a later clean knows the collector holds the work.
+func recordCollapsed(l collapseLane, collector, head string) {
+	if _, err := AppendLedger(l.dir, "collapsed into "+collector+", head "+head, time.Time{}); err != nil {
+		fmt.Fprintf(os.Stderr, "worktree collapse: warning: ledger: %v\n", err)
+	}
 }
 
 // pickPoint: lane head as picked, collector merge-base before it, commits picked (n), all past the base (m).

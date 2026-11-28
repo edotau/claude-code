@@ -404,6 +404,8 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		}
 	}
 
+	e.markLedgerMerged(repo.Main)
+
 	gitDir, gdErr := e.gitDir, error(nil)
 	if gitDir == "" {
 		gitDir, gdErr = gitDirFromPath(e.Path)
@@ -414,6 +416,11 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		e.ActivityAt, e.ActivitySource = activity(gitDir, e.Path)
 	}
 	e.Stale = !e.ActivityAt.IsZero() && now.Sub(e.ActivityAt) > staleAfter
+}
+
+// markLedgerMerged sets Merged when the ledger shows this very head collapsed or landed; later target commits keep it.
+func (e *Entry) markLedgerMerged(main string) {
+	e.Merged = e.Merged || ledgerRecordsHead(main, filepath.Base(e.Path), e.Head)
 }
 
 // markPatchMerged sets Merged when every commit e.Head has over target already sits on target as a patch.

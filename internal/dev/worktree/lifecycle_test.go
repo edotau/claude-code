@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -860,4 +861,63 @@ func writeCommit(t *testing.T, dir, name, body string) {
 	}
 	commitIn(t, dir, "add", name)
 	commitIn(t, dir, "commit", "-q", "-m", "add "+name+body)
+}
+
+// laneWithCommit creates lane name and commits file in it, returning the lane directory.
+func laneWithCommit(t *testing.T, repo *Repo, name, file string) string {
+	t.Helper()
+	dest, err := Create(repo, name, CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLane(t, dest, file, name)
+	commitIn(t, dest, "add", file)
+	commitIn(t, dest, "commit", "-q", "-m", "feat: "+name)
+	return dest
+}
+
+// TestCleanCollapsedLaneAfterLaterMainCommit: a collapsed lane stays cleanable after main moves unless it grew
+func TestCleanCollapsedLaneAfterLaterMainCommit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := testRepo(t)
+	laneWithCommit(t, repo, "l1", "a.txt")
+	l2 := laneWithCommit(t, repo, "l2", "b.txt")
+	err := Collapse(context.Background(), repo, CollapseRequest{Collector: "col", Lanes: []string{"l1", "l2"}, Keep: true, Out: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	col, _ := resolveWorktreeBounded(repo, "col")
+	commitIn(t, repo.Main, "cherry-pick", headOf(col)+"~1", headOf(col))
+	for _, f := range []string{"a.txt", "b.txt"} {
+		writeLane(t, repo.Main, f, "later")
+		commitIn(t, repo.Main, "add", f)
+	}
+	commitIn(t, repo.Main, "commit", "-q", "-m", "fix: later")
+	writeLane(t, l2, "c.txt", "after")
+	commitIn(t, l2, "add", "c.txt")
+	commitIn(t, l2, "commit", "-q", "-m", "feat: after collapse")
+	if r, err := Clean(repo, "l1", false); err != nil || !r.Removed {
+		t.Fatalf("collapsed lane refused: %+v %v", r, err)
+	}
+	if r, _ := Clean(repo, "l2", false); r.Removed || !strings.Contains(r.Reason, "not merged") {
+		t.Fatalf("lane with a later commit removed or wrong reason: %+v", r)
+	}
+}
+
+// TestCleanFinishedDeletesLandedBranchOnceInHead: a landed dirless branch goes once HEAD has its diff.
+func TestCleanFinishedDeletesLandedBranchOnceInHead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := testRepo(t)
+	dest := laneWithCommit(t, repo, "ld", "a.txt")
+	head := headOf(dest)
+	if _, err := removeLanded(repo, "ld", dest, io.Discard, LedgerClose{Via: "land", LandSHA: head, Head: head}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CleanFinished(repo); err != nil || !branchExists(repo.Main, "worktree-ld") {
+		t.Fatalf("branch must stay before its diff is in HEAD: %v", err)
+	}
+	commitIn(t, repo.Main, "cherry-pick", head)
+	if _, err := CleanFinished(repo); err != nil || branchExists(repo.Main, "worktree-ld") {
+		t.Fatalf("branch must go once its diff is in HEAD: %v", err)
+	}
 }

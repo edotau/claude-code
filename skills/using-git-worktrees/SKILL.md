@@ -56,6 +56,7 @@ requires the primary checkout's current branch. A preview neither runs verificat
 - Successful land: cleanup follows the Git rule; `--no-clean` keeps the worktree.
 
 `clean` checks ownership, locks, liveness and whether the diff is in `HEAD`; ancestry alone is not required.
+A lane the ledger shows collapsed or landed at its current head passes without `--force`; a later lane commit refuses.
 `clean --force` acts on an existing worktree, not a branch-only remainder, and still refuses main, locks or active use.
 Discard authorization: `rules/standards/principles.md` → Communication.
 Native `worktree-remove` uses safe branch deletion; it does not have `clean`'s landed-diff check.

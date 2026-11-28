@@ -283,8 +283,8 @@ func closedLedgerText(main, name, text string, c LedgerClose) (string, error) {
 	}
 	text = strings.Replace(text, "- Status: open\n", "- Status: closed\n", 1)
 	text = ledgerLog(text, "closed via "+c.Via, c.Now)
-	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Land: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
-		ledgerLine(c.Via), ledgerLine(land), ledgerTime(c.Now), branch)
+	text = strings.TrimRight(text, "\n") + fmt.Sprintf("\n\n## Closed\n\n- Via: %s\n- Land: %s\n- Head: %s\n- Closed: %s\n- Branch: %s\n- Commits:\n",
+		ledgerLine(c.Via), ledgerLine(land), c.Head, ledgerTime(c.Now), branch)
 	return text + commitLines(strings.TrimSpace(string(out))), nil
 }
 
@@ -394,4 +394,19 @@ func ledgerLog(text, entry string, now time.Time) string {
 		return strings.TrimRight(text[:i], "\n") + "\n" + line + text[i:]
 	}
 	return strings.TrimRight(text, "\n") + "\n" + line
+}
+
+// ledgerRecordsHead reports whether name's ledger says head was collapsed into a collector or closed by a land.
+func ledgerRecordsHead(main, name, head string) bool {
+	data, err := os.ReadFile(ledgerPath(main, name, time.Now()))
+	if err != nil || head == "" {
+		return false
+	}
+	for line := range strings.Lines(string(data)) {
+		line = strings.TrimSpace(line)
+		if line == "- Head: "+head || strings.Contains(line, " collapsed into ") && strings.HasSuffix(line, " head "+head) {
+			return true
+		}
+	}
+	return false
 }

@@ -720,7 +720,31 @@ func CleanFinished(repo *Repo) ([]CleanResult, error) {
 			results = append(results, r)
 		}
 	}
-	return results, nil
+	return append(results, cleanKeptBranches(repo)...), nil
+}
+
+// cleanKeptBranches deletes dirless worktree-* branches the ledger closed at that head once their diff is in HEAD.
+func cleanKeptBranches(repo *Repo) []CleanResult {
+	ctx, cancel := gitTimeoutCtx()
+	defer cancel()
+	out, err := gitCmd(ctx, "-C", repo.Main, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/worktree-*").Output()
+	if err != nil {
+		return nil
+	}
+	var results []CleanResult
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		branch, oid, ok := strings.Cut(line, " ")
+		name := strings.TrimPrefix(branch, "worktree-")
+		if dest, err := resolveWorktreeBounded(repo, name); !ok || err != nil || !ledgerRecordsHead(repo.Main, name, oid) {
+			continue
+		} else if _, statErr := os.Lstat(dest); !os.IsNotExist(statErr) {
+			continue
+		}
+		if r, err := Clean(repo, name, false); err == nil && r.BranchDeleted {
+			results = append(results, r)
+		}
+	}
+	return results
 }
 
 // committed reports whether branch's reflog shows a commit after its creation entry.
