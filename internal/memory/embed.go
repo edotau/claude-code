@@ -65,8 +65,8 @@ type vectorRow struct {
 
 // EmbedClient embeds texts with one named model; EmbedFunc honours ctx.
 type EmbedClient struct {
-	Model     string // vectors are comparable only within one model
-	EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
+	model     string // vectors are comparable only within one model
+	embedFunc func(ctx context.Context, texts []string) ([][]float32, error)
 }
 
 // openEmbedClient builds a model client; an empty profile uses the agent record.
@@ -74,12 +74,12 @@ var openEmbedClient = openDatabricksEmbed
 
 // entryEmbedText is what an entry is embedded as: its type and body, capped.
 func entryEmbedText(e memoryEntry) string {
-	return textutil.TruncateRunes(e.Type+": "+e.Body, embedTextRunes)
+	return textutil.TruncateRunes(e.typ+": "+e.body, embedTextRunes)
 }
 
 // freshEmbedCache is an empty cache for c's model.
 func freshEmbedCache(c *EmbedClient) vectorRecord {
-	return vectorRecord{Model: c.Model, Rows: map[string]vectorRow{}}
+	return vectorRecord{Model: c.model, Rows: map[string]vectorRow{}}
 }
 
 // embedChanged embeds changed live entries; a valid lease returns errEmbedValid without minting.
@@ -112,7 +112,7 @@ func embedBase(c *EmbedClient, now time.Time, force bool) (vectorRecord, error) 
 	if err != nil {
 		return vectorRecord{}, err
 	}
-	if rec.Model != c.Model || rec.Rows == nil { // another model's record and lease do not bind this model
+	if rec.Model != c.model || rec.Rows == nil { // another model's record and lease do not bind this model
 		rec = freshEmbedCache(c)
 	}
 	if err := checkEmbedLease(rec, now, force); err != nil {
@@ -209,17 +209,17 @@ func pendingEmbeds(cache vectorRecord) (ids, texts, hashes, blocks []string, liv
 	}
 	for _, h := range hits {
 		e := entryFromHit(h)
-		if _, dup := live[e.ID]; e.Archived || e.Superseded || dup { // the first of a duplicated id wins
+		if _, dup := live[e.id]; e.archived || e.superseded || dup { // the first of a duplicated id wins
 			continue
 		}
 		text := entryEmbedText(e)
 		hash := textutil.SHA256Hex([]byte(text))
-		live[e.ID] = hash
+		live[e.id] = hash
 		if cache.Rows == nil {
 			continue // no cache: only the live hashes are wanted
 		}
-		if block := hitHash(h); !cacheRowCurrent(cache.Rows[e.ID], hash, block, cacheDim) {
-			ids, texts, hashes = append(ids, e.ID), append(texts, text), append(hashes, hash)
+		if block := hitHash(h); !cacheRowCurrent(cache.Rows[e.id], hash, block, cacheDim) {
+			ids, texts, hashes = append(ids, e.id), append(texts, text), append(hashes, hash)
 			blocks = append(blocks, block)
 		}
 	}
@@ -238,7 +238,7 @@ type embedRun struct {
 }
 
 func (r *embedRun) merge(cur vectorRecord) vectorRecord {
-	if cur.Model != r.c.Model || cur.Rows == nil {
+	if cur.Model != r.c.model || cur.Rows == nil {
 		cur = freshEmbedCache(r.c)
 	}
 	fresh := r.fresh
@@ -576,7 +576,7 @@ func (r *embedRun) embedBatches(parent context.Context, texts []string) ([][][]f
 			defer func() { <-sem }()
 			i := batch * embedBatch
 			j := min(i+embedBatch, len(texts))
-			vectors, err := r.c.EmbedFunc(ctx, texts[i:j])
+			vectors, err := r.c.embedFunc(ctx, texts[i:j])
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {
@@ -854,10 +854,10 @@ func hedgeFunc(profile, model string) embedFn {
 			if err != nil {
 				return nil, err
 			}
-			if c.Model != model {
+			if c.model != model {
 				return nil, fmt.Errorf("%w: built with another model", errEmbedMismatch)
 			}
-			return c.EmbedFunc(ctx, texts)
+			return c.embedFunc(ctx, texts)
 		}
 	}
 	return nil
@@ -921,11 +921,11 @@ func querySemantic(ctx context.Context, profile, query, model string, rows func(
 	if err != nil {
 		return semanticResult{err: err}
 	}
-	if model == "" || c.Model != model { // checked first: no prompt text leaves on a mismatch
+	if model == "" || c.model != model { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: fmt.Errorf("%w: built with another model", errEmbedMismatch)}
 	}
 	stop = RecallStage("embed-call")
-	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.EmbedFunc, hedgeFunc(profile, model))
+	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.embedFunc, hedgeFunc(profile, model))
 	stop()
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
@@ -1036,7 +1036,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 			return nil, err
 		}
 	}
-	return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{model: model, embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return embedDatabricks(ctx, p, model, texts)
 	}}, nil
 }

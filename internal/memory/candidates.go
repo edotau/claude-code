@@ -207,7 +207,7 @@ func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
 			return fmt.Errorf("the candidates file would have %d problem(s); run `claude-code memory review`", n)
 		}
 		_, err = commitChangesLocked("memory: candidate "+id+" "+verb,
-			[]storeChange{{Rel: candidatesRel, Data: []byte(text), Planned: true, PreSHA256: pre}})
+			[]storeChange{{rel: candidatesRel, data: []byte(text), planned: true, preSHA256: pre}})
 		return err
 	})
 }
@@ -394,7 +394,7 @@ func proposeCandidate(w io.Writer, record string) error {
 			return errors.New(p[0])
 		}
 		_, err = commitChangesLocked("memory: candidate "+c.ID+" proposed",
-			[]storeChange{{Rel: candidatesRel, Data: []byte(text), Planned: true, PreSHA256: pre}})
+			[]storeChange{{rel: candidatesRel, data: []byte(text), planned: true, preSHA256: pre}})
 		return err
 	})
 	if err != nil {

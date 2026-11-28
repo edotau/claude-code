@@ -152,7 +152,7 @@ func TestNewBankStoreFailsClosedWithNoStore(t *testing.T) {
 func TestNewBankStoreOpenerFailureNeverWritesFiles(t *testing.T) {
 	batchStore(t)
 	linkStore(t, &fakeDBStore{}, errors.New("locked out"), nil)
-	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err == nil {
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now); err == nil {
 		t.Fatal("Apply succeeded")
 	}
 	if got := mustRead(t, Path("decisionLog.md")); strings.Contains(got, " — n <!-- id:") {
@@ -245,7 +245,7 @@ func TestDBStoreApplyExportFailureKeepsBatch(t *testing.T) {
 	t.Cleanup(func() { OpenExportDB = old })
 	OpenExportDB = func() (ExportDB, func() error, error) { return nil, nil, errors.New("export db down") }
 	rs, err := newBankStore(false).Apply(Batch{}, nil, time.Now())
-	if _, after := errors.AsType[*AfterCommitError](err); !after || refused(err) || f.applies != 1 || len(rs) != 1 {
+	if _, after := errors.AsType[*afterCommitError](err); !after || refused(err) || f.applies != 1 || len(rs) != 1 {
 		t.Fatalf("err=%v applies=%d rs=%v; want the commit kept and an after-commit error", err, f.applies, rs)
 	}
 }
@@ -375,7 +375,7 @@ func TestDBStoreApplyTakesBankLock(t *testing.T) {
 	shortBankWait(t) // a held lock makes Apply fail after the wait, so no sleep decides the result
 	var err error
 	if lerr := withBankLock(BankLockWait, func() error {
-		_, err = newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+		_, err = newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now)
 		return nil
 	}); lerr != nil {
 		t.Fatal(lerr)
@@ -383,7 +383,7 @@ func TestDBStoreApplyTakesBankLock(t *testing.T) {
 	if err == nil || st.applied.Load() {
 		t.Fatalf("Apply under a held bank lock: err=%v applied=%v", err, st.applied.Load())
 	}
-	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil || !st.applied.Load() {
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now); err != nil || !st.applied.Load() {
 		t.Fatalf("Apply after release: err=%v applied=%v", err, st.applied.Load())
 	}
 }
@@ -393,14 +393,14 @@ func TestApplyTypedDBWritesChangedFilesOnly(t *testing.T) {
 	decision, conventions := db.docs["decisionLog.md"], db.docs["conventions.md"]
 	bad := Op{Op: "update", ID: "ffffffff", Read: "z00000000", Text: "x"}
 	store := newBankStore(false)
-	if _, err := store.Apply(Batch{Ops: []Op{batchAdd, bad}}, nil, testEnv().Now); err == nil {
+	if _, err := store.Apply(Batch{Ops: []Op{batchAdd, bad}}, nil, testEnv().now); err == nil {
 		t.Fatal("a failing op must refuse the whole batch")
 	}
 	if db.docs["decisionLog.md"] != decision || db.docs["conventions.md"] != conventions ||
 		mustRead(t, Path("decisionLog.md")) != decision || mustRead(t, Path("conventions.md")) != conventions {
 		t.Fatal("a refused batch changed the db or its export")
 	}
-	rs, err := store.Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+	rs, err := store.Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now)
 	if err != nil || len(rs) != 1 || rs[0].Outcome != DreamOK {
 		t.Fatalf("rs=%+v err=%v", rs, err)
 	}
@@ -424,7 +424,7 @@ func TestApplyTypedDBExportFailureKeepsBatch(t *testing.T) {
 			old := OpenExportDB
 			t.Cleanup(func() { OpenExportDB = old })
 			fail(db)
-			rs, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now)
+			rs, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now)
 			if len(rs) != 1 || rs[0].Outcome != DreamOK {
 				t.Errorf("results = %+v, want the op applied", rs)
 			}
@@ -432,7 +432,7 @@ func TestApplyTypedDBExportFailureKeepsBatch(t *testing.T) {
 				t.Errorf("the committed row was undone:\n%s", db.docs["decisionLog.md"])
 			}
 			_, committed := errors.AsType[*committedErr](err)
-			_, after := errors.AsType[*AfterCommitError](err) // committed: never retried, never sent to fallback
+			_, after := errors.AsType[*afterCommitError](err) // committed: never retried, never sent to fallback
 			if !committed || !after {
 				t.Errorf("want a confirmed after-commit error, got %v", err)
 			}
@@ -451,7 +451,7 @@ func TestApplyTypedDBOutsideEditKept(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().Now); err != nil {
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{batchAdd}}, nil, testEnv().now); err != nil {
 		t.Fatal(err)
 	}
 	if !fired {
@@ -475,7 +475,7 @@ func TestDBStoreApplyRefusesAmbiguousRef(t *testing.T) {
 	dup := contentRef("- Dup")
 	// Load gives a duplicate ref the empty version
 	upd := Op{Op: "update", ID: dup, Text: "x"}
-	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{upd}}, Versions{dup: ""}, testEnv().Now); err == nil || db.docs["progress.md"] != before {
+	if _, err := newBankStore(false).Apply(Batch{Ops: []Op{upd}}, Versions{dup: ""}, testEnv().now); err == nil || db.docs["progress.md"] != before {
 		t.Errorf("an ambiguous ref was written: err=%v\n%s", err, db.docs["progress.md"])
 	}
 }
@@ -547,7 +547,7 @@ func TestGrammarOfArchiveUsesSource(t *testing.T) {
 		"archive/conventions-archive.md":             GrammarBullets,
 		"archive/2026-10-21-gemini-snapshot.md":      GrammarSections,
 	} {
-		if got := GrammarOf(name); got != want {
+		if got := grammarOf(name); got != want {
 			t.Errorf("GrammarOf(%q) = %v, want %v", name, got, want)
 		}
 	}
@@ -585,7 +585,7 @@ func TestBankPaths(t *testing.T) {
 		Path("activeContext.md"):               "activeContext.md",
 		paths.MemorySub("reports", "x.md"):     "reports/x.md",
 		paths.MemorySub("techdebt", "area.md"): "techdebt/area.md",
-		NativeIndex():                          "MEMORY.md",
+		nativeIndex():                          "MEMORY.md",
 	} {
 		if got != filepath.Join(s, want) {
 			t.Errorf("got %s, want %s", got, filepath.Join(s, want))

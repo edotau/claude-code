@@ -31,7 +31,7 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	}
 	failure := errors.New("agent unavailable")
 	run := func(context.Context, string, string) (string, error) { return "stub", failure }
-	if err := dream(dreamOptions{CWD: root, Run: run}); !errors.Is(err, failure) {
+	if err := dream(dreamOptions{cwd: root, run: run}); !errors.Is(err, failure) {
 		t.Fatalf("Dream = %v, want agent failure", err)
 	}
 	now := time.Now()
@@ -77,7 +77,7 @@ func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 	}
 	reads := countBankReads(t)
 	p := previewDream()
-	if p.Archivable != len(overflow) || p.SessionRotate != 5 || !slices.Equal(p.Oversized, []string{"conventions.md"}) {
+	if p.archivable != len(overflow) || p.sessionRotate != 5 || !slices.Equal(p.oversized, []string{"conventions.md"}) {
 		t.Errorf("previewDream = %+v, want Archivable %d, SessionRotate 5, Oversized [conventions.md]", p, len(overflow))
 	}
 	for path, n := range reads {
@@ -89,7 +89,7 @@ func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 
 // The dry-run report pluralizes sessionHistory rotations the way the package's other counts do.
 func TestDreamReportPluralizesRotatedEntries(t *testing.T) {
-	got := dreamPreview{Dir: "d", SessionRotate: 3}.Report()
+	got := dreamPreview{dir: "d", sessionRotate: 3}.report()
 	if !strings.Contains(got, "would rotate 3 sessionHistory entr(ies) to archive/\n") {
 		t.Fatalf("Report() = %q, want the entr(ies) rotation line", got)
 	}
@@ -107,7 +107,7 @@ func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
 		return orig(p)
 	}
 	t.Cleanup(func() { readFile = orig })
-	got := previewDream().Report()
+	got := previewDream().report()
 	if !strings.Contains(got, "home decisionLog.md: permission denied — unreadable") || strings.Contains(got, "nothing to consolidate") {
 		t.Errorf("dry run hid the unreadable bank file:\n%s", got)
 	}
@@ -131,7 +131,7 @@ func TestDreamIfDueSkipsUnderLockWhenPeerJustDreamed(t *testing.T) {
 		return "stub", nil
 	}
 	var out strings.Builder
-	if err := dream(dreamOptions{CWD: root, Run: run, Out: &out, IfDue: true}); err != nil {
+	if err := dream(dreamOptions{cwd: root, run: run, out: &out, ifDue: true}); err != nil {
 		t.Fatalf("dream = %v, want nil", err)
 	}
 	if got, _, _ := dreamStamp(); !got.Equal(peer) {
@@ -215,8 +215,8 @@ func TestDreamRecordsEveryRun(t *testing.T) {
 		return "stub", nil
 	}
 	runs := []dreamOptions{
-		{CWD: root, Run: fail, Trigger: "manual", Forced: true},
-		{CWD: root, Run: idle, IfDue: true, Trigger: "schedule"},
+		{cwd: root, run: fail, trigger: "manual", forced: true},
+		{cwd: root, run: idle, ifDue: true, trigger: "schedule"},
 	}
 	for _, o := range runs {
 		_ = dream(o)
@@ -276,8 +276,8 @@ func TestDreamLogCapturesCatchupAndRunnerOutput(t *testing.T) {
 		fmt.Fprintln(JobOutput(ctx, io.Discard), "hop-receipt-line")
 		return "stub", nil
 	}
-	o := dreamOptions{CWD: root, Run: run, Trigger: "manual", Forced: true}.withLog()
-	fmt.Fprintln(o.Out, "catchup-line")
+	o := dreamOptions{cwd: root, run: run, trigger: "manual", forced: true}.withLog()
+	fmt.Fprintln(o.out, "catchup-line")
 	_ = dream(o)
 	got, _ := LastDreamResults(1)
 	if len(got) != 1 || got[0].Log == "" {
@@ -373,7 +373,7 @@ func TestDreamAppliesTypedBatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.prepare(t, sharedCfg, sharedHome, progress, conventions)
 			answer := strings.NewReplacer("UPDATE", refs[0], "CLOSE", refs[1], "RULE", refs[2]).Replace(tc.answer)
-			err := dream(dreamOptions{CWD: t.TempDir(), Run: dreamTestRunner(t, answer, refs, tc.race), Trigger: "manual", Forced: true})
+			err := dream(dreamOptions{cwd: t.TempDir(), run: dreamTestRunner(t, answer, refs, tc.race), trigger: "manual", forced: true})
 			if (err != nil) != tc.fail {
 				t.Fatalf("%s: dream = %v, want failure %t", tc.name, err, tc.fail)
 			}
@@ -418,7 +418,7 @@ func dreamTestRefs(t *testing.T, progress, conventions string) []string {
 func dreamTestRunner(t *testing.T, answer string, refs []string, race bool) AgentFunc {
 	t.Helper()
 	return func(ctx context.Context, prompt, _ string) (string, error) {
-		if JobAnswerSchema(ctx) != DreamBatchSchema() {
+		if JobAnswerSchema(ctx) != dreamBatchSchema() {
 			t.Error("runner did not receive Batch schema")
 		}
 		for _, ref := range append(refs, `"id":"1234abcd"`) {
@@ -547,7 +547,7 @@ func dreamTestArchive(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[]}`)
 		return "stub", nil
 	}
-	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run}); err != nil {
+	if err := dream(dreamOptions{cwd: t.TempDir(), run: run}); err != nil {
 		t.Fatal(err)
 	}
 	records, err := LastDreamResults(1)
@@ -625,7 +625,7 @@ func TestDreamIgnoresOlderLayoutStamp(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`)
 		return "stub", nil
 	}
-	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Out: &out, Forced: true}); err != nil {
+	if err := dream(dreamOptions{cwd: t.TempDir(), run: run, out: &out, forced: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !typed {
@@ -748,7 +748,7 @@ func TestDreamFinishLeavesPeerPlanEdits(t *testing.T) {
 }
 
 func TestDreamBatchSchemaCarriesSideArrays(t *testing.T) {
-	if strings.Contains(BatchSchema(), "plan_tasks") || !strings.Contains(DreamBatchSchema(), "plan_tasks") {
+	if strings.Contains(BatchSchema(), "plan_tasks") || !strings.Contains(dreamBatchSchema(), "plan_tasks") {
 		t.Error("only the dream schema carries the side arrays")
 	}
 	typed := dreamProcedure()
@@ -785,7 +785,7 @@ func TestDreamApplyFailureFallsBackOnce(t *testing.T) {
 				return fixed, "fake-pi", nil
 			}
 			t.Cleanup(func() { CodeModeRun = old })
-			err := dream(dreamOptions{CWD: t.TempDir(), Run: dreamTestRunner(t, stale, refs, false), Trigger: "manual", Forced: true})
+			err := dream(dreamOptions{cwd: t.TempDir(), run: dreamTestRunner(t, stale, refs, false), trigger: "manual", forced: true})
 			got, _ := os.ReadFile(Path("progress.md"))
 			changed := string(got) != progress
 			if calls != 1 || changed != (name == "corrected") || (err != nil) != (name == "still bad") ||
@@ -954,7 +954,7 @@ func TestDreamUncertainCommitAttemptsNoSideEntry(t *testing.T) {
 	for i, name := range names {
 		before[i] = mustRead(t, name)
 	}
-	unsure := &AfterCommitError{errors.New("roll back the write: failed")}
+	unsure := &afterCommitError{errors.New("roll back the write: failed")}
 	old := OpenBankStore
 	OpenBankStore = func(bool) (BankStore, func() error, error) {
 		return failedStore{unsure}, func() error { return nil }, nil
@@ -983,7 +983,7 @@ func TestDreamExtractUnderBudgetCallsNoModel(t *testing.T) {
 	}
 	t.Cleanup(func() { CodeModeRun = old })
 	var out strings.Builder
-	dreamExtract(dreamOptions{Out: &out}, nil)
+	dreamExtract(dreamOptions{out: &out}, nil)
 	if calls != 0 || out.Len() != 0 {
 		t.Fatalf("under budget: calls=%d out=%q", calls, out.String())
 	}
@@ -999,7 +999,7 @@ func dreamExtractOverBudget(t *testing.T, withLog bool) {
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.MemoryStoreDir()
-	extractQuietRepo(t, storeRepo{Dir: root})
+	extractQuietRepo(t, storeRepo{dir: root})
 	if withLog {
 		dreamWriteAccessLog(t)
 	}
@@ -1007,10 +1007,10 @@ func dreamExtractOverBudget(t *testing.T, withLog bool) {
 	calls := 0
 	dreamExtractFake(t, &calls)
 	var out strings.Builder
-	dreamExtract(dreamOptions{Out: &out}, nil)
+	dreamExtract(dreamOptions{out: &out}, nil)
 	want, wantCalls := "extract handoffs consolidated", 1
 	if !withLog {
-		want, wantCalls = ErrExtractNoAccessLog.Error(), 0
+		want, wantCalls = errExtractNoAccessLog.Error(), 0
 	}
 	if calls != wantCalls || !strings.Contains(out.String(), want) {
 		t.Fatalf("withLog=%v: calls=%d out=%q", withLog, calls, out.String())
@@ -1024,7 +1024,7 @@ func dreamSeedHandoffs(t *testing.T, root string) {
 	for i := range 62 {
 		rels = append(rels, fmt.Sprintf("handoffs/%03d.md", i))
 	}
-	if _, committed, err := (storeRepo{Dir: root}).Commit(rels, "seed", ""); err != nil || !committed {
+	if _, committed, err := (storeRepo{dir: root}).commit(rels, "seed", ""); err != nil || !committed {
 		t.Fatalf("seed commit: committed=%v err=%v", committed, err)
 	}
 }
@@ -1053,12 +1053,12 @@ func dreamExtractFake(t *testing.T, calls *int) {
 		if err := json.Unmarshal([]byte(data), &files); err != nil {
 			t.Fatal(err)
 		}
-		entry := ExtractEntry{Title: "Handoffs"}
+		entry := extractEntry{Title: "Handoffs"}
 		for _, f := range files {
 			entry.Text += f.Text + "\n"
 			entry.Sources = append(entry.Sources, f.Path)
 		}
-		answer, err := json.Marshal(ExtractRewriteAnswer{Entries: []ExtractEntry{entry}, Purge: []string{}})
+		answer, err := json.Marshal(extractRewriteAnswer{Entries: []extractEntry{entry}, Purge: []string{}})
 		return string(answer), "fake-pi", err
 	}
 	t.Cleanup(func() { CodeModeRun = old })
@@ -1068,16 +1068,16 @@ func TestDreamApplyCheckedCountsAccessesDuringTheModelCall(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.MemoryStoreDir()
-	extractQuietRepo(t, storeRepo{Dir: root})
+	extractQuietRepo(t, storeRepo{dir: root})
 	dreamSeedHandoffs(t, root)
 	dreamWriteAccessLogFor(t, "handoffs/000.md")
-	group := ExtractGroup{Action: ExtractRewrite, Paths: []string{"handoffs/000.md", "handoffs/001.md"}}
+	group := extractGroup{Action: extractRewrite, Paths: []string{"handoffs/000.md", "handoffs/001.md"}}
 	seen, err := dreamReadSources(root, group.Paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "H", Text: "handoff 1: distinct facts", Sources: []string{"handoffs/001.md"}}}, Purge: []string{"handoffs/000.md"}}
-	opts := ExtractOptions{Now: time.Now().Add(-time.Hour), AccessLogs: []string{accessLogPath()}}
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "H", Text: "handoff 1: distinct facts", Sources: []string{"handoffs/001.md"}}}, Purge: []string{"handoffs/000.md"}}
+	opts := extractOptions{now: time.Now().Add(-time.Hour), accessLogs: []string{accessLogPath()}}
 	if _, err := dreamApplyChecked(root, group, ans, seen, opts); err == nil || !strings.Contains(err.Error(), "limit 2%") {
 		t.Fatalf("a hit served after the snapshot time must count: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestRecordExtractLossAppendsAndLeavesNoTemp(t *testing.T) {
 	ledger := filepath.Join(dir, "state", "extract-loss.log")
 	now := time.Now()
 	for _, lost := range []int{1, 2} {
-		if err := RecordExtractLoss(ledger, now, lost); err != nil {
+		if err := recordExtractLoss(ledger, now, lost); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1115,16 +1115,16 @@ func TestTypedDreamAndUpdateRunWithoutLayoutStamp(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[{"op":"noop"}]}`)
 		return "stub", nil
 	}
-	if err := dream(dreamOptions{CWD: t.TempDir(), Run: run, Forced: true}); err != nil {
+	if err := dream(dreamOptions{cwd: t.TempDir(), run: run, forced: true}); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) != layoutFlat { // writers restamp for peers
 		t.Fatalf("stamp written back as %q, want %q", b, layoutFlat)
 	}
-	if err := update(updateOptions{CWD: t.TempDir(), Run: run, Session: "no-layout-stamp"}); err != nil {
+	if err := update(updateOptions{cwd: t.TempDir(), run: run, session: "no-layout-stamp"}); err != nil {
 		t.Fatal(err)
 	}
-	if result, ok := readUpdateResult("no-layout-stamp"); !ok || result.Typed != "ok" || calls != 2 {
+	if result, ok := readUpdateResult("no-layout-stamp"); !ok || result.typed != "ok" || calls != 2 {
 		t.Errorf("update without a stamp: result=%+v ok=%v calls=%d", result, ok, calls)
 	}
 }

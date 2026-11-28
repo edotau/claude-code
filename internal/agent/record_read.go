@@ -11,20 +11,200 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/inflight"
 )
 
+const (
+	DefaultMaxDispatchChildren = 8
+	DefaultMaxTreeTokens       = 20_000_000
+	maxDispatchChildrenEnv     = "HARNESS_" + "DISPATCH_MAX_CHILDREN"
+	maxTreeTokensEnv           = "HARNESS_" + "DISPATCH_MAX_TREE_TOKENS"
+)
+
+var dispatchChildrenLockWait = 250 * time.Millisecond
+
+// dispatchLimit is the tighter of the overlay's cap and the env's (a top of tree only: children never inherit it).
+func dispatchLimit(ctx context.Context, key string, fallback int) int {
+	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+	var ov, env *int
+	if n := o.Limit(key, -1); n >= 0 {
+		ov = &n
+	}
+	if n, err := strconv.Atoi(proc.Value(ctx, key)); err == nil && n >= 0 {
+		env = &n
+	}
+	switch {
+	case ov == nil && env == nil:
+		return fallback
+	case ov == nil:
+		return *env
+	case env == nil:
+		return *ov
+	}
+	return minDispatchCap(ov, env, fallback)
+}
+
+// ErrTreeBudget marks a nested dispatch refused because its tree spent its token budget.
+var ErrTreeBudget = errors.New("dispatch tree budget")
+
+func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, error) {
+	if rec.Parent == "" {
+		return claimRecord(rec), nil
+	}
+	if max := dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens); max > 0 {
+		root, spent, unknown := dispatchTreeUsage(rec.Parent)
+		if spent >= max {
+			return Record{}, &retry.Error{Kind: retry.KindFatal, Terminal: true, Agent: name, Budget: retry.BudgetTokens,
+				Err: fmt.Errorf("%w %d tokens spent under root %s (%d counted; %d records without usage); set %s (0 = no cap)", ErrTreeBudget, max, root, spent, unknown, maxTreeTokensEnv)}
+		}
+	}
+	max := dispatchLimit(ctx, maxDispatchChildrenEnv, DefaultMaxDispatchChildren)
+	if max == 0 {
+		return claimRecord(rec), nil
+	}
+	ran := false
+	_ = ensureDispatchDir() // the lock would create it 0755; a failure surfaces as the fail-open below
+	err := paths.WithFileLockWithin(filepath.Join(paths.DispatchDir(), ".children"),
+		dispatchChildrenLockWait, func() error {
+			ran = true
+			count := liveDispatchChildren(paths.DispatchDir(), rec.Parent)
+			if count >= max {
+				return &retry.Error{Kind: retry.KindFatal, Terminal: true, Agent: name,
+					Err: fmt.Errorf("dispatch width %d reached for parent %s (%d running); wait for one to finish or set %s (0 = no cap)", max, rec.Parent, count, maxDispatchChildrenEnv)}
+			}
+			rec = claimRecord(rec)
+			return nil
+		})
+	if !ran { // Lock failures must never stall dispatch.
+		return claimRecord(rec), nil
+	}
+	return rec, err
+}
+
+// childIndexFile caches each record's admission fields; not *.json, so record listings never see it.
+const childIndexFile = ".children.idx"
+
+// childEntry is one record's admission fields, valid while its mtime and size are unchanged.
+type childEntry struct {
+	Mod    int64     `json:"m"`
+	Size   int64     `json:"s"`
+	Parent string    `json:"p,omitempty"`
+	Status string    `json:"st,omitempty"`
+	PID    int       `json:"pid,omitempty"`
+	Time   time.Time `json:"t,omitzero"`
+}
+
+// liveDispatchChildren counts parent's live children, reopening only records whose mtime or size changed.
+func liveDispatchChildren(dir, parent string) int {
+	old := readChildIndex(dir)
+	names, _ := recordNames(dir) // Unreadable records fail open, like dispatch history.
+	next := make(map[string]childEntry, len(names))
+	changed := len(old) != len(names)
+	count := 0
+	for _, n := range names {
+		key := strings.TrimSuffix(n, ".json") // short keys keep the multi-MB index small to decode
+		e, _, ok := pidEntry(filepath.Join(dir, n), old[key], nil)
+		if !ok {
+			changed = true
+			continue
+		}
+		changed = changed || e != old[key]
+		next[key] = e
+		if e.Parent == parent && inflight.DispatchAlive(e.Status, e.PID, e.Time) {
+			count++
+		}
+	}
+	if changed {
+		if b, err := json.Marshal(next); err == nil {
+			_ = paths.AtomicWriteNoSync(filepath.Join(dir, childIndexFile), b, 0o600) // a cache: a failed write only costs the next scan a reread
+		}
+	}
+	return count
+}
+
+func dispatchTreeUsage(parent string) (string, int, int) {
+	root := parent
+	seen := map[string]bool{}
+	for !seen[root] {
+		seen[root] = true
+		rec, err := LoadRecord(root)
+		if err != nil || rec.Parent == "" {
+			break
+		}
+		root = rec.Parent
+	}
+	var records []Record
+	_ = eachRecent(paths.DispatchDir(), "", func(rec Record) bool { // Missing history cannot supply usage.
+		records = append(records, rec)
+		return rec.ID != root
+	})
+	members := map[string]bool{root: true}
+	spent, unknown := 0, 0
+	for _, rec := range slices.Backward(records) {
+		if !members[rec.ID] && !members[rec.Parent] {
+			continue
+		}
+		members[rec.ID] = true
+		if rec.Usage == nil {
+			unknown++
+			continue
+		}
+		spent += rec.Usage.Total()
+	}
+	return root, spent, unknown
+}
+
 // AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
 const AllRecords = 1 << 20
+
+// LostError opens the error text of a dispatch whose process vanished.
+const LostError = "lost: process gone"
+
+// processGone: a recorded pid that is dead, or alive with another start time (reused); no pid or start fails closed.
+func (r Record) processGone() bool {
+	if r.Status != "running" || r.PID <= 0 {
+		return false
+	}
+	return !identityLive(r.PID, r.PIDStart)
+}
+
+// reapLost marks a dead running record as lost under its lock.
+func reapLost(r Record) Record {
+	if !r.processGone() {
+		return r
+	}
+	cur, _, err := updateRecord(r.ID, func(c Record) (Record, bool) {
+		if !c.processGone() {
+			return c, false
+		}
+		c.Status, c.Error = "lost", LostError+c.LostProcessDetail()
+		if c.PPID > 0 {
+			if rc := proc.ExitReceipt(paths.MemoryStateDir(), c.PPID); rc != "" {
+				c.Error += "; worker " + rc
+			}
+		}
+		if !c.cancelled() { // a deliberate cancel is no failed attempt
+			c.NoteHealth(nil) // a lost run is a failed attempt, counted before its record is visible
+		}
+		return c, true
+	})
+	if err != nil {
+		return r
+	}
+	return cur
+}
 
 // RecentRecords returns up to n records, newest first; an unreadable dispatch dir lists none.
 func RecentRecords(n int) []Record {

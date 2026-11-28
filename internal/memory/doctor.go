@@ -29,35 +29,34 @@ import (
 
 // bankStat is one bank's roll-up from a single read per typed file, so a caller never re-reads the bytes.
 type bankStat struct {
-	Dir         string
-	Updated     time.Time
-	Oversized   []string
-	Unreadable  []string // "name: error" for each file whose read failed for a reason other than absence
-	Credentials []string // "name: ..." for each file holding a credential-shaped value
+	updated     time.Time
+	oversized   []string
+	unreadable  []string // "name: error" for each file whose read failed for a reason other than absence
+	credentials []string // "name: ..." for each file holding a credential-shaped value
 	data        map[string][]byte
 }
 
 func statBank() bankStat {
-	s := bankStat{Dir: paths.MemorySubDir(""), data: map[string][]byte{}}
+	s := bankStat{data: map[string][]byte{}}
 	for _, name := range bankFiles {
 		path := Path(name)
 		data, err := readFile(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
-				s.Unreadable = append(s.Unreadable, name+": "+err.Error())
+				s.unreadable = append(s.unreadable, name+": "+err.Error())
 			}
 			continue
 		}
 		s.data[name] = data
 		if capLines, ok := fileCaps[name]; ok && logicalLineCount(string(data)) > capLines {
-			s.Oversized = append(s.Oversized, name)
+			s.oversized = append(s.oversized, name)
 		}
-		if fi, err := os.Stat(path); err == nil && fi.ModTime().After(s.Updated) {
-			s.Updated = fi.ModTime()
+		if fi, err := os.Stat(path); err == nil && fi.ModTime().After(s.updated) {
+			s.updated = fi.ModTime()
 		}
 		// The visible surface for commitStore's refusal to stage credential-shaped values.
 		if credentialShaped(data) {
-			s.Credentials = append(s.Credentials, name+": possible credential-shaped value — scrub before promoting")
+			s.credentials = append(s.credentials, name+": possible credential-shaped value — scrub before promoting")
 		}
 	}
 	return s
@@ -213,7 +212,6 @@ func doctor(root string, staleDays int, now time.Time) []string {
 			return append(bankProblems("home", stat, staleDays, now), roundTripProblems(stat)...)
 		},
 		func() []string { return updateProblems(now) },
-		func() []string { return journalProblems(now) },
 		func() []string {
 			if root == "" {
 				return nil
@@ -238,8 +236,8 @@ func indexProblems(now time.Time) []string {
 	if err != nil {
 		return []string{indexProblem(err)}
 	}
-	if rep.LostPins != "" {
-		return []string{rep.LostPins}
+	if rep.lostPins != "" {
+		return []string{rep.lostPins}
 	}
 	if last, err := os.ReadFile(indexProblemPath()); err == nil && len(last) > 0 {
 		return []string{string(last)}
@@ -268,8 +266,8 @@ func isLostPinProblem(line string) bool {
 
 // Keep the advisory after replacing the baseline, without turning a successful refresh into a failure.
 func finishIndexRefresh(rep indexReport, err error) (indexReport, error) {
-	if err == nil && !rep.Left {
-		recordIndexProblem(nil, rep.LostPins)
+	if err == nil && !rep.left {
+		recordIndexProblem(nil, rep.lostPins)
 	}
 	return rep, err
 }
@@ -301,18 +299,18 @@ func updateProblems(now time.Time) []string {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		// A lost "pending" receipt is a bug to chase whenever it happened; a plain failure ages out after a week.
-		if !r.needsAttention(now) || (r.Status == updateFailed && now.Sub(r.Time) > 7*24*time.Hour) {
+		if !r.needsAttention(now) || (r.status == updateFailed && now.Sub(r.time) > 7*24*time.Hour) {
 			continue
 		}
 		if LiveTranscript("", id) == "" { // a transcript that no longer exists can never be retried
 			continue
 		}
 		fix := ""
-		if r.Fix != "" {
+		if r.fix != "" {
 			fix = " — fix: " + r.fixNote()
 		}
-		problems = append(problems, "update "+headID(id)+" "+r.Status+" since "+r.Time.Format("2006-01-02")+
-			updateLogNote(r.Log)+fix+" (claude-code memory update --session "+id+")")
+		problems = append(problems, "update "+headID(id)+" "+r.status+" since "+r.time.Format("2006-01-02")+
+			updateLogNote(r.log)+fix+" (claude-code memory update --session "+id+")")
 	}
 	return problems
 }
@@ -328,41 +326,20 @@ func updateLogNote(log string) string {
 	return " — see " + log
 }
 
-// journalGrace leaves an in-flight commit's journal alone; older ones are ones recovery keeps skipping.
-const journalGrace = 10 * time.Minute
-
-// journalProblems names each bank journal left on disk past the grace window, so a stuck one is seen.
-func journalProblems(now time.Time) []string {
-	entries, err := os.ReadDir(JournalDir())
-	if err != nil {
-		return nil // a missing dir means no journals; any other read error is the next commit's to report
-	}
-	var problems []string
-	for _, e := range entries {
-		fi, err := e.Info()
-		if err != nil || !strings.HasSuffix(e.Name(), ".json") || now.Sub(fi.ModTime()) <= journalGrace {
-			continue
-		}
-		problems = append(problems, "bank journal "+filepath.Join(JournalDir(), e.Name())+" left on disk for "+
-			now.Sub(fi.ModTime()).Round(time.Minute).String()+" — recovery keeps skipping it; inspect, then delete or fix")
-	}
-	return problems
-}
-
 // bankProblems is one bank's advisories, each prefixed with the bank's tier so a reader knows which file to open.
 func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []string {
 	var problems []string
-	for _, f := range s.Oversized {
+	for _, f := range s.oversized {
 		problems = append(problems, tier+" "+f+": over "+strconv.Itoa(fileCaps[f])+" lines — consolidate or promote")
 	}
-	for _, u := range s.Unreadable {
+	for _, u := range s.unreadable {
 		problems = append(problems, tier+" "+u+" — unreadable, so not checked")
 	}
-	if !s.Updated.IsZero() && s.Updated.Before(now.AddDate(0, 0, -staleDays)) {
-		problems = append(problems, tier+" bank untouched since "+s.Updated.Format("2006-01-02")+
+	if !s.updated.IsZero() && s.updated.Before(now.AddDate(0, 0, -staleDays)) {
+		problems = append(problems, tier+" bank untouched since "+s.updated.Format("2006-01-02")+
 			" (>"+strconv.Itoa(staleDays)+"d) — stale")
 	}
-	for _, p := range s.Credentials {
+	for _, p := range s.credentials {
 		problems = append(problems, tier+" "+p)
 	}
 	return problems
@@ -370,14 +347,14 @@ func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []strin
 
 // bankStats aggregates every update receipt under receiptDir() into update-success and bank-updated rates.
 type bankStats struct {
-	Updates     int // receipt files parsed
-	OK          int
-	Failed      int
-	Blocked     int // the gate refused every write, twice
-	Pending     int
-	BankUpdated int // ok updates that changed the bank
-	Oldest      time.Time
-	Newest      time.Time
+	updates     int // receipt files parsed
+	ok          int
+	failed      int
+	blocked     int // the gate refused every write, twice
+	pending     int
+	bankUpdated int // ok updates that changed the bank
+	oldest      time.Time
+	newest      time.Time
 }
 
 // collectBankStats scans receiptDir()/update-result-*. Unreadable or statusless receipts are skipped.
@@ -385,14 +362,14 @@ func collectBankStats() bankStats {
 	var s bankStats
 	for _, rc := range readReceipts() {
 		r := rc.r
-		s.Updates++
+		s.updates++
 		s.tally(r)
-		if !r.Time.IsZero() {
-			if s.Oldest.IsZero() || r.Time.Before(s.Oldest) {
-				s.Oldest = r.Time
+		if !r.time.IsZero() {
+			if s.oldest.IsZero() || r.time.Before(s.oldest) {
+				s.oldest = r.time
 			}
-			if r.Time.After(s.Newest) {
-				s.Newest = r.Time
+			if r.time.After(s.newest) {
+				s.newest = r.time
 			}
 		}
 	}
@@ -404,70 +381,70 @@ func writeHookSignals(w io.Writer, now time.Time) {
 }
 
 // tally counts one receipt by status.
-func (s *bankStats) tally(r UpdateResult) {
-	switch r.Status {
+func (s *bankStats) tally(r updateResult) {
+	switch r.status {
 	case updateOK:
-		s.OK++
-		if r.BankUpdated {
-			s.BankUpdated++
+		s.ok++
+		if r.bankUpdated {
+			s.bankUpdated++
 		}
 	case updateFailed:
-		s.Failed++
+		s.failed++
 	case updateBlocked:
-		s.Blocked++
+		s.blocked++
 	case updatePending:
-		s.Pending++
+		s.pending++
 	}
 }
 
-// Report renders the aggregate as the human `memory stats` block.
-func (s bankStats) Report() string {
+// report renders the aggregate as the human `memory stats` block.
+func (s bankStats) report() string {
 	var b strings.Builder
 	b.WriteString("== memory stats (receipts on disk) ==\n")
-	if s.Updates == 0 {
+	if s.updates == 0 {
 		b.WriteString("updates: no receipts yet (state/harness/memory/update-results/)\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "updates: %d receipt(s)", s.Updates)
-	if !s.Oldest.IsZero() {
-		fmt.Fprintf(&b, "  %s → %s", s.Oldest.Format("2006-01-02"), s.Newest.Format("2006-01-02"))
+	fmt.Fprintf(&b, "updates: %d receipt(s)", s.updates)
+	if !s.oldest.IsZero() {
+		fmt.Fprintf(&b, "  %s → %s", s.oldest.Format("2006-01-02"), s.newest.Format("2006-01-02"))
 	}
 	b.WriteByte('\n')
-	if terminal := s.OK + s.Failed + s.Blocked; terminal > 0 {
-		fmt.Fprintf(&b, "  success rate: %d/%d ok (%.0f%%)\n", s.OK, terminal, 100*float64(s.OK)/float64(terminal))
+	if terminal := s.ok + s.failed + s.blocked; terminal > 0 {
+		fmt.Fprintf(&b, "  success rate: %d/%d ok (%.0f%%)\n", s.ok, terminal, 100*float64(s.ok)/float64(terminal))
 	}
-	if s.OK > 0 {
-		fmt.Fprintf(&b, "  bank updated: %d/%d ok updates (%.0f%%)\n", s.BankUpdated, s.OK, 100*float64(s.BankUpdated)/float64(s.OK))
+	if s.ok > 0 {
+		fmt.Fprintf(&b, "  bank updated: %d/%d ok updates (%.0f%%)\n", s.bankUpdated, s.ok, 100*float64(s.bankUpdated)/float64(s.ok))
 	}
-	if s.Blocked > 0 {
-		fmt.Fprintf(&b, "  not saved:    %d blocked by the permission gate\n", s.Blocked)
+	if s.blocked > 0 {
+		fmt.Fprintf(&b, "  not saved:    %d blocked by the permission gate\n", s.blocked)
 	}
-	if s.Pending > 0 {
-		fmt.Fprintf(&b, "  unreported:   %d pending\n", s.Pending)
+	if s.pending > 0 {
+		fmt.Fprintf(&b, "  unreported:   %d pending\n", s.pending)
 	}
 	return b.String()
 }
 
 // timelineEntry is one recall row from an update receipt (the recent-sessions strategy, read-only).
 type timelineEntry struct {
-	Time time.Time
-	Line string
+	time time.Time
+	line string
 }
 
 // timelineBank returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings.
 func timelineBank(limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
-		if r.Time.IsZero() {
+		if r.time.IsZero() {
 			continue
 		}
-		line := r.Status
-		if r.BankUpdated {
+		line := r.status
+		if r.bankUpdated {
 			line += ", bank updated"
 		}
-		entries = append(entries, timelineEntry{Time: r.Time, Line: line + "  (session " + headID(id) + ")"})
+		entries = append(entries, timelineEntry{time: r.time, line: line + "  (session " + headID(id) + ")"})
 	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Time.After(entries[j].Time) })
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].time.After(entries[j].time) })
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
@@ -505,7 +482,7 @@ func headID(id string) string {
 // receipt is one readable update-result file: its session id and parsed result.
 type receipt struct {
 	id string
-	r  UpdateResult
+	r  updateResult
 }
 
 // readReceipts returns every parseable receiptDir()/update-result-* receipt, skipping unreadable ones.

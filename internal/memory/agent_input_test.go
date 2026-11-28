@@ -113,11 +113,11 @@ func TestLoadOpencodeExportBadJSON(t *testing.T) {
 
 func TestLoadCopilotEvents(t *testing.T) {
 	got := loadCopilotEvents([]copilotEvent{
-		{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": "/a"}},
-		{Type: "tool.execution_start", ToolName: "view", Arguments: map[string]any{"path": "/b"}},
-		{Type: "tool.execution_start", ToolName: "create", Arguments: map[string]any{"path": "/a"}},
-		{Type: "assistant.message", Content: "first"},
-		{Type: "assistant.message", Content: "last"},
+		{typ: "tool.execution_start", toolName: "edit", arguments: map[string]any{"path": "/a"}},
+		{typ: "tool.execution_start", toolName: "view", arguments: map[string]any{"path": "/b"}},
+		{typ: "tool.execution_start", toolName: "create", arguments: map[string]any{"path": "/a"}},
+		{typ: "assistant.message", content: "first"},
+		{typ: "assistant.message", content: "last"},
 	})
 	want := agentTranscript{Edits: 2, EditedPaths: []string{"/a"}, FinalText: "last"}
 	if !reflect.DeepEqual(got, want) {

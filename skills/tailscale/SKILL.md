@@ -1,15 +1,9 @@
 ---
 name: tailscale
 description: >-
-  Guide for installing, configuring, and using Tailscale: core mesh VPN (exit
-  nodes, subnet routers, access controls and grants, SSH, MagicDNS), Taildrop,
-  Tailscale Serve, Funnel, the REST API, Aperture (AI/LLM gateway for API keys,
-  cost and usage), and Go applications that embed Tailscale via tsnet. Use when
-  someone asks about Tailscale networking, reaching a home or remote machine,
-  exposing a local service privately or publicly, sending files between
-  devices, LLM API access through Aperture, or writing a Go program that joins
-  a tailnet as its own device — even when they describe the scenario without
-  naming the product.
+  Install, configure and use Tailscale: mesh VPN (exit nodes, subnet routers, ACLs, SSH, MagicDNS), Taildrop,
+  Serve, Funnel, REST API, Aperture LLM gateway and Go tsnet. Use for Tailscale networking, remote machines,
+  exposing services, Aperture or tsnet.
 ---
 
 # Tailscale

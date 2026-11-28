@@ -358,7 +358,7 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 	if code == 0 || !strings.Contains(errs, "code-mode fallback on") {
 		t.Errorf("update exit %d, stderr %q: want a failure naming the failed code-mode fallback", code, errs)
 	}
-	if res, ok := readUpdateResult(session); !ok || res.Status != updateFailed {
+	if res, ok := readUpdateResult(session); !ok || res.status != updateFailed {
 		t.Errorf("update result = %+v ok=%v, want status failed", res, ok)
 	}
 	assertOnlyStoreAndStateGrew(t, x.cfg, before)
@@ -529,15 +529,15 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 
 func TestCollectBankStatsAndTimeline(t *testing.T) {
 	tempConfig(t)
-	_ = writeUpdateResult("s1", UpdateResult{Status: updateOK, Time: time.Now(), BankUpdated: true})
-	_ = writeUpdateResult("s2", UpdateResult{Status: updateFailed, Time: time.Now()})
+	_ = writeUpdateResult("s1", updateResult{status: updateOK, time: time.Now(), bankUpdated: true})
+	_ = writeUpdateResult("s2", updateResult{status: updateFailed, time: time.Now()})
 	write(t, Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := collectBankStats()
-	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
+	if s.updates != 2 || s.ok != 1 || s.failed != 1 || s.bankUpdated != 1 {
 		t.Errorf("stats %+v", s)
 	}
-	report := s.Report()
+	report := s.report()
 	if !strings.Contains(report, "success rate: 1/2") {
 		t.Errorf("report %q", report)
 	}
@@ -551,30 +551,6 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	}
 	if len(sessions) != 1 || !strings.Contains(sessions[0], "did work") {
 		t.Errorf("timeline sessions %+v", sessions)
-	}
-}
-
-// A journal past the grace window is named with its age; a fresh one (in-flight commit) and a missing dir stay quiet.
-func TestJournalProblemsNamesStaleJournal(t *testing.T) {
-	isolatedConfig(t)
-	now := time.Now()
-	if got := journalProblems(now); len(got) != 0 {
-		t.Fatalf("missing journal dir: got %q, want none", got)
-	}
-	dir := JournalDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	stale, fresh := filepath.Join(dir, "20261109T000000-old.json"), filepath.Join(dir, "20261109T010000-new.json")
-	for _, f := range []string{stale, fresh} {
-		write(t, f, `{"schema":99}`)
-	}
-	if err := os.Chtimes(stale, now.Add(-2*time.Hour), now.Add(-2*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	got := journalProblems(now)
-	if len(got) != 1 || !strings.Contains(got[0], stale) || !strings.Contains(got[0], "2h0m0s") {
-		t.Fatalf("got %q, want one line naming %s and its 2h0m0s age", got, stale)
 	}
 }
 
@@ -679,7 +655,7 @@ func TestDoctorNoticeDailyStamp(t *testing.T) {
 func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		decisionLogOver(t, Path("decisionLog.md"), 80) // a competing bank problem the notice must not show first
-		if err := os.Mkdir(NativeIndex(), 0o755); err != nil {
+		if err := os.Mkdir(nativeIndex(), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := settleBankLocked(indexNow); !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "refused") {

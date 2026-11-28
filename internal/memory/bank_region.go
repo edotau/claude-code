@@ -74,14 +74,14 @@ func storePath(rel string) string {
 
 // pointerRow is one native note's front matter; Go reads it and never edits the note.
 type pointerRow struct {
-	Rel, Name, Desc string
-	Pinned, OK      bool
-	Modified        time.Time
+	rel, name, desc string
+	pinned, ok      bool
+	modified        time.Time
 }
 
 // line is the generated pointer: the catalog's row, used when no stored entry points at the note.
 func (r pointerRow) line() string {
-	return "- [" + r.Name + "](" + r.Rel + ") — " + cmp.Or(clipDesc(r.Desc), strings.TrimSuffix(filepath.Base(r.Rel), ".md"))
+	return "- [" + r.name + "](" + r.rel + ") — " + cmp.Or(clipDesc(r.desc), strings.TrimSuffix(filepath.Base(r.rel), ".md"))
 }
 
 // scanRows reads the front matter of every note in dirs, folders in order and files by name.
@@ -98,7 +98,7 @@ func scanRows(dirs ...string) []pointerRow {
 // readRow reads only the leading front-matter block; OK is false when it is absent, unclosed or has no name.
 func readRow(path, dir string) pointerRow {
 	stem := strings.TrimSuffix(filepath.Base(path), ".md")
-	row := pointerRow{Rel: dir + "/" + stem + ".md", Name: stem}
+	row := pointerRow{rel: dir + "/" + stem + ".md", name: stem}
 	f, err := os.Open(path)
 	if err != nil {
 		return row
@@ -121,14 +121,14 @@ func readRow(path, dir string) pointerRow {
 			name, _ := fm["name"].(string)
 			desc, _ := fm["description"].(string)
 			mod, _ := meta["modified"].(string)
-			row.Pinned = meta["pinned"] == true
-			row.Modified, _ = time.Parse(time.RFC3339, mod)
-			row.Desc, row.OK = strings.Join(strings.Fields(desc), " "), name != ""
-			row.Name = cmp.Or(name, stem)
+			row.pinned = meta["pinned"] == true
+			row.modified, _ = time.Parse(time.RFC3339, mod)
+			row.desc, row.ok = strings.Join(strings.Fields(desc), " "), name != ""
+			row.name = cmp.Or(name, stem)
 		}
 	}
 	if sc.Err() != nil {
-		row.OK = false
+		row.ok = false
 	}
 	return row
 }
@@ -137,40 +137,40 @@ func readRow(path, dir string) pointerRow {
 func newestFirst(rows []pointerRow) []pointerRow {
 	out := slices.Clone(rows)
 	slices.SortFunc(out, func(a, b pointerRow) int {
-		return cmp.Or(b.Modified.Compare(a.Modified), strings.Compare(a.Rel, b.Rel))
+		return cmp.Or(b.modified.Compare(a.modified), strings.Compare(a.rel, b.rel))
 	})
 	return out
 }
 
 // indexReport counts one native-index refresh.
 type indexReport struct {
-	Folded, Unresolved   int // entries appended to index.md; stored entries whose link names no file
-	Pinned, Newest, More int // rendered pointers and the unlisted remainder
-	Lines, Bytes         int
-	Clipped              bool // the pinned set alone is over the soft cap, so no newest pointer fits
-	Left                 bool // a writer recreated MEMORY.md during the refresh; the next one folds it
-	Blank                int  // blank lines at entry edges in MEMORY.md: separators, not stored
-	LostPins             string
+	folded, unresolved   int // entries appended to index.md; stored entries whose link names no file
+	pinned, newest, more int // rendered pointers and the unlisted remainder
+	lines, bytes         int
+	clipped              bool // the pinned set alone is over the soft cap, so no newest pointer fits
+	left                 bool // a writer recreated MEMORY.md during the refresh; the next one folds it
+	blank                int  // blank lines at entry edges in MEMORY.md: separators, not stored
+	lostPins             string
 }
 
 func (r indexReport) notable() bool {
-	return r.Folded > 0 || r.Clipped || r.Left || r.Blank > 0 || r.LostPins != ""
+	return r.folded > 0 || r.clipped || r.left || r.blank > 0 || r.lostPins != ""
 }
 
 func (r indexReport) String() string {
 	s := fmt.Sprintf("MEMORY.md %d lines, %d bytes: %d pinned, %d newest, %d more; %d entr(ies) appended to index.md, "+
-		"%d unresolved", r.Lines, r.Bytes, r.Pinned, r.Newest, r.More, r.Folded, r.Unresolved)
-	if r.Clipped {
+		"%d unresolved", r.lines, r.bytes, r.pinned, r.newest, r.more, r.folded, r.unresolved)
+	if r.clipped {
 		s += fmt.Sprintf("; WARNING: pinned and shown unresolved entries alone pass %d lines / %d bytes, newest pointers dropped", bankIndexMaxLines, bankIndexMaxBytes)
 	}
-	if r.Left {
+	if r.left {
 		s += "; MEMORY.md was recreated meanwhile and left for the next refresh"
 	}
-	if r.Blank > 0 {
-		s += fmt.Sprintf("; %d blank line(s) at entry edges in MEMORY.md not stored (separators)", r.Blank)
+	if r.blank > 0 {
+		s += fmt.Sprintf("; %d blank line(s) at entry edges in MEMORY.md not stored (separators)", r.blank)
 	}
-	if r.LostPins != "" {
-		s += "; " + r.LostPins
+	if r.lostPins != "" {
+		s += "; " + r.lostPins
 	}
 	return s
 }
@@ -445,7 +445,7 @@ func renderIndex(rows []pointerRow, entries []string, prevGen string) (string, i
 	var rep indexReport
 	byRel, byFile, order, unresolved := map[string]bool{}, map[string][]string{}, []string{}, []string(nil)
 	for _, r := range rows {
-		byRel[r.Rel] = r.Pinned
+		byRel[r.rel] = r.pinned
 	}
 	entries = slices.DeleteFunc(slices.Clone(entries), generatedCounter) // ledger rows stay; counters are never shown
 	for _, e := range entries {
@@ -459,7 +459,7 @@ func renderIndex(rows []pointerRow, entries []string, prevGen string) (string, i
 		}
 	}
 	pinned, rest, hidden := shownRows(rows, byFile, order)
-	rep.LostPins = lostPinProblem(prevGen, byRel)
+	rep.lostPins = lostPinProblem(prevGen, byRel)
 	shown, unshown := shownUnresolved(unresolved)
 	pins, k := len(pinned), min(bankIndexNewest, len(rest))
 	build := func() string {
@@ -470,12 +470,12 @@ func renderIndex(rows []pointerRow, entries []string, prevGen string) (string, i
 	for ; k > 0 && over(text, bankIndexMaxLines, bankIndexMaxBytes); text = build() {
 		k--
 	}
-	rep.Clipped = over(text, bankIndexMaxLines, bankIndexMaxBytes)
+	rep.clipped = over(text, bankIndexMaxLines, bankIndexMaxBytes)
 	for ; pins > 0 && over(text, loaderMaxLines, loaderMaxBytes); text = build() {
 		pins-- // newest first, so the oldest pins go
 	}
-	rep.Unresolved, rep.Pinned, rep.Newest, rep.More = len(unresolved), pins, k, len(pinned)-pins+len(rest)-k+hidden
-	rep.Lines, rep.Bytes = strings.Count(text, "\n"), len(text)
+	rep.unresolved, rep.pinned, rep.newest, rep.more = len(unresolved), pins, k, len(pinned)-pins+len(rest)-k+hidden
+	rep.lines, rep.bytes = strings.Count(text, "\n"), len(text)
 	if pins < len(pinned) {
 		return text, rep, fmt.Errorf("%w: %d pinned notes pass the loader's %d lines / %d bytes, so the %d oldest are "+
 			"left out; unpin notes (metadata.pinned: true)", errIndexProblem, len(pinned), loaderMaxLines, loaderMaxBytes, len(pinned)-pins)
@@ -516,7 +516,7 @@ func entryLines(entries []string) []string {
 func shownRows(rows []pointerRow, byFile map[string][]string, order []string) (pinned, rest []string, hidden int) {
 	all, inRows := slices.Clone(rows), map[string]bool{}
 	for _, r := range rows {
-		inRows[r.Rel] = true
+		inRows[r.rel] = true
 	}
 	for _, rel := range order { // a handoff, report, knowledge or bank pointer joins the newest list
 		if !inRows[rel] {
@@ -524,17 +524,17 @@ func shownRows(rows []pointerRow, byFile map[string][]string, order []string) (p
 		}
 	}
 	for _, r := range newestFirst(all) {
-		e := firstOf(byFile[r.Rel])
+		e := firstOf(byFile[r.rel])
 		if !showable(e) {
 			e = ""
-			if inRows[r.Rel] {
+			if inRows[r.rel] {
 				e = r.line() // a note's built row stands in for an oversized entry
 			}
 		}
 		switch {
 		case e == "":
 			hidden++
-		case r.Pinned:
+		case r.pinned:
 			pinned = append(pinned, e)
 		default:
 			rest = append(rest, e)
@@ -554,10 +554,10 @@ func showable(e string) bool {
 // folderRow dates a pointer target outside the note folders by its YYYY-MM-DD- name, else its front matter.
 func folderRow(rel string) pointerRow {
 	r := readRow(storePath(rel), path.Dir(rel))
-	r.Rel = rel
+	r.rel = rel
 	if base := path.Base(rel); len(base) >= len(time.DateOnly) {
 		if d, err := time.Parse(time.DateOnly, base[:len(time.DateOnly)]); err == nil {
-			r.Modified = d
+			r.modified = d
 		}
 	}
 	return r
@@ -625,7 +625,7 @@ func pinStillSet(rel string, byRel map[string]bool) bool {
 	if pinned, ok := byRel[rel]; ok {
 		return pinned
 	}
-	return folderRow(rel).Pinned
+	return folderRow(rel).pinned
 }
 
 // foldFile appends path's input entries, then extra, to index.md; it never writes path.
@@ -650,7 +650,7 @@ func planRefresh(rows []pointerRow, extra []string) (string, indexReport, error)
 	var in []string
 	blanks := 0
 	prevGen := lastGenerated()
-	for _, p := range []string{asidePath(), NativeIndex()} {
+	for _, p := range []string{asidePath(), nativeIndex()} {
 		data, err := readIfExists(p)
 		if err != nil {
 			return "", indexReport{}, err
@@ -660,7 +660,7 @@ func planRefresh(rows []pointerRow, extra []string) (string, indexReport, error)
 	}
 	add := fresh(append(in, extra...), held)
 	text, rep, err := renderIndex(rows, append(entries, add...), prevGen)
-	rep.Folded, rep.Blank = len(add), blanks
+	rep.folded, rep.blank = len(add), blanks
 	return text, rep, err
 }
 
@@ -682,16 +682,16 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 		}
 	}
 	text, rep, perr := planRefresh(rows, extra)
-	mem, merr := readIfExists(NativeIndex())
+	mem, merr := readIfExists(nativeIndex())
 	if dry || perr != nil && !errors.Is(perr, errIndexProblem) || merr != nil {
-		rep.Folded += n
+		rep.folded += n
 		return rep, errors.Join(perr, merr)
 	}
-	if rep.Folded == 0 && rep.LostPins == "" && string(mem) == text {
-		rep.Folded += n
+	if rep.folded == 0 && rep.lostPins == "" && string(mem) == text {
+		rep.folded += n
 		return finishIndexRefresh(rep, perr)
 	}
-	tmp, err := paths.StageFile(NativeIndex(), []byte(text), 0o644) // before anything moves, so a full disk fails here
+	tmp, err := paths.StageFile(nativeIndex(), []byte(text), 0o644) // before anything moves, so a full disk fails here
 	if err != nil {
 		return rep, err
 	}
@@ -701,14 +701,14 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 	indexStep("renamed")
 	m, ferr := foldFile(aside, extra) // on failure the input stays in the moved file, folded by the next step 1
 	indexStep("appended")
-	installed, ierr := paths.PlaceNoReplace(tmp, NativeIndex(), []byte(text), 0o644)
+	installed, ierr := paths.PlaceNoReplace(tmp, nativeIndex(), []byte(text), 0o644)
 	if !installed && ierr != nil {
 		ierr = errors.Join(ierr, restoreMoved(aside))
 	} else if installed {
 		ierr = paths.AtomicWrite(genPath(), []byte(text), 0o644)
 	}
 	indexStep("installed")
-	rep.Folded, rep.Left = n+m, !installed && ierr == nil
+	rep.folded, rep.left = n+m, !installed && ierr == nil
 	return finishIndexRefresh(rep, errors.Join(ferr, ierr, perr))
 }
 
@@ -717,7 +717,7 @@ func moveAside(aside string) error {
 	if err := os.MkdirAll(filepath.Dir(aside), 0o700); err != nil {
 		return err
 	}
-	err := renameFile(NativeIndex(), aside)
+	err := renameFile(nativeIndex(), aside)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w refused: cannot move MEMORY.md to %s (%v); the store and the state folder must be one "+
 			"volume, MEMORY.md is unchanged", errIndexProblem, aside, err)
@@ -729,7 +729,7 @@ func moveAside(aside string) error {
 func restoreMoved(aside string) error {
 	data, err := os.ReadFile(aside)
 	if err == nil {
-		_, err = paths.WriteNoReplace(NativeIndex(), data, 0o644)
+		_, err = paths.WriteNoReplace(nativeIndex(), data, 0o644)
 	}
 	return err
 }

@@ -32,15 +32,14 @@ var queueKinds = []string{"update", "dream"}
 
 // job is one queued background task; Kind+Key name its file, so a duplicate enqueue coalesces.
 type job struct {
-	Schema    int               `json:"schema"`
-	Kind      string            `json:"kind"`
-	Key       string            `json:"key"`
-	Args      []string          `json:"args,omitempty"`
-	CWD       string            `json:"cwd,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Enqueued  time.Time         `json:"enqueued"`
-	NotBefore time.Time         `json:"not_before,omitzero"`
-	Attempts  int               `json:"attempts"`
+	Schema    int       `json:"schema"`
+	Kind      string    `json:"kind"`
+	Key       string    `json:"key"`
+	Args      []string  `json:"args,omitempty"`
+	CWD       string    `json:"cwd,omitempty"`
+	Enqueued  time.Time `json:"enqueued"`
+	NotBefore time.Time `json:"not_before,omitzero"`
+	Attempts  int       `json:"attempts"`
 }
 
 func queueDir() string { return filepath.Join(paths.MemoryStateDir(), "queue") }
@@ -421,8 +420,8 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 	logName := "update-" + time.Now().Format(logStampLayout) + ".log"
 	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
 	prior, hadPrior := readUpdateResult(sessionID)
-	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(paths.MemoryStateDir(), logName)})
-	if spawnSelf(args, cwd, logName, DetachedEnv+"=1") {
+	_ = writeUpdateResult(sessionID, updateResult{status: updatePending, time: time.Now(), log: filepath.Join(paths.MemoryStateDir(), logName)})
+	if spawnSelf(args, cwd, logName, detachedEnv+"=1") {
 		return true
 	}
 	if hadPrior {
@@ -441,7 +440,7 @@ func spawnWatcher(args []string, cwd string) bool {
 
 func spawnCatchup(cwd, sessionID string) bool {
 	args := []string{"memory", "update", "--catchup", "--skip", sessionID}
-	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
+	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", detachedEnv+"=1")
 }
 
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.

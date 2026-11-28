@@ -46,7 +46,7 @@ func fakeEmbedServer(t *testing.T, embedded *int) *EmbedClient {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(srv.Close)
-	return &EmbedClient{Model: "fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{model: "fake-gte", embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }
@@ -129,9 +129,9 @@ func entryCosines(t *testing.T, sem *semanticQuery) (gamma, delta float64) {
 		e := entryFromHit(h)
 		cos, ok := sem.cosineHit(h)
 		if !ok {
-			t.Fatalf("entry %s has no vector", e.ID)
+			t.Fatalf("entry %s has no vector", e.id)
 		}
-		if e.ID == "aaaa0001" {
+		if e.id == "aaaa0001" {
 			gamma = cos
 		} else {
 			delta = cos
@@ -168,7 +168,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{model: inner.model, embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // while run A is mid-embed, run B indexes a second entry and finishes
 			nested = true
 			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
@@ -178,7 +178,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.EmbedFunc(ctx, texts)
+		return inner.embedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestEmbedCacheModelAndDimension(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, c); err != nil || calls != 1 {
 		t.Fatalf("seed: %v calls=%d", err, calls)
 	}
-	other := &EmbedClient{Model: c.Model + "-2", EmbedFunc: c.EmbedFunc}
+	other := &EmbedClient{model: c.model + "-2", embedFunc: c.embedFunc}
 	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 1 {
 		t.Errorf("another model name must re-embed inside the lease: n=%d err=%v", n, err)
 	}
@@ -217,7 +217,7 @@ func TestEmbedCacheModelAndDimension(t *testing.T) {
 		t.Errorf("the prompt reached the endpoint (%d texts) despite the model mismatch", calls-before)
 	}
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) {
-		return &EmbedClient{Model: other.Model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{model: other.model, embedFunc: func(context.Context, []string) ([][]float32, error) {
 			return [][]float32{{1, 2, 3, 4}}, nil
 		}}, nil
 	}
@@ -233,7 +233,7 @@ func TestEmbedPruneNeverCrossesRoots(t *testing.T) {
 	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n")
 	var calls int
 	c := fakeEmbedServer(t, &calls)
-	f := vectorRecord{Model: c.Model, Rows: map[string]vectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
+	f := vectorRecord{Model: c.model, Rows: map[string]vectorRow{"other-live": {Root: "/other/repo", Hash: "h", Vec: ""}}}
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
@@ -266,7 +266,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{model: inner.model, embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // the entry changes mid-run and a newer run embeds the new content first
 			nested = true
 			write(t, bankFile, v2)
@@ -276,7 +276,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.EmbedFunc(ctx, texts)
+		return inner.embedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
@@ -334,7 +334,7 @@ func TestEmbedGoesThroughRouterWithSecret(t *testing.T) {
 	var proxyHits, directHits []string
 	px, direct := vecServer(t, &proxyHits, 200), vecServer(t, &directHits, 200)
 	c := embedViaRouter(t, direct.URL, px.URL)
-	vecs, err := c.EmbedFunc(context.Background(), []string{"q"})
+	vecs, err := c.embedFunc(context.Background(), []string{"q"})
 	if err != nil || len(vecs) != 1 || len(vecs[0]) != 3 {
 		t.Fatalf("Embed = %v, %v", vecs, err)
 	}
@@ -357,7 +357,7 @@ func TestEmbedFallsBackToDirectWhenRouterFails(t *testing.T) {
 				px.Close()
 			}
 			c := embedViaRouter(t, direct.URL, base)
-			vecs, err := c.EmbedFunc(context.Background(), []string{"q"})
+			vecs, err := c.embedFunc(context.Background(), []string{"q"})
 			if err != nil || len(vecs) != 1 {
 				t.Fatalf("Embed = %v, %v; want the direct fallback's vector", vecs, err)
 			}
@@ -396,8 +396,8 @@ func TestSharedEmbedCacheAcrossWorkspaces(t *testing.T) {
 	if err != nil || len(sem.rows) != 3 || len(opened) != 1 || opened[0] != "wsb" {
 		t.Fatalf("recall under B: err=%v rows=%d opened=%v, want A's 3 rows through wsb", err, len(sem.rows), opened)
 	}
-	other := &EmbedClient{Model: c.Model + "-2", EmbedFunc: c.EmbedFunc}
-	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 3 || loadEmbedCache().Model != other.Model {
+	other := &EmbedClient{model: c.model + "-2", embedFunc: c.embedFunc}
+	if n, _, err := embedChanged(context.Background(), root, other); err != nil || n != 3 || loadEmbedCache().Model != other.model {
 		t.Fatalf("model change: n=%d model=%q err=%v, want all rows re-embedded", n, loadEmbedCache().Model, err)
 	}
 }
@@ -419,7 +419,7 @@ func TestNewSemanticBacksOffAfterTimeout(t *testing.T) {
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
 		opens.Add(1)
-		return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
+		return &EmbedClient{model: model, embedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		}}, nil
@@ -458,7 +458,7 @@ func TestEmbedQueryHonoursCallerCancellation(t *testing.T) {
 		openEmbedClient = prev
 	})
 	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
-		return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
+		return &EmbedClient{model: model, embedFunc: func(ctx context.Context, _ []string) ([][]float32, error) {
 			defer close(finished)
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -509,7 +509,7 @@ func TestEmbedQueryCallerEndDoesNotPause(t *testing.T) {
 			}))
 			t.Cleanup(func() { srv.Close(); openEmbedClient, embedRecallWait = prev, prevWait })
 			openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
-				return &EmbedClient{Model: model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+				return &EmbedClient{model: model, embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 					defer close(finished)
 					return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 				}}, nil
@@ -558,7 +558,7 @@ func saveEmbedCache(f vectorRecord) error {
 
 // dimEmbedClient answers every text with a dim-wide unit vector, calling hook (if any) before each batch.
 func dimEmbedClient(dim int, hook func()) *EmbedClient {
-	return &EmbedClient{Model: "m", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{model: "m", embedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
 		if hook != nil {
 			hook()
 		}
@@ -640,7 +640,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 	write(t, bankFile, "# D\n\n"+e1)
 	var calls int
 	inner := fakeEmbedServer(t, &calls)
-	f := vectorRecord{Model: inner.Model, Rows: map[string]vectorRow{}}
+	f := vectorRecord{Model: inner.model, Rows: map[string]vectorRow{}}
 	for i := range embedMaxRows + 1 {
 		f.Rows[fmt.Sprintf("stale-%d", i)] = vectorRow{Root: root, Hash: "h"}
 	}
@@ -648,7 +648,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	nested := false
-	outer := &EmbedClient{Model: inner.Model, EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	outer := &EmbedClient{model: inner.model, embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		if !nested { // a concurrent run adds an entry and commits its vector before this run merges
 			nested = true
 			write(t, bankFile, "# D\n\n"+e1+e2)
@@ -658,7 +658,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 				t.Error(err)
 			}
 		}
-		return inner.EmbedFunc(ctx, texts)
+		return inner.embedFunc(ctx, texts)
 	}}
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
@@ -835,7 +835,7 @@ func benchmarkEmbedEndpoint(b *testing.B) *EmbedClient {
 	previous := http.DefaultClient
 	http.DefaultClient = srv.Client()
 	b.Cleanup(func() { http.DefaultClient = previous })
-	return &EmbedClient{Model: "stub", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{model: "stub", embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 }

@@ -183,7 +183,7 @@ func TestRunSweepRetriesFailedCatchupOnceMore(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := func(at time.Time) {
-		if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: at}); err != nil {
+		if err := writeUpdateResult(id, updateResult{status: updateFailed, time: at}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -210,7 +210,7 @@ func TestRunSweepStopsAfterSecondRetryWithoutReceipt(t *testing.T) {
 	if err := writeStamp(stampPath(id), now.Add(-48*time.Hour), "catchup", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: now.Add(-47 * time.Hour)}); err != nil {
+	if err := writeUpdateResult(id, updateResult{status: updateFailed, time: now.Add(-47 * time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0

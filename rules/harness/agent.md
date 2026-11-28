@@ -416,7 +416,7 @@ Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
   (macOS and Linux; the route fence is not restored). Both resolve env >
   overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants, apply to nested dispatches only, and
   refuse terminally.
-- **Memory jobs.** `memory update`/`dream`/catch-up run claude on their prompt only, with tools
+- **Memory jobs.** `memory update` (`--dream`)/catch-up run claude on their prompt only, with tools
   and no fallback to another vendor.
   Each hop runs at `"fallback":"none"`: the pin, the other Databricks workspaces,
   then `magnitude`/`local` when its `/models` answers within 2 s; a local run is marked lower trust.

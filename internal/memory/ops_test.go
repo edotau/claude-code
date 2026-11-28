@@ -23,11 +23,11 @@ const (
 	pointerB    = "Replaced by a0000001 (2026-11-26).\n"
 )
 
-func testEnv() Env {
+func testEnv() env {
 	n := 0
-	return Env{
-		Now:   time.Date(2026, time.November, 26, 12, 0, 0, 0, time.UTC),
-		NewID: func(int, string) string { n++; return fmt.Sprintf("%08x", 0xa0000000+n) },
+	return env{
+		now:   time.Date(2026, time.November, 26, 12, 0, 0, 0, time.UTC),
+		newID: func(int, string) string { n++; return fmt.Sprintf("%08x", 0xa0000000+n) },
 	}
 }
 
@@ -154,7 +154,7 @@ func TestApplyOps(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			in := ParseDoc(c.file, []byte(c.in))
-			out, res := Apply(in, Batch{Ops: subst(in, c.ops)}, testEnv())
+			out, res := apply(in, Batch{Ops: subst(in, c.ops)}, testEnv())
 			if got := string(out.Render()); got != c.want {
 				t.Errorf("render\n got %q\nwant %q", got, c.want)
 			}
@@ -193,7 +193,7 @@ func TestApplyKeepsInput(t *testing.T) {
 	for _, c := range applyCases() {
 		in := ParseDoc(c.file, []byte(c.in))
 		want := ParseDoc(c.file, []byte(c.in))
-		Apply(in, Batch{Ops: subst(in, c.ops)}, testEnv())
+		apply(in, Batch{Ops: subst(in, c.ops)}, testEnv())
 		if !reflect.DeepEqual(in, want) {
 			t.Errorf("%s: input Doc changed", c.name)
 		}
@@ -204,7 +204,7 @@ func TestApplyEmptyAndNoopKeepBytes(t *testing.T) {
 	for p, data := range storeFixtures(t) {
 		d := ParseDoc(p, data)
 		for _, b := range []Batch{{}, {Ops: []Op{{Op: "noop", Note: "n"}}}} {
-			out, _ := Apply(d, b, testEnv())
+			out, _ := apply(d, b, testEnv())
 			if !bytes.Equal(out.Render(), data) {
 				t.Errorf("%s: bytes changed by %d-op batch", p, len(b.Ops))
 			}
@@ -232,18 +232,18 @@ func TestApplyRejectsBadOps(t *testing.T) {
 		{"bad ref", Op{Op: "update", ID: "xyz", Text: "t"}, "not a ref"},
 	}
 	for _, r := range rows {
-		_, res := Apply(ParseDoc("decisionLog.md", []byte(datedIn)), Batch{Ops: []Op{r.op}}, testEnv())
+		_, res := apply(ParseDoc("decisionLog.md", []byte(datedIn)), Batch{Ops: []Op{r.op}}, testEnv())
 		if res[0].Outcome != DreamFailed || !strings.Contains(res[0].Reason, r.want) {
 			t.Errorf("%s: got %+v, want failure containing %q", r.name, res[0], r.want)
 		}
-		if err := (Batch{Ops: []Op{r.op}}).Validate(); err == nil || !strings.Contains(err.Error(), r.want) {
+		if err := (Batch{Ops: []Op{r.op}}).validate(); err == nil || !strings.Contains(err.Error(), r.want) {
 			t.Errorf("%s: Validate = %v", r.name, err)
 		}
 	}
-	if err := (Batch{Ops: make([]Op, maxBatchOps+1)}).Validate(); err == nil {
+	if err := (Batch{Ops: make([]Op, maxBatchOps+1)}).validate(); err == nil {
 		t.Error("61 ops passed Validate")
 	}
-	if (Batch{Ops: []Op{}}).Validate() != nil || (Batch{}).Validate() == nil {
+	if (Batch{Ops: []Op{}}).validate() != nil || (Batch{}).validate() == nil {
 		t.Error("empty ops must pass and absent ops must fail")
 	}
 }
@@ -251,13 +251,13 @@ func TestApplyRejectsBadOps(t *testing.T) {
 func TestApplyRejectsGrammarBreakers(t *testing.T) {
 	dated := ParseDoc("decisionLog.md", []byte(datedIn))
 	for _, text := range []string{"ok\n## 2026-01-01 — sneaky", "```\nopen fence"} {
-		_, res := Apply(dated, Batch{Ops: []Op{{Op: "add", Title: "n", Text: text}}}, testEnv())
+		_, res := apply(dated, Batch{Ops: []Op{{Op: "add", Title: "n", Text: text}}}, testEnv())
 		if res[0].Outcome != DreamFailed {
 			t.Errorf("text %q was accepted: %+v", text, res[0])
 		}
 	}
 	bul := ParseDoc("conventions.md", []byte(bulletsIn))
-	out, res := Apply(bul, Batch{Ops: []Op{{Op: "add", Text: "a\n- b\n## c"}}}, testEnv())
+	out, res := apply(bul, Batch{Ops: []Op{{Op: "add", Text: "a\n- b\n## c"}}}, testEnv())
 	if res[0].Outcome != DreamOK || len(out.Entries) != len(bul.Entries)+1 {
 		t.Errorf("indented continuation lines must stay one entry: %+v", res[0])
 	}
@@ -309,7 +309,7 @@ func TestBatchSchemaRejects(t *testing.T) {
 		var b Batch
 		dec := json.NewDecoder(strings.NewReader(r.in))
 		dec.DisallowUnknownFields()
-		if goOK := dec.Decode(&b) == nil && b.Validate() == nil; goOK != r.valid {
+		if goOK := dec.Decode(&b) == nil && b.validate() == nil; goOK != r.valid {
 			t.Errorf("%s: Go says %v, want %v", r.name, goOK, r.valid)
 		}
 	}
@@ -498,7 +498,7 @@ func closeLegacy(t *testing.T, tail, by string) (string, OpResult) {
 	in := strings.Replace(datedIn, "## 2026-11-24 — b <!-- id:1a1b2c3d -->\n\nbody b\n", tail, 1)
 	d := ParseDoc("decisionLog.md", []byte(in))
 	o := Op{Op: "close", ID: "1a1b2c3d", Read: contentRef(d.Entries[len(d.Entries)-1].block()), Reason: "superseded-by", By: by}
-	out, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	out, rs := apply(d, Batch{Ops: []Op{o}}, testEnv())
 	return string(out.Render()), rs[0]
 }
 
@@ -521,7 +521,7 @@ func TestCloseOtherSupersederFails(t *testing.T) {
 	in := strings.Replace(datedIn, "## 2026-11-24 — b <!-- id:1a1b2c3d -->\n\nbody b\n", legacyB+"\n## 2026-11-23 — c <!-- id:2a1b2c3d -->\n\nbody c\n", 1)
 	d := ParseDoc("decisionLog.md", []byte(in))
 	o := Op{Op: "close", ID: "1a1b2c3d", Read: contentRef(d.Entries[1].block()), Reason: "superseded-by", By: "2a1b2c3d"}
-	_, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	_, rs := apply(d, Batch{Ops: []Op{o}}, testEnv())
 	if rs[0].Outcome != DreamFailed || rs[0].Reason != "already superseded" {
 		t.Errorf("%+v", rs[0])
 	}
@@ -539,7 +539,7 @@ func batchStore(t *testing.T) {
 var batchAdd = Op{Op: "add", Target: "decisionLog", Title: "n", Text: "t"}
 
 func TestBatchMintAvoidsOtherFilesIDs(t *testing.T) {
-	now := testEnv().Now
+	now := testEnv().now
 	taken := blockID(freshID("decisionLog.md", 0, "## 2026-11-26 — n", now))
 	docs := map[string]Doc{
 		"decisionLog.md": ParseDoc("decisionLog.md", []byte(datedIn)),
@@ -555,7 +555,7 @@ func closeBullet(t *testing.T, in string) (string, OpResult) {
 	t.Helper()
 	d := ParseDoc("conventions.md", []byte(in))
 	o := Op{Op: "close", ID: contentRef(d.Entries[0].block()), Reason: "superseded-by", By: "1a1b2c3d"}
-	out, rs := Apply(d, Batch{Ops: []Op{o}}, testEnv())
+	out, rs := apply(d, Batch{Ops: []Op{o}}, testEnv())
 	return string(out.Render()), rs[0]
 }
 
@@ -592,7 +592,7 @@ func TestApplyDocsFormatsOnlyWrittenEntries(t *testing.T) {
 		{Op: "update", ID: "1a1b2c3d", Text: fresh},
 		{Op: "supersede", ID: "3a1b2c3d", Title: "c", Text: "para\n- item\n~~~go\nx\n~~~\n" + fresh},
 		{Op: "add", Target: "progress", Section: "In Progress", Text: fresh},
-	}}, testEnv().Now)
+	}}, testEnv().now)
 	if err != nil {
 		t.Fatalf("batch: %v %+v", err, rs)
 	}
@@ -612,7 +612,7 @@ func TestApplyDocsFormatsOnlyWrittenEntries(t *testing.T) {
 // writtenEntry is the block answering to ref once docs are rendered and parsed again, trailing blank lines dropped.
 func writtenEntry(t *testing.T, docs map[string]Doc, ref string) string {
 	t.Helper()
-	r, _ := ParseRef(ref)
+	r, _ := parseRef(ref)
 	for name, d := range docs {
 		for _, e := range ParseDoc(name, d.Render()).Entries {
 			if e.matches(r) {
@@ -634,7 +634,7 @@ func TestApplyPreservesUntouchedFinalEntry(t *testing.T) {
 	for _, tail := range []string{"", "\n", "\n\n", "\n\n\n"} {
 		text := "# C\n\n- keep <!-- id:12345678 -->" + tail
 		in := ParseDoc("conventions.md", []byte(text))
-		out, rs := Apply(in, Batch{Ops: []Op{{Op: "add", Text: "new"}}}, testEnv())
+		out, rs := apply(in, Batch{Ops: []Op{{Op: "add", Text: "new"}}}, testEnv())
 		got := string(out.Render())
 		added, kept := strings.CutPrefix(got, text)
 		if rs[0].Outcome != DreamOK || !kept || tail != "" && strings.HasPrefix(added, "\n") || // no blank line inserted
@@ -642,7 +642,7 @@ func TestApplyPreservesUntouchedFinalEntry(t *testing.T) {
 			t.Errorf("append after %q: %q", tail, got)
 		}
 		d := ParseDoc("conventions.md", []byte(text+"\n- remove <!-- id:23456789 -->\n"))
-		out, rs = Apply(d, Batch{Ops: []Op{{Op: "close", ID: "23456789", Read: contentRef(d.Entries[1].block()), Reason: "done"}}}, testEnv())
+		out, rs = apply(d, Batch{Ops: []Op{{Op: "close", ID: "23456789", Read: contentRef(d.Entries[1].block()), Reason: "done"}}}, testEnv())
 		want := "# C\n\n- keep <!-- id:12345678 -->" + max(tail, "\n") // the newline before the closed entry goes with it
 		if got := string(out.Render()); rs[0].Outcome != DreamOK || got != want || !rowsRoundTrip(out) {
 			t.Errorf("close after %q: got %q want %q", tail, got, want)

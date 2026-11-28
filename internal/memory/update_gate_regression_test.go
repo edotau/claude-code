@@ -16,14 +16,14 @@ func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {
 		t.Run(trigger, func(t *testing.T) {
 			u := newGateRun(t)
 			hosttest.WriteEdits(t, u.tr, 5)
-			StubSpawn(t, false)
+			stubSpawn(t, false)
 			if g := u.stop(); !g.Blocked {
 				t.Fatalf("failed Stop dispatch gate=%+v, want block", g)
 			}
 			if st, ok := readStamp(stampPath("s1")); !ok || st.edits != 0 {
 				t.Errorf("failed dispatch covered work: stamp=%+v exists=%v", st, ok)
 			}
-			calls := &StubSpawn(t, true).Update
+			calls := &stubSpawn(t, true).Update
 			runGate("s1", u.tr, u.cwd, trigger)
 			if calls.Load() != 1 {
 				t.Fatalf("%s skipped retry after failed Stop: spawns=%d", trigger, calls.Load())
@@ -39,11 +39,11 @@ func TestFailedStopDispatchLeavesWorkForFinalHook(t *testing.T) {
 func TestFailedStopSpawnRetriesAtNextStop(t *testing.T) {
 	u := newGateRun(t)
 	hosttest.WriteEdits(t, u.tr, 5)
-	StubSpawn(t, false)
+	stubSpawn(t, false)
 	if g := u.stop(); !g.Blocked {
 		t.Fatalf("failed spawn gate=%+v, want the not-saved note", g)
 	}
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	for i := range 2 {
 		if g := u.stop(); g.Blocked || g.FailedOpen {
 			t.Fatalf("Stop %d after recovery gate=%+v, want silent", i, g)
@@ -61,7 +61,7 @@ func TestFailedStopSpawnRetriesAtNextStop(t *testing.T) {
 func TestFailedStopGateCountsWorkUnits(t *testing.T) {
 	u := newGateRun(t)
 	hosttest.WriteUserTurns(t, u.tr, 6)
-	StubSpawn(t, false)
+	stubSpawn(t, false)
 	for range 2 {
 		if g := u.stop(); !g.Blocked {
 			t.Fatalf("six user turns and zero edits: gate=%+v, want block", g)
@@ -122,7 +122,7 @@ func TestWatcherRetriesStatErrors(t *testing.T) {
 	if err := os.Chtimes(tr, old, old); err != nil {
 		t.Fatal(err)
 	}
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	if w.poll() || calls.Load() != 1 {
 		t.Fatalf("watcher did not recover and dispatch after stat error: spawns=%d", calls.Load())
 	}

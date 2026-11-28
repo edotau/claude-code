@@ -1,6 +1,9 @@
 ---
 name: network-browser
-description: Browser work in this harness, locally or across machines - which browser to use and how to set it up (`claude-code network browser`), opening a URL where the person actually sits (Mac, WSL, VS Code Remote-SSH, a Tailscale host, `$BROWSER`, xdg-open), and driving a browser with the Claude in Chrome tools (their own signed-in Chrome) or the Claude desktop app's built-in browser pane. Use it whenever a task needs a real browser or a link opened, even if the person never says "browser" - "open this link", "show me the page", "log in to the Databricks UI", "the URL didn't open", "open it on my Mac", "use chrome", "set up the extension", "click through this site", "fill this form in my browser", "screenshot this page", "which browser do I have".
+description: >-
+  Set up browsers (`claude-code network browser`), open URLs on Mac/WSL/SSH/Tailscale, and drive Chrome or the
+  built-in browser. Use for "open this link", "show me the page", "use chrome", "click through this site",
+  "screenshot this page".
 allowed-tools: mcp__claude-in-chrome, mcp__Claude_Browser, mcp__remote-devices__Claude_Browser
 ---
 

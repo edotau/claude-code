@@ -268,7 +268,7 @@ func wrapBankLine(line string) []string {
 // trailingMarker extracts the id for line 0's suffix, even when the input has text after its marker.
 func trailingMarker(line string) (text, id string) {
 	r, lo, hi, ok := marker(line)
-	if !ok || r.Derived || strings.TrimSpace(line[:lo]+line[hi:]) == "" {
+	if !ok || r.derived || strings.TrimSpace(line[:lo]+line[hi:]) == "" {
 		return line, ""
 	}
 	return strings.TrimRight(line[:lo]+line[hi:], " "), line[lo:hi]

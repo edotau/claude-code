@@ -187,8 +187,8 @@ func sanitizeField(s string, max int) string {
 
 // accessStat holds an entry's distinct in-window UTC days and newest access.
 type accessStat struct {
-	Days   int
-	Newest time.Time
+	days   int
+	newest time.Time
 }
 
 // accessStatsAt folds rotated logs into entry counts and returns the oldest timestamp for the cold-entry gate.
@@ -205,8 +205,8 @@ func accessStatsAt(path string, now time.Time, windowDays int) (map[string]acces
 			oldest = ts
 		}
 		s := stats[entry]
-		if ts.After(s.Newest) {
-			s.Newest = ts
+		if ts.After(s.newest) {
+			s.newest = ts
 		}
 		if !windowStart.IsZero() && ts.After(windowStart) {
 			if days[entry] == nil {
@@ -214,7 +214,7 @@ func accessStatsAt(path string, now time.Time, windowDays int) (map[string]acces
 			}
 			days[entry][ts.UTC().Format("2006-01-02")] = true
 		}
-		s.Days = len(days[entry])
+		s.days = len(days[entry])
 		stats[entry] = s
 	})
 	return stats, oldest
@@ -304,7 +304,7 @@ func returnCounts(now time.Time) map[string]int {
 func logHits(hits []SearchHit, reason string, now time.Time, session string) {
 	var ids []string
 	for _, h := range hits {
-		if id := cmp.Or(h.ID, entryFromHit(h).ID); id != "" {
+		if id := cmp.Or(h.ID, entryFromHit(h).id); id != "" {
 			ids = append(ids, id)
 		}
 	}
@@ -346,13 +346,13 @@ func accessNominations(now time.Time) []string {
 		}
 		logCoversCold := oldest.Before(now.AddDate(0, 0, -coldDays))
 		for entry, s := range stats {
-			if s.Days >= hotMinDays {
+			if s.days >= hotMinDays {
 				noms = append(noms, fmt.Sprintf(
 					"%s/%s: hot — recalled on %d days in the last %dd; consider a pointer in the injected bank",
-					key, entry, s.Days, hotWindowDays))
+					key, entry, s.days, hotWindowDays))
 				continue
 			}
-			if logCoversCold && s.Newest.Before(now.AddDate(0, 0, -coldDays)) {
+			if logCoversCold && s.newest.Before(now.AddDate(0, 0, -coldDays)) {
 				noms = append(noms, fmt.Sprintf(
 					"%s/%s: not recalled in %dd — archive candidate", key, entry, coldDays))
 			}
@@ -679,7 +679,7 @@ func readIndexEntries(data []byte, count uint32, want map[fileKey]bool) (map[fil
 	for i := range order {
 		order[i] = i
 	}
-	forEachIndex(order, func(i int) { valid[i] = entries[i].seg.Valid() })
+	forEachIndex(order, func(i int) { valid[i] = entries[i].seg.valid() })
 	m := make(map[fileKey]indexed, len(entries))
 	for i, key := range keys {
 		if valid[i] {
@@ -769,11 +769,11 @@ func (e indexed) fresh(info os.FileInfo) (segView, bool) {
 
 // encodeFile reads and indexes f; nil when it cannot be read.
 func encodeFile(f corpusFile) segView {
-	data, err := os.ReadFile(f.Path)
+	data, err := os.ReadFile(f.path)
 	if err != nil {
 		return nil
 	}
-	return encodeSegment(parseBlocks(f.Mode, filepath.Base(f.Path), data))
+	return encodeSegment(parseBlocks(f.mode, filepath.Base(f.path), data))
 }
 
 // loadSegments is files' segments from the index; with terms and RowRecall set, stale files come from the row store.
@@ -788,15 +788,15 @@ func loadSegments(files []corpusFile, persist bool, terms []string) []segView {
 	var missing []int
 	var infos []os.FileInfo
 	for i, f := range files {
-		info, err := os.Stat(f.Path)
-		stats[f.Path] = err == nil
+		info, err := os.Stat(f.path)
+		stats[f.path] = err == nil
 		if err != nil {
 			if !os.IsNotExist(err) {
 				terms = nil // an unstattable file declines the rows: Markdown is the fallback
 			}
 			continue
 		}
-		key := fileKey{f.Path, f.Mode}
+		key := fileKey{f.path, f.mode}
 		if seg, hit := index[key].fresh(info); hit {
 			segs[i] = seg
 			continue
@@ -808,7 +808,7 @@ func loadSegments(files []corpusFile, persist bool, terms []string) []segView {
 	for j, i := range missing {
 		info := infos[j]
 		if segs[i] != nil && persist && time.Since(info.ModTime()) >= paths.RacyWindow {
-			added[fileKey{files[i].Path, files[i].Mode}] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
+			added[fileKey{files[i].path, files[i].mode}] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}
 	persistIndex(path, key, added, stats)
@@ -830,9 +830,9 @@ func encodeMissing(files []corpusFile, missing []int, segs []segView, terms []st
 	}
 	store := paths.MemoryStoreDir() + string(filepath.Separator)
 	_, err := parallel.Map(context.Background(), missing, corpusReadWorkers, func(_ context.Context, i int) (struct{}, error) {
-		rel := strings.TrimPrefix(files[i].Path, store)
+		rel := strings.TrimPrefix(files[i].path, store)
 		if data, fromRows := docs[filepath.ToSlash(rel)]; fromRows {
-			segs[i] = encodeSegment(parseBlocks(files[i].Mode, filepath.Base(files[i].Path), data))
+			segs[i] = encodeSegment(parseBlocks(files[i].mode, filepath.Base(files[i].path), data))
 		} else {
 			segs[i] = encodeFile(files[i])
 		}
@@ -845,7 +845,7 @@ func encodeMissing(files []corpusFile, missing []int, segs []segView, terms []st
 func readFilesIndex(path string, key uint64, files []corpusFile) map[fileKey]indexed {
 	want := make(map[fileKey]bool, len(files))
 	for _, f := range files {
-		want[fileKey{f.Path, f.Mode}] = true
+		want[fileKey{f.path, f.mode}] = true
 	}
 	return decodeRecallIndex(retainedIndexData(path), key, want)
 }

@@ -34,7 +34,7 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 
 	var found bool
 	for _, f := range corpusOf() {
-		found = found || f.Path == topic && f.Bank == "native"
+		found = found || f.path == topic && f.bank == "native"
 	}
 	if !found {
 		t.Errorf("corpusOf(%s) missing global topic %s", root, topic)
@@ -125,8 +125,8 @@ func TestReadIfExists(t *testing.T) {
 func pathsOf(files []corpusFile, label string) []string {
 	var out []string
 	for _, f := range files {
-		if f.Bank == label {
-			out = append(out, f.Path)
+		if f.bank == label {
+			out = append(out, f.path)
 		}
 	}
 	return out
@@ -175,12 +175,12 @@ func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
 func TestSegmentStoresBlockSumAndRef(t *testing.T) {
 	blocks := []string{"## marked entry\nrouter retry <!-- id:0a1b2c3d -->", "- unmarked   rule\twith\n  spacing router"}
 	seg := encodeSegment(blocks)
-	if !seg.Valid() || seg.Docs() != len(blocks) {
-		t.Fatalf("segment invalid or wrong doc count %d", seg.Docs())
+	if !seg.valid() || seg.docs() != len(blocks) {
+		t.Fatalf("segment invalid or wrong doc count %d", seg.docs())
 	}
 	for i, block := range blocks {
-		text, _ := seg.Doc(i)
-		sum, ref := seg.DocRef(i)
+		text, _ := seg.doc(i)
+		sum, ref := seg.docRef(i)
 		if sum != blockSum(text) || ref != blockRef(text, "") {
 			t.Errorf("doc %d: stored (%x, %q), hashed (%x, %q)", i, sum, ref, blockSum(text), blockRef(text, ""))
 		}
@@ -192,7 +192,7 @@ func TestSegmentStoresBlockSumAndRef(t *testing.T) {
 
 // containingOracle is the per-term scan containing replaced.
 func containingOracle(s segView, term string) []string {
-	termStart := segHeader + s.Docs()*docStride
+	termStart := segHeader + s.docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
@@ -211,7 +211,7 @@ func containingOracle(s segView, term string) []string {
 // A segment whose term starts are scrambled (a damaged or foreign file) must end the term walk, never loop.
 func TestContainingTerminatesOnScrambledTermStarts(t *testing.T) {
 	base := encodeSegment([]string{"- agent subagent agents reagent agentic", "- routing router rerouting routed"})
-	termStart := segHeader + base.Docs()*docStride
+	termStart := segHeader + base.docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(base[termStart:]))
 	var blobLen int
 	for i := range nterms {

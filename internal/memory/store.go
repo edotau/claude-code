@@ -70,9 +70,6 @@ var templates = sync.OnceValue(func() map[string]string {
 // catalogFile holds every MEMORY.md entry, append-only; routerFile is the generated router BuildCatalog writes.
 const catalogFile, routerFile = "index.md", "catalog.md"
 
-// JournalDir holds pending commit-transaction journals; state only, never committed.
-func JournalDir() string { return filepath.Join(paths.MemoryStateDir(), "journal") }
-
 // AccessStateDir holds the access logs; the single source of truth for their path.
 func AccessStateDir() string { return filepath.Join(paths.MemoryStateDir(), "access") }
 
@@ -169,9 +166,9 @@ func GitToplevel(dir string) string {
 
 // linkResult is one projects/<slug>/memory link the harness maintains (native auto-memory follows the symlink).
 type linkResult struct {
-	Link, Target string
-	Action       string // linked | ok | relinked | blocked
-	Detail       string
+	link, target string
+	action       string // linked | ok | relinked | blocked
+	detail       string
 }
 
 // projectsMemory is Claude Code's native memory dir for a project slug.
@@ -203,17 +200,17 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 
 // ensureLink makes link a symlink to target: absent or empty dir → linked, wrong link → relinked, content → blocked.
 func ensureLink(link, target string) linkResult {
-	r := linkResult{Link: link, Target: target}
+	r := linkResult{link: link, target: target}
 	fi, err := os.Lstat(link)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		r.Action = "linked"
+		r.action = "linked"
 	case err != nil:
 		return r.blocked(err.Error())
 	case fi.Mode()&fs.ModeSymlink != 0:
 		return relink(r)
 	case fi.IsDir():
-		if r = clearEmptyDir(r); r.Action != "linked" {
+		if r = clearEmptyDir(r); r.action != "linked" {
 			return r
 		}
 	default:
@@ -223,40 +220,40 @@ func ensureLink(link, target string) linkResult {
 		return r.blocked(err.Error())
 	}
 	if err := os.Symlink(target, link); err != nil {
-		r.Action, r.Detail = "blocked", err.Error()
+		r.action, r.detail = "blocked", err.Error()
 	}
 	return r
 }
 
 // blocked returns r marked blocked with detail.
 func (r linkResult) blocked(detail string) linkResult {
-	r.Action, r.Detail = "blocked", detail
+	r.action, r.detail = "blocked", detail
 	return r
 }
 
 // relink swaps a wrong symlink atomically (Action "relinked"), keeps a right one (Action "ok"), or reports blocked.
 func relink(r linkResult) linkResult {
-	if paths.SamePath(nativeLinkTarget(r.Link), r.Target) {
-		r.Action = "ok"
+	if paths.SamePath(nativeLinkTarget(r.link), r.target) {
+		r.action = "ok"
 		return r
 	}
-	cur, _ := os.Readlink(r.Link)
-	if err := paths.SwapSymlink(r.Target, r.Link); err != nil {
+	cur, _ := os.Readlink(r.link)
+	if err := paths.SwapSymlink(r.target, r.link); err != nil {
 		return r.blocked(err.Error())
 	}
-	r.Action, r.Detail = "relinked", "was -> "+cur
+	r.action, r.detail = "relinked", "was -> "+cur
 	return r
 }
 
 // clearEmptyDir removes an empty real dir (Action "linked"); a dir with content is blocked.
 func clearEmptyDir(r linkResult) linkResult {
-	if ents, err := os.ReadDir(r.Link); err != nil || len(ents) > 0 {
+	if ents, err := os.ReadDir(r.link); err != nil || len(ents) > 0 {
 		return r.blocked("real native dir with content: merge it into the store dir by hand")
 	}
-	if err := os.Remove(r.Link); err != nil {
+	if err := os.Remove(r.link); err != nil {
 		return r.blocked(err.Error())
 	}
-	r.Action = "linked"
+	r.action = "linked"
 	return r
 }
 
@@ -300,12 +297,12 @@ func brokenNativeLinks(root string) []linkResult {
 		if targets == nil {
 			targets = nativeLinkTargets(root)
 		}
-		r := linkResult{Link: link, Action: "blocked", Detail: "cwd cannot be derived from recorded paths"}
-		if r.Target = targets[filepath.Base(filepath.Dir(link))]; r.Target != "" {
-			if fi, statErr := os.Stat(r.Target); statErr != nil || !fi.IsDir() {
-				r.Detail = "resolved store directory is unavailable"
+		r := linkResult{link: link, action: "blocked", detail: "cwd cannot be derived from recorded paths"}
+		if r.target = targets[filepath.Base(filepath.Dir(link))]; r.target != "" {
+			if fi, statErr := os.Stat(r.target); statErr != nil || !fi.IsDir() {
+				r.detail = "resolved store directory is unavailable"
 			} else {
-				r.Action, r.Detail = "repairable", "invalid native memory target: "+target
+				r.action, r.detail = "repairable", "invalid native memory target: "+target
 			}
 		}
 		out = append(out, r)
@@ -316,8 +313,8 @@ func brokenNativeLinks(root string) []linkResult {
 // repairNativeLinks leaves unresolved slugs alone for memory review to report.
 func repairNativeLinks(root string) {
 	for _, r := range brokenNativeLinks(root) {
-		if r.Action == "repairable" {
-			ensureLink(r.Link, r.Target)
+		if r.action == "repairable" {
+			ensureLink(r.link, r.target)
 		}
 	}
 }
@@ -325,7 +322,7 @@ func repairNativeLinks(root string) {
 func nativeLinkProblems(root string) []string {
 	var problems []string
 	for _, r := range brokenNativeLinks(root) {
-		problems = append(problems, "native memory link "+r.Link+": "+r.Detail)
+		problems = append(problems, "native memory link "+r.link+": "+r.detail)
 	}
 	return problems
 }
@@ -538,9 +535,6 @@ func ArchiveSource(name string) (src string, ok bool) {
 	}
 	return "", false
 }
-
-// importMaxFile caps one file a scan reads.
-const importMaxFile = 4 << 20
 
 // skipImportDir reports a store folder a bank scan never enters: git, locks and anything outside the flat folders.
 func skipImportDir(rel, name string) bool {

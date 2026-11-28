@@ -121,7 +121,7 @@ func TestSetBlockSplicesInPlace(t *testing.T) {
 func TestSupersedePreservesInlineIDExample(t *testing.T) {
 	text := "- before ``<!-- id:11111111 -->`` after <!-- id:12345678 -->\n"
 	d := ParseDoc("conventions.md", []byte(text))
-	out, rs := Apply(d, Batch{Ops: []Op{{Op: "supersede", ID: "12345678", Read: contentRef(d.Entries[0].block()), Text: "new"}}}, testEnv())
+	out, rs := apply(d, Batch{Ops: []Op{{Op: "supersede", ID: "12345678", Read: contentRef(d.Entries[0].block()), Text: "new"}}}, testEnv())
 	old := out.Entries[0].block()
 	if rs[0].Outcome != DreamOK || replacedBy(old) != rs[0].ID || !strings.Contains(old, "~~before ``<!-- id:11111111 -->`` after~~") {
 		t.Fatalf("inline example confused strike or pointer: %+v\n%s", rs, out.Render())
@@ -145,7 +145,7 @@ func TestWriteOffsetsSkipFrontmatter(t *testing.T) {
 func assertRecallFollows(t *testing.T) {
 	t.Helper()
 	picks, _ := recallPicks(context.Background(), "", "shard layout audit run concurrently", false, false)
-	if len(picks) != 1 || picks[0].Entry.ID != "b0000002" {
+	if len(picks) != 1 || picks[0].entry.id != "b0000002" {
 		t.Fatalf("recall = %+v; want only the replacing entry b0000002", picks)
 	}
 	if p := reviseBankProblems(); len(p) != 2 || !strings.Contains(strings.Join(p, "\n"), "deadbeef") {
@@ -198,7 +198,7 @@ func TestPartlyStruckTitleStaysLive(t *testing.T) {
 		t.Fatalf("partly struck entry kept a pointer or reads as replaced:\n%s", b)
 	}
 	picks, _ := recallPicks(context.Background(), "", "dream stamps retry blocked nothing edited", false, false)
-	if len(picks) != 1 || picks[0].Entry.ID != "9d40e6c1" {
+	if len(picks) != 1 || picks[0].entry.id != "9d40e6c1" {
 		t.Fatalf("recall = %+v; want the partly struck entry 9d40e6c1", picks)
 	}
 }
@@ -305,7 +305,7 @@ func assertReviseChain(t *testing.T, mode string) {
 	}
 	path := Path("decisionLog.md")
 	write(t, path, rejoin("# Log", blocks))
-	files := []corpusFile{{Bank: "local", Path: path, Mode: segEntries}}
+	files := []corpusFile{{bank: "local", path: path, mode: segEntries}}
 	if mode == "missing" {
 		files = nil
 	}
@@ -356,10 +356,10 @@ func oldFindBlockByID(id string, files []corpusFile, segs []segView) (SearchHit,
 		if seg == nil {
 			continue
 		}
-		for d := range seg.Docs() {
-			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
+		for d := range seg.docs() {
+			if block, _ := seg.doc(d); strings.Contains(block, marker) && ownerID(block) == id {
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id}, true
+				return SearchHit{Bank: f.bank, File: filepath.Base(f.path), Block: block, ID: id}, true
 			}
 		}
 	}
@@ -372,9 +372,9 @@ func TestBlockFinderMatchesScan(t *testing.T) {
 	write(t, Path("decisionLog.md"), "# Log\n\n## A <!-- id:a1000001 -->\nfirst\n\n## B <!-- id:b2000002 -->\nb\n\n## A again <!-- id:a1000001 -->\nsecond\n")
 	write(t, Path("progress.md"), "# P\n\n## C <!-- id:a1000001 -->\nthird\n\n## D <!-- id:c3000003 -->\nd\n")
 	files := []corpusFile{
-		{Bank: "local", Path: Path("decisionLog.md"), Mode: segEntries},
-		{Bank: "local", Path: Path("progress.md"), Mode: segEntries},
-		{Bank: "local", Path: Path("gone.md"), Mode: segEntries},
+		{bank: "local", path: Path("decisionLog.md"), mode: segEntries},
+		{bank: "local", path: Path("progress.md"), mode: segEntries},
+		{bank: "local", path: Path("gone.md"), mode: segEntries},
 	}
 	segs := loadSegments(files, true, nil)
 	find := blockFinder(files, segs)

@@ -131,7 +131,7 @@ func TestCheckpointCoversPendingSteward(t *testing.T) {
 	if err := markHandoff("session-full", now); err != nil {
 		t.Fatal(err)
 	}
-	calls := StubSpawn(t, true)
+	calls := stubSpawn(t, true)
 	if !DispatchCheckpoint(UpdateRequest{SessionID: "session-full"}, true, now) || calls.Update.Load() != 0 {
 		t.Fatalf("pending steward must cover checkpoint without spawning, got %d", calls.Update.Load())
 	}

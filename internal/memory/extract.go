@@ -27,47 +27,47 @@ import (
 	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
-type ExtractAction string
+type extractAction string
 
 const (
-	ExtractKeep    ExtractAction = "keep"
-	ExtractRewrite ExtractAction = "rewrite"
-	ExtractPurge   ExtractAction = "purge"
+	extractKeep    extractAction = "keep"
+	extractRewrite extractAction = "rewrite"
+	extractPurge   extractAction = "purge"
 )
 
-type ExtractReason string
+type extractReason string
 
 const (
-	ExtractProtected       ExtractReason = "protected"
-	ExtractLinked          ExtractReason = "linked"
-	ExtractPinned          ExtractReason = "pinned"
-	ExtractRecalled        ExtractReason = "recalled"
-	ExtractYoung           ExtractReason = "younger_than_7_days"
-	ExtractEmpty           ExtractReason = "empty"
-	ExtractDuplicate       ExtractReason = "duplicate"
-	ExtractDuplicateSource ExtractReason = "duplicate_source"
-	ExtractMissingBranch   ExtractReason = "missing_branch"
-	ExtractResultInGit     ExtractReason = "result_in_git"
-	ExtractLowValue        ExtractReason = "low_value"
-	ExtractRecallUnknown   ExtractReason = "recall_unknown"
+	extractProtected       extractReason = "protected"
+	extractLinked          extractReason = "linked"
+	extractPinned          extractReason = "pinned"
+	extractRecalled        extractReason = "recalled"
+	extractYoung           extractReason = "younger_than_7_days"
+	extractEmpty           extractReason = "empty"
+	extractDuplicate       extractReason = "duplicate"
+	extractDuplicateSource extractReason = "duplicate_source"
+	extractMissingBranch   extractReason = "missing_branch"
+	extractResultInGit     extractReason = "result_in_git"
+	extractLowValue        extractReason = "low_value"
+	extractRecallUnknown   extractReason = "recall_unknown"
 )
 
-// ExtractFacts supplies proof, not guesses; known=false must be used for an unidentified branch or run.
-type ExtractFacts interface {
-	WorktreeBranchExists(rel string, data []byte) (exists, known bool, err error)
-	ReportResultInGit(rel string, data []byte) (inGit, known bool, err error)
+// extractFacts supplies proof, not guesses; known=false must be used for an unidentified branch or run.
+type extractFacts interface {
+	worktreeBranchExists(rel string, data []byte) (exists, known bool, err error)
+	reportResultInGit(rel string, data []byte) (inGit, known bool, err error)
 }
 
-// ExtractOptions has no implicit paths; access logs include their rotated generations, plans are explicit files.
-type ExtractOptions struct {
-	Now          time.Time
-	Facts        ExtractFacts
-	AccessLogs   []string
-	LinkSources  []string
-	StoreAliases []string // original roots when classifying a copy containing absolute links
+// extractOptions has no implicit paths; access logs include their rotated generations, plans are explicit files.
+type extractOptions struct {
+	now          time.Time
+	facts        extractFacts
+	accessLogs   []string
+	linkSources  []string
+	storeAliases []string // original roots when classifying a copy containing absolute links
 }
 
-type ExtractSignals struct {
+type extractSignals struct {
 	LinkedBy         []string  `json:"linked_by,omitempty"`
 	Pinned           bool      `json:"pinned"`
 	YoungerThan7Days bool      `json:"younger_than_7_days"`
@@ -81,36 +81,36 @@ type ExtractSignals struct {
 	ResultInGit      bool      `json:"result_in_git"`
 }
 
-type ExtractRow struct {
+type extractRow struct {
 	Path        string         `json:"path"` // store-relative, slash-separated
 	Folder      string         `json:"folder"`
 	Size        int64          `json:"size"` // bytes
 	Age         time.Duration  `json:"age"`  // since filesystem modification; future dates clamp to zero
-	Action      ExtractAction  `json:"action"`
-	Reason      ExtractReason  `json:"reason"`
-	Signals     ExtractSignals `json:"signals"`
+	Action      extractAction  `json:"action"`
+	Reason      extractReason  `json:"reason"`
+	Signals     extractSignals `json:"signals"`
 	SHA256      string         `json:"sha256"`
 	DuplicateOf string         `json:"duplicate_of,omitempty"`
 }
 
-// ExtractGroup contains only candidates of one action and UTC modification week; keep rows are never batched.
-type ExtractGroup struct {
+// extractGroup contains only candidates of one action and UTC modification week; keep rows are never batched.
+type extractGroup struct {
 	Week        string        `json:"week"`
-	Action      ExtractAction `json:"action"`
+	Action      extractAction `json:"action"`
 	Paths       []string      `json:"paths"`
 	Bytes       int64         `json:"bytes"`
 	YoungestAge time.Duration `json:"youngest_age"`
 	RecallDays  int           `json:"recall_days"` // maximum per-file distinct recall days
 }
 
-type ExtractEntry struct {
+type extractEntry struct {
 	Title   string   `json:"title"`
 	Text    string   `json:"text"`
 	Sources []string `json:"sources"`
 }
 
-type ExtractRewriteAnswer struct {
-	Entries []ExtractEntry `json:"entries"`
+type extractRewriteAnswer struct {
+	Entries []extractEntry `json:"entries"`
 	Purge   []string       `json:"purge"`
 }
 
@@ -124,8 +124,8 @@ var (
 	extractOpenPattern  = regexp.MustCompile(`^\s*(?:- \[ \]|NEXT:)|TODO|UNRESOLVED`)
 )
 
-// CheckExtractLoss refuses a rewrite that drops source facts needed for recall.
-func CheckExtractLoss(sources map[string][]byte, ans ExtractRewriteAnswer, live func(string) bool) error {
+// checkExtractLoss refuses a rewrite that drops source facts needed for recall.
+func checkExtractLoss(sources map[string][]byte, ans extractRewriteAnswer, live func(string) bool) error {
 	entries := make(map[string]string, len(sources))
 	for _, entry := range ans.Entries {
 		for _, source := range entry.Sources {
@@ -277,8 +277,8 @@ func extractOwnerQuoteLoss(source, line, entry string, purged bool) error {
 	return nil
 }
 
-// ExtractRewriteSchema types a group's replacement entries and explicitly purged sources.
-func ExtractRewriteSchema() string {
+// extractRewriteSchema types a group's replacement entries and explicitly purged sources.
+func extractRewriteSchema() string {
 	entry := schemaObj{"type": "object", "additionalProperties": false,
 		"required": []string{"title", "text", "sources"}, "properties": schemaObj{
 			"title": schemaObj{"type": "string", "minLength": 1}, "text": schemaObj{"type": "string", "minLength": 1},
@@ -296,15 +296,15 @@ type extractPromptFile struct {
 	Text string `json:"text"`
 }
 
-// RewriteExtractGroup asks code mode for a typed replacement without changing the store.
-func RewriteExtractGroup(ctx context.Context, storeRoot string, group ExtractGroup, modelName string) (rewrite ExtractRewriteAnswer, err error) {
-	if group.Action != ExtractRewrite || len(group.Paths) == 0 {
+// rewriteExtractGroup asks code mode for a typed replacement without changing the store.
+func rewriteExtractGroup(ctx context.Context, storeRoot string, group extractGroup, modelName string) (rewrite extractRewriteAnswer, err error) {
+	if group.Action != extractRewrite || len(group.Paths) == 0 {
 		return rewrite, errors.New("extract rewrite requires a nonempty rewrite group")
 	}
 	if CodeModeRun == nil {
 		return rewrite, errors.New("no code-mode agent registered")
 	}
-	model, err := FallbackModel(modelName)
+	model, err := fallbackModel(modelName)
 	if err != nil {
 		return rewrite, fmt.Errorf("extract rewrite model: %w", err)
 	}
@@ -341,7 +341,7 @@ func runExtractRewrite(ctx context.Context, prompt, model string) (answer, who s
 			err = errors.Join(err, removeErr)
 		}
 	}()
-	return CodeModeRun(ctx, prompt, dir, ExtractRewriteSchema(), model)
+	return CodeModeRun(ctx, prompt, dir, extractRewriteSchema(), model)
 }
 
 func extractPromptFiles(root *os.Root, paths []string) ([]extractPromptFile, map[string]bool, error) {
@@ -360,30 +360,30 @@ func extractPromptFiles(root *os.Root, paths []string) ([]extractPromptFile, map
 	return files, allowed, nil
 }
 
-func decodeExtractRewrite(answer string, allowed map[string]bool) (ExtractRewriteAnswer, error) {
-	var result ExtractRewriteAnswer
+func decodeExtractRewrite(answer string, allowed map[string]bool) (extractRewriteAnswer, error) {
+	var result extractRewriteAnswer
 	decoder := json.NewDecoder(strings.NewReader(answer))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&result); err != nil {
-		return ExtractRewriteAnswer{}, fmt.Errorf("extract rewrite answer: %w", err)
+		return extractRewriteAnswer{}, fmt.Errorf("extract rewrite answer: %w", err)
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return ExtractRewriteAnswer{}, errors.New("extract rewrite answer has trailing content")
+		return extractRewriteAnswer{}, errors.New("extract rewrite answer has trailing content")
 	}
 	if len(result.Entries) == 0 || result.Purge == nil {
-		return ExtractRewriteAnswer{}, errors.New("extract rewrite needs entries and purge")
+		return extractRewriteAnswer{}, errors.New("extract rewrite needs entries and purge")
 	}
 	for i := range result.Entries {
 		result.Entries[i].Title = strings.TrimSpace(result.Entries[i].Title)
 		result.Entries[i].Text = strings.TrimSpace(result.Entries[i].Text)
 	}
 	if err := validateExtractRewrite(result, allowed); err != nil {
-		return ExtractRewriteAnswer{}, err
+		return extractRewriteAnswer{}, err
 	}
 	return result, nil
 }
 
-func validateExtractRewrite(result ExtractRewriteAnswer, allowed map[string]bool) error {
+func validateExtractRewrite(result extractRewriteAnswer, allowed map[string]bool) error {
 	seen := make(map[string]bool, len(allowed))
 	for _, entry := range result.Entries {
 		if strings.TrimSpace(entry.Title) == "" || strings.TrimSpace(entry.Text) == "" || len(entry.Sources) == 0 {
@@ -419,12 +419,12 @@ func checkExtractSource(source string, allowed, seen map[string]bool) error {
 	return nil
 }
 
-// ApplyExtractRewrite replaces one validated group in a single memory-repo commit.
-func ApplyExtractRewrite(repo storeRepo, group ExtractGroup, ans ExtractRewriteAnswer, now time.Time) (sha string, err error) {
+// applyExtractRewrite replaces one validated group in a single memory-repo commit.
+func applyExtractRewrite(repo storeRepo, group extractGroup, ans extractRewriteAnswer, now time.Time) (sha string, err error) {
 	if err := extractApplyPreflight(repo, group, now); err != nil {
 		return "", err
 	}
-	root, err := os.OpenRoot(repo.Dir)
+	root, err := os.OpenRoot(repo.dir)
 	if err != nil {
 		return "", err
 	}
@@ -444,7 +444,7 @@ func ApplyExtractRewrite(repo storeRepo, group ExtractGroup, ans ExtractRewriteA
 	return sha, err
 }
 
-func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans ExtractRewriteAnswer, now time.Time) (map[string][]byte, map[string][]byte, map[string]string, []string, error) {
+func extractApplyPrepare(repo storeRepo, root *os.Root, group extractGroup, ans extractRewriteAnswer, now time.Time) (map[string][]byte, map[string][]byte, map[string]string, []string, error) {
 	files, allowed, err := extractPromptFiles(root, group.Paths)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -463,7 +463,7 @@ func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans 
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	if err := CheckExtractLoss(sources, ans, live); err != nil {
+	if err := checkExtractLoss(sources, ans, live); err != nil {
 		return nil, nil, nil, nil, extractChecked{err}
 	}
 	notes, successors, err := extractNotePaths(repo, root, ans.Entries, now)
@@ -484,8 +484,8 @@ func extractApplyPrepare(repo storeRepo, root *os.Root, group ExtractGroup, ans 
 	return before, after, successors, notes, nil
 }
 
-func extractApplyPreflight(repo storeRepo, group ExtractGroup, now time.Time) error {
-	if group.Action != ExtractRewrite || len(group.Paths) == 0 || now.IsZero() || !repo.Exists() {
+func extractApplyPreflight(repo storeRepo, group extractGroup, now time.Time) error {
+	if group.Action != extractRewrite || len(group.Paths) == 0 || now.IsZero() || !repo.exists() {
 		return errors.New("extract apply requires a rewrite group, time, and memory repo")
 	}
 	for _, rel := range group.Paths {
@@ -528,10 +528,10 @@ func extractCommit(repo storeRepo, after map[string][]byte, sources, notes []str
 		rels = append(rels, rel)
 	}
 	slices.Sort(rels)
-	return repo.Commit(rels, fmt.Sprintf("memory: extract %d files into %d notes", len(sources), len(notes)), body.String())
+	return repo.commit(rels, fmt.Sprintf("memory: extract %d files into %d notes", len(sources), len(notes)), body.String())
 }
 
-func extractNotePaths(repo storeRepo, root *os.Root, entries []ExtractEntry, now time.Time) ([]string, map[string]string, error) {
+func extractNotePaths(repo storeRepo, root *os.Root, entries []extractEntry, now time.Time) ([]string, map[string]string, error) {
 	notes := make([]string, 0, len(entries))
 	successors := make(map[string]string)
 	used := make(map[string]bool)
@@ -700,7 +700,7 @@ func extractApplyRollback(written map[string]appliedWrite, cause error) error {
 		rollbackErr = errors.Join(rollbackErr, w.restoreIfOurs())
 	}
 	if rollbackErr != nil {
-		return &AfterCommitError{errors.Join(cause, rollbackErr)}
+		return &afterCommitError{errors.Join(cause, rollbackErr)}
 	}
 	return cause
 }
@@ -727,7 +727,7 @@ func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][
 	if snap.existed != (before[rel] != nil) || !bytes.Equal(snap.prev, before[rel]) {
 		return fmt.Errorf("extract: %s changed before write", rel)
 	}
-	written[rel] = appliedWrite{change: storeChange{Rel: rel, Data: data, Delete: data == nil}, snap: snap}
+	written[rel] = appliedWrite{change: storeChange{rel: rel, data: data, delete: data == nil}, snap: snap}
 	if data == nil {
 		if cur, err := root.ReadFile(rel); err != nil || !bytes.Equal(cur, snap.prev) {
 			return errors.Join(fmt.Errorf("extract: %s changed before removal", rel), err)
@@ -768,38 +768,38 @@ func extractWriteOne(root *os.Root, rel string, data []byte, before map[string][
 	return root.Rename(tmp, rel)
 }
 
-type ExtractTotal struct {
+type extractTotal struct {
 	Files int   `json:"files"`
 	Bytes int64 `json:"bytes"`
 }
 
-type ExtractFolderTotal struct {
+type extractFolderTotal struct {
 	Folder        string `json:"folder"`
 	Budget        int    `json:"budget"` // zero means unbudgeted
 	OverBudget    int    `json:"over_budget"`
 	RewriteExcess int    `json:"rewrite_excess"` // excess after proposed purges; continuous rewrite trigger
-	ExtractTotal
-	Actions map[ExtractAction]ExtractTotal `json:"actions"`
-	Groups  []ExtractGroup                 `json:"groups,omitempty"`
+	extractTotal
+	Actions map[extractAction]extractTotal `json:"actions"`
+	Groups  []extractGroup                 `json:"groups,omitempty"`
 }
 
 type ExtractResult struct {
-	Rows    []ExtractRow         `json:"rows"`
-	Folders []ExtractFolderTotal `json:"folders"`
+	Rows    []extractRow         `json:"rows"`
+	Folders []extractFolderTotal `json:"folders"`
 }
 
 var extractFolderBudgets = map[string]int{"reports": 400, "worktrees": 150, "handoffs": 60, "archive": 200}
 
 type extractFile struct {
-	row  ExtractRow
+	row  extractRow
 	data []byte
 	refs []string
 	mod  time.Time
 }
 
-// ClassifyExtract is read-only; low-value rewrite proposals do not themselves trigger an under-budget dream.
-func ClassifyExtract(storeRoot string, opts ExtractOptions) (ExtractResult, error) {
-	if opts.Now.IsZero() {
+// classifyExtract is read-only; low-value rewrite proposals do not themselves trigger an under-budget dream.
+func classifyExtract(storeRoot string, opts extractOptions) (ExtractResult, error) {
+	if opts.now.IsZero() {
 		return ExtractResult{}, errors.New("extract: Now is required")
 	}
 	root, err := os.OpenRoot(storeRoot)
@@ -807,7 +807,7 @@ func ClassifyExtract(storeRoot string, opts ExtractOptions) (ExtractResult, erro
 		return ExtractResult{}, fmt.Errorf("extract store: %w", err)
 	}
 	defer root.Close()
-	files, err := extractFiles(root, opts.Now)
+	files, err := extractFiles(root, opts.now)
 	if err != nil {
 		return ExtractResult{}, err
 	}
@@ -818,12 +818,12 @@ func ClassifyExtract(storeRoot string, opts ExtractOptions) (ExtractResult, erro
 		return ExtractResult{}, err
 	}
 	for i := range files {
-		if err := extractDecide(&files[i], opts.Facts); err != nil {
+		if err := extractDecide(&files[i], opts.facts); err != nil {
 			return ExtractResult{}, err
 		}
 		r := &files[i].row
-		if r.Action == ExtractPurge && !r.Signals.RecallKnown {
-			r.Action, r.Reason = ExtractRewrite, ExtractRecallUnknown
+		if r.Action == extractPurge && !r.Signals.RecallKnown {
+			r.Action, r.Reason = extractRewrite, extractRecallUnknown
 		}
 	}
 	extractDuplicates(files)
@@ -903,8 +903,8 @@ func newExtractFile(rel string, data []byte, mod, now time.Time) extractFile {
 	}
 	fm, _ := textutil.ParseFrontmatter(string(data))
 	meta, _ := fm["metadata"].(map[string]any)
-	r := ExtractRow{Path: rel, Folder: folder, Size: int64(len(data)), Age: max(0, now.Sub(mod)),
-		SHA256: textutil.SHA256Hex(data), Action: ExtractRewrite, Reason: ExtractLowValue}
+	r := extractRow{Path: rel, Folder: folder, Size: int64(len(data)), Age: max(0, now.Sub(mod)),
+		SHA256: textutil.SHA256Hex(data), Action: extractRewrite, Reason: extractLowValue}
 	r.Signals.Pinned = meta["pinned"] == true || fm["pinned"] == true
 	r.Signals.YoungerThan7Days = r.Age < 7*24*time.Hour
 	refs := []string{rel}
@@ -930,20 +930,20 @@ func extractTokens(s string) []string {
 	})
 }
 
-func extractLinks(files []extractFile, storeRoot string, opts ExtractOptions) error {
+func extractLinks(files []extractFile, storeRoot string, opts extractOptions) error {
 	byRef := map[string][]int{}
 	for i, f := range files {
 		for _, ref := range f.refs {
 			byRef[ref] = append(byRef[ref], i)
 		}
 	}
-	roots := extractLinkRoots(storeRoot, opts.StoreAliases)
+	roots := extractLinkRoots(storeRoot, opts.storeAliases)
 	for _, f := range files {
 		if extractLinkSource(f.row.Path) {
 			markExtractLinks(files, byRef, f.row.Path, string(f.data), path.Dir(f.row.Path), roots)
 		}
 	}
-	for _, source := range opts.LinkSources {
+	for _, source := range opts.linkSources {
 		data, err := os.ReadFile(source)
 		if err != nil {
 			return fmt.Errorf("extract link source %s: %w", source, err)
@@ -1002,12 +1002,12 @@ func markExtractLinks(files []extractFile, byRef map[string][]int, source, body,
 	}
 }
 
-func extractRecall(files []extractFile, opts ExtractOptions) error {
+func extractRecall(files []extractFile, opts extractOptions) error {
 	days := map[string]map[string]bool{}
 	newest := map[string]time.Time{}
-	for _, log := range opts.AccessLogs {
+	for _, log := range opts.accessLogs {
 		err := readExtractAccess(log, func(ts time.Time, entry, reason string) {
-			if reason != accessRecall || ts.After(opts.Now) {
+			if reason != accessRecall || ts.After(opts.now) {
 				return
 			}
 			if days[entry] == nil {
@@ -1028,10 +1028,10 @@ func extractRecall(files []extractFile, opts ExtractOptions) error {
 	return nil
 }
 
-func setExtractRecall(f *extractFile, days map[string]map[string]bool, newest map[string]time.Time, opts ExtractOptions) {
+func setExtractRecall(f *extractFile, days map[string]map[string]bool, newest map[string]time.Time, opts extractOptions) {
 	seen := map[string]bool{}
 	s := &f.row.Signals
-	s.RecallKnown = len(opts.AccessLogs) > 0
+	s.RecallKnown = len(opts.accessLogs) > 0
 	for _, ref := range f.refs {
 		for day := range days[ref] {
 			seen[day] = true
@@ -1041,7 +1041,7 @@ func setExtractRecall(f *extractFile, days map[string]map[string]bool, newest ma
 		}
 	}
 	s.RecallDays = len(seen)
-	s.RecalledRecently = !s.LastRecalled.IsZero() && s.LastRecalled.After(opts.Now.AddDate(0, 0, -hotWindowDays))
+	s.RecalledRecently = !s.LastRecalled.IsZero() && s.LastRecalled.After(opts.now.AddDate(0, 0, -hotWindowDays))
 }
 
 // The existing iterator swallows read errors; reuse its parser but fail closed on unreadable recall evidence.
@@ -1065,40 +1065,40 @@ func readExtractAccess(log string, fn func(time.Time, string, string)) error {
 	return nil
 }
 
-func extractDecide(f *extractFile, facts ExtractFacts) error {
+func extractDecide(f *extractFile, facts extractFacts) error {
 	r, s := &f.row, &f.row.Signals
 	switch {
 	case extractLinkSource(r.Path), r.Path == catalogFile, !strings.HasSuffix(r.Path, ".md"):
-		r.Action, r.Reason = ExtractKeep, ExtractProtected
+		r.Action, r.Reason = extractKeep, extractProtected
 	case len(s.LinkedBy) > 0:
-		r.Action, r.Reason = ExtractKeep, ExtractLinked
+		r.Action, r.Reason = extractKeep, extractLinked
 	case s.Pinned:
-		r.Action, r.Reason = ExtractKeep, ExtractPinned
+		r.Action, r.Reason = extractKeep, extractPinned
 	case s.RecalledRecently:
-		r.Action, r.Reason = ExtractKeep, ExtractRecalled
+		r.Action, r.Reason = extractKeep, extractRecalled
 	case s.YoungerThan7Days:
-		r.Action, r.Reason = ExtractKeep, ExtractYoung
+		r.Action, r.Reason = extractKeep, extractYoung
 	case len(f.data) == 0:
-		r.Action, r.Reason = ExtractPurge, ExtractEmpty
+		r.Action, r.Reason = extractPurge, extractEmpty
 	case facts != nil:
 		return extractGitFact(f, facts)
 	}
 	return nil
 }
 
-func extractGitFact(f *extractFile, facts ExtractFacts) error {
+func extractGitFact(f *extractFile, facts extractFacts) error {
 	s := &f.row.Signals
 	var err error
 	switch f.row.Folder {
 	case "worktrees":
-		s.BranchExists, s.BranchKnown, err = facts.WorktreeBranchExists(f.row.Path, slices.Clone(f.data))
+		s.BranchExists, s.BranchKnown, err = facts.worktreeBranchExists(f.row.Path, slices.Clone(f.data))
 		if err == nil && s.BranchKnown && !s.BranchExists {
-			f.row.Action, f.row.Reason = ExtractPurge, ExtractMissingBranch
+			f.row.Action, f.row.Reason = extractPurge, extractMissingBranch
 		}
 	case "reports":
-		s.ResultInGit, s.ResultKnown, err = facts.ReportResultInGit(f.row.Path, slices.Clone(f.data))
+		s.ResultInGit, s.ResultKnown, err = facts.reportResultInGit(f.row.Path, slices.Clone(f.data))
 		if err == nil && s.ResultKnown && s.ResultInGit {
-			f.row.Action, f.row.Reason = ExtractPurge, ExtractResultInGit
+			f.row.Action, f.row.Reason = extractPurge, extractResultInGit
 		}
 	}
 	if err != nil {
@@ -1110,11 +1110,11 @@ func extractGitFact(f *extractFile, facts ExtractFacts) error {
 func extractCanonical(files []extractFile) map[string]int {
 	canonical := map[string]int{}
 	for i, f := range files {
-		if f.row.Action == ExtractPurge {
+		if f.row.Action == extractPurge {
 			continue
 		}
 		j, ok := canonical[f.row.SHA256]
-		if !ok || f.row.Action == ExtractKeep && files[j].row.Action != ExtractKeep {
+		if !ok || f.row.Action == extractKeep && files[j].row.Action != extractKeep {
 			canonical[f.row.SHA256] = i
 		}
 	}
@@ -1126,27 +1126,27 @@ func extractDuplicates(files []extractFile) {
 	for i := range files {
 		r := &files[i].row
 		j, ok := canonical[r.SHA256]
-		if !ok || i == j || r.Action != ExtractRewrite || !r.Signals.RecallKnown {
+		if !ok || i == j || r.Action != extractRewrite || !r.Signals.RecallKnown {
 			continue
 		}
-		r.Action, r.Reason, r.DuplicateOf = ExtractPurge, ExtractDuplicate, files[j].row.Path
-		if files[j].row.Action == ExtractRewrite {
-			files[j].row.Action, files[j].row.Reason = ExtractKeep, ExtractDuplicateSource
+		r.Action, r.Reason, r.DuplicateOf = extractPurge, extractDuplicate, files[j].row.Path
+		if files[j].row.Action == extractRewrite {
+			files[j].row.Action, files[j].row.Reason = extractKeep, extractDuplicateSource
 		}
 	}
 }
 
 func extractResult(files []extractFile) ExtractResult {
-	folders := map[string]*ExtractFolderTotal{}
+	folders := map[string]*extractFolderTotal{}
 	for folder, budget := range extractFolderBudgets {
-		folders[folder] = &ExtractFolderTotal{Folder: folder, Budget: budget, Actions: map[ExtractAction]ExtractTotal{}}
+		folders[folder] = &extractFolderTotal{Folder: folder, Budget: budget, Actions: map[extractAction]extractTotal{}}
 	}
 	result := ExtractResult{}
 	for _, f := range files {
 		r := f.row
 		total := folders[r.Folder]
 		if total == nil {
-			total = &ExtractFolderTotal{Folder: r.Folder, Actions: map[ExtractAction]ExtractTotal{}}
+			total = &extractFolderTotal{Folder: r.Folder, Actions: map[extractAction]extractTotal{}}
 			folders[r.Folder] = total
 		}
 		total.Files++
@@ -1155,7 +1155,7 @@ func extractResult(files []extractFile) ExtractResult {
 		a.Files++
 		a.Bytes += r.Size
 		total.Actions[r.Action] = a
-		if r.Action != ExtractKeep {
+		if r.Action != extractKeep {
 			addExtractGroup(total, r, f.mod)
 		}
 		result.Rows = append(result.Rows, r)
@@ -1163,22 +1163,22 @@ func extractResult(files []extractFile) ExtractResult {
 	for _, total := range folders {
 		if total.Budget > 0 {
 			total.OverBudget = max(0, total.Files-total.Budget)
-			total.RewriteExcess = max(0, total.Files-total.Actions[ExtractPurge].Files-total.Budget)
+			total.RewriteExcess = max(0, total.Files-total.Actions[extractPurge].Files-total.Budget)
 		}
 		slices.SortFunc(total.Groups, compareExtractGroups)
 		result.Folders = append(result.Folders, *total)
 	}
-	slices.SortFunc(result.Folders, func(a, b ExtractFolderTotal) int { return strings.Compare(a.Folder, b.Folder) })
+	slices.SortFunc(result.Folders, func(a, b extractFolderTotal) int { return strings.Compare(a.Folder, b.Folder) })
 	return result
 }
 
-func addExtractGroup(total *ExtractFolderTotal, row ExtractRow, mod time.Time) {
+func addExtractGroup(total *extractFolderTotal, row extractRow, mod time.Time) {
 	year, week := mod.UTC().ISOWeek()
 	key := fmt.Sprintf("%04d-W%02d", year, week)
-	i := slices.IndexFunc(total.Groups, func(g ExtractGroup) bool { return g.Week == key && g.Action == row.Action })
+	i := slices.IndexFunc(total.Groups, func(g extractGroup) bool { return g.Week == key && g.Action == row.Action })
 	if i < 0 {
 		i = len(total.Groups)
-		total.Groups = append(total.Groups, ExtractGroup{Week: key, Action: row.Action, YoungestAge: row.Age})
+		total.Groups = append(total.Groups, extractGroup{Week: key, Action: row.Action, YoungestAge: row.Age})
 	}
 	g := &total.Groups[i]
 	g.Paths = append(g.Paths, row.Path)
@@ -1187,7 +1187,7 @@ func addExtractGroup(total *ExtractFolderTotal, row ExtractRow, mod time.Time) {
 	g.RecallDays = max(g.RecallDays, row.Signals.RecallDays)
 }
 
-func compareExtractGroups(a, b ExtractGroup) int {
+func compareExtractGroups(a, b extractGroup) int {
 	return cmp.Or(cmp.Compare(b.YoungestAge, a.YoungestAge), cmp.Compare(a.RecallDays, b.RecallDays),
 		strings.Compare(a.Week, b.Week), strings.Compare(string(a.Action), string(b.Action)))
 }

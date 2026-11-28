@@ -35,10 +35,10 @@ var layoutFlat = "flat " + strconv.Itoa(storeVersion)
 // Path is one of the bank's top-level files.
 func Path(name string) string { return filepath.Join(paths.MemoryStoreDir(), name) }
 
-// NativeIndex is the one shared MEMORY.md.
-func NativeIndex() string { return filepath.Join(paths.MemoryStoreDir(), "MEMORY.md") }
+// nativeIndex is the one shared MEMORY.md.
+func nativeIndex() string { return filepath.Join(paths.MemoryStoreDir(), "MEMORY.md") }
 
-func Ensure(sub string) error {
+func ensure(sub string) error {
 	if err := stampLayout(); err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func withBankLock(wait time.Duration, fn func() error) error {
 
 // EnsureBank is the one bank with the store root created.
 func EnsureBank(sub string) error {
-	return WithBankLock(BankLockWait, func() error { return Ensure(sub) })
+	return WithBankLock(BankLockWait, func() error { return ensure(sub) })
 }
 
 // Version is an opaque per-entry token issued by the store; callers pass it back untouched and never parse it.
@@ -190,7 +190,7 @@ func (s dbBankStore) applyLocked(b Batch, base Versions, now time.Time) (rs []Op
 	}
 	clean, xerr := exportAfterApply()
 	if xerr != nil {
-		return rs, &AfterCommitError{&committedErr{fmt.Errorf("batch committed in the db; markdown export: %w", xerr)}}
+		return rs, &afterCommitError{&committedErr{fmt.Errorf("batch committed in the db; markdown export: %w", xerr)}}
 	}
 	if clean {
 		retireFilesTruth() // the guard imported the Markdown a files truth left behind, with no conflict kept apart
@@ -214,7 +214,7 @@ func exportAfterApply() (clean bool, err error) {
 // ApplyDocs runs b over a copy of docs; a failed op fails the batch, so a store writes nothing.
 func ApplyDocs(docs map[string]Doc, b Batch, now time.Time) (map[string]Doc, []OpResult, error) {
 	b.Ops = readAsLoaded(docs, slices.Clone(b.Ops))
-	if err := b.Validate(); err != nil {
+	if err := b.validate(); err != nil {
 		return nil, nil, err
 	}
 	out := maps.Clone(docs)
@@ -229,8 +229,8 @@ func ApplyDocs(docs map[string]Doc, b Batch, now time.Time) (map[string]Doc, []O
 func readAsLoaded(docs map[string]Doc, ops []Op) []Op {
 	for i, o := range ops {
 		name, _ := routeBatchOp(docs, o)
-		r, ok := ParseRef(o.ID)
-		if !o.editsEntry() || o.Read != "" || name == "" || !ok || r.Derived {
+		r, ok := parseRef(o.ID)
+		if !o.editsEntry() || o.Read != "" || name == "" || !ok || r.derived {
 			continue
 		}
 		for _, e := range docs[name].Entries {
@@ -383,7 +383,7 @@ func (d *dreamPlans) finish(out io.Writer) []plans.Change {
 		}
 	}
 	own := func(plan, id string) bool { return mine[[2]string{plan, id}] }
-	rep, err := plans.RecheckOwned(ctx, d.root, JobDream, d.before, d.cite, own)
+	rep, err := plans.RecheckOwned(ctx, d.root, jobDream, d.before, d.cite, own)
 	if err == nil && len(rep.Kept)+len(rep.Reverted)+len(rep.Flagged) == 0 && !rep.TextChanged {
 		return nil
 	}

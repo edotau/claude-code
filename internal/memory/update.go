@@ -63,12 +63,12 @@ var updateLockWait = 5 * time.Second
 // detachedLockWait outlasts a dream (updateTimeout) so a detached session-end save queues, not lost; a var for tests.
 var detachedLockWait = updateTimeout + time.Minute
 
-// DetachedEnv marks a worker spawned by hooks or sweep (no one waits on it), so its update may queue for the lock.
-const DetachedEnv = "CLAUDE_MEMORY_DETACHED"
+// detachedEnv marks a worker spawned by hooks or sweep (no one waits on it), so its update may queue for the lock.
+const detachedEnv = "CLAUDE_MEMORY_DETACHED"
 
 // lockWait is detachedLockWait for a worker spawned detached, else updateLockWait.
 func lockWait() time.Duration {
-	if v := os.Getenv(DetachedEnv); v != "" && v != "0" {
+	if v := os.Getenv(detachedEnv); v != "" && v != "0" {
 		return detachedLockWait
 	}
 	return updateLockWait
@@ -80,15 +80,15 @@ var homeLockWait = 15 * time.Minute
 // updateTimeout bounds the headless claude run.
 const updateTimeout = 15 * time.Minute
 
-// UpdateResult is one session's update outcome (KEY=value lines on disk).
-type UpdateResult struct {
-	Status          string
-	Time            time.Time
-	BankUpdated     bool
-	Log             string
-	Class, Fix, Ran string
-	Local           bool
-	Typed           string // "ok" when the op batch applied, "fallback" when the tools-on run did the work
+// updateResult is one session's update outcome (KEY=value lines on disk).
+type updateResult struct {
+	status          string
+	time            time.Time
+	bankUpdated     bool
+	log             string
+	class, fix, ran string
+	local           bool
+	typed           string // "ok" when the op batch applied, "fallback" when the tools-on run did the work
 }
 
 func resultPath(sessionID string) string {
@@ -135,26 +135,26 @@ func receiptDir() string {
 }
 
 // writeUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
-func writeUpdateResult(sessionID string, r UpdateResult) error {
+func writeUpdateResult(sessionID string, r updateResult) error {
 	if sessionID == "" {
 		return nil
 	}
 	var body strings.Builder
 	fmt.Fprintf(&body, "status=%s\ntime=%s\nbank_updated=%t\nlog=%s\n",
-		r.Status, r.Time.Format(time.RFC3339Nano), r.BankUpdated, r.Log)
-	for _, field := range []struct{ key, value string }{{"class", r.Class}, {"fix", r.Fix}, {"ran", r.Ran}, {"typed", r.Typed}} {
+		r.status, r.time.Format(time.RFC3339Nano), r.bankUpdated, r.log)
+	for _, field := range []struct{ key, value string }{{"class", r.class}, {"fix", r.fix}, {"ran", r.ran}, {"typed", r.typed}} {
 		if field.value != "" {
 			fmt.Fprintf(&body, "%s=%s\n", field.key, field.value)
 		}
 	}
-	if r.Local {
+	if r.local {
 		body.WriteString("local=true\n")
 	}
 	return paths.AtomicWrite(resultPath(sessionID), []byte(body.String()), 0o600)
 }
 
 // readUpdateResult loads sessionID's result; ok=false when absent or unparseable.
-func readUpdateResult(sessionID string) (UpdateResult, bool) {
+func readUpdateResult(sessionID string) (updateResult, bool) {
 	// Bulk readers already migrated the directory; don't rescan the state dir for each receipt.
 	state := paths.MemoryStateDir()
 	name := "update-result-" + filepath.Base(sessionID)
@@ -163,7 +163,7 @@ func readUpdateResult(sessionID string) (UpdateResult, bool) {
 		data, err = os.ReadFile(resultPath(sessionID))
 	}
 	if err != nil {
-		return UpdateResult{}, false
+		return updateResult{}, false
 	}
 	m := map[string]string{}
 	for ln := range strings.SplitSeq(string(data), "\n") {
@@ -173,16 +173,16 @@ func readUpdateResult(sessionID string) (UpdateResult, bool) {
 	}
 	t, err := time.Parse(time.RFC3339, m["time"])
 	if err != nil {
-		return UpdateResult{}, false
+		return updateResult{}, false
 	}
-	r := UpdateResult{Status: m["status"], Time: t, Log: m["log"], BankUpdated: m["bank_updated"] == "true",
-		Class: m["class"], Fix: m["fix"], Ran: m["ran"], Local: m["local"] == "true", Typed: m["typed"]}
-	return r, r.Status != ""
+	r := updateResult{status: m["status"], time: t, log: m["log"], bankUpdated: m["bank_updated"] == "true",
+		class: m["class"], fix: m["fix"], ran: m["ran"], local: m["local"] == "true", typed: m["typed"]}
+	return r, r.status != ""
 }
 
 // needsAttention: a recorded failure, or a pending dispatch past the grace window (the worker died).
-func (r UpdateResult) needsAttention(now time.Time) bool {
-	return r.Status == updateFailed || (r.Status == updatePending && now.Sub(r.Time) > updateGrace)
+func (r updateResult) needsAttention(now time.Time) bool {
+	return r.status == updateFailed || (r.status == updatePending && now.Sub(r.time) > updateGrace)
 }
 
 // AgentFunc runs prompt on an injected agent (internal/agent imports this package) and names who answered.
@@ -352,7 +352,7 @@ func mergeFileLists(nameOnly, porcelain string) []string {
 // tagBlock files the session's tags (historical: DECISION only): typed events, then transcript tags they do not repeat.
 func tagBlock(transcript, session string, historical bool) string {
 	filed := filedDecisions() // dropped before any cap, so filed decisions never push a pending tag out
-	isFiled := func(t tag) bool { return t.Kind == "DECISION" && filed(t.Text) }
+	isFiled := func(t tag) bool { return t.kind == "DECISION" && filed(t.text) }
 	var legacy []tag
 	if f, err := os.Open(transcript); err == nil {
 		defer f.Close()
@@ -363,7 +363,7 @@ func tagBlock(transcript, session string, historical bool) string {
 	}
 	typed := typedTags(session)
 	if historical { // before the cap, so reserved slots never go to tags this mode drops
-		notDecision := func(t tag) bool { return t.Kind != "DECISION" }
+		notDecision := func(t tag) bool { return t.kind != "DECISION" }
 		typed, legacy = slices.DeleteFunc(typed, notDecision), slices.DeleteFunc(legacy, notDecision)
 	}
 	tags := mergeTags(slices.DeleteFunc(typed, isFiled), legacy)
@@ -372,7 +372,7 @@ func tagBlock(transcript, session string, historical bool) string {
 	}
 	var lines []string
 	for _, t := range tags {
-		lines = append(lines, t.Kind+": "+t.Text)
+		lines = append(lines, t.kind+": "+t.text)
 	}
 	return assets.MemorySessionTags(lines)
 }
@@ -464,7 +464,7 @@ func typedTags(session string) []tag {
 	}
 	var out []tag
 	for _, e := range ReadTagEvents(session) {
-		out = append(out, tag{Kind: strings.ToUpper(e.Event), Text: e.Text})
+		out = append(out, tag{kind: strings.ToUpper(e.Event), text: e.Text})
 	}
 	return out
 }
@@ -496,36 +496,36 @@ func mergeTags(typed, legacy []tag) []tag {
 
 // updateOptions drive one background update.
 type updateOptions struct {
-	Run        AgentFunc // the injected agent runner (ask.MemoryRunner in production)
-	Transcript string
-	CWD        string
-	Session    string
-	Handoff    handoffClaim
-	Historical bool          // an older session: the prompt forbids current-state files and a changed one is reported
-	Timeout    time.Duration // 0 = updateTimeout
-	Out        io.Writer
+	run        AgentFunc // the injected agent runner (ask.MemoryRunner in production)
+	transcript string
+	cwd        string
+	session    string
+	handoff    handoffClaim
+	historical bool          // an older session: the prompt forbids current-state files and a changed one is reported
+	timeout    time.Duration // 0 = updateTimeout
+	out        io.Writer
 }
 
 // update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
 func update(o updateOptions) error {
-	o.Handoff = takeHandoffBlock(o.Session)
-	defer cleanHandoff(o.Session, o.Handoff)
+	o.handoff = takeHandoffBlock(o.session)
+	defer cleanHandoff(o.session, o.handoff)
 	o = updateDefaults(o)
-	prior, _ := readUpdateResult(o.Session)
+	prior, _ := readUpdateResult(o.session)
 	var run updateRun
 	record := func(status string, updated bool) error {
-		return recordUpdateResult(o.Session, prior.Log, status, updated, &run)
+		return recordUpdateResult(o.session, prior.log, status, updated, &run)
 	}
-	if o.Historical {
+	if o.historical {
 		snap := snapshotFiles(currentStateFiles)
-		defer warnChanged(o.Out, snap)
+		defer warnChanged(o.out, snap)
 	}
 	run.before = newestMtime()
 	run.typedPass(o) // the model runs outside the store lock; only the store's Apply and the settle take it
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
 	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
-		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
+		uncoverStamp(o.session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
 	}
 	auditUpdatePlans(o)
@@ -536,10 +536,10 @@ func update(o updateOptions) error {
 }
 
 func auditUpdatePlans(o updateOptions) {
-	if o.Historical || o.CWD == "" {
+	if o.historical || o.cwd == "" {
 		return
 	}
-	top := GitToplevel(o.CWD)
+	top := GitToplevel(o.cwd)
 	if top == "" {
 		return
 	}
@@ -550,10 +550,10 @@ func auditUpdatePlans(o updateOptions) {
 	defer cancel()
 	report, err := plans.Audit(ctx, top, plans.AuditOpts{})
 	if len(report.Changed) > 0 || len(report.Reported) > 0 {
-		err = errors.Join(err, report.WriteText(o.Out))
+		err = errors.Join(err, report.WriteText(o.out))
 	}
 	if err != nil {
-		fmt.Fprintf(o.Out, "memory update: plans audit: %s\n", strings.Join(strings.Fields(err.Error()), " "))
+		fmt.Fprintf(o.out, "memory update: plans audit: %s\n", strings.Join(strings.Fields(err.Error()), " "))
 	}
 }
 
@@ -563,11 +563,11 @@ const FixSessionSlot = "<session-id>"
 const budgetFixGuidance = "retry outside the spent dispatch tree, or after raising the cap"
 
 // fixNote is the receipt's fix for the owner; a budget failure also says where a retry can run.
-func (r UpdateResult) fixNote() string {
-	if r.Fix == "" || r.Class != JobClassBudget || strings.Contains(r.Fix, "outside the spent dispatch tree") {
-		return r.Fix
+func (r updateResult) fixNote() string {
+	if r.fix == "" || r.class != JobClassBudget || strings.Contains(r.fix, "outside the spent dispatch tree") {
+		return r.fix
 	}
-	return r.Fix + " (" + budgetFixGuidance + ")"
+	return r.fix + " (" + budgetFixGuidance + ")"
 }
 
 // recordUpdateResult writes the session's outcome, keeping the dispatch's log path.
@@ -577,8 +577,8 @@ func recordUpdateResult(session, log, status string, updated bool, run *updateRu
 	if rep.Agent == "" && rep.Profile == "" && rep.Model == "" {
 		ran = ""
 	}
-	err := writeUpdateResult(session, UpdateResult{Status: status, Time: time.Now(), BankUpdated: updated, Log: log,
-		Class: rep.Class, Fix: strings.ReplaceAll(rep.Fix, FixSessionSlot, textutil.QuoteSH(session)), Ran: ran, Local: rep.Local, Typed: typed})
+	err := writeUpdateResult(session, updateResult{status: status, time: time.Now(), bankUpdated: updated, log: log,
+		class: rep.Class, fix: strings.ReplaceAll(rep.Fix, FixSessionSlot, textutil.QuoteSH(session)), ran: ran, local: rep.Local, typed: typed})
 	if err != nil {
 		return fmt.Errorf("record update result: %w", err)
 	}
@@ -600,11 +600,11 @@ func uncoverStamp(sessionID string) {
 }
 
 func updateDefaults(o updateOptions) updateOptions {
-	if o.Out == nil {
-		o.Out = io.Discard
+	if o.out == nil {
+		o.out = io.Discard
 	}
-	if o.Timeout == 0 {
-		o.Timeout = updateTimeout
+	if o.timeout == 0 {
+		o.timeout = updateTimeout
 	}
 	return o
 }
@@ -626,7 +626,7 @@ func (r *updateRun) finish(o updateOptions) (updated bool, err error) {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
 	// Refresh the cached doctor notice here (background worker), never on the SessionStart launch path.
-	refreshNotice(o.Out, "memory update", o.CWD)
+	refreshNotice(o.out, "memory update", o.cwd)
 	return updated, nil
 }
 
@@ -638,15 +638,15 @@ func (r *updateRun) touched() bool {
 // runAgent runs the agent, then completes the session's handoff when it succeeded.
 func (r *updateRun) runAgent(ctx context.Context, o updateOptions) {
 	r.runErr = runAgentUpdate(ctx, o)
-	if r.runErr == nil && o.Handoff.block != "" {
-		r.runErr = completeHandoff(o.Session, o.Handoff)
+	if r.runErr == nil && o.handoff.block != "" {
+		r.runErr = completeHandoff(o.session, o.handoff)
 	}
 }
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
 func (r *updateRun) locked(o updateOptions) error {
 	if r.typed != "ok" && r.typed != "failed" {
-		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 		defer cancel()
 		ctx, rep := WithJobReport(ctx)
 		r.runAgent(ctx, o)
@@ -658,17 +658,17 @@ func (r *updateRun) locked(o updateOptions) error {
 
 // runAgentUpdate hands the update prompt to o.Run and reports which agent ran it.
 func runAgentUpdate(ctx context.Context, o updateOptions) error {
-	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
+	prompt, err := agentUpdatePrompt(o.transcript, o.session, o.cwd, o.historical)
 	if err != nil {
 		return err
 	}
-	prompt += filedByGoBlock(o.Session) + o.Handoff.block
+	prompt += filedByGoBlock(o.session) + o.handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
-	RefreshStaleEmbeddings(o.CWD)
-	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
-	fmt.Fprintln(o.Out, "memory update: ran on", who)
-	if err == nil && o.Session != "" {
-		err = errors.Join(err, fileDecisionEvents(o.Session, time.Now()))
+	RefreshStaleEmbeddings(o.cwd)
+	who, err := o.run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.cwd) // a fallback dispatch must not re-trigger hooks
+	fmt.Fprintln(o.out, "memory update: ran on", who)
+	if err == nil && o.session != "" {
+		err = errors.Join(err, fileDecisionEvents(o.session, time.Now()))
 	}
 	return err
 }
@@ -681,22 +681,22 @@ const (
 
 // typedPass runs the model outside the store lock and applies its op batch; no usable answer leaves typed "fallback".
 func (r *updateRun) typedPass(o updateOptions) {
-	if o.Handoff.block != "" { // a handoff needs a file the tools-off run cannot write
+	if o.handoff.block != "" { // a handoff needs a file the tools-off run cannot write
 		r.typed = "fallback"
 		return
 	}
-	listing, base, err := bankListing(o.Historical)
+	listing, base, err := bankListing(o.historical)
 	if err != nil {
 		r.typed = "fallback"
 		r.runErr = err
 		return
 	}
-	prompt, err := agentUpdatePrompt(o.Transcript, o.Session, o.CWD, o.Historical)
+	prompt, err := agentUpdatePrompt(o.transcript, o.session, o.cwd, o.historical)
 	if err != nil {
 		r.typed = "fallback"
 		return
 	}
-	head := prompt + filedByGoBlock(o.Session)
+	head := prompt + filedByGoBlock(o.session)
 	prompt = head + listing
 	b, ok := r.askBatch(o, prompt)
 	if !ok {
@@ -709,7 +709,7 @@ func (r *updateRun) typedPass(o updateOptions) {
 	}
 	r.typed = "ok"
 	r.runErr = r.report.named(r.applyAndFile(o, head, withTags(o, b), base))
-	RefreshStaleEmbeddings(o.CWD)
+	RefreshStaleEmbeddings(o.cwd)
 }
 
 // applyAndFile applies b (one fallback retry on a refusal), then files the session's decision events only on success.
@@ -718,16 +718,16 @@ func (r *updateRun) applyAndFile(o updateOptions, head string, b Batch, base Ver
 	if err != nil && refused(err) {
 		err = r.retryApply(o, head, err)
 	}
-	if err == nil && o.Session != "" {
-		err = fileDecisionEvents(o.Session, time.Now())
+	if err == nil && o.session != "" {
+		err = fileDecisionEvents(o.session, time.Now())
 	}
 	return err
 }
 
 // withTags puts the session's Go-filed tag ops ahead of the model's; an older session drops current-state targets.
 func withTags(o updateOptions, b Batch) Batch {
-	b.Ops = append(tagOps(o.Session, o.Historical), b.Ops...)
-	if o.Historical {
+	b.Ops = append(tagOps(o.session, o.historical), b.Ops...)
+	if o.historical {
 		b.Ops = slices.DeleteFunc(b.Ops, func(op Op) bool { return slices.Contains(currentStateTargets, op.Target) })
 	}
 	return b
@@ -740,15 +740,15 @@ var currentStateTargets = []string{"activeContext", "progress", "conventions"}
 func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {
 	var rejected error
 	for range 2 {
-		ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 		ctx, rep := WithJobReport(WithCodeFallback(ctx, &r.fb))
 		ctx, answer := WithJobAnswer(ctx, BatchSchema())
-		who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD)
+		who, err := o.run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.cwd)
 		cancel()
 		r.report = *rep
-		fmt.Fprintln(o.Out, "memory update: ran on", who)
+		fmt.Fprintln(o.out, "memory update: ran on", who)
 		if err != nil {
-			fmt.Fprintln(o.Out, "memory update: typed run failed:", err)
+			fmt.Fprintln(o.out, "memory update: typed run failed:", err)
 			r.runErr = err
 			return Batch{}, false
 		}
@@ -764,9 +764,9 @@ func (r *updateRun) askBatch(o updateOptions, prompt string) (Batch, bool) {
 
 // fallbackBatch gives the one code-mode agent the exhausted validation failure; a spent fallback fails the job.
 func (r *updateRun) fallbackBatch(o updateOptions, prompt string, rejected error) (b Batch, ok bool) {
-	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
+	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.timeout)
 	defer cancel()
-	err := r.fb.Retry(ctx, prompt, o.CWD, BatchSchema(), r.report.models(), rejected, func(answer string) (derr error) {
+	err := r.fb.retry(ctx, prompt, o.cwd, BatchSchema(), r.report.models(), rejected, func(answer string) (derr error) {
 		b, derr = decodeBatch(answer)
 		return derr
 	})
@@ -790,19 +790,19 @@ func decodeBatch(answer string) (Batch, error) {
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return Batch{}, errors.New("expected one JSON object")
 	}
-	return b, b.Validate()
+	return b, b.validate()
 }
 
 // applyTyped applies b with the refs the model was shown; failed ops are reported and nothing is written.
 func applyTyped(o updateOptions, b Batch, base Versions) error {
 	if err := refuseDerivedSupersede(b); err != nil {
-		fmt.Fprintln(o.Out, "memory update:", err)
+		fmt.Fprintln(o.out, "memory update:", err)
 		return err
 	}
 	results, err := NewBankStore(false).Apply(b, base, time.Now())
 	for i, res := range results {
 		if res.Outcome == DreamFailed {
-			fmt.Fprintf(o.Out, "memory update: op %d (%s) failed: %s\n", i, res.Op.Op, res.Reason)
+			fmt.Fprintf(o.out, "memory update: op %d (%s) failed: %s\n", i, res.Op.Op, res.Reason)
 		}
 	}
 	return withFailedOps(err, results)
@@ -827,14 +827,14 @@ func withFailedOps(err error, results []OpResult) error {
 
 // retryApply gives the one code-mode fallback the failed ops and a fresh listing, then applies its corrected batch.
 func (r *updateRun) retryApply(o updateOptions, head string, failed error) error {
-	listing, base, err := bankListing(o.Historical)
+	listing, base, err := bankListing(o.historical)
 	if err != nil {
 		return errors.Join(failed, err)
 	}
-	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.Timeout)
+	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1"), o.timeout)
 	defer cancel()
 	first := r.report.models()
-	return r.fb.Retry(ctx, head+listing, o.CWD, BatchSchema(), first, failed, func(answer string) error {
+	return r.fb.retry(ctx, head+listing, o.cwd, BatchSchema(), first, failed, func(answer string) error {
 		nb, err := decodeBatch(answer)
 		if err != nil {
 			return err
@@ -848,13 +848,13 @@ func tagOps(session string, historical bool) []Op {
 	var ops []Op
 	for _, t := range typedTags(session) {
 		var op Op
-		switch t.Kind {
+		switch t.kind {
 		case "NEXT":
-			op = Op{Op: "add", Target: "activeContext", Section: "Next Steps", Text: t.Text}
+			op = Op{Op: "add", Target: "activeContext", Section: "Next Steps", Text: t.text}
 		case "BUG":
-			op = Op{Op: "add", Target: "progress", Section: "Known Issues", Text: t.Text}
+			op = Op{Op: "add", Target: "progress", Section: "Known Issues", Text: t.text}
 		case "NOTE":
-			op = Op{Op: "add", Target: "conventions", Text: t.Text} // "note" is no bank file: the store refused the whole batch
+			op = Op{Op: "add", Target: "conventions", Text: t.text} // "note" is no bank file: the store refused the whole batch
 		default:
 			continue
 		}
@@ -913,8 +913,8 @@ func IsUpdateChild() bool {
 
 // tag is one DECISION/BUG/NEXT/NOTE line the assistant wrote in a reply.
 type tag struct {
-	Kind string
-	Text string
+	kind string
+	text string
 }
 
 // tagMaxLen caps a single tag; tagMaxCount keeps only the newest tags (dedup preserves first-seen order).
@@ -934,7 +934,7 @@ func extractTagsExcept(r io.Reader, skip func(tag) bool) ([]tag, error) {
 			if skip != nil && skip(t) {
 				continue
 			}
-			key := t.Kind + "\x00" + t.Text
+			key := t.kind + "\x00" + t.text
 			if !seen[key] {
 				seen[key] = true
 				tags = append(tags, t)
@@ -992,7 +992,7 @@ func parseTagLine(ln string) (tag, bool) {
 			if len(text) > tagMaxLen {
 				text = strings.ToValidUTF8(text[:tagMaxLen], "") // a cut mid-rune leaves a partial one
 			}
-			return tag{Kind: strings.TrimSuffix(kind, ":"), Text: text}, true
+			return tag{kind: strings.TrimSuffix(kind, ":"), text: text}, true
 		}
 	}
 	return tag{}, false
@@ -1001,7 +1001,7 @@ func parseTagLine(ln string) (tag, bool) {
 // ParseTagLine is parseTagLine for the Stop hook: the tag's kind ("DECISION"...) and text.
 func ParseTagLine(ln string) (kind, text string, ok bool) {
 	t, ok := parseTagLine(ln)
-	return t.Kind, t.Text, ok
+	return t.kind, t.text, ok
 }
 
 // TagEvent is one typed session event the Stop hook recorded from an assistant tag line.
@@ -1047,8 +1047,8 @@ func stewardHandoffPath(sessionID string, now time.Time) string {
 	return paths.MemorySub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
 }
 
-// JobDream names the dream job in plan rechecks.
-const JobDream = "dream"
+// jobDream names the dream job in plan rechecks.
+const jobDream = "dream"
 
 // Failure classes a runner reports; auth and budget need the owner, so no automatic retry repeats them.
 const (
@@ -1139,7 +1139,7 @@ func AnswerJob(ctx context.Context, text string) {
 // refuseDerivedSupersede refuses superseding an entry with no stored id: striking it changes its ref.
 func refuseDerivedSupersede(b Batch) error {
 	for i, o := range b.Ops {
-		if r, _ := ParseRef(o.ID); o.Op == "supersede" && r.Derived {
+		if r, _ := parseRef(o.ID); o.Op == "supersede" && r.derived {
 			return fmt.Errorf("op %d (supersede): %s has no stored id, so the link would dangle; nothing written", i, o.ID)
 		}
 	}

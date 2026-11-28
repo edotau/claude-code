@@ -59,13 +59,13 @@ func TestRecallRowsSupplyCorpus(t *testing.T) {
 		t.Fatalf("recall did not rank row text: %+v", hits)
 	}
 	for i, f := range files {
-		if filepath.Base(f.Path) != "conventions.md" {
+		if filepath.Base(f.path) != "conventions.md" {
 			continue
 		}
-		if segs[i] == nil || segs[i].Docs() != 2 {
+		if segs[i] == nil || segs[i].docs() != 2 {
 			t.Fatal("row corpus lost the nonmatching segment needed by semantic recall and replacements")
 		}
-		block, _ := segs[i].Doc(1)
+		block, _ := segs[i].doc(1)
 		assertRowSemanticRecall(t, f, block, files, segs, hits)
 	}
 	if got := SearchBank("diskonly", 0); len(got) != 0 {
@@ -75,7 +75,7 @@ func TestRecallRowsSupplyCorpus(t *testing.T) {
 
 func assertRowSemanticRecall(t *testing.T, f corpusFile, block string, files []corpusFile, segs []segView, hits []SearchHit) {
 	t.Helper()
-	h := SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block}
+	h := SearchHit{Bank: f.bank, File: filepath.Base(f.path), Block: block}
 	sem := newSemantic([]float32{1}, map[string]vectorRow{"semantic": {BlockHash: hitHash(h), Vec: encodeVec([]float32{1})}})
 	ranked, _, _, status := recallSemantic(semanticReady{sem: sem}, files, segs, nil, 1, hits, nil)
 	if len(ranked) != 2 || ranked[1].Block != block || status != "ran" {
@@ -178,7 +178,7 @@ func slowVecServer(t *testing.T, slow time.Duration) *httptest.Server {
 func useEmbedServer(t *testing.T, srv *httptest.Server) *EmbedClient {
 	t.Helper()
 	t.Setenv("CLAUDE_PROFILE", "fake") // embedQuery reads the session profile's cache
-	c := &EmbedClient{Model: "fake-gte", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+	c := &EmbedClient{model: "fake-gte", embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
 		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
 	}}
 	prev := openEmbedClient
@@ -234,12 +234,12 @@ func TestRecallPicksSemanticQueryUsesTheCtxProfile(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_PROFILE", "") // the process names no profile: only the snapshot does
 	snap := proc.WithValues(context.Background(), proc.Values{"CLAUDE_PROFILE": "fake"})
-	if _, tr := recallPicks(snap, "", prompt, true, true); tr.Embeddings != "ran" {
-		t.Errorf("snapshot ctx: embeddings = %q, want the semantic query to run on the snapshot's profile", tr.Embeddings)
+	if _, tr := recallPicks(snap, "", prompt, true, true); tr.embeddings != "ran" {
+		t.Errorf("snapshot ctx: embeddings = %q, want the semantic query to run on the snapshot's profile", tr.embeddings)
 	}
 	_ = os.RemoveAll(filepath.Join(paths.MemoryStateDir(), "queryvec")) // a cached vector would answer without a profile
-	if _, tr := recallPicks(context.Background(), "", prompt, true, true); !strings.HasPrefix(tr.Embeddings, "keyword-only") {
-		t.Errorf("no snapshot: embeddings = %q, want keyword-only", tr.Embeddings)
+	if _, tr := recallPicks(context.Background(), "", prompt, true, true); !strings.HasPrefix(tr.embeddings, "keyword-only") {
+		t.Errorf("no snapshot: embeddings = %q, want keyword-only", tr.embeddings)
 	}
 }
 
@@ -442,17 +442,17 @@ func TestPickTierAccessBoost(t *testing.T) {
 	}
 	ranked := []SearchHit{hit("aa000001", 10, 3), hit("bb000002", 10, 3)}
 	picks, passed := pickTier(ranked, false, 3, nil, nil, map[string]int{"bb000002": 3}, nil, nil)
-	if !passed || len(picks) != 2 || picks[0].Entry.ID != "bb000002" {
+	if !passed || len(picks) != 2 || picks[0].entry.id != "bb000002" {
 		t.Fatalf("the returned-to entry must rank first: %+v (passed %v)", picks, passed)
 	}
 	picks, _ = pickTier(ranked, false, 3, nil, nil, nil, nil, nil)
-	if len(picks) != 2 || picks[0].Entry.ID != "aa000001" {
+	if len(picks) != 2 || picks[0].entry.id != "aa000001" {
 		t.Fatalf("without returns the stable keyword order must hold: %+v", picks)
 	}
 
 	weak := []SearchHit{hit("aa000001", 10, 3), hit("cc000003", 2, 1)}
 	picks, _ = pickTier(weak, false, 3, nil, nil, map[string]int{"cc000003": recallAccessCap}, nil, nil)
-	if len(picks) != 1 || picks[0].Entry.ID != "aa000001" {
+	if len(picks) != 1 || picks[0].entry.id != "aa000001" {
 		t.Fatalf("a returned-to entry failing the gate must not be admitted: %+v", picks)
 	}
 
@@ -631,17 +631,17 @@ func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
 
 func TestRecallTraceSelectedUsesTheRealHeader(t *testing.T) {
 	mk := func(id uint64, title string) recallPick {
-		return recallPick{Entry: memoryEntry{ID: fmt.Sprintf("id%d", id), File: strings.Repeat("f", 216) + ".md",
-			Type: "convention", Body: strings.Repeat("alpha ", 60), Title: title}, Hit: SearchHit{sum: id}}
+		return recallPick{entry: memoryEntry{id: fmt.Sprintf("id%d", id), file: strings.Repeat("f", 216) + ".md",
+			typ: "convention", body: strings.Repeat("alpha ", 60), title: title}, hit: SearchHit{sum: id}}
 	}
 	picks := []recallPick{mk(1, "t"), mk(2, "t"), mk(3, strings.Repeat("p", 80))}
 	for _, tc := range []struct {
 		expand bool
 		want   string
 	}{{false, "pointer"}, {true, "over cap"}} {
-		tr := &recallTrace{Rows: []recallCandidate{{key: picks[2].Hit.key()}}}
+		tr := &recallTrace{rows: []recallCandidate{{key: picks[2].hit.key()}}}
 		tr.selected(picks, tc.expand)
-		if got := tr.Rows[0].Outcome; got != tc.want {
+		if got := tr.rows[0].outcome; got != tc.want {
 			t.Errorf("expand=%v: outcome %q, want %q", tc.expand, got, tc.want)
 		}
 	}
@@ -651,7 +651,7 @@ func TestRecallPreviewCapsAtWordBoundaries(t *testing.T) {
 	const id = "abcd1234"
 	body := strings.Repeat("éclair ", 21)
 	title := strings.Repeat("éclair ", 12)
-	pick := recallPick{Entry: memoryEntry{ID: id, File: "f.md", Body: body + "boundary tail", Title: title + "boundary tail"}}
+	pick := recallPick{entry: memoryEntry{id: id, file: "f.md", body: body + "boundary tail", title: title + "boundary tail"}}
 	got, hits := recallContext([]recallPick{pick, pick, pick}, true)
 	lines := strings.Split(got, "\n")
 	if len(hits) != 3 || len(lines) != 4 {

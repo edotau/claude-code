@@ -193,20 +193,20 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 		_, err = f.WriteString("\n## 2026-09-16 — updated-by-child\n")
 		return "fake", err
 	}
-	_ = writeUpdateResult("11111111-1111-1111-1111-111111111111", UpdateResult{Status: updatePending, Time: time.Now(), Log: "/l.log"})
+	_ = writeUpdateResult("11111111-1111-1111-1111-111111111111", updateResult{status: updatePending, time: time.Now(), log: "/l.log"})
 
-	if err := update(updateOptions{Run: ok, CWD: root, Session: "11111111-1111-1111-1111-111111111111"}); err != nil {
+	if err := update(updateOptions{run: ok, cwd: root, session: "11111111-1111-1111-1111-111111111111"}); err != nil {
 		t.Fatal(err)
 	}
 	r, _ := readUpdateResult("11111111-1111-1111-1111-111111111111")
-	if r.Status != updateOK || !r.BankUpdated || r.Log != "/l.log" || r.needsAttention(time.Now()) {
+	if r.status != updateOK || !r.bankUpdated || r.log != "/l.log" || r.needsAttention(time.Now()) {
 		t.Errorf("success result %+v", r)
 	}
-	if st, err := StoreRepo().Status("*"); err != nil || len(st) != 0 {
+	if st, err := StoreRepo().status("*"); err != nil || len(st) != 0 {
 		t.Errorf("update did not settle the bank: %+v, %v", st, err)
 	}
 	assertUpdateFailure(t, root)
-	stale := UpdateResult{Status: updatePending, Time: time.Now().Add(-updateGrace - time.Minute)}
+	stale := updateResult{status: updatePending, time: time.Now().Add(-updateGrace - time.Minute)}
 	if !stale.needsAttention(time.Now()) {
 		t.Error("a pending result past the grace window needs attention")
 	}
@@ -216,10 +216,10 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 func assertUpdateFailure(t *testing.T, root string) {
 	t.Helper()
 	bad := func(context.Context, string, string) (string, error) { return "fake", errors.New("exit status 1") }
-	if err := update(updateOptions{Run: bad, CWD: root, Session: "s2"}); err == nil {
+	if err := update(updateOptions{run: bad, cwd: root, session: "s2"}); err == nil {
 		t.Error("failing agent must return an error")
 	}
-	if r, _ := readUpdateResult("s2"); r.Status != updateFailed || r.BankUpdated || !r.needsAttention(time.Now()) {
+	if r, _ := readUpdateResult("s2"); r.status != updateFailed || r.bankUpdated || !r.needsAttention(time.Now()) {
 		t.Errorf("failure result %+v", r)
 	}
 }
@@ -232,15 +232,15 @@ func TestUpdateReceiptRoundTripsClassAndFix(t *testing.T) {
 	now := time.Now()
 	assertReceiptFields(t, id, now)
 	assertOwnerRetry(t, id, now, JobClassAuth)
-	if err := writeUpdateResult(id, UpdateResult{Status: updateFailed, Time: now}); err != nil {
+	if err := writeUpdateResult(id, updateResult{status: updateFailed, time: now}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := readUpdateResult(id)
-	if !ok || got.Class != "" || got.Fix != "" || got.Ran != "" || got.Local {
+	if !ok || got.class != "" || got.fix != "" || got.ran != "" || got.local {
 		t.Fatalf("legacy receipt: %+v, ok=%t", got, ok)
 	}
 	assertReportedUpdate(t, id, JobClassBudget)
-	b := UpdateResult{Class: JobClassBudget, Fix: "claude-code memory update --session 'x'"}
+	b := updateResult{class: JobClassBudget, fix: "claude-code memory update --session 'x'"}
 	if got := b.fixNote(); !strings.HasSuffix(got, "("+budgetFixGuidance+")") {
 		t.Fatalf("budget fix note: %q", got)
 	}
@@ -249,13 +249,13 @@ func TestUpdateReceiptRoundTripsClassAndFix(t *testing.T) {
 // assertReceiptFields checks that all typed keys survive a write and read.
 func assertReceiptFields(t *testing.T, id string, now time.Time) {
 	t.Helper()
-	want := UpdateResult{Status: updateFailed, Time: now, Log: "/tmp/update.log", Class: JobClassAuth,
-		Fix: "claude-code databricks login --profile dev", Ran: "claude·dev·sonnet", Local: true}
+	want := updateResult{status: updateFailed, time: now, log: "/tmp/update.log", class: JobClassAuth,
+		fix: "claude-code databricks login --profile dev", ran: "claude·dev·sonnet", local: true}
 	if err := writeUpdateResult(id, want); err != nil {
 		t.Fatal(err)
 	}
 	got, ok := readUpdateResult(id)
-	if !ok || got.Class != want.Class || got.Fix != want.Fix || got.Ran != want.Ran || !got.Local {
+	if !ok || got.class != want.class || got.fix != want.fix || got.ran != want.ran || !got.local {
 		t.Fatalf("typed receipt: %+v, ok=%t", got, ok)
 	}
 }
@@ -275,7 +275,7 @@ func assertOwnerRetry(t *testing.T, id string, now time.Time, class string) {
 	if why := sweepWhy(&c, now, count, res, ok); why != "" {
 		t.Errorf("owner failure retried: %q", why)
 	}
-	if !ownerFixRequired(UpdateResult{Status: updateFailed, Class: class}) {
+	if !ownerFixRequired(updateResult{status: updateFailed, class: class}) {
 		t.Error("owner failure not classified")
 	}
 	if why := sweepWhy(&c, now.Add(2*catchupRetry), count, res, ok); why != "" {
@@ -296,11 +296,11 @@ func assertReportedUpdate(t *testing.T, id, class string) {
 			Fix: "claude-code memory update --catchup", Local: true})
 		return "claude", errors.New("dispatch tree budget spent")
 	}
-	if err := update(updateOptions{Run: run, Session: id}); err == nil {
+	if err := update(updateOptions{run: run, session: id}); err == nil {
 		t.Fatal("expected failing update")
 	}
 	got, ok := readUpdateResult(id)
-	if !ok || got.Status != updateFailed || got.Class != class || got.Fix != "claude-code memory update --catchup" || got.Ran != "claude·dev·sonnet" || !got.Local {
+	if !ok || got.status != updateFailed || got.class != class || got.fix != "claude-code memory update --catchup" || got.ran != "claude·dev·sonnet" || !got.local {
 		t.Fatalf("runner report: %+v, ok=%t", got, ok)
 	}
 }
@@ -311,7 +311,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 		t.Errorf("ProjectSlug = %q", got)
 	}
 	write(t, Path("gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
-	write(t, NativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
+	write(t, nativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
 	write(t, Path("loose.md"), "gateway ssh status without frontmatter\n")
 	hits := searchBanks("gateway ssh status", 0)
 	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
@@ -498,7 +498,7 @@ func TestDreamFreshStoreRunsWithoutDeadlock(t *testing.T) {
 		return "stub", nil
 	}
 	done := make(chan error, 1)
-	go func() { done <- dream(dreamOptions{CWD: t.TempDir(), Run: run}) }()
+	go func() { done <- dream(dreamOptions{cwd: t.TempDir(), run: run}) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -528,7 +528,7 @@ func TestDreamFailedRunRetriesAfterBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := func(context.Context, string, string) (string, error) { return "x", errors.New("boom") }
-	if err := dream(dreamOptions{CWD: root, Run: fail}); err == nil {
+	if err := dream(dreamOptions{cwd: root, run: fail}); err == nil {
 		t.Fatal("failed agent run must return an error")
 	}
 	now := time.Now()
@@ -555,7 +555,7 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	var out bytes.Buffer
 	tr := filepath.Join(t.TempDir(), "s.jsonl")
 	write(t, tr, "{}\n")
-	if err := update(updateOptions{Run: run, Transcript: tr, CWD: root, Session: "h1", Historical: true, Out: &out}); err != nil {
+	if err := update(updateOptions{run: run, transcript: tr, cwd: root, session: "h1", historical: true, out: &out}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(prompt, "OLDER session") || !strings.Contains(prompt, "never write NOW") {
@@ -564,7 +564,7 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	if !strings.Contains(out.String(), "changed activeContext.md") {
 		t.Errorf("edit to activeContext.md not reported: %q", out.String())
 	}
-	if err := update(updateOptions{Run: run, Transcript: tr, CWD: root, Session: "h2", Out: io.Discard}); err != nil {
+	if err := update(updateOptions{run: run, transcript: tr, cwd: root, session: "h2", out: io.Discard}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(prompt, "OLDER session") {
@@ -595,7 +595,7 @@ func TestDreamPassesChildEnvWithoutMutatingParent(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[]}`)
 		return "stub", nil
 	}
-	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {
+	if err := dream(dreamOptions{cwd: root, run: run}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{UpdateChildEnv + "=1", dreamChildEnv + "=1"}
@@ -646,8 +646,8 @@ func TestExtractTags_AssistantAllFourKinds(t *testing.T) {
 		t.Fatalf("got %d tags, want 4: %+v", len(tags), tags)
 	}
 	for i, want := range wantKinds {
-		if tags[i].Kind != want {
-			t.Errorf("tag %d kind = %q, want %q", i, tags[i].Kind, want)
+		if tags[i].kind != want {
+			t.Errorf("tag %d kind = %q, want %q", i, tags[i].kind, want)
 		}
 	}
 }
@@ -675,7 +675,7 @@ func TestExtractTags_OptionalBulletPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
-	if len(tags) != 1 || tags[0].Kind != "DECISION" || tags[0].Text != "bulleted tag still counts" {
+	if len(tags) != 1 || tags[0].kind != "DECISION" || tags[0].text != "bulleted tag still counts" {
 		t.Fatalf("got %+v", tags)
 	}
 }
@@ -706,8 +706,8 @@ func TestExtractTags_OverLongCapped(t *testing.T) {
 	if len(tags) != 1 {
 		t.Fatalf("got %d tags, want 1: %+v", len(tags), tags)
 	}
-	if len(tags[0].Text) != tagMaxLen {
-		t.Fatalf("tag text len = %d, want %d", len(tags[0].Text), tagMaxLen)
+	if len(tags[0].text) != tagMaxLen {
+		t.Fatalf("tag text len = %d, want %d", len(tags[0].text), tagMaxLen)
 	}
 }
 
@@ -726,8 +726,8 @@ func TestExtractTags_OverCountKeepsNewest(t *testing.T) {
 		t.Fatalf("got %d tags, want %d", len(tags), tagMaxCount)
 	}
 	// the oldest 5 ("fact a".."fact e") must have been dropped, keeping the newest run.
-	if tags[0].Text != "fact "+string(rune('a'+5)) {
-		t.Fatalf("first kept tag = %q, want the 6th written", tags[0].Text)
+	if tags[0].text != "fact "+string(rune('a'+5)) {
+		t.Fatalf("first kept tag = %q, want the 6th written", tags[0].text)
 	}
 }
 
@@ -741,7 +741,7 @@ func TestExtractTags_MalformedLineSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractTags: %v", err)
 	}
-	if len(tags) != 1 || tags[0].Text != "survives the bad line before it" {
+	if len(tags) != 1 || tags[0].text != "survives the bad line before it" {
 		t.Fatalf("got %+v", tags)
 	}
 }
@@ -828,10 +828,10 @@ func TestTagBlockTypedEventBeatsLegacyText(t *testing.T) {
 
 // TestMergeTagsCapDropsLegacyBeforeTyped: over the cap the typed-only events stay.
 func TestMergeTagsCapDropsLegacyBeforeTyped(t *testing.T) {
-	typed := []tag{{Kind: "DECISION", Text: "typed"}}
+	typed := []tag{{kind: "DECISION", text: "typed"}}
 	var legacy []tag
 	for i := range tagMaxCount + 5 {
-		legacy = append(legacy, tag{Kind: "NOTE", Text: strconv.Itoa(i)})
+		legacy = append(legacy, tag{kind: "NOTE", text: strconv.Itoa(i)})
 	}
 	got := mergeTags(typed, legacy)
 	if len(got) != tagMaxCount || got[0] != typed[0] {
@@ -843,9 +843,9 @@ func TestMergeTagsCapDropsLegacyBeforeTyped(t *testing.T) {
 func TestMergeTagsKeepsLegacyOnlyTagWhenTypedFull(t *testing.T) {
 	var typed []tag
 	for i := range tagMaxCount + 1 {
-		typed = append(typed, tag{Kind: "NOTE", Text: strconv.Itoa(i)})
+		typed = append(typed, tag{kind: "NOTE", text: strconv.Itoa(i)})
 	}
-	missed := tag{Kind: "DECISION", Text: "missed"}
+	missed := tag{kind: "DECISION", text: "missed"}
 	got := mergeTags(typed, []tag{missed})
 	if len(got) != tagMaxCount || got[len(got)-1] != missed {
 		t.Fatalf("mergeTags len %d, want %d ending in the legacy-only decision", len(got), tagMaxCount)
@@ -961,10 +961,10 @@ func TestUpdateAppliesTypedBatch(t *testing.T) {
 		AnswerJob(ctx, good)
 		return "stub", nil
 	}
-	if err := update(updateOptions{Run: run, CWD: root, Session: "t1"}); err != nil {
+	if err := update(updateOptions{run: run, cwd: root, session: "t1"}); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := readUpdateResult("t1"); r.Status != updateOK || r.Typed != "ok" || calls != 1 {
+	if r, _ := readUpdateResult("t1"); r.status != updateOK || r.typed != "ok" || calls != 1 {
 		t.Errorf("typed result %+v after %d runs", r, calls)
 	}
 	hist, _ := os.ReadFile(Path("sessionHistory.md"))
@@ -986,10 +986,10 @@ func assertTypedFallback(t *testing.T, root string) {
 		AnswerJob(ctx, `{"ops":[{"op":"bogus"}]}`)
 		return "stub", nil
 	}
-	if err := update(updateOptions{Run: bad, CWD: root, Session: "t2"}); err != nil {
+	if err := update(updateOptions{run: bad, cwd: root, session: "t2"}); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := readUpdateResult("t2"); r.Typed != "fallback" || calls != 3 || !strings.Contains(prompts[1], "previous answer was rejected") {
+	if r, _ := readUpdateResult("t2"); r.typed != "fallback" || calls != 3 || !strings.Contains(prompts[1], "previous answer was rejected") {
 		t.Errorf("fallback result %+v after %d runs", r, calls)
 	}
 }
@@ -1020,7 +1020,7 @@ func TestUpdateApplyFailureFallsBackOnce(t *testing.T) {
 				AnswerJob(ctx, stale)
 				return "stub", nil
 			}
-			err := update(updateOptions{Run: run, CWD: root, Session: "ta"})
+			err := update(updateOptions{run: run, cwd: root, session: "ta"})
 			hist, _ := os.ReadFile(Path("sessionHistory.md"))
 			wrote := strings.Contains(string(hist), "fallback arc")
 			if calls != 1 || wrote != (name == "corrected") || (err != nil) != (name == "still bad") ||
@@ -1051,11 +1051,11 @@ func TestUpdateExhaustedValidationUsesTheFallbackOnce(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[{"op":"bogus"}]}`)
 		return "stub", nil
 	}
-	if err := update(updateOptions{Run: run, CWD: root, Session: "tx"}); err != nil {
+	if err := update(updateOptions{run: run, cwd: root, session: "tx"}); err != nil {
 		t.Fatal(err)
 	}
 	hist, _ := os.ReadFile(Path("sessionHistory.md"))
-	if r, _ := readUpdateResult("tx"); calls != 1 || runs != 2 || r.Typed != "ok" || !strings.Contains(string(hist), "exhausted arc") {
+	if r, _ := readUpdateResult("tx"); calls != 1 || runs != 2 || r.typed != "ok" || !strings.Contains(string(hist), "exhausted arc") {
 		t.Errorf("fallback calls %d, runs %d, result %+v", calls, runs, r)
 	}
 }
@@ -1074,7 +1074,7 @@ func TestUpdateDecisionEventsNotFiledOnFailure(t *testing.T) {
 		calls++
 		return "stub", errors.New("runner failed")
 	}
-	if err := update(updateOptions{Run: run, CWD: root, Session: "failed"}); err == nil {
+	if err := update(updateOptions{run: run, cwd: root, session: "failed"}); err == nil {
 		t.Fatal("expected runner failure")
 	}
 	if calls != 2 || mustRead(t, Path("decisionLog.md")) != before {
@@ -1101,7 +1101,7 @@ func TestUpdateFallbackErrorNamesBothModels(t *testing.T) {
 		ReportJob(ctx, JobResult{Agent: "pi", Model: "fallback-model", Primary: "primary-model"})
 		return "pi", err
 	}
-	err := update(updateOptions{Run: run, CWD: root, Session: "names"})
+	err := update(updateOptions{run: run, cwd: root, session: "names"})
 	if err == nil || !strings.Contains(err.Error(), "primary-model then fallback-model") {
 		t.Fatalf("error = %v", err)
 	}
@@ -1109,7 +1109,7 @@ func TestUpdateFallbackErrorNamesBothModels(t *testing.T) {
 
 func TestUpdateNamedKeepsModelsOnAfterCommit(t *testing.T) {
 	j := JobResult{Agent: "pi", Model: "fallback-model", Primary: "primary-model"}
-	after := &AfterCommitError{errors.New("settle failed")}
+	after := &afterCommitError{errors.New("settle failed")}
 	got := j.named(after)
 	if !strings.Contains(got.Error(), "primary-model then fallback-model") || refused(got) {
 		t.Errorf("after-commit error lost the models or its type: %v", got)

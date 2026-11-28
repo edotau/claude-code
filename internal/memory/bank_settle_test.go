@@ -20,7 +20,7 @@ import (
 func runBank(t *testing.T, fn func(t *testing.T)) {
 	t.Helper()
 	isolatedConfig(t)
-	if err := Ensure(""); err != nil {
+	if err := ensure(""); err != nil {
 		t.Fatal(err)
 	}
 	fn(t)
@@ -129,14 +129,14 @@ func TestRotationPreservesEntryBytes(t *testing.T) {
 		in := body.String()
 		last := strings.LastIndex(in, "## Session ")
 		write(t, Path("sessionHistory.md"), in)
-		if n, err := rotateSessionHistory(testEnv().Now); err != nil || n != 1 {
+		if n, err := rotateSessionHistory(testEnv().now); err != nil || n != 1 {
 			t.Fatalf("rotate = %d, %v", n, err)
 		}
 		// the newline joining the moved entry goes with it, so the file is what the store renders once that row moves
 		if got := mustRead(t, Path("sessionHistory.md")); got != in[:last-1] {
 			t.Errorf("retained entries changed: %q", got)
 		}
-		archive := archivePath("sessionHistory.md", testEnv().Now)
+		archive := archivePath("sessionHistory.md", testEnv().now)
 		if got := mustRead(t, archive); !strings.HasSuffix(got, in[last:]) {
 			t.Errorf("archived entry changed: %q", got)
 		}
@@ -242,7 +242,7 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 		t.Fatal("entry not indexed")
 	}
 	for _, name := range []string{"decisionLog.md", "topic.md", "reports--r.md", layoutFile} {
-		if dirty, err := StoreRepo().Status(name); err != nil || len(dirty) != 0 {
+		if dirty, err := StoreRepo().status(name); err != nil || len(dirty) != 0 {
 			t.Errorf("%s remains dirty after settle: %v, %v", name, dirty, err)
 		}
 	}
@@ -370,7 +370,7 @@ func TestSettleDBImportsRotatesAndExportsByteIdentical(t *testing.T) {
 		t.Fatalf("db sessionHistory keeps %d entries, want %d", len(kept), sessionHistoryMaxEntries)
 	}
 	wantExportMatchesDB(t, db)
-	if dirty, err := StoreRepo().Status(); err != nil || len(dirty) != 0 {
+	if dirty, err := StoreRepo().status(); err != nil || len(dirty) != 0 {
 		t.Errorf("export left dirty after settle: %v, %v", dirty, err)
 	}
 	if rep := exportGuard(t, db); len(rep.Written)+len(rep.Imported)+len(rep.Conflicts) != 0 {

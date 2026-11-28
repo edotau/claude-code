@@ -592,7 +592,7 @@ func TestRememberRefusesDuplicateInsideFence(t *testing.T) {
 	tempConfig(t)
 	before := "# C\n\n- User: repeat <!-- id:12345678 -->\n\n```\n"
 	write(t, Path("conventions.md"), before)
-	if id, err := writeRememberFact("conventions.md", "user", "repeat", "", testEnv().Now); err == nil {
+	if id, err := writeRememberFact("conventions.md", "user", "repeat", "", testEnv().now); err == nil {
 		t.Fatalf("reported old id %s as a new write inside a fence", id)
 	}
 	if got := mustRead(t, Path("conventions.md")); got != before {
@@ -614,7 +614,7 @@ func TestRememberKeepsOutsideEdit(t *testing.T) {
 		}
 		return b, err
 	}
-	if _, err := writeRememberFact("conventions.md", "user", "new", "", testEnv().Now); err == nil {
+	if _, err := writeRememberFact("conventions.md", "user", "new", "", testEnv().now); err == nil {
 		t.Fatal("outside edit reported as a successful write")
 	}
 	if got := mustRead(t, path); got != outside {
@@ -630,7 +630,7 @@ func TestRememberPreservesInlineIDExample(t *testing.T) {
 			before := "# Bank\n\n"
 			write(t, Path(file), before)
 			fact := "use ``literal ` <!-- id:11111111 --> code`` as an example"
-			id, err := RememberSupersedes(kind, fact, "", testEnv().Now)
+			id, err := RememberSupersedes(kind, fact, "", testEnv().now)
 			if err != nil || id == "" || id == "11111111" {
 				t.Fatalf("Remember = %q, %v", id, err)
 			}

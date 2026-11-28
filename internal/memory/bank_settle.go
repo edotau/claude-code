@@ -73,7 +73,7 @@ func sessionOverflow(body string) (header string, keep, overflow []string) {
 	if len(entries) <= sessionHistoryMaxEntries {
 		return header, entries, nil
 	}
-	order := d.OldestFirst(0, len(entries))
+	order := d.oldestFirst(0, len(entries))
 	// Keep the newest by Doc date/sequence, but render each group in source order.
 	move := make(map[int]bool, len(entries)-sessionHistoryMaxEntries)
 	for _, i := range order[:len(entries)-sessionHistoryMaxEntries] {
@@ -426,23 +426,23 @@ func refreshIndexFiles(now time.Time, extra []string) (indexErr, err error) {
 // commitBanks commits every dirty path under scope (the whole store without one); Git runs with literal pathspecs.
 func commitBanks(subject string, scope ...string) error {
 	repo := StoreRepo()
-	if !repo.Exists() {
+	if !repo.exists() {
 		if err := repo.Ensure(); err != nil {
 			return err
 		}
 	}
-	dirty, err := repo.Status(scope...) // every dirty path is in scope, so a second status scoped to them would say the same
+	dirty, err := repo.status(scope...) // every dirty path is in scope, so a second status scoped to them would say the same
 	if err != nil {
 		return err
 	}
 	var rels []string
 	for _, e := range dirty {
-		rels = append(rels, e.Path)
+		rels = append(rels, e.path)
 	}
 	if len(rels) == 0 {
 		return nil
 	}
-	_, _, err = repo.Commit(rels, subject, "")
+	_, _, err = repo.commit(rels, subject, "")
 	return err
 }
 
@@ -547,14 +547,14 @@ func nativeCatalog() string {
 	for _, d := range noteDirs {
 		first := true
 		for _, r := range rows {
-			if !strings.HasPrefix(r.Rel, d+"/") {
+			if !strings.HasPrefix(r.rel, d+"/") {
 				continue
 			}
 			if first {
 				b.WriteString(assets.MemoryNativeFolder(d))
 				first = false
 			}
-			if !r.OK {
+			if !r.ok {
 				bad++
 			}
 			fmt.Fprintln(&b, r.line())
@@ -587,8 +587,8 @@ func commitStore(subject string, scope ...string) error {
 	if len(scope) == 0 {
 		return nil
 	}
-	if repo := StoreRepo(); !repo.Exists() {
-		if _, err := os.Stat(repo.Dir); err != nil {
+	if repo := StoreRepo(); !repo.exists() {
+		if _, err := os.Stat(repo.dir); err != nil {
 			return nil
 		}
 	}

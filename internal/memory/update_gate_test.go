@@ -41,7 +41,7 @@ func newGateRun(t *testing.T) *gateRun {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(UpdateChildEnv, "")
-	return &gateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &StubSpawn(t, true).Update}
+	return &gateRun{t: t, tr: filepath.Join(t.TempDir(), "t.jsonl"), cwd: t.TempDir(), calls: &stubSpawn(t, true).Update}
 }
 
 func (u *gateRun) stop() gateResult { return runGate("s1", u.tr, u.cwd, TriggerStop) }
@@ -73,7 +73,7 @@ func TestCountEditsIncludesSubagentEdits(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	if g := runGate("sub-session", tr, cwd, TriggerStop); g.Blocked || calls.Load() != 1 {
 		t.Fatalf("subagent edits must arm the update gate: gate=%+v calls=%d", g, calls.Load())
 	}
@@ -106,7 +106,7 @@ func TestCountEditsGitCommitWeightArmsGate(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	if g := runGate("commit-session", tr, cwd, TriggerStop); g.Blocked || calls.Load() != 1 {
 		t.Fatalf("a bare git commit must arm the update gate: gate=%+v calls=%d", g, calls.Load())
 	}
@@ -159,7 +159,7 @@ func TestSessionUpdateSpawnFailureBlocksThrice(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	hosttest.WriteEdits(t, tr, 5)
-	calls := &StubSpawn(t, false).Update
+	calls := &stubSpawn(t, false).Update
 	blocks, spawns := []bool{}, []int64{}
 	for range 5 {
 		g := runGate("s1", tr, cwd, TriggerStop)
@@ -190,7 +190,7 @@ func TestPreCompactUpdatesOnlyUncoveredEdits(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerPreCompact).Blocked }
 
 	hosttest.WriteEdits(t, tr, 0)
@@ -216,7 +216,7 @@ func TestSessionUpdateDiscussionOnly(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	run := func() bool { return runGate("s1", tr, cwd, TriggerStop).Blocked }
 
 	hosttest.WriteUserTurns(t, tr, 5)
@@ -238,7 +238,7 @@ func TestPreCompactAndSessionEndUpdateNewUserTurns(t *testing.T) {
 	t.Setenv(UpdateChildEnv, "")
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	gate := func(trigger string) { runGate("s1", tr, cwd, trigger) }
 
 	hosttest.WriteEdits(t, tr, 3)
@@ -277,7 +277,7 @@ func TestReadStampCatchupStateDoesNotBreakParsing(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 20)
 	cwd := t.TempDir()
-	StubSpawn(t, false)
+	stubSpawn(t, false)
 	runGate("x", tr, cwd, TriggerStop)
 }
 
@@ -287,7 +287,7 @@ func TestSessionUpdateUnwritableStampFailsOpen(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := filepath.Join(t.TempDir(), "proj")
 	hosttest.WriteEdits(t, tr, 5)
-	StubSpawn(t, false)
+	stubSpawn(t, false)
 	if err := os.MkdirAll(filepath.Join(stampPath("s1"), "x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -813,7 +813,7 @@ func standInStoreCopy(t *testing.T) {
 }
 
 func TestRefusedTellsCommitErrorsFromRefusals(t *testing.T) {
-	after := &AfterCommitError{errors.New("git commit failed")}
+	after := &afterCommitError{errors.New("git commit failed")}
 	for err, want := range map[error]bool{
 		errors.New("1 of 1 ops failed"):      true,
 		after:                                false,
@@ -829,12 +829,12 @@ func TestRefusedTellsCommitErrorsFromRefusals(t *testing.T) {
 
 func TestFallbackModelCatalogValidation(t *testing.T) {
 	for in, want := range map[string]string{"": "opus", "astra": "astra", "gpt-6-astra": "gpt-6-astra"} {
-		if got, err := FallbackModel(in); err != nil || got != want {
+		if got, err := fallbackModel(in); err != nil || got != want {
 			t.Errorf("FallbackModel(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
 	for _, in := range []string{"no-such-model", "claude-opus-9-9"} {
-		if _, err := FallbackModel(in); err == nil {
+		if _, err := fallbackModel(in); err == nil {
 			t.Errorf("FallbackModel(%q) accepted an id outside the catalog", in)
 		}
 	}
@@ -900,7 +900,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 9)
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	writeStamp(stampPath("idle"), time.Now().Add(-time.Hour), "bg", 4) // a checkpoint covered 4 of the 9
 
 	if !idleDispatched(tr, "idle") || calls.Load() != 1 {
@@ -919,7 +919,7 @@ func TestIdleUpdateOnceDispatchesUncoveredWork(t *testing.T) {
 	}
 	var note bytes.Buffer
 	hosttest.WriteEdits(t, tr, 5)
-	StubSpawn(t, false)
+	stubSpawn(t, false)
 	if _, failed := idleUpdateOnce(tr, filepath.Dir(tr), "idle2", &note); !failed || !strings.Contains(note.String(), "not spawned") {
 		t.Errorf("a failed spawn must be noted and flagged for retry: failed=%v %q", failed, note.String())
 	}
@@ -935,7 +935,7 @@ func TestIdleUpdateOnceCountsSubagentEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	hosttest.WriteEdits(t, filepath.Join(subDir, "agent-a.jsonl"), 10)
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 
 	if !idleDispatched(tr, "idle-sub") || calls.Load() != 1 {
 		t.Fatalf("1 main + 10 subagent edits must dispatch the final update (calls=%d)", calls.Load())
@@ -957,7 +957,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	cwd := t.TempDir()
 	hosttest.WriteEdits(t, tr, 6)
-	StubSpawn(t, true)
+	stubSpawn(t, true)
 	watches := stubWatcher(t, true)
 	run := func() { UpdateIfNew(UpdateRequest{SessionID: "s1", Transcript: tr, CWD: cwd}, TriggerStop, time.Now()) }
 
@@ -993,7 +993,7 @@ func TestSessionUpdateSpawnsOneIdleWatcherPerSession(t *testing.T) {
 // The watcher is bound to its session process: once that pid is gone it dispatches the uncovered update and exits.
 func TestIdleUpdateWatchExitsWhenOwnerDies(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	spawns := StubSpawn(t, true)
+	spawns := stubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 6)
 	prev := updateWatchPoll
@@ -1031,7 +1031,7 @@ func TestIdleUpdateWatchUpdatesQuietTranscript(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	var note bytes.Buffer
 	done := make(chan int, 1)
 	go func() {
@@ -1065,7 +1065,7 @@ func TestIdleUpdateWatchSkipsGlobWhileMainTranscriptFresh(t *testing.T) {
 	prev := updateWatchPoll
 	updateWatchPoll = 5 * time.Millisecond
 	t.Cleanup(func() { updateWatchPoll = prev })
-	calls := &StubSpawn(t, true).Update
+	calls := &stubSpawn(t, true).Update
 	done := make(chan int, 1)
 	go func() {
 		done <- IdleUpdateWatch(WatchOptions{Session: "fresh", Transcript: tr, CWD: filepath.Dir(tr),

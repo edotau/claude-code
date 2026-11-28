@@ -159,7 +159,7 @@ func indexedAncestors(dir string, next map[string]childEntry) {
 	changed := false
 	for k, e := range next {
 		c, ok := cur[k]
-		if c == e || ok && (c.Mod != e.Mod || c.Size != e.Size) && !statIs(filepath.Join(dir, k+".json"), e) {
+		if c == e || ok && !sameStat(c, e) && !statIs(filepath.Join(dir, k+".json"), e) {
 			continue
 		}
 		cur[k], changed = e, true
@@ -172,9 +172,11 @@ func indexedAncestors(dir string, next map[string]childEntry) {
 	}
 }
 
+func sameStat(a, b childEntry) bool { return a.Mod == b.Mod && a.Size == b.Size }
+
 func statIs(path string, e childEntry) bool {
 	fi, err := os.Stat(path)
-	return err == nil && fi.ModTime().UnixNano() == e.Mod && fi.Size() == e.Size
+	return err == nil && sameStat(childEntry{Mod: fi.ModTime().UnixNano(), Size: fi.Size()}, e)
 }
 
 // pidEntry is path's index entry with its pid, decoding the record when the cache lacks a pid or its pid is in chain.
@@ -184,7 +186,7 @@ func pidEntry(path string, cached childEntry, chain map[int]int) (childEntry, Re
 		return childEntry{}, Record{}, false
 	}
 	e := childEntry{Mod: fi.ModTime().UnixNano(), Size: fi.Size()}
-	if _, hit := chain[cached.PID]; !hit && cached.PID != 0 && cached.Mod == e.Mod && cached.Size == e.Size {
+	if _, hit := chain[cached.PID]; sameStat(cached, e) && (chain == nil || !hit && cached.PID != 0) {
 		return cached, Record{}, true
 	}
 	b, err := os.ReadFile(path)

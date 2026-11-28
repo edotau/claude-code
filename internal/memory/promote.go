@@ -171,7 +171,7 @@ func keptEntries(d Doc, keep []string) map[int]bool {
 	for _, k := range entryKeys(ParseDoc(d.Name, []byte(strings.Join(keep, "\n")))) {
 		wanted[k]++
 	}
-	keys, order := entryKeys(d), d.OldestFirst(0, len(d.Entries))
+	keys, order := entryKeys(d), d.oldestFirst(0, len(d.Entries))
 	slices.Reverse(order)
 	if sectionFiles[d.Name] {
 		order = slices.Sorted(slices.Values(order)) // sectionKeep keeps each section's top bullets
@@ -207,7 +207,7 @@ func docOverflow(d Doc, capLines int) (header string, keep, overflow []string) {
 		return sectionSplit(d.Name, d, capLines)
 	}
 	header, blocks := docBlocks(d, false)
-	order := d.OldestFirst(0, len(d.Entries))
+	order := d.oldestFirst(0, len(d.Entries))
 	slices.Reverse(order) // budgetSplit consumes newest first
 	ordered := make([]string, 0, len(order))
 	for _, i := range order {

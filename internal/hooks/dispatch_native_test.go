@@ -41,7 +41,7 @@ func TestVendorHookFilesCallOnlyResolvableHooks(t *testing.T) {
 			t.Fatalf("%s: no hook commands rendered", name)
 		}
 		for _, m := range ms {
-			if _, ok := native[m[2]]; !ok || !slices.Contains(settings.HookEvents(), m[1]) || eventOf(m[2]) != m[1] {
+			if _, ok := native[m[2]]; !ok || !slices.Contains(settings.HookEvents(), m[1]) || !declaredOn(m[2], m[1]) {
 				t.Errorf("%s hook file calls %q, which no module on that event serves", name, m[0])
 			}
 		}
@@ -196,5 +196,32 @@ func TestLeafBashAllowSkipsEditsAndFloor(t *testing.T) {
 	t.Setenv(proc.DispatchIDEnv, "20261124T000000.000-codex") // a dispatched agent has no agent_id
 	if r := leafBashAllow(block(false), main); r.Decision != core.Allow {
 		t.Errorf("dispatched Bash block not lifted: %+v", r)
+	}
+}
+
+// A direct `hook Stop --docs-plan` call on Gemini emits the same Stop continuation block as the Stop dispatcher.
+func TestStopDocsPlanDirectMatchesDispatcher(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv(settings.AgentEnv, core.AgentGemini)
+	orig := native["docs-plan"]
+	native["docs-plan"] = func(*core.Input) core.Result {
+		return core.Result{Decision: core.Block, Reason: "active plan has open tasks"}
+	}
+	t.Cleanup(func() { native["docs-plan"] = orig })
+	payload := `{"hook_event_name":"Stop","session_id":"s"}`
+
+	var directOut, directErr, eventOut, eventErr bytes.Buffer
+	if code := RunArgs("Stop", []string{"--docs-plan"}, strings.NewReader(payload), &directOut, &directErr); code != core.ExitProceed {
+		t.Fatalf("RunArgs exit = %d (stderr %s)", code, &directErr)
+	}
+	if code := runEvent("Stop", "", strings.NewReader(payload), &eventOut, &eventErr); code != core.ExitProceed {
+		t.Fatalf("runEvent exit = %d (stderr %s)", code, &eventErr)
+	}
+	if directOut.String() != eventOut.String() {
+		t.Fatalf("direct %q != dispatched %q", &directOut, &eventOut)
+	}
+	doc := hosttest.OneDoc(t, directOut.String())
+	if doc["decision"] != "continue" || doc["reason"] != "active plan has open tasks" {
+		t.Errorf("Stop doc = %v, want decision=continue with the open-tasks reason", doc)
 	}
 }

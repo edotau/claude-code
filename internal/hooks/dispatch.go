@@ -502,15 +502,16 @@ var native = map[string]core.Runner{
 }
 
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
-func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
+func runDirect(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
 	if !ok {
 		return core.ExitProceed
 	}
+	spec := specOn(name, event)
 	if note := skipNote(name); note != "" {
-		return core.Emit(os.Getenv(settings.AgentEnv), eventOf(name), core.Result{SystemMessage: note}, stdout, stderr)
+		return core.Emit(os.Getenv(settings.AgentEnv), spec.Event, core.Result{SystemMessage: note}, stdout, stderr)
 	}
-	return runModuleDirect(name, run, stdin, stdout, stderr)
+	return runModuleDirect(event, name, run, stdin, stdout, stderr)
 }
 
 type directOutcome struct {
@@ -570,24 +571,25 @@ func (w *boundedHookWriter) Write(p []byte) (int, error) {
 	}
 }
 
-func emitDirect(name string, o directOutcome, stdout, stderr io.Writer) int {
+func emitDirect(event, name string, o directOutcome, stdout, stderr io.Writer) int {
 	agent := os.Getenv(settings.AgentEnv)
 	if o.in != nil {
 		agent = o.in.Agent()
 	}
-	if o.res.Decision == core.Block && specOf(name).Blocks {
-		return renderBlock(specOf(name), agent, o.res, stdout, stderr)
+	spec := specOn(name, event)
+	if o.res.Decision == core.Block && spec.Blocks {
+		return renderBlock(spec, agent, o.res, stdout, stderr)
 	}
 	o.res.Context = core.CapContext(o.res.Context)
-	return core.Emit(agent, eventOf(name), o.res, stdout, stderr)
+	return core.Emit(agent, spec.Event, o.res, stdout, stderr)
 }
 
-func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
-	spec := specOf(name)
+func runModuleDirect(event, name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
+	spec := specOn(name, event)
 	start := time.Now()
 	o := invokeDirect(name, run, stdin, spec)
 	dur := time.Since(start)
-	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
+	code := emitDirect(event, name, o, stdout, &boundedHookWriter{w: stderr})
 	rule, verdict := tagOf(name, o.res, o.err)
 	row := hooktelemetry.Row{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur, Rule: rule, Verdict: verdict}
 	if o.in != nil {
@@ -631,8 +633,17 @@ func specOf(name string) settings.EventSpec {
 	return s
 }
 
-// eventOf names the hookspec event a handler is declared on.
-func eventOf(name string) string { return specOf(name).Event }
+// specOn is the hookspec entry for name on event, falling back to specOf(name) when event is empty.
+func specOn(name, event string) settings.EventSpec {
+	if event != "" {
+		for _, s := range settings.Specs() {
+			if s.Name == name && s.Event == event {
+				return s
+			}
+		}
+	}
+	return specOf(name)
+}
 
 // declaredOn reports whether hookspec declares name on event (a module may span events, like docs-plan).
 func declaredOn(name, event string) bool {
@@ -666,7 +677,7 @@ func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) in
 	if _, ok := native[name]; !ok || !declaredOn(name, event) {
 		return unknownModule(event, name, stderr)
 	}
-	return runDirect(name, stdin, stdout, stderr)
+	return runDirect(event, name, stdin, stdout, stderr)
 }
 
 // unknownModule decides a declared module on the wrong event by its Blocks flag; an undeclared name by unknownHook.
@@ -676,7 +687,7 @@ func unknownModule(event, name string, stderr io.Writer) int {
 	if !declared {
 		return unknownHook(name, what, stderr)
 	}
-	if !spec.Blocks {
+	if !slices.ContainsFunc(settings.Specs(), func(s settings.EventSpec) bool { return s.Name == name && s.Blocks }) {
 		fmt.Fprintf(stderr, "claude-code hook: %s %q\n", what, name)
 		return 1
 	}

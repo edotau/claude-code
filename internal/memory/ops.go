@@ -80,15 +80,15 @@ type OpResult struct {
 	Reason  string `json:"reason,omitempty"` // "duplicate", "changed since read", "unknown id", a validation message
 }
 
-// Env is what Apply may not read itself: the time, the id source and the liveness check for By.
-type Env struct {
-	Now   time.Time
-	NewID func(salt int, firstLine string) string // 8 hex digits; nil mints through freshID
+// env is what Apply may not read itself: the time, the id source and the liveness check for By.
+type env struct {
+	now   time.Time
+	newID func(salt int, firstLine string) string // 8 hex digits; nil mints through freshID
 	Live  func(ref string) bool                   // nil: the ref must name an entry of the doc being edited
 }
 
-// Validate checks every op without touching a document; Apply runs the same per-op checks.
-func (b Batch) Validate() error {
+// validate checks every op without touching a document; Apply runs the same per-op checks.
+func (b Batch) validate() error {
 	if b.Ops == nil { // a decoded answer without "ops" is malformed; "ops": [] is a valid empty batch
 		return errors.New("ops is missing")
 	}
@@ -107,8 +107,8 @@ func (b Batch) Validate() error {
 }
 
 func refOK(s string) bool {
-	r, ok := ParseRef(s)
-	return ok && r.Alias == ""
+	r, ok := parseRef(s)
+	return ok && r.alias == ""
 }
 
 // opRules each return a validation message, "" when the op passes.
@@ -197,8 +197,8 @@ func ruleClose(o Op) string {
 	return ""
 }
 
-// Apply runs the ops in order over d and returns a new Doc and one result per op; d is never modified.
-func Apply(d Doc, b Batch, env Env) (Doc, []OpResult) {
+// apply runs the ops in order over d and returns a new Doc and one result per op; d is never modified.
+func apply(d Doc, b Batch, env env) (Doc, []OpResult) {
 	res := make([]OpResult, 0, len(b.Ops))
 	for _, o := range b.Ops {
 		next, r := applyOp(d, o, env)
@@ -215,7 +215,7 @@ func failed(format string, a ...any) OpResult {
 	return OpResult{Outcome: DreamFailed, Reason: fmt.Sprintf(format, a...)}
 }
 
-func applyOp(d Doc, o Op, env Env) (Doc, OpResult) {
+func applyOp(d Doc, o Op, env env) (Doc, OpResult) {
 	if err := o.check(); err != nil {
 		return d, failed("%v", err)
 	}
@@ -260,16 +260,16 @@ func (d Doc) hasID(id string) bool {
 }
 
 // matches reports whether e answers to ref r.
-func (e DocEntry) matches(r Ref) bool {
-	if r.Derived {
-		return contentRef(e.block()) == contentRefPrefix+r.Hex
+func (e DocEntry) matches(r ref) bool {
+	if r.derived {
+		return contentRef(e.block()) == contentRefPrefix+r.hex
 	}
-	return e.ID == r.Hex
+	return e.ID == r.hex
 }
 
 // target finds the entry an op names and checks that it is still the one the writer read.
 func (d Doc) target(o Op) (int, string) {
-	r, _ := ParseRef(o.ID)
+	r, _ := parseRef(o.ID)
 	var hits []int
 	for i, e := range d.Entries {
 		if e.matches(r) {
@@ -283,19 +283,19 @@ func (d Doc) target(o Op) (int, string) {
 	if e.Kind == KindHeading && d.Grammar != GrammarDated {
 		return -1, "not an entry"
 	}
-	if rd, _ := ParseRef(o.Read); !r.Derived && contentRefPrefix+rd.Hex != contentRef(e.block()) {
+	if rd, _ := parseRef(o.Read); !r.derived && contentRefPrefix+rd.hex != contentRef(e.block()) {
 		return -1, "changed since read"
 	}
 	return hits[0], ""
 }
 
-func (env Env) mint(d Doc, first string) (string, bool) {
+func (env env) mint(d Doc, first string) (string, bool) {
 	for salt := range 8 {
 		var id string
-		if env.NewID != nil {
-			id = env.NewID(salt, first)
+		if env.newID != nil {
+			id = env.newID(salt, first)
 		} else {
-			id = blockID(freshID(d.Name, salt, first, env.Now))
+			id = blockID(freshID(d.Name, salt, first, env.now))
 		}
 		if len(id) == 8 && isHex(id) && !d.hasID(id) {
 			return id, true
@@ -304,7 +304,7 @@ func (env Env) mint(d Doc, first string) (string, bool) {
 	return "", false
 }
 
-func (env Env) live(d Doc, ref string) bool {
+func (env env) live(d Doc, ref string) bool {
 	if env.Live != nil {
 		return env.Live(ref)
 	}
@@ -364,14 +364,14 @@ func appendEntry(ents []DocEntry, lines []string) []DocEntry {
 }
 
 // bodyLines is the entry text for an op: a dated heading plus body, or an indented bullet.
-func (d Doc) bodyLines(o Op, env Env, sup string) ([]string, error) {
+func (d Doc) bodyLines(o Op, env env, sup string) ([]string, error) {
 	var lines []string
 	text := strings.Split(cleanNewBlock(o.Text), "\n") // blank lines around its headings, lists and fences
 	if d.Grammar == GrammarDated {
 		if o.Title == "" {
 			return nil, errors.New("a dated entry needs a title")
 		}
-		lines = []string{"## " + env.Now.Format(dayLayout) + " — " + o.Title}
+		lines = []string{"## " + env.now.Format(dayLayout) + " — " + o.Title}
 		if sup != "" {
 			lines = append(lines, "Supersedes "+sup+".")
 		}
@@ -436,7 +436,7 @@ func (d Doc) duplicateOf(lines []string) (DocEntry, bool) {
 }
 
 // withID stamps a fresh id marker on the first line when the file's grammar carries ids.
-func (d Doc) withID(lines []string, env Env) ([]string, error) {
+func (d Doc) withID(lines []string, env env) ([]string, error) {
 	if d.Grammar == GrammarSections {
 		return lines, nil
 	}
@@ -461,7 +461,7 @@ func (d Doc) place(ents []DocEntry, o Op, lines []string) ([]DocEntry, error) {
 		return insertEntry(ents, len(ents), lines, false), nil
 	}
 	cur := Doc{Entries: ents}
-	lo, _ := cur.Section(o.Section)
+	lo, _ := cur.section(o.Section)
 	if lo < 0 {
 		order := sectionsOf[o.Target]
 		if !slices.Contains(order, o.Section) {
@@ -489,7 +489,7 @@ func formatNewLines(lines []string) []string {
 	return strings.Split(formatBankMarkdown(strings.Join(lines, "\n")), "\n")
 }
 
-func opAdd(d Doc, o Op, env Env) (Doc, OpResult) {
+func opAdd(d Doc, o Op, env env) (Doc, OpResult) {
 	lines, err := d.bodyLines(o, env, "")
 	if err != nil {
 		return d, failed("%v", err)
@@ -527,7 +527,7 @@ func trailingBlanks(lines []string) []string {
 }
 
 // rewrite is the entry's new lines for an update: marker, pointers and trailing blanks stay.
-func (d Doc) rewrite(e DocEntry, o Op, env Env) ([]string, error) {
+func (d Doc) rewrite(e DocEntry, o Op, env env) ([]string, error) {
 	if d.Grammar == GrammarDated {
 		return d.rewriteDated(e, o)
 	}
@@ -562,7 +562,7 @@ func retitle(head, title string) string {
 	return head[:len(titlePrefix().FindString(head))] + title + tail
 }
 
-func opUpdate(d Doc, o Op, env Env) (Doc, OpResult) {
+func opUpdate(d Doc, o Op, env env) (Doc, OpResult) {
 	i, msg := d.target(o)
 	if msg != "" {
 		return d, failed("%s", msg)
@@ -582,7 +582,7 @@ func markLines(e DocEntry, by string, now time.Time) []string {
 	return formatNewLines(strings.Split(markReplaced(e.block(), by, now.Format(dayLayout)), "\n"))
 }
 
-func opSupersede(d Doc, o Op, env Env) (Doc, OpResult) {
+func opSupersede(d Doc, o Op, env env) (Doc, OpResult) {
 	if d.Name != "decisionLog.md" && d.Name != "conventions.md" {
 		return d, failed("supersede is not allowed in %s", d.Name)
 	}
@@ -607,7 +607,7 @@ func opSupersede(d Doc, o Op, env Env) (Doc, OpResult) {
 	lines = formatNewLines(lines)
 	newRef := docEntry(lines).Ref()
 	ents := slices.Clone(d.Entries)
-	ents[i] = old.rewritten(markLines(old, newRef, env.Now))
+	ents[i] = old.rewritten(markLines(old, newRef, env.now))
 	if d.Entries, err = d.place(ents, o, lines); err != nil {
 		return d, failed("%v", err)
 	}
@@ -625,7 +625,7 @@ func removeEntry(ents []DocEntry, i int) []DocEntry {
 	return reseq(ents)
 }
 
-func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
+func opClose(d Doc, o Op, env env) (Doc, OpResult) {
 	i, msg := d.target(o)
 	if msg != "" {
 		return d, failed("%s", msg)
@@ -642,7 +642,7 @@ func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
 	}
 	ents := slices.Clone(d.Entries)
 	if d.Grammar == GrammarDated {
-		ents[i] = e.rewritten(markLines(e, o.By, env.Now))
+		ents[i] = e.rewritten(markLines(e, o.By, env.now))
 	} else {
 		ents = removeEntry(ents, i)
 	}
@@ -651,12 +651,12 @@ func opClose(d Doc, o Op, env Env) (Doc, OpResult) {
 }
 
 // retypeSuperseded turns a dated entry's legacy pointer to o.By into the typed form; other grammars stay refused.
-func retypeSuperseded(d Doc, i int, o Op, env Env) (Doc, OpResult) {
+func retypeSuperseded(d Doc, i int, o Op, env env) (Doc, OpResult) {
 	e := d.Entries[i]
 	ptr := replacedBy(e.block())
-	cur, _ := ParseRef(ptr)
-	by, _ := ParseRef(o.By)
-	if d.Grammar != GrammarDated || ptr == "" || cur.Hex != by.Hex || cur.Derived != by.Derived {
+	cur, _ := parseRef(ptr)
+	by, _ := parseRef(o.By)
+	if d.Grammar != GrammarDated || ptr == "" || cur.hex != by.hex || cur.derived != by.derived {
 		return d, failed("already superseded")
 	}
 	same := OpResult{ID: e.Ref(), Outcome: DreamNoop, Reason: "already typed"}
@@ -664,7 +664,7 @@ func retypeSuperseded(d Doc, i int, o Op, env Env) (Doc, OpResult) {
 		return d, same
 	}
 	pre := docEntry(strings.Split(dropPointer(e.block()), "\n"))
-	lines := markLines(pre, o.By, env.Now)
+	lines := markLines(pre, o.By, env.now)
 	if strings.Join(lines, "\n") == e.block() {
 		return d, same
 	}
@@ -728,8 +728,8 @@ func opRulesSchema() []schemaObj {
 // BatchSchema is the JSON Schema of Batch's ops, built from Op's json fields and the enum lists above.
 func BatchSchema() string { return jsonString(batchSchema(nil)) }
 
-// DreamBatchSchema is BatchSchema plus the dream-only candidates, test_proposals and plan_tasks arrays.
-func DreamBatchSchema() string { return jsonString(batchSchema(dreamSideSchema())) }
+// dreamBatchSchema is BatchSchema plus the dream-only candidates, test_proposals and plan_tasks arrays.
+func dreamBatchSchema() string { return jsonString(batchSchema(dreamSideSchema())) }
 
 func strField(rules schemaObj) schemaObj {
 	f := schemaObj{"type": "string", "pattern": oneLinePattern}
@@ -785,11 +785,11 @@ func jsonString(v any) string {
 	return string(b)
 }
 
-// AfterCommitError marks an apply that is, or may be, written (settle failed, rollback half done): never retried.
-type AfterCommitError struct{ Err error }
+// afterCommitError marks an apply that is, or may be, written (settle failed, rollback half done): never retried.
+type afterCommitError struct{ err error }
 
-func (e *AfterCommitError) Error() string { return "batch may be committed: " + e.Err.Error() }
-func (e *AfterCommitError) Unwrap() error { return e.Err }
+func (e *afterCommitError) Error() string { return "batch may be committed: " + e.err.Error() }
+func (e *afterCommitError) Unwrap() error { return e.err }
 
 // committedErr marks an AfterCommitError whose commit is positively confirmed: only the derived settle failed.
 type committedErr struct{ err error }
@@ -799,7 +799,7 @@ func (e *committedErr) Unwrap() error { return e.err }
 
 // refused is true for an atomic refusal (nothing written) and false once the write may have happened.
 func refused(err error) bool {
-	_, after := errors.AsType[*AfterCommitError](err)
+	_, after := errors.AsType[*afterCommitError](err)
 	return !after
 }
 
@@ -845,7 +845,7 @@ func runBatchOps(docs map[string]Doc, b Batch, now time.Time) []OpResult {
 		name, r := routeBatchOp(docs, o)
 		if name != "" {
 			var rs []OpResult
-			docs[name], rs = Apply(docs[name], Batch{Ops: []Op{o}}, batchEnv(docs, name, now))
+			docs[name], rs = apply(docs[name], Batch{Ops: []Op{o}}, batchEnv(docs, name, now))
 			r = rs[0]
 		}
 		r.Op = o
@@ -855,7 +855,7 @@ func runBatchOps(docs map[string]Doc, b Batch, now time.Time) []OpResult {
 }
 
 // batchEnv checks liveness and mints ids against every loaded bank doc, not only the one being edited.
-func batchEnv(docs map[string]Doc, name string, now time.Time) Env {
+func batchEnv(docs map[string]Doc, name string, now time.Time) env {
 	live := func(ref string) bool {
 		for _, d := range docs {
 			if _, msg := d.target(Op{ID: ref, Read: ref}); msg == "" || msg == "changed since read" {
@@ -873,7 +873,7 @@ func batchEnv(docs map[string]Doc, name string, now time.Time) Env {
 		}
 		return id
 	}
-	return Env{Now: now, Live: live, NewID: newID}
+	return env{now: now, Live: live, newID: newID}
 }
 
 // routeBatchOp names the bank file for o; a non-empty name means apply, else the result is final.
@@ -889,7 +889,7 @@ func routeBatchOp(docs map[string]Doc, o Op) (string, OpResult) {
 	case !o.editsEntry():
 		return "", failed("add needs a target")
 	}
-	r, _ := ParseRef(o.ID)
+	r, _ := parseRef(o.ID)
 	var hits []string
 	for _, name := range bankFiles {
 		if slices.ContainsFunc(docs[name].Entries, func(e DocEntry) bool { return e.matches(r) }) {

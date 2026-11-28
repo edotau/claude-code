@@ -1,12 +1,9 @@
 ---
 name: evaluate-code
 description: >-
-  Investigating and auditing existing work (harness variant of the built-in /code-review): review a diff or
-  PR, audit a transcript against the evidence loop, judge a claimed-done (VERIFIED/REFUTED), scan tech debt, review a
-  skill or plugin; discipline, performance, cross-boundary and contract lenses plus `claude-code review` detectors.
-  Triggers "review my code", "review this PR", "review my diff", "review this skill", "audit this", "judge this",
-  "is that claim actually verified", "vet this plan", "run the trap-suite eval", "check complexity", "is this slow",
-  "N+1", "tech debt".
+  Audit existing work (/code-review variant): diff/PR review, transcript audit, claimed-done judge
+  (VERIFIED/REFUTED), tech debt, skill review and `claude-code review` detectors. Use for "review my
+  code/PR/diff/skill", "audit/judge this", "vet this plan", "check complexity", "tech debt".
 metadata:
   version: 4.0.0
 ---

@@ -31,7 +31,7 @@ func TestAccessRotationReturnCountsAndNominations(t *testing.T) {
 	if !oldest.Equal(old) {
 		t.Errorf("rotation lost the cold horizon: oldest = %v, want %v", oldest, old)
 	}
-	if s := stats["aa000001"]; s.Newest.IsZero() {
+	if s := stats["aa000001"]; s.newest.IsZero() {
 		t.Errorf("the rotated entry must still count: %+v", s)
 	}
 	// returnCounts: search/show returns inside the window count; recall injections and old lines never do.
@@ -109,10 +109,10 @@ func TestLogAccessAndAccessStatsAt(t *testing.T) {
 	if oldest.IsZero() || !oldest.Equal(day1) {
 		t.Errorf("oldest = %v want %v", oldest, day1)
 	}
-	if s := stats["aa11bb22"]; s.Days != 3 {
+	if s := stats["aa11bb22"]; s.days != 3 {
 		t.Errorf("decisionLog stat %+v", s)
 	}
-	if s := stats["cc33dd44"]; s.Days != 1 {
+	if s := stats["cc33dd44"]; s.days != 1 {
 		t.Errorf("conventions stat %+v", s)
 	}
 }
@@ -207,8 +207,8 @@ func TestAccessLineShapesAndOldLogCounted(t *testing.T) {
 	write(t, path, "2026-11-10T10:00:00Z -- aa000001 -- prompt-recall inject\n2026-11-11T10:00:00Z -- aa000001 -- memory show\n")
 	logAccessBatch(now, []string{"aa000001"}, AccessShow, sid)
 	stats, _ := accessStatsAt(path, now, 30)
-	if got := returnCounts(now)["aa000001"]; stats["aa000001"].Days != 3 || got != 2 {
-		t.Errorf("days = %d, returns = %d, want 3 and 2 (the session record must not count twice)", stats["aa000001"].Days, got)
+	if got := returnCounts(now)["aa000001"]; stats["aa000001"].days != 3 || got != 2 {
+		t.Errorf("days = %d, returns = %d, want 3 and 2 (the session record must not count twice)", stats["aa000001"].days, got)
 	}
 }
 
@@ -435,19 +435,19 @@ func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 
 func assertPersistedRecallFile(t testing.TB, file corpusFile, index map[fileKey]indexed) {
 	t.Helper()
-	info, err := os.Stat(file.Path)
+	info, err := os.Stat(file.path)
 	if os.IsNotExist(err) {
 		return
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, ok := index[fileKey{file.Path, file.Mode}]
+	entry, ok := index[fileKey{file.path, file.mode}]
 	if !ok || entry.size != info.Size() || entry.mtimeNs != info.ModTime().UnixNano() {
-		t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.Path, file.Mode)
+		t.Fatalf("missing or stale persisted entry for %s (mode %d)", file.path, file.mode)
 	}
-	if !entry.seg.Valid() {
-		t.Fatalf("invalid persisted segment for %s", file.Path)
+	if !entry.seg.valid() {
+		t.Fatalf("invalid persisted segment for %s", file.path)
 	}
 }
 
@@ -589,7 +589,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 			t.Fatal("corrupt wanted entry was accepted")
 		}
 		got := readIndex(t, path, f.key, map[fileKey]bool{good: true})
-		if len(got) != 1 || !got[good].seg.Valid() {
+		if len(got) != 1 || !got[good].seg.valid() {
 			t.Fatalf("unrelated corrupt entry changed the wanted read: %d entries", len(got))
 		}
 		f.search(t, "router retry")
@@ -679,7 +679,7 @@ func write30MBRecallIndexFixture(b *testing.B, root string) (string, uint64, int
 			strings.Repeat("Router retry policy keeps deployment latency bounded while agents review the build gate. ", 3))
 	}
 	seg := encodeSegment(blocks)
-	if !seg.Valid() {
+	if !seg.valid() {
 		b.Fatal("invalid fixture segment")
 	}
 	index := make(map[fileKey]indexed)
@@ -720,7 +720,7 @@ func TestRecallIndexMappedSurvivesRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, e := range m {
-		if !e.seg.Valid() || string(e.seg) != before[k] {
+		if !e.seg.valid() || string(e.seg) != before[k] {
 			t.Fatalf("segment for %s changed after the index was replaced", k.path)
 		}
 	}
@@ -744,7 +744,7 @@ func TestRecallIndexRetainedFollowsRewrite(t *testing.T) {
 	if len(decodeRecallIndex(retainedIndexData(path), f.key, nil)) != 0 {
 		t.Fatal("retained mapping served the replaced index")
 	}
-	if !decodeRecallIndex(first, f.key, nil)[fileKey{f.source, segEntries}].seg.Valid() {
+	if !decodeRecallIndex(first, f.key, nil)[fileKey{f.source, segEntries}].seg.valid() {
 		t.Fatal("old mapping was invalidated by the rewrite")
 	}
 }

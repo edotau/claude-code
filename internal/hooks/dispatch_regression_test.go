@@ -51,12 +51,12 @@ func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 		t.Cleanup(func() { native[name] = orig })
 	}
 	var out, errb bytes.Buffer
-	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), &out, &errb); code != core.ExitProceed ||
+	if code := runDirect("", "memory-start", strings.NewReader(`{"session_id":"s"}`), &out, &errb); code != core.ExitProceed ||
 		!strings.Contains(errb.String(), "panic: module blew up") {
 		t.Errorf("advisory panic: exit %d stderr %q; want proceed with the panic on stderr", code, errb.String())
 	}
 	errb.Reset()
-	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
+	if code := runDirect("", "safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
 		!strings.Contains(errb.String(), "panic: module blew up") {
 		t.Errorf("gate panic: exit %d stderr %q; want ExitBlock naming the panic", code, errb.String())
 	}
@@ -163,7 +163,7 @@ func TestSafetyScanAttributionFooterCopilotShape(t *testing.T) {
 	cmd := `git commit -m "feat: x" -m "Co-Authored-By: Claude <noreply@anthropic.com>"`
 	payload := bytes.NewReader(copilotJSON(cmd))
 	var out, errb bytes.Buffer
-	if got := runDirect("safety-scan", payload, &out, &errb); got != core.ExitBlock {
+	if got := runDirect("", "safety-scan", payload, &out, &errb); got != core.ExitBlock {
 		t.Fatalf("%q: got %d want ExitBlock (out=%s err=%s)", cmd, got, out.String(), errb.String())
 	}
 	var doc struct {
@@ -186,7 +186,7 @@ func TestCopilotPayloadOverridesCodexVendor(t *testing.T) {
 		t.Fatalf("Vendor() = %q, want %q", vendor, core.AgentCopilot)
 	}
 	var stdout strings.Builder
-	if rc := runDirect("safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitBlock {
+	if rc := runDirect("", "safety-scan", strings.NewReader(payload), &stdout, io.Discard); rc != core.ExitBlock {
 		t.Fatalf("rc = %d, want ExitBlock (%d)", rc, core.ExitBlock)
 	}
 	var out struct {
@@ -330,7 +330,7 @@ func TestCodexAgentRouteThroughRunKeepsWireShape(t *testing.T) {
 		"model": "databricks-gpt-6-1-sol", "tool_input": map[string]any{"fork_turns": "none", "message": "add a --verbose flag", "task_name": "probe_child", "agent_type": "default"}})
 
 	var directOut, directErr, runOut, runErr bytes.Buffer
-	if code := runDirect("codex-agent-route", bytes.NewReader(body), &directOut, &directErr); code != core.ExitProceed {
+	if code := runDirect("", "codex-agent-route", bytes.NewReader(body), &directOut, &directErr); code != core.ExitProceed {
 		t.Fatalf("direct exit = %d", code)
 	}
 	if code := RunArgs("PreToolUse", []string{"--codex-agent-route"}, bytes.NewReader(body), &runOut, &runErr); code != core.ExitProceed {
@@ -516,15 +516,15 @@ func renderedMatch(t *testing.T, agent string, s settings.EventSpec, tool string
 			return false
 		}
 	case core.AgentCopilot:
-		m = renderedMatcher(t, copilot.CopilotJSON, s.Name)
+		m = renderedMatcher(t, copilot.CopilotJSON, s.Event, s.Name)
 	case core.AgentCodex:
-		m = renderedMatcher(t, codex.CodexJSON, s.Name)
+		m = renderedMatcher(t, codex.CodexJSON, s.Event, s.Name)
 	}
 	return m == "" || regexp.MustCompile(`^(?:`+m+`)$`).MatchString(tool)
 }
 
 // renderedMatcher is the matcher on module name's entry in a vendor's rendered hooks JSON (Copilot flat, Codex nested).
-func renderedMatcher(t *testing.T, render func() ([]byte, error), name string) string {
+func renderedMatcher(t *testing.T, render func() ([]byte, error), event, name string) string {
 	raw, err := render()
 	if err != nil {
 		t.Fatal(err)
@@ -540,21 +540,20 @@ func renderedMatcher(t *testing.T, render func() ([]byte, error), name string) s
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, entries := range doc.Hooks {
+	for k, entries := range doc.Hooks {
+		if !strings.EqualFold(k, event) {
+			continue
+		}
 		for _, e := range entries {
-			cmds := []string{e.Bash}
-			for _, h := range e.Hooks {
-				cmds = append(cmds, h.Command)
-			}
-			for _, c := range cmds {
-				if slices.Contains(strings.Fields(c), "--"+name) {
+			for _, h := range append([]struct{ Command string }{{e.Bash}}, e.Hooks...) {
+				if f := strings.Fields(h.Command); slices.Contains(f, "--"+name) {
 					ms = append(ms, e.Matcher)
 				}
 			}
 		}
 	}
 	if len(ms) == 0 {
-		t.Fatalf("module %s is not in the rendered hooks", name)
+		t.Fatalf("module %s is not in the rendered %s hooks", name, event)
 	}
 	if slices.Contains(ms, "") {
 		return ""
@@ -666,7 +665,7 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 		{"docs-placement", []string{"src/a.go", "STRAY.md"}, true},
 		{"docs-placement", []string{filepath.Join(cfg, "plans", "draft.md")}, true},
 	} {
-		if m := renderedMatcher(t, codex.CodexJSON, c.gate); !regexp.MustCompile(`^(?:` + m + `)$`).MatchString("apply_patch") {
+		if m := renderedMatcher(t, codex.CodexJSON, settings.EventPreToolUse, c.gate); !regexp.MustCompile(`^(?:` + m + `)$`).MatchString("apply_patch") {
 			t.Errorf("%s: Codex's rendered matcher %q never selects apply_patch", c.gate, m)
 		}
 		for _, agent := range []string{core.AgentClaude, core.AgentCodex} {
@@ -702,13 +701,13 @@ func TestRunDirectGateOverrunBlocks(t *testing.T) {
 	}
 	t.Cleanup(func() { close(release); <-finished; <-finished; native["safety-scan"] = o })
 	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
+	if code := runDirect("", "safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
 		!strings.Contains(errb.String(), "safety-scan timed out; blocked, retry") {
 		t.Errorf("gate overrun: exit %d stderr %q; want ExitBlock with a retry reason", code, errb.String())
 	}
 	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
 	out.Reset()
-	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, io.Discard); code != core.ExitProceed ||
+	if code := runDirect("", "safety-scan", hosttest.BashPayload("ls"), &out, io.Discard); code != core.ExitProceed ||
 		!strings.Contains(out.String(), `"deny"`) {
 		t.Errorf("agy gate overrun: exit %d stdout %q; want the JSON deny", code, out.String())
 	}
@@ -732,7 +731,7 @@ func TestRunDirectAdvisoryOverrunProceeds(t *testing.T) {
 	t.Cleanup(func() { close(release); <-finished; <-exited })
 	go func() {
 		defer close(exited)
-		done <- runModuleDirect("memory-start", run, strings.NewReader(`{}`), &out, &errb)
+		done <- runModuleDirect("", "memory-start", run, strings.NewReader(`{}`), &out, &errb)
 	}()
 	select {
 	case code := <-done:
@@ -805,7 +804,7 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 	gateDeadline = func(settings.EventSpec) time.Duration { return 5 * time.Second } // the gate stays far inside it: only telemetry is slow, so an overrun block is not a flip
 	defer func() { native["safety-scan"], gateDeadline = orig, deadline }()
 	done := make(chan int, 1)
-	go func() { done <- runDirect("safety-scan", hosttest.BashPayload("ls"), io.Discard, io.Discard) }()
+	go func() { done <- runDirect("", "safety-scan", hosttest.BashPayload("ls"), io.Discard, io.Discard) }()
 	select {
 	case code := <-done:
 		if code != core.ExitProceed {
@@ -848,7 +847,7 @@ func TestDirectPanicStderrBackpressureReturns(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan int, 1)
 	go func() {
-		done <- runDirect("safety-scan", hosttest.BashPayload("ls"), io.Discard, stalledHookWriter{release})
+		done <- runDirect("", "safety-scan", hosttest.BashPayload("ls"), io.Discard, stalledHookWriter{release})
 	}()
 	select {
 	case code := <-done:

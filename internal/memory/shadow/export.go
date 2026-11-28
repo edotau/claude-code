@@ -250,7 +250,7 @@ func (e *exportDB) upsertImportDoc(ctx context.Context, tx *sql.Tx, d shadowDoc)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE entries SET seq = -rowid WHERE doc = ?`, d.path); err != nil {
+	if err := parkDocRows(ctx, tx, d.path); err != nil {
 		return err
 	}
 	rowids := matchRows(oldRows, d.entries)

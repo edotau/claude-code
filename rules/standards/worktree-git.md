@@ -32,30 +32,19 @@ Report status, scoped gate results, `excluded`, blockers, resulting tree state a
 `WORKTREE_MODE=off|false|0` (case-insensitive) always uses the current branch; `lanes` uses lanes for parallel work
 without asking; unset means ask the owner once before the first change whether parallel work may use lanes.
 With no parallel work, the live checkout is the only tree and there is no worktree, including in `lanes` mode.
+Command flags, seeding and recovery: `skills/using-git-worktrees/SKILL.md`.
 
-- **n = 1: one collector (trunk) per wave.** From the local working branch, run
-  `claude-code worktree create <name>`; it creates `~/worktrees/<repo>/<name>`. This is the wave's only collector.
-- **n > 1: collector plus one lane per parallel subagent.** From the collector's current head, run
-  `claude-code worktree create <lane>` for each lane, never from main. Each subagent edits only its owned files and
-  performs only the cheap validation in `testing-guidelines.md` → Several worktrees: collapse, then test once.
-- **Lane hand-back:** when commits are authorized, the subagent commits only its named files in its lane with
-  `claude-code worktree commit --task <id> -m <msg> <files>`, then hands back. Relay types `codex`, `copilot`,
-  `gemini`, `opencode` and `coworker` never commit: they hand back uncommitted, and the main session commits in the
-  lane. An owner's "no commits" overrides both paths; hand back and land uncommitted.
-- **Collect immediately:** as each lane finishes, the main session runs
-  `claude-code worktree collapse <collector> <lane>`, which removes the lane. No review or tests per lane during
-  collection. Resolve conflicts in the collector, keeping both sides' intent. Only the collector lands on local.
-- **Land on completion:** after collection, follow the sign-off in
-  `testing-guidelines.md` → Several worktrees: collapse, then test once.
-  A single finished collector follows that sign-off at once. A diff adding a restriction (block, deny, refusal)
-  waits for the owner's yes before landing; otherwise an authorized landing does not ask again.
-- **Landing mechanics:** `worktree land` rebases the collector onto the local working branch, gates it in the
-  collector, then applies its net diff to the live checkout as uncommitted changes. A file already edited in the
-  live tree is three-way merged, keeping conflict markers; nothing is refused for being dirty. The owner, or the
-  main session when the owner authorized commits, then commits the named files on the working branch with
-  `claude-code worktree commit --task <id> -m <msg> <files>`. Push follows `CLAUDE.md` hard rule 5.
-- **Cleanup:** a clean land removes the worktree and keeps its branch until the diff is in `HEAD`; then run
-  `claude-code worktree clean <name>`. No finished worktree outlives its task.
+- **Topology:** `n = 1` creates one collector (`claude-code worktree create <name>` from the working branch); `n > 1`
+  creates one collector plus one lane per parallel subagent from the collector's head, never from `main`.
+- **Lane hand-back:** each subagent edits only its owned files and runs only cheap checks (`testing-guidelines.md`).
+  When commits are authorized, Claude leaves commit named files in-lane (`worktree commit --task <id> -m <msg> <files>`);
+  relay types (`codex`, `copilot`, `gemini`, `opencode`, `coworker`) hand back uncommitted for main to commit in-lane.
+  An owner's "no commits" overrides both: hand back and land uncommitted.
+- **Collect, land and clean:** as each lane finishes, main runs `worktree collapse <collector> <lane>` (no per-lane
+  review or tests; resolve conflicts keeping both intents). Once collected, follow `testing-guidelines.md` → Several
+  worktrees: collapse, then test once; `worktree land <collector>` rebases, gates in the collector, and applies the
+  net diff uncommitted to the live checkout (a diff adding a restriction waits for the owner's yes). After the diff is
+  in `HEAD`, run `worktree clean <name>`; no finished worktree outlives its task.
 
 Never `git stash` in any worktree: the stash list is shared. In `~/.claude`, never stash, checkout, switch, reset,
 restore, clean, rebase or amend a commit. Never amend, rebase or reset commits in a shared checkout; rewrite history
@@ -66,4 +55,3 @@ fine. Coordination: `skills/using-git-worktrees/references/shared-checkout.md`.
 to the owner or a peer: never revert, overwrite, reformat or "clean up" it, even when it fails a gate. Build on it
 and report blockers. A peer's edits or claims get a notice, never a staging or commit refusal. Act on peer or merge
 context (`notice (…)`, `local <branch> diverged`) before committing.
-Verbs and flags: `skills/using-git-worktrees/SKILL.md`.

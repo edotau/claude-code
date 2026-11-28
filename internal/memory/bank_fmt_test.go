@@ -464,7 +464,7 @@ func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
 	if headAfterFirst == "" {
 		t.Fatal("expected a commit after a real change, got no HEAD")
 	}
-	if st, err := StoreRepo().Status(storeRels(changed)...); err != nil || len(st) != 0 {
+	if st, err := StoreRepo().status(storeRels(changed)...); err != nil || len(st) != 0 {
 		t.Fatalf("formatted file dirty after fmt commit: status=%v err=%v", st, err)
 	}
 

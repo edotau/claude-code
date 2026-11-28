@@ -28,18 +28,18 @@ import (
 
 // recallPicks is the common query preparation and selection for prompt, agent and diagnostic recall.
 func recallPicks(ctx context.Context, session, query string, semantic, explain bool) ([]recallPick, recallTrace) {
-	trace := recallTrace{Silent: true, Embeddings: "not requested", CacheAge: "not inspected"}
+	trace := recallTrace{silent: true, embeddings: "not requested", cacheAge: "not inspected"}
 	q := textutil.TruncateRunes(strings.TrimSpace(query), recallQueryCapRunes)
 	tokens := textutil.Tokenize(q)
 	terms := contentQueryTerms(tokens)
 	var tr *recallTrace
 	if explain {
 		tr = &trace
-		trace.Terms = terms
+		trace.terms = terms
 		recallCacheInfo(tr)
 	}
 	if skipRecallQuery(q, tokens, semantic) {
-		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
+		trace.embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
 	type boosts struct {
@@ -60,18 +60,18 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	semSeen := false
 	if semantic {
 		if !explain && lexicalSufficient(seen, terms, ranked, b.counts, b.weights) {
-			trace.Embeddings = "skipped: strong lexical hits"
+			trace.embeddings = "skipped: strong lexical hits"
 		} else {
 			res := <-startSemantic(ctx, q, true)
-			trace.Degraded = res.err
-			ranked, sem, semSeen, trace.Embeddings = recallSemantic(res, files, segs, seen, recallNeed(terms), ranked, tr)
+			trace.degraded = res.err
+			ranked, sem, semSeen, trace.embeddings = recallSemantic(res, files, segs, seen, recallNeed(terms), ranked, tr)
 		}
 	}
 	if len(ranked) == 0 {
 		return nil, trace
 	}
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, b.counts, tr, b.weights)
-	trace.Silent = len(picks) == 0
+	trace.silent = len(picks) == 0
 	return picks, trace
 }
 
@@ -87,7 +87,7 @@ func lexicalSufficient(seen map[string]bool, terms []string, ranked []SearchHit,
 	full := distinctCount(terms, 0)
 	bodies := 0
 	for _, p := range picks {
-		if p.Hit.Matched < full {
+		if p.hit.Matched < full {
 			return false
 		}
 		bodies++
@@ -142,7 +142,7 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 				continue
 			}
 			c := recallTracePick(h)
-			c.Score, _ = scoreRecall(c, 0, false, sem)
+			c.score, _ = scoreRecall(c, 0, false, sem)
 			trace.candidate(c, need, sem)
 			trace.outcome(h.key(), "seen")
 		}
@@ -156,10 +156,10 @@ const expandKey = "expand-shown"
 // recallBodyLine is a body hit's line; a native topic whose body opens with its file stem skips the repeated label.
 func recallBodyLine(e memoryEntry) string {
 	flat := capRecallPreview(recallFlat(e), recallBodyCapRunes)
-	if e.Type == "topic" && strings.HasPrefix(strings.TrimLeft(e.Body, "#- "), strings.TrimSuffix(e.File, ".md")) {
+	if e.typ == "topic" && strings.HasPrefix(strings.TrimLeft(e.body, "#- "), strings.TrimSuffix(e.file, ".md")) {
 		return assets.MemoryRecallLine("", flat, false)
 	}
-	return assets.MemoryRecallLine(e.File, flat, true)
+	return assets.MemoryRecallLine(e.file, flat, true)
 }
 
 func recallPointerLine(e memoryEntry) string {
@@ -189,9 +189,9 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 	lines := make([]string, len(picks))
 	for i, p := range picks {
 		if i < recallBodies {
-			lines[i] = "\n" + recallBodyLine(p.Entry)
+			lines[i] = "\n" + recallBodyLine(p.entry)
 		} else {
-			lines[i] = "\n" + recallPointerLine(p.Entry)
+			lines[i] = "\n" + recallPointerLine(p.entry)
 		}
 		b.WriteString(lines[i])
 	}
@@ -201,7 +201,7 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 		if !strings.Contains(out, lines[i]) {
 			break
 		}
-		hits = append(hits, p.Hit)
+		hits = append(hits, p.hit)
 	}
 	return out, hits
 }
@@ -210,8 +210,8 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer) string {
 	defer FlushRecallTiming()
 	picks, trace := recallPicks(ctx, sessionID, prompt, true, false)
-	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
-		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
+	if trace.degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
+		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.degraded.Error(), 120, "…"))
 	}
 	expand := !trace.seen[expandKey]
 	context, hits := recallContext(picks, expand)
@@ -392,8 +392,8 @@ func AgentRecall(ctx context.Context, sessionID, task string) (block string, ids
 
 	var lines []string
 	for _, p := range picks[:min(recallK, len(picks))] {
-		lines = append(lines, "\n- "+textutil.CapRunes(p.Entry.pointer(), agentRecallPreviewRunes, "…"))
-		ids = append(ids, p.Entry.ID)
+		lines = append(lines, "\n- "+textutil.CapRunes(p.entry.pointer(), agentRecallPreviewRunes, "…"))
+		ids = append(ids, p.entry.id)
 	}
 	block, n := capRecallLines(lines)
 	if block == "" {
@@ -454,27 +454,27 @@ func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
 
 // recallPick is one surviving entry with its search hit and final score.
 type recallPick struct {
-	Entry memoryEntry
-	Hit   SearchHit
-	Score float64
+	entry memoryEntry
+	hit   SearchHit
+	score float64
 }
 
 // recallFlat is an entry's id and whole body on one line, heading and bullet marks stripped.
 func recallFlat(e memoryEntry) string {
-	return e.ID + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.Body), " "), "#- ")
+	return e.id + " · " + strings.TrimLeft(strings.Join(strings.Fields(e.body), " "), "#- ")
 }
 
 // orderRecall sorts by final score, using type and date only for exact ties.
 func orderRecall(picks []recallPick) {
 	sort.SliceStable(picks, func(i, j int) bool {
-		if picks[i].Score != picks[j].Score {
-			return picks[i].Score > picks[j].Score
+		if picks[i].score != picks[j].score {
+			return picks[i].score > picks[j].score
 		}
-		a, b := picks[i].Entry, picks[j].Entry
+		a, b := picks[i].entry, picks[j].entry
 		if a.typeRank() != b.typeRank() {
 			return a.typeRank() < b.typeRank()
 		}
-		return a.Date > b.Date // an undated entry ("") sorts last
+		return a.date > b.date // an undated entry ("") sorts last
 	})
 }
 
@@ -525,21 +525,21 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	passed := len(pool) > 0
 	var survivors []recallPick
 	for _, c := range pool {
-		if c.Score < pool[0].Score*recallScoreFloor {
+		if c.score < pool[0].score*recallScoreFloor {
 			if trace != nil {
-				trace.outcome(c.Hit.key(), "below floor")
+				trace.outcome(c.hit.key(), "below floor")
 			}
 			continue
 		}
-		boost := accessBoost(c.Entry.ID, counts[c.Entry.ID], weights)
+		boost := accessBoost(c.entry.id, counts[c.entry.id], weights)
 		trace.scores(c, boost)
-		c.Score += boost
+		c.score += boost
 		survivors = append(survivors, c)
 	}
 	orderRecall(survivors)
 	var out []recallPick
 	for _, c := range survivors {
-		if key := c.Hit.key(); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
+		if key := c.hit.key(); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
 			trace.outcome(key, "seen")
 			continue
 		}
@@ -586,12 +586,12 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 func scoreRecall(c recallPick, top float64, admitted bool, sem *semanticQuery) (float64, bool) {
 	kw := 0.0
 	if top > 0 {
-		kw = min(c.Hit.Score/top, 1)
+		kw = min(c.hit.Score/top, 1)
 	}
 	if sem == nil {
 		return kw, admitted
 	}
-	cos, ok := sem.cosineHit(c.Hit)
+	cos, ok := sem.cosineHit(c.hit)
 	if !ok {
 		return kw, admitted
 	} // Entries without a current vector retain their full keyword score.
@@ -603,8 +603,8 @@ func recallPool(cands []SearchHit, top float64, need int, sem *semanticQuery, tr
 	var pool []recallPick
 	for _, h := range cands {
 		kwOK := h.Matched >= need && h.Score >= top*recallScoreFloor
-		c := recallPick{Hit: h}
-		c.Score, kwOK = scoreRecall(c, top, kwOK, sem)
+		c := recallPick{hit: h}
+		c.score, kwOK = scoreRecall(c, top, kwOK, sem)
 		if !kwOK {
 			if trace != nil {
 				reason := "below floor"
@@ -615,9 +615,9 @@ func recallPool(cands []SearchHit, top float64, need int, sem *semanticQuery, tr
 			}
 			continue
 		}
-		c.Entry = entryFromHit(h)
+		c.entry = entryFromHit(h)
 		if h.ID != "" {
-			c.Entry.ID = h.ID
+			c.entry.id = h.ID
 		}
 		trace.scores(c, 0)
 		pool = append(pool, c)
@@ -684,8 +684,8 @@ func resetSeen(sessionID, surface string) {
 		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
 			continue
 		}
-		for i := range seg.Docs() {
-			block, _ := seg.Doc(i)
+		for i := range seg.docs() {
+			block, _ := seg.doc(i)
 			head, _, _ := strings.Cut(block, "\n") // a block is in flat only if its first line is: skip the full normalise
 			if norm = appendFields(norm[:0], head); !bytes.Contains(flat, norm) {
 				continue
@@ -757,33 +757,33 @@ func pruneSeen(dir string) {
 
 // recallCandidate records each selection gate without changing the selection.
 type recallCandidate struct {
-	ID, File, Tier              string
-	BM25                        float64
-	Matched, Needed             int
-	Cosine                      *float64
-	Blended, AccessBoost, Final float64
-	Outcome                     string
+	id, file, tier              string
+	bm25                        float64
+	matched, needed             int
+	cosine                      *float64
+	blended, accessBoost, final float64
+	outcome                     string
 	key                         string
 }
 
 // recallTrace is populated only when explaining a recall.
 type recallTrace struct {
-	Terms                []string
-	Embeddings, CacheAge string
-	CacheRows            int
-	Silent               bool
-	Degraded             error           // why semantic recall fell back to keyword-only, nil when it did not
+	terms                []string
+	embeddings, cacheAge string
+	cacheRows            int
+	silent               bool
+	degraded             error           // why semantic recall fell back to keyword-only, nil when it did not
 	seen                 map[string]bool // the session's seen set as recallPicks read it
-	Rows                 []recallCandidate
+	rows                 []recallCandidate
 }
 
 func (t *recallTrace) outcome(key, outcome string) {
 	if t == nil {
 		return
 	}
-	for i := range t.Rows {
-		if t.Rows[i].key == key {
-			t.Rows[i].Outcome = outcome
+	for i := range t.rows {
+		if t.rows[i].key == key {
+			t.rows[i].outcome = outcome
 		}
 	}
 }
@@ -792,60 +792,60 @@ func (t *recallTrace) candidate(c recallPick, need int, sem *semanticQuery) {
 	if t == nil {
 		return
 	}
-	key := c.Hit.key()
-	for _, row := range t.Rows {
+	key := c.hit.key()
+	for _, row := range t.rows {
 		if row.key == key {
 			return
 		}
 	}
 	tier := "current"
-	if c.Entry.Archived {
+	if c.entry.archived {
 		tier = "archive"
 	}
-	r := recallCandidate{ID: c.Entry.ID, File: c.Entry.File, Tier: tier,
-		BM25: c.Hit.Score, Matched: c.Hit.Matched, Needed: need, Blended: c.Score,
-		Final: c.Score, Outcome: "over cap", key: key}
-	if c.Entry.Superseded {
-		r.Outcome = "superseded"
+	r := recallCandidate{id: c.entry.id, file: c.entry.file, tier: tier,
+		bm25: c.hit.Score, matched: c.hit.Matched, needed: need, blended: c.score,
+		final: c.score, outcome: "over cap", key: key}
+	if c.entry.superseded {
+		r.outcome = "superseded"
 	}
 	if sem != nil {
-		if cos, ok := sem.cosineHit(c.Hit); ok {
-			r.Cosine = &cos
+		if cos, ok := sem.cosineHit(c.hit); ok {
+			r.cosine = &cos
 		}
 	}
-	t.Rows = append(t.Rows, r)
+	t.rows = append(t.rows, r)
 }
 
 func (t *recallTrace) scores(c recallPick, boost float64) {
 	if t == nil {
 		return
 	}
-	key := c.Hit.key()
-	for i := range t.Rows {
-		if t.Rows[i].key == key {
-			t.Rows[i].Blended = c.Score
-			t.Rows[i].AccessBoost = boost
-			t.Rows[i].Final = c.Score + boost
+	key := c.hit.key()
+	for i := range t.rows {
+		if t.rows[i].key == key {
+			t.rows[i].blended = c.score
+			t.rows[i].accessBoost = boost
+			t.rows[i].final = c.score + boost
 		}
 	}
 }
 
 // recallCacheInfo is diagnostic I/O, never used by the hook's normal path.
 func recallCacheInfo(t *recallTrace) {
-	t.CacheAge = "missing"
+	t.cacheAge = "missing"
 	cache, err := readEmbedCache()
 	if err != nil {
-		t.CacheAge = "unreadable"
+		t.cacheAge = "unreadable"
 		return
 	}
 	if cache.Model == "" || len(cache.Rows) == 0 {
 		return
 	}
-	t.CacheRows = len(cache.Rows)
+	t.cacheRows = len(cache.Rows)
 	if cache.MintedAt > 0 {
-		t.CacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
+		t.cacheAge = fmt.Sprint(time.Since(mintedTime(cache)).Round(time.Second))
 	} else {
-		t.CacheAge = "unminted"
+		t.cacheAge = "unminted"
 	}
 }
 
@@ -856,9 +856,9 @@ func (t *recallTrace) selected(picks []recallPick, expand bool) {
 	context, _ := recallContext(picks, expand)
 	for i, p := range picks {
 		outcome := "over cap"
-		line := recallPointerLine(p.Entry)
+		line := recallPointerLine(p.entry)
 		if i < recallBodies {
-			line = recallBodyLine(p.Entry)
+			line = recallBodyLine(p.entry)
 		}
 		if strings.Contains(context, "\n"+line) {
 			outcome = "pointer"
@@ -866,7 +866,7 @@ func (t *recallTrace) selected(picks []recallPick, expand bool) {
 				outcome = "body"
 			}
 		}
-		t.outcome(p.Hit.key(), outcome)
+		t.outcome(p.hit.key(), outcome)
 	}
 }
 
@@ -879,19 +879,19 @@ func (t *recallTrace) candidates(ranked []SearchHit, need int, sem *semanticQuer
 		}
 		for _, h := range ranked {
 			c := recallTracePick(h)
-			if c.Entry.Archived != archived {
+			if c.entry.archived != archived {
 				continue
 			}
-			c.Score, _ = scoreRecall(c, top, false, tierSem)
+			c.score, _ = scoreRecall(c, top, false, tierSem)
 			t.candidate(c, need, tierSem)
 		}
 	}
 }
 
 func recallTracePick(h SearchHit) recallPick {
-	entry := memoryEntry{ID: h.ID, Bank: h.Bank, File: h.File, Archived: h.Bank == "archive",
-		Superseded: isSupersededBlock(h.Block)}
-	return recallPick{Entry: entry, Hit: h}
+	entry := memoryEntry{id: h.ID, file: h.File, archived: h.Bank == "archive",
+		superseded: isSupersededBlock(h.Block)}
+	return recallPick{entry: entry, hit: h}
 }
 
 // recallLoadCap bounds `memory search --open N`'s total appended bytes across every loaded block.
@@ -940,24 +940,24 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 func RecallExplain(w io.Writer, query string) {
 	_, trace := recallPicks(context.Background(), os.Getenv(paths.SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
-		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
-	files := explainFiles(w, trace.Rows)
+		strings.Join(trace.terms, " "), trace.embeddings, trace.cacheAge, trace.cacheRows, trace.silent)
+	files := explainFiles(w, trace.rows)
 	fmt.Fprintln(w, "id        file tier BM25 match   cosine blend boost final outcome")
-	for i, row := range trace.Rows {
-		if len(row.ID) > 9 {
-			fmt.Fprintf(w, "id @%d: %s\n", i+1, row.ID)
-			row.ID = fmt.Sprintf("@%d", i+1)
+	for i, row := range trace.rows {
+		if len(row.id) > 9 {
+			fmt.Fprintf(w, "id @%d: %s\n", i+1, row.id)
+			row.id = fmt.Sprintf("@%d", i+1)
 		}
-		explainRow(w, row, files[row.File])
+		explainRow(w, row, files[row.file])
 	}
 }
 
 func explainFiles(w io.Writer, rows []recallCandidate) map[string]int {
 	files := make(map[string]int)
 	for _, row := range rows {
-		if _, ok := files[row.File]; !ok {
-			files[row.File] = len(files) + 1
-			fmt.Fprintf(w, "file %d: %s\n", files[row.File], row.File)
+		if _, ok := files[row.file]; !ok {
+			files[row.file] = len(files) + 1
+			fmt.Fprintf(w, "file %d: %s\n", files[row.file], row.file)
 		}
 	}
 	fmt.Fprintln(w, "tier: c=current, a=archive; match: matched/needed terms")
@@ -966,13 +966,13 @@ func explainFiles(w io.Writer, rows []recallCandidate) map[string]int {
 
 func explainRow(w io.Writer, row recallCandidate, file int) {
 	cosine := "no vector"
-	if row.Cosine != nil {
-		cosine = explainNumber(*row.Cosine)
+	if row.cosine != nil {
+		cosine = explainNumber(*row.cosine)
 	}
 	fmt.Fprintf(w, "%s %d %.1s %s %d/%d %s %s %s %s %s\n",
-		row.ID, file, row.Tier, explainNumber(row.BM25), row.Matched, row.Needed,
-		cosine, explainNumber(row.Blended), explainNumber(row.AccessBoost),
-		explainNumber(row.Final), row.Outcome)
+		row.id, file, row.tier, explainNumber(row.bm25), row.matched, row.needed,
+		cosine, explainNumber(row.blended), explainNumber(row.accessBoost),
+		explainNumber(row.final), row.outcome)
 }
 
 func explainNumber(value float64) string {

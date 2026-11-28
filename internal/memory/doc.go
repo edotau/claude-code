@@ -54,15 +54,15 @@ type Doc struct {
 	Entries []DocEntry
 }
 
-// Ref is the one id grammar: [z]<8 hex>[-<slug>].
-type Ref struct {
-	Hex     string // 8 lowercase hex digits
-	Derived bool   // "z" prefix: a content hash (contentRef), never a stored marker
-	Alias   string // slug a model or a hand wrote after "-"; Go never mints one
+// ref is the one id grammar: [z]<8 hex>[-<slug>].
+type ref struct {
+	hex     string // 8 lowercase hex digits
+	derived bool   // "z" prefix: a content hash (contentRef), never a stored marker
+	alias   string // slug a model or a hand wrote after "-"; Go never mints one
 }
 
-// GrammarOf picks the grammar from the file name: idFiles and archives first, else GrammarSections.
-func GrammarOf(name string) Grammar {
+// grammarOf picks the grammar from the file name: idFiles and archives first, else GrammarSections.
+func grammarOf(name string) Grammar {
 	if src, ok := ArchiveSource(filepath.Base(name)); ok { // an archive parses with its source file's grammar
 		name = src + ".md"
 	}
@@ -84,7 +84,7 @@ func (g Grammar) starts(line string) bool {
 
 // ParseDoc splits data into front, header, hidden lines and entries; nothing is dropped or rewritten.
 func ParseDoc(name string, data []byte) Doc {
-	d := Doc{Name: logicalName(name), Grammar: GrammarOf(name)}
+	d := Doc{Name: logicalName(name), Grammar: grammarOf(name)}
 	lines := strings.Split(string(data), "\n")
 	if n := frontEnd(lines); n > 0 {
 		d.Front, lines = lines[:n], lines[n:]
@@ -194,8 +194,8 @@ func entryID(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	if r, _, _, ok := marker(lines[0]); ok && !r.Derived {
-		return r.Hex
+	if r, _, _, ok := marker(lines[0]); ok && !r.derived {
+		return r.hex
 	}
 	return ""
 }
@@ -213,25 +213,25 @@ func (d Doc) Render() []byte {
 	return []byte(strings.Join(parts, "\n"))
 }
 
-// ParseRef reads [z]<8 hex>[-<slug>]; the slug is lowercase letters and digits, hyphens inside.
-func ParseRef(s string) (Ref, bool) {
-	var r Ref
+// parseRef reads [z]<8 hex>[-<slug>]; the slug is lowercase letters and digits, hyphens inside.
+func parseRef(s string) (ref, bool) {
+	var r ref
 	if rest, ok := strings.CutPrefix(s, contentRefPrefix); ok {
-		r.Derived, s = true, rest
+		r.derived, s = true, rest
 	}
 	if len(s) < 8 || !isHex(s[:8]) {
-		return Ref{}, false
+		return ref{}, false
 	}
-	r.Hex, s = s[:8], s[8:]
+	r.hex, s = s[:8], s[8:]
 	if s == "" {
 		return r, true
 	}
 	slug, ok := strings.CutPrefix(s, "-")
 	if !ok || slug == "" || strings.Trim(slug, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" ||
 		slug[0] == '-' || slug[len(slug)-1] == '-' {
-		return Ref{}, false
+		return ref{}, false
 	}
-	r.Alias = slug
+	r.alias = slug
 	return r, true
 }
 
@@ -239,22 +239,10 @@ func isHex(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789abcdef") == ""
 }
 
-// String formats the ref back to its one textual form.
-func (r Ref) String() string {
-	s := r.Hex
-	if r.Derived {
-		s = contentRefPrefix + s
-	}
-	if r.Alias != "" {
-		s += "-" + r.Alias
-	}
-	return s
-}
-
 const markerOpen, markerClose = "<!-- id:", " -->"
 
 // marker finds the last "<!-- id:REF -->" outside a backtick code span in one forward scan; lo and hi bound it.
-func marker(line string) (r Ref, lo, hi int, ok bool) {
+func marker(line string) (r ref, lo, hi int, ok bool) {
 	spans, pos, closeAt := codeSpans(line), 0, -1
 	for {
 		i := strings.Index(line[pos:], markerOpen)
@@ -276,7 +264,7 @@ func marker(line string) (r Ref, lo, hi int, ok bool) {
 			}
 			closeAt = pos + c
 		}
-		if ref, good := ParseRef(line[pos:closeAt]); good {
+		if ref, good := parseRef(line[pos:closeAt]); good {
 			r, lo, hi, ok = ref, start, closeAt+len(markerClose), true
 		}
 	}
@@ -325,8 +313,8 @@ func splitKey(ln string) (key, val string, ok bool) {
 	return strings.TrimSpace(k), v, true
 }
 
-// Section is the entry range [lo, hi) under the "## heading" entry; -1, -1 when absent.
-func (d Doc) Section(heading string) (lo, hi int) {
+// section is the entry range [lo, hi) under the "## heading" entry; -1, -1 when absent.
+func (d Doc) section(heading string) (lo, hi int) {
 	for i, e := range d.Entries {
 		if e.Kind == KindHeading && strings.TrimSpace(e.Lines[0]) == "## "+heading {
 			hi = len(d.Entries)
@@ -342,8 +330,8 @@ func (d Doc) Section(heading string) (lo, hi int) {
 	return -1, -1
 }
 
-// OldestFirst returns the entry indexes in [lo, hi) by age, oldest first; Date and Seq are the keys.
-func (d Doc) OldestFirst(lo, hi int) []int {
+// oldestFirst returns the entry indexes in [lo, hi) by age, oldest first; Date and Seq are the keys.
+func (d Doc) oldestFirst(lo, hi int) []int {
 	var idx []int
 	for i := max(lo, 0); i < min(hi, len(d.Entries)); i++ {
 		idx = append(idx, i)
@@ -913,8 +901,8 @@ var errNoBlock = errors.New("no memory block with that id")
 
 // ShowBlock finds the block for ref (an id marker or a contentRef) anywhere in the store, archives included.
 func ShowBlock(ref string) (string, string, error) {
-	r, _ := ParseRef(ref)
-	derived := r.Derived
+	r, _ := parseRef(ref)
+	derived := r.derived
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(paths.MemoryStoreDir(), func(p string, d fs.DirEntry, err error) error {
 		switch {

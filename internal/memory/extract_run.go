@@ -33,10 +33,10 @@ type ExtractRunOptions struct {
 	Out    string
 }
 
-// ExtractRunReport includes the classified rows and the timestamp-free comparison digest.
-type ExtractRunReport struct {
+// extractRunReport includes the classified rows and the timestamp-free comparison digest.
+type extractRunReport struct {
 	ExtractResult
-	Purged          ExtractTotal `json:"purged"`
+	Purged          extractTotal `json:"purged"`
 	RemainingSHA256 string       `json:"remaining_sha256,omitempty"`
 }
 
@@ -52,7 +52,7 @@ func RunExtract(o ExtractRunOptions, w io.Writer) error {
 	if err := extractOutputOutsideStore(root, o.Out); err != nil {
 		return err
 	}
-	var rep ExtractRunReport
+	var rep extractRunReport
 	var err error
 	run := func() error { rep, err = extractRun(root, o); return err }
 	if o.Purge && !o.DryRun {
@@ -87,7 +87,7 @@ func extractRunLocked(run func() error) error {
 	return err
 }
 
-func extractRun(root string, o ExtractRunOptions) (rep ExtractRunReport, err error) {
+func extractRun(root string, o ExtractRunOptions) (rep extractRunReport, err error) {
 	result, head, err := classifyExtractRun(root, o)
 	rep.ExtractResult = result
 	if err != nil {
@@ -125,23 +125,23 @@ func classifyExtractRun(root string, o ExtractRunOptions) (ExtractResult, string
 			return ExtractResult{}, "", err
 		}
 	}
-	result, err := ClassifyExtract(root, opts)
+	result, err := classifyExtract(root, opts)
 	return result, head, err
 }
 
-func finishExtract(o ExtractRunOptions, rep ExtractRunReport, w io.Writer) error {
+func finishExtract(o ExtractRunOptions, rep extractRunReport, w io.Writer) error {
 	if o.Format == "json" {
 		return json.NewEncoder(w).Encode(rep)
 	}
 	return printExtract(w, rep)
 }
 
-func extractRunOptions(strict bool) (ExtractOptions, error) {
+func extractRunOptions(strict bool) (extractOptions, error) {
 	host, _ := os.Hostname()
-	opts := ExtractOptions{Now: time.Now(), Facts: ExtractGitFacts{Host: host}}
+	opts := extractOptions{now: time.Now(), facts: extractGitFacts{host: host}}
 	for i := 0; i <= accessGenerations; i++ {
 		if _, err := os.Stat(accessGeneration(accessLogPath(), i)); err == nil {
-			opts.AccessLogs = []string{accessLogPath()}
+			opts.accessLogs = []string{accessLogPath()}
 			break
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return opts, err
@@ -152,7 +152,7 @@ func extractRunOptions(strict bool) (ExtractOptions, error) {
 		if err != nil {
 			return opts, err
 		}
-		opts.LinkSources = append(opts.LinkSources, sources...)
+		opts.linkSources = append(opts.linkSources, sources...)
 	}
 	return opts, nil
 }
@@ -211,14 +211,14 @@ func writeExtractOutput(out string, result ExtractResult) error {
 	return paths.AtomicWrite(out, append(data, '\n'), 0o600)
 }
 
-func printExtract(w io.Writer, rep ExtractRunReport) error {
+func printExtract(w io.Writer, rep extractRunReport) error {
 	for _, f := range rep.Folders {
 		if err := printExtractFolder(w, f); err != nil {
 			return err
 		}
 	}
 	for _, r := range rep.Rows {
-		if r.Action == ExtractPurge {
+		if r.Action == extractPurge {
 			if _, err := fmt.Fprintf(w, "purge %q %dB %s\n", r.Path, r.Size, r.Reason); err != nil {
 				return err
 			}
@@ -231,11 +231,11 @@ func printExtract(w io.Writer, rep ExtractRunReport) error {
 	return nil
 }
 
-func printExtractFolder(w io.Writer, f ExtractFolderTotal) error {
+func printExtractFolder(w io.Writer, f extractFolderTotal) error {
 	if _, err := fmt.Fprintf(w, "%s", f.Folder); err != nil {
 		return err
 	}
-	for _, a := range []ExtractAction{ExtractKeep, ExtractRewrite, ExtractPurge} {
+	for _, a := range []extractAction{extractKeep, extractRewrite, extractPurge} {
 		n := f.Actions[a]
 		if _, err := fmt.Fprintf(w, " %s=%d/%dB", a, n.Files, n.Bytes); err != nil {
 			return err
@@ -245,8 +245,8 @@ func printExtractFolder(w io.Writer, f ExtractFolderTotal) error {
 	return err
 }
 
-// ExtractGitFacts accepts explicit host-qualified repository/branch or repository/result_commit metadata.
-type ExtractGitFacts struct{ Host string }
+// extractGitFacts accepts explicit host-qualified repository/branch or repository/result_commit metadata.
+type extractGitFacts struct{ host string }
 
 func extractFactRepository(fm map[string]any) string {
 	repo, _ := fm["repository"].(string)
@@ -260,12 +260,12 @@ func extractFactRepository(fm map[string]any) string {
 	return repo
 }
 
-func (f ExtractGitFacts) WorktreeBranchExists(_ string, data []byte) (bool, bool, error) {
+func (f extractGitFacts) worktreeBranchExists(_ string, data []byte) (bool, bool, error) {
 	fm, _ := textutil.ParseFrontmatter(string(data))
 	repo := extractFactRepository(fm)
 	branch, _ := fm["branch"].(string)
 	host, _ := fm["host"].(string)
-	if repo == "" || branch == "" || f.Host == "" || host != f.Host {
+	if repo == "" || branch == "" || f.host == "" || host != f.host {
 		return false, false, nil
 	}
 	if _, err := gitOut(repo, "check-ref-format", "refs/heads/"+branch); err != nil {
@@ -282,7 +282,7 @@ func (f ExtractGitFacts) WorktreeBranchExists(_ string, data []byte) (bool, bool
 	return false, false, nil
 }
 
-func (ExtractGitFacts) ReportResultInGit(_ string, data []byte) (bool, bool, error) {
+func (extractGitFacts) reportResultInGit(_ string, data []byte) (bool, bool, error) {
 	fm, _ := textutil.ParseFrontmatter(string(data))
 	repo := extractFactRepository(fm)
 	commit, _ := fm["result_commit"].(string)
@@ -321,15 +321,15 @@ func extractGitInput(dir string, env []string, input string, args ...string) (st
 }
 
 func extractCleanHead(root string) (string, error) {
-	repo := storeRepo{Dir: root}
-	if !repo.Exists() {
+	repo := storeRepo{dir: root}
+	if !repo.exists() {
 		return "", errors.New("extract: store must be its own git repository")
 	}
 	top, err := gitOut(root, "rev-parse", "--show-toplevel")
 	if err != nil || paths.CanonDeep(top) != paths.CanonDeep(root) {
 		return "", errors.New("extract: invalid store repository root")
 	}
-	status, err := repo.Status()
+	status, err := repo.status()
 	if err != nil {
 		return "", err
 	}
@@ -340,7 +340,7 @@ func extractCleanHead(root string) (string, error) {
 }
 
 type extractRemoval struct {
-	row  ExtractRow
+	row  extractRow
 	data []byte
 	mode fs.FileMode
 	mod  time.Time
@@ -354,14 +354,14 @@ func extractRemovals(root string, result ExtractResult, head string) ([]extractR
 	defer dir.Close()
 	var removals []extractRemoval
 	for _, row := range result.Rows {
-		if err := (storeRepo{Dir: root}).validateRel(row.Path); err != nil {
+		if err := (storeRepo{dir: root}).validateRel(row.Path); err != nil {
 			return nil, err
 		}
 		data, info, err := extractReadRow(dir, row)
 		if err != nil {
 			return nil, err
 		}
-		if row.Action != ExtractPurge {
+		if row.Action != extractPurge {
 			continue
 		}
 		original, err := extractGitInput(root, nil, "", "show", head+":"+row.Path)
@@ -373,7 +373,7 @@ func extractRemovals(root string, result ExtractResult, head string) ([]extractR
 	return removals, nil
 }
 
-func extractReadRow(dir *os.Root, row ExtractRow) ([]byte, fs.FileInfo, error) {
+func extractReadRow(dir *os.Root, row extractRow) ([]byte, fs.FileInfo, error) {
 	info, err := dir.Lstat(row.Path)
 	if err != nil {
 		return nil, nil, err
@@ -391,35 +391,35 @@ func extractReadRow(dir *os.Root, row ExtractRow) ([]byte, fs.FileInfo, error) {
 	return data, info, nil
 }
 
-func purgeExtract(root string, result ExtractResult, classifiedHead string) (ExtractTotal, error) {
+func purgeExtract(root string, result ExtractResult, classifiedHead string) (extractTotal, error) {
 	release, err := extractClaimIndex(root)
 	if err != nil {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	defer release()
 	head, err := extractCleanHead(root)
 	if err != nil {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	if head != classifiedHead {
-		return ExtractTotal{}, errors.New("extract: HEAD changed since classification")
+		return extractTotal{}, errors.New("extract: HEAD changed since classification")
 	}
 	removals, err := extractRemovals(root, result, head)
 	if err != nil || len(removals) == 0 {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	name, err := extractIndexFile(root)
 	if err != nil {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	defer func() { _ = os.Remove(name); _ = os.Remove(name + ".lock") }()
 	env := []string{"GIT_INDEX_FILE=" + name}
 	total, commit, err := extractPurgeCommit(root, env, head, removals)
 	if err != nil {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	if err := extractInstallPurge(root, name, removals, head, commit); err != nil {
-		return ExtractTotal{}, err
+		return extractTotal{}, err
 	}
 	return total, nil
 }
@@ -462,8 +462,8 @@ func extractInstallPurge(root, index string, removals []extractRemoval, head, co
 	return nil
 }
 
-func extractPurgeCommit(root string, env []string, head string, removals []extractRemoval) (ExtractTotal, string, error) {
-	total := ExtractTotal{}
+func extractPurgeCommit(root string, env []string, head string, removals []extractRemoval) (extractTotal, string, error) {
+	total := extractTotal{}
 	if _, err := extractGitInput(root, env, "", "read-tree", head); err != nil {
 		return total, "", err
 	}
@@ -587,24 +587,24 @@ func dreamExtract(o dreamOptions, agentErr error) {
 	root := paths.MemoryStoreDir()
 	opts, err := extractRunOptions(false)
 	if err != nil {
-		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		fmt.Fprintln(o.out, "memory dream: extract:", err)
 		return
 	}
-	result, err := ClassifyExtract(root, opts)
+	result, err := classifyExtract(root, opts)
 	if err != nil {
-		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		fmt.Fprintln(o.out, "memory dream: extract:", err)
 		return
 	}
 	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
-	refused, err := ExtractRefusals(ledger)
+	refused, err := extractRefusals(ledger)
 	if err != nil {
-		fmt.Fprintln(o.Out, "memory dream: extract:", err)
+		fmt.Fprintln(o.out, "memory dream: extract:", err)
 		return
 	}
 	pass := extractPass{o: o, root: root, ledger: ledger, refused: refused, opts: opts}
 	for _, folder := range result.Folders {
 		for _, group := range folder.Groups {
-			if folder.OverBudget == 0 || group.Action != ExtractRewrite {
+			if folder.OverBudget == 0 || group.Action != extractRewrite {
 				continue
 			}
 			if !pass.try(folder.Folder, group) {
@@ -619,38 +619,38 @@ type extractPass struct {
 	o            dreamOptions
 	root, ledger string
 	refused      map[string]string
-	opts         ExtractOptions
+	opts         extractOptions
 }
 
 // try attempts one group; false once a group was tried (rewritten or refused), true to go on to the next.
-func (p extractPass) try(folder string, group ExtractGroup) bool {
+func (p extractPass) try(folder string, group extractGroup) bool {
 	o, root, ledger, refusals, opts := p.o, p.root, p.ledger, p.refused, p.opts
 	sources, err := dreamReadSources(root, group.Paths)
 	if err != nil {
-		fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+		fmt.Fprintln(o.out, "memory dream: extract refused:", err)
 		return false
 	}
 	hash := extractGroupHash(sources)
 	if reason, ok := refusals[hash]; ok {
-		fmt.Fprintf(o.Out, "memory dream: extract skipped %s group (%d files): refused earlier: %s\n", folder, len(group.Paths), reason)
+		fmt.Fprintf(o.out, "memory dream: extract skipped %s group (%d files): refused earlier: %s\n", folder, len(group.Paths), reason)
 		return true
 	}
 	report, err := dreamExtractGroup(root, group, sources, opts)
 	if err == nil {
-		fmt.Fprintf(o.Out, "memory dream: extract %s consolidated %d files; %s\n", folder, len(group.Paths), report)
+		fmt.Fprintf(o.out, "memory dream: extract %s consolidated %d files; %s\n", folder, len(group.Paths), report)
 		return false
 	}
-	fmt.Fprintln(o.Out, "memory dream: extract refused:", err)
+	fmt.Fprintln(o.out, "memory dream: extract refused:", err)
 	if errors.As(err, new(extractChecked)) && refused(err) {
 		recErr := WithBankLock(BankLockWait, func() error {
 			current, readErr := dreamReadSources(root, group.Paths)
 			if readErr != nil || extractGroupHash(current) != hash {
 				return readErr
 			}
-			return RecordExtractRefusal(ledger, time.Now(), hash, err)
+			return recordExtractRefusal(ledger, time.Now(), hash, err)
 		})
 		if recErr != nil {
-			fmt.Fprintln(o.Out, "memory dream: extract:", recErr)
+			fmt.Fprintln(o.out, "memory dream: extract:", recErr)
 		}
 	}
 	return false
@@ -662,26 +662,26 @@ type extractChecked struct{ err error }
 func (e extractChecked) Error() string { return e.err.Error() }
 func (e extractChecked) Unwrap() error { return e.err }
 
-func dreamExtractGroup(root string, group ExtractGroup, sources map[string][]byte, opts ExtractOptions) (report ExtractRecallReport, err error) {
-	if len(opts.AccessLogs) == 0 {
-		return report, ErrExtractNoAccessLog
+func dreamExtractGroup(root string, group extractGroup, sources map[string][]byte, opts extractOptions) (report extractRecallReport, err error) {
+	if len(opts.accessLogs) == 0 {
+		return report, errExtractNoAccessLog
 	}
-	if report.BytesBefore, report.ScanBefore, err = ExtractRecallMeasure(root); err != nil {
+	if report.bytesBefore, report.scanBefore, err = extractRecallMeasure(root); err != nil {
 		return report, err
 	}
-	ans, err := RewriteExtractGroup(context.Background(), root, group, "")
+	ans, err := rewriteExtractGroup(context.Background(), root, group, "")
 	if err != nil {
 		return report, err
 	}
 	err = extractRunLocked(func() error {
 		checked, applyErr := dreamApplyChecked(root, group, ans, sources, opts)
-		report.Queried, report.Lost = checked.Queried, checked.Lost
+		report.queried, report.lost = checked.queried, checked.lost
 		return applyErr
 	})
 	if err != nil {
 		return report, err
 	}
-	report.BytesAfter, report.ScanAfter, err = ExtractRecallMeasure(root)
+	report.bytesAfter, report.scanAfter, err = extractRecallMeasure(root)
 	return report, err
 }
 
@@ -698,17 +698,17 @@ func dreamReadSources(root string, rels []string) (map[string][]byte, error) {
 }
 
 // dreamApplyChecked runs under the store lock: sources unchanged, recall check, ledger debit first, then apply.
-func dreamApplyChecked(root string, group ExtractGroup, ans ExtractRewriteAnswer, seen map[string][]byte, opts ExtractOptions) (ExtractRecallReport, error) {
+func dreamApplyChecked(root string, group extractGroup, ans extractRewriteAnswer, seen map[string][]byte, opts extractOptions) (extractRecallReport, error) {
 	now, err := dreamReadSources(root, group.Paths)
 	if err != nil {
-		return ExtractRecallReport{}, err
+		return extractRecallReport{}, err
 	}
 	if !maps.EqualFunc(seen, now, bytes.Equal) {
-		return ExtractRecallReport{}, errors.New("extract sources changed while the model ran")
+		return extractRecallReport{}, errors.New("extract sources changed while the model ran")
 	}
 	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
 	// An access logged after this read is not counted: the limit is statistical and a purged source stays in git.
-	report, err := CheckExtractRecall(opts.AccessLogs, ledger, now, ans, time.Now())
+	report, err := checkExtractRecall(opts.accessLogs, ledger, now, ans, time.Now())
 	if err != nil {
 		return report, err
 	}
@@ -716,13 +716,13 @@ func dreamApplyChecked(root string, group ExtractGroup, ans ExtractRewriteAnswer
 	if err != nil {
 		return report, err
 	}
-	if err := RecordExtractLoss(ledger, time.Now(), report.Lost); err != nil {
+	if err := recordExtractLoss(ledger, time.Now(), report.lost); err != nil {
 		return report, err
 	}
-	sha, err := ApplyExtractRewrite(storeRepo{Dir: root}, group, ans, time.Now())
+	sha, err := applyExtractRewrite(storeRepo{dir: root}, group, ans, time.Now())
 	if err != nil && sha == "" && refused(err) {
 		if restoreErr := debit.restore(); restoreErr != nil {
-			return report, &AfterCommitError{errors.Join(err, restoreErr)}
+			return report, &afterCommitError{errors.Join(err, restoreErr)}
 		}
 	}
 	return report, err
@@ -731,59 +731,59 @@ func dreamApplyChecked(root string, group ExtractGroup, ans ExtractRewriteAnswer
 // extractRecallLimit is the share of served entries a batch may leave without a hit or successor.
 const extractRecallLimit = 0.02
 
-// ExtractRecallReport carries the recall check's numbers; Bytes and Scan are the store's index size and scan time.
-type ExtractRecallReport struct {
-	Queried, Lost           int
-	BytesBefore, BytesAfter int64
-	ScanBefore, ScanAfter   time.Duration
+// extractRecallReport carries the recall check's numbers; Bytes and Scan are the store's index size and scan time.
+type extractRecallReport struct {
+	queried, lost           int
+	bytesBefore, bytesAfter int64
+	scanBefore, scanAfter   time.Duration
 }
 
 // String is the one line dream prints.
-func (r ExtractRecallReport) String() string {
+func (r extractRecallReport) String() string {
 	return fmt.Sprintf("recall check: %d/%d served entries lost; store %d -> %d bytes; scan %s -> %s",
-		r.Lost, r.Queried, r.BytesBefore, r.BytesAfter, r.ScanBefore, r.ScanAfter)
+		r.lost, r.queried, r.bytesBefore, r.bytesAfter, r.scanBefore, r.scanAfter)
 }
 
-// ErrExtractNoAccessLog is the typed refusal when there is no recall history to check against.
-var ErrExtractNoAccessLog = errors.New("extract recall: no access log")
+// errExtractNoAccessLog is the typed refusal when there is no recall history to check against.
+var errExtractNoAccessLog = errors.New("extract recall: no access log")
 
-// CheckExtractRecall refuses a batch that, with the ledger's 30 days of losses, passes 2% of served entries.
-func CheckExtractRecall(logs []string, ledger string, sources map[string][]byte, ans ExtractRewriteAnswer, now time.Time) (ExtractRecallReport, error) {
+// checkExtractRecall refuses a batch that, with the ledger's 30 days of losses, passes 2% of served entries.
+func checkExtractRecall(logs []string, ledger string, sources map[string][]byte, ans extractRewriteAnswer, now time.Time) (extractRecallReport, error) {
 	if len(logs) == 0 {
-		return ExtractRecallReport{}, ErrExtractNoAccessLog
+		return extractRecallReport{}, errExtractNoAccessLog
 	}
 	served, err := extractServed(logs, now)
 	if err != nil {
-		return ExtractRecallReport{}, err
+		return extractRecallReport{}, err
 	}
 	report := extractLostHits(served, sources, ans, now)
 	prior, err := extractLedgerLost(ledger, now)
 	if err != nil {
 		return report, err
 	}
-	total := report.Lost + prior
-	if report.Lost > 0 && float64(total)/float64(len(served)) > extractRecallLimit {
+	total := report.lost + prior
+	if report.lost > 0 && float64(total)/float64(len(served)) > extractRecallLimit {
 		return report, extractChecked{fmt.Errorf("extract recall: %d of %d served entries lose their hit in 30 days (limit 2%%)", total, len(served))}
 	}
 	return report, nil
 }
 
-func extractLostHits(served map[string]bool, sources map[string][]byte, ans ExtractRewriteAnswer, now time.Time) ExtractRecallReport {
+func extractLostHits(served map[string]bool, sources map[string][]byte, ans extractRewriteAnswer, now time.Time) extractRecallReport {
 	succeeded := map[string]bool{}
 	for _, entry := range ans.Entries {
 		for _, source := range entry.Sources {
 			succeeded[source] = true
 		}
 	}
-	report := ExtractRecallReport{}
+	report := extractRecallReport{}
 	for source, data := range sources {
 		refs := newExtractFile(source, data, now, now).refs
 		if !slices.ContainsFunc(refs, func(ref string) bool { return served[ref] }) {
 			continue
 		}
-		report.Queried++
+		report.queried++
 		if !succeeded[source] {
-			report.Lost++
+			report.lost++
 		}
 	}
 	return report
@@ -829,8 +829,8 @@ func parseExtractLedgerLine(line string, cutoff time.Time) (int, error) {
 	return 0, nil
 }
 
-// RecordExtractLoss appends a batch's lost-hit count; the rewrite is fsynced with its directory before it returns.
-func RecordExtractLoss(ledger string, now time.Time, lost int) error {
+// recordExtractLoss appends a batch's lost-hit count; the rewrite is fsynced with its directory before it returns.
+func recordExtractLoss(ledger string, now time.Time, lost int) error {
 	return appendExtractLedger(ledger, fmt.Sprintf("%s %d\n", now.UTC().Format(time.RFC3339), lost))
 }
 
@@ -855,14 +855,14 @@ func appendExtractLedger(ledger, line string) error {
 // extractRefusedTag marks a ledger line "<RFC3339> refused <group hash> <reason>" for a group the checks refused.
 const extractRefusedTag = "refused "
 
-// RecordExtractRefusal notes that the checks refused the group with this source hash.
-func RecordExtractRefusal(ledger string, now time.Time, hash string, reason error) error {
+// recordExtractRefusal notes that the checks refused the group with this source hash.
+func recordExtractRefusal(ledger string, now time.Time, hash string, reason error) error {
 	why := strings.Join(strings.Fields(reason.Error()), " ")
 	return appendExtractLedger(ledger, fmt.Sprintf("%s %s%s %s\n", now.UTC().Format(time.RFC3339), extractRefusedTag, hash, why))
 }
 
-// ExtractRefusals maps each refused group hash to its latest reason.
-func ExtractRefusals(ledger string) (map[string]string, error) {
+// extractRefusals maps each refused group hash to its latest reason.
+func extractRefusals(ledger string) (map[string]string, error) {
 	data, err := os.ReadFile(ledger)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -912,8 +912,8 @@ func extractServed(logs []string, now time.Time) (map[string]bool, error) {
 	return served, nil
 }
 
-// ExtractRecallMeasure returns the .md bytes under dir and the time to read them all.
-func ExtractRecallMeasure(dir string) (int64, time.Duration, error) {
+// extractRecallMeasure returns the .md bytes under dir and the time to read them all.
+func extractRecallMeasure(dir string) (int64, time.Duration, error) {
 	start := time.Now()
 	var size int64
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -931,12 +931,4 @@ func ExtractRecallMeasure(dir string) (int64, time.Duration, error) {
 		return err
 	})
 	return size, time.Since(start), err
-}
-
-// Verdict fails a run whose store did not get smaller or whose scan got slower.
-func (r ExtractRecallReport) Verdict() error {
-	if r.BytesAfter > r.BytesBefore || r.ScanAfter > 2*r.ScanBefore+10*time.Millisecond {
-		return fmt.Errorf("extract recall: store grew or recall slowed (%s)", r)
-	}
-	return nil
 }

@@ -1,6 +1,9 @@
 ---
 name: dbx-expert
-description: Databricks in this harness - how agent model traffic reaches the dev, qa and prod workspaces through the loopback proxy and how to diagnose it ("a Databricks model call failed", 401/403/404/429/503, "stream disconnected", "which wire does this model use", add or check a model, profiles, sign-in, tokens, cost), the databricks CLI and Python SDK for workspace work (jobs, clusters, tables, bundles, SQL, Unity Catalog), and running a workload on a cluster over SSH. Use it for any Databricks task, even when the person only names a profile, a workspace, a job or a table.
+description: >-
+  Databricks proxy model routing and diagnosis (401/403/404/429/503, wires, profiles, tokens, cost), CLI/Python
+  SDK (jobs, clusters, tables, bundles, SQL, Unity Catalog) and cluster SSH. Use for any Databricks, profile,
+  workspace, job or table task.
 ---
 
 # Databricks (dbx-expert)

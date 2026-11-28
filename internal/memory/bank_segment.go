@@ -31,8 +31,8 @@ const (
 )
 
 type corpusFile struct {
-	Bank, Path string
-	Mode       segMode
+	bank, path string
+	mode       segMode
 }
 
 // corpusOf lists bank, archive, native and knowledge files in that order without reading file contents.
@@ -197,7 +197,7 @@ func encodeSegment(blocks []string) segView {
 	return s
 }
 
-func (s segView) Docs() int {
+func (s segView) docs() int {
 	return int(binary.LittleEndian.Uint32(s))
 }
 
@@ -207,7 +207,7 @@ func (s segView) sumDL() uint64 {
 
 // docRaw is document i's text as a view into the segment (do not keep or modify) and its length.
 func (s segView) docRaw(i int) (text []byte, dl uint32) {
-	termStart := segHeader + s.Docs()*docStride
+	termStart := segHeader + s.docs()*docStride
 	postStart := termStart + 4 + int(binary.LittleEndian.Uint32(s[termStart:]))*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
 	off := segHeader + i*docStride
@@ -216,7 +216,7 @@ func (s segView) docRaw(i int) (text []byte, dl uint32) {
 	return s[start:end], binary.LittleEndian.Uint32(s[off:])
 }
 
-func (s segView) Doc(i int) (text string, dl uint32) {
+func (s segView) doc(i int) (text string, dl uint32) {
 	raw, dl := s.docRaw(i)
 	return string(raw), dl
 }
@@ -227,8 +227,8 @@ func (s segView) docView(i int) (text string, dl uint32) {
 	return unsafe.String(unsafe.SliceData(raw), len(raw)), dl
 }
 
-// DocRef is document i's blockSum and blockRef(text, ""), read from the row instead of rehashing the text.
-func (s segView) DocRef(i int) (sum uint64, ref string) {
+// docRef is document i's blockSum and blockRef(text, ""), read from the row instead of rehashing the text.
+func (s segView) docRef(i int) (sum uint64, ref string) {
 	off := segHeader + i*docStride
 	r := s[off+20 : off+20+refWidth]
 	if r[refWidth-1] == 0 {
@@ -237,14 +237,14 @@ func (s segView) DocRef(i int) (sum uint64, ref string) {
 	return binary.LittleEndian.Uint64(s[off+12:]), string(r)
 }
 
-// DocSuperseded is isSupersededBlock of document i's text, read from the row.
-func (s segView) DocSuperseded(i int) bool {
+// docSuperseded is isSupersededBlock of document i's text, read from the row.
+func (s segView) docSuperseded(i int) bool {
 	return s[segHeader+i*docStride+20+refWidth] == 1
 }
 
 // Posting offsets are byte offsets relative to the posting table; text and term offsets are blob-relative.
 func (s segView) lookup(term string) (posts []byte, n int) {
-	termStart := segHeader + s.Docs()*docStride
+	termStart := segHeader + s.docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
@@ -268,7 +268,7 @@ func (s segView) lookup(term string) (posts []byte, n int) {
 	return s[start : start+n*8], n
 }
 
-func (s segView) Valid() bool {
+func (s segView) valid() bool {
 	l, ok := s.layout()
 	return ok && s.docsValid(l) && s.termsValid(l) && s.postsValid(l)
 }
@@ -380,7 +380,7 @@ func (s segView) lookupWeighted(term string, out map[int]float64) {
 
 // containing returns the indexed terms longer than term that contain it, in stored (sorted) order.
 func (s segView) containing(term string) []string {
-	termStart := segHeader + s.Docs()*docStride
+	termStart := segHeader + s.docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	if nterms == 0 || term == "" {
 		return nil
@@ -447,7 +447,7 @@ func indexSegments(uniq map[string]int, segs []segView) (
 	for i, seg := range segs {
 		if seg != nil {
 			usable = append(usable, i)
-			ndocs += seg.Docs()
+			ndocs += seg.docs()
 			sumdl += seg.sumDL()
 		}
 	}
@@ -487,13 +487,13 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		idfs[j] = math.Log((n-float64(d)+0.5)/(float64(d)+0.5) + 1)
 	}
 	var hits []SearchHit
-	for doc := 0; doc < seg.Docs(); doc++ {
+	for doc := 0; doc < seg.docs(); doc++ {
 		freqs := wt[doc]
 		if freqs == nil {
 			continue
 		}
 		block, length := seg.docView(doc)
-		sum, id := seg.DocRef(doc)
+		sum, id := seg.docRef(doc)
 		dl := float64(length)
 		var score float64
 		for _, t := range qTerms {
@@ -514,8 +514,8 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 			}
 		}
 		hits = append(hits, SearchHit{
-			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, sum: sum, replaced: replacedFlag(seg.DocSuperseded(doc)),
+			Score: score, Matched: matched, Bank: file.bank,
+			File: filepath.Base(file.path), Block: block, ID: id, sum: sum, replaced: replacedFlag(seg.docSuperseded(doc)),
 		})
 	}
 	return hits
@@ -717,16 +717,16 @@ func contentQueryTerms(tokens []string) []string {
 func corpusBlocks() ([]SearchHit, error) {
 	var out []SearchHit
 	for _, f := range corpusOf() {
-		data, err := os.ReadFile(f.Path)
+		data, err := os.ReadFile(f.path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		base := filepath.Base(f.Path)
-		for _, block := range parseBlocks(f.Mode, base, data) {
-			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block})
+		base := filepath.Base(f.path)
+		for _, block := range parseBlocks(f.mode, base, data) {
+			out = append(out, SearchHit{Bank: f.bank, File: base, Block: block})
 		}
 	}
 	return out, nil
@@ -734,14 +734,14 @@ func corpusBlocks() ([]SearchHit, error) {
 
 // memoryEntry is one discrete memory item (the ADK MemoryEntry shape): a bank block with id, date and type metadata.
 type memoryEntry struct {
-	ID         string
-	Date       string // YYYY-MM-DD from the title, "" when the block carries none
-	Type       string // decision | convention | progress | session | context | topic | knowledge
-	Title      string
-	Body       string // the whole block, id markers stripped
-	Bank, File string
-	Archived   bool
-	Superseded bool
+	id         string
+	date       string // YYYY-MM-DD from the title, "" when the block carries none
+	typ        string // decision | convention | progress | session | context | topic | knowledge
+	title      string
+	body       string // the whole block, id markers stripped
+	file       string
+	archived   bool
+	superseded bool
 }
 
 var (
@@ -806,19 +806,19 @@ func entryFromHit(h SearchHit) memoryEntry {
 	}
 	title := strings.TrimLeft(stripIDMarks(textutil.FirstLine(h.Block)), "#- ")
 	return memoryEntry{
-		ID: id, Date: dateRE().FindString(title), Type: typ, Title: truncateLine(title),
-		Body: strings.TrimSpace(stripIDMarks(h.Block)), Bank: h.Bank, File: h.File,
-		Archived: h.Bank == "archive", Superseded: isSupersededBlock(h.Block),
+		id: id, date: dateRE().FindString(title), typ: typ, title: truncateLine(title),
+		body: strings.TrimSpace(stripIDMarks(h.Block)), file: h.File,
+		archived: h.Bank == "archive", superseded: isSupersededBlock(h.Block),
 	}
 }
 
 // pointer is the one-line reference `memory search <id>` expands.
 func (e memoryEntry) pointer() string {
-	line := e.ID
-	if e.Date != "" && !strings.Contains(e.Title, e.Date) {
-		line += " · " + e.Date
+	line := e.id
+	if e.date != "" && !strings.Contains(e.title, e.date) {
+		line += " · " + e.date
 	}
-	if title := strings.Join(strings.Fields(e.Title), " "); title != "" {
+	if title := strings.Join(strings.Fields(e.title), " "); title != "" {
 		line += " · " + title
 	}
 	return line
@@ -826,7 +826,7 @@ func (e memoryEntry) pointer() string {
 
 // typeRank orders entry types for recall: decisions and conventions first, session narrative last.
 func (e memoryEntry) typeRank() int {
-	switch e.Type {
+	switch e.typ {
 	case "decision", "convention":
 		return 0
 	case "session":

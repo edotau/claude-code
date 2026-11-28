@@ -46,7 +46,7 @@ func extractTestGit(t *testing.T, root string, args ...string) string {
 	return strings.TrimSpace(out)
 }
 
-func extractRunFixture(t *testing.T) (string, ExtractOptions) {
+func extractRunFixture(t *testing.T) (string, extractOptions) {
 	t.Helper()
 	isolatedConfig(t)
 	initStore(t)
@@ -63,15 +63,15 @@ func extractRunFixture(t *testing.T) (string, ExtractOptions) {
 	extractTestGit(t, root, "config", "gc.auto", "0")
 	extractTestGit(t, root, "add", "--all")
 	extractTestGit(t, root, "commit", "-m", "seed extract fixture")
-	return root, ExtractOptions{Now: now, AccessLogs: []string{accessLogPath()}}
+	return root, extractOptions{now: now, accessLogs: []string{accessLogPath()}}
 }
 
-func extractRunJSON(t *testing.T, o ExtractRunOptions) ExtractRunReport {
+func extractRunJSON(t *testing.T, o ExtractRunOptions) extractRunReport {
 	t.Helper()
 	o.Format = "json"
 	var out bytes.Buffer
 	extractRunOK(t, RunExtract(o, &out))
-	var rep ExtractRunReport
+	var rep extractRunReport
 	extractRunOK(t, json.Unmarshal(out.Bytes(), &rep))
 	return rep
 }
@@ -92,7 +92,7 @@ func TestExtractRunLifecycle(t *testing.T) {
 	count := 0
 	for _, row := range dry.Rows {
 		_, err := os.Stat(filepath.Join(root, row.Path))
-		if row.Action == ExtractPurge {
+		if row.Action == extractPurge {
 			count++
 			extractRunEqual(t, os.IsNotExist(err), true)
 		} else {
@@ -100,12 +100,12 @@ func TestExtractRunLifecycle(t *testing.T) {
 		}
 	}
 	extractRunEqual(t, count, 2)
-	extractRunEqual(t, purged.Purged, ExtractTotal{Files: count, Bytes: int64(len("same fixture\n"))})
+	extractRunEqual(t, purged.Purged, extractTotal{Files: count, Bytes: int64(len("same fixture\n"))})
 	extractRunEqual(t, extractTestGit(t, root, "rev-parse", "HEAD^"), head)
 	committed, err := extractCleanHead(root)
 	extractRunOK(t, err)
 	again := extractRunJSON(t, ExtractRunOptions{Purge: true})
-	extractRunEqual(t, again.Purged, ExtractTotal{})
+	extractRunEqual(t, again.Purged, extractTotal{})
 	extractRunEqual(t, again.RemainingSHA256, purged.RemainingSHA256)
 	extractRunEqual(t, len(again.RemainingSHA256), 64)
 	extractRunEqual(t, extractTestGit(t, root, "rev-parse", "HEAD"), committed)
@@ -113,7 +113,7 @@ func TestExtractRunLifecycle(t *testing.T) {
 
 func TestExtractRunRefusals(t *testing.T) {
 	root, opts := extractRunFixture(t)
-	result, err := ClassifyExtract(root, opts)
+	result, err := classifyExtract(root, opts)
 	extractRunOK(t, err)
 	head, err := extractCleanHead(root)
 	extractRunOK(t, err)
@@ -123,7 +123,7 @@ func TestExtractRunRefusals(t *testing.T) {
 	extractRunOK(t, os.Remove(filepath.Join(root, "dirty.md")))
 	before := extractFixtureSnapshot(t, root)
 	for i := range result.Rows {
-		if result.Rows[i].Action == ExtractPurge {
+		if result.Rows[i].Action == extractPurge {
 			result.Rows[i].SHA256 = "changed fixture digest"
 			break
 		}
@@ -135,16 +135,16 @@ func TestExtractRunRefusals(t *testing.T) {
 	alias := filepath.Join(t.TempDir(), "alias")
 	extractRunOK(t, os.Symlink(root, alias))
 	extractRunFails(t, extractOutputOutsideStore(root, filepath.Join(alias, "out.json")), "outside")
-	unknown, err := ClassifyExtract(root, ExtractOptions{Now: opts.Now})
+	unknown, err := classifyExtract(root, extractOptions{now: opts.now})
 	extractRunOK(t, err)
 	for _, row := range unknown.Rows {
-		extractRunEqual(t, row.Action == ExtractPurge, false)
+		extractRunEqual(t, row.Action == extractPurge, false)
 	}
 }
 
 func TestExtractRunRollback(t *testing.T) {
 	root, opts := extractRunFixture(t)
-	result, err := ClassifyExtract(root, opts)
+	result, err := classifyExtract(root, opts)
 	extractRunOK(t, err)
 	head := extractTestGit(t, root, "rev-parse", "HEAD")
 	removals, err := extractRemovals(root, result, head)
@@ -164,23 +164,23 @@ func extractAssertFact(t *testing.T, value, known bool, err error, wantValue, wa
 func TestExtractGitFactsEvidence(t *testing.T) {
 	root, _ := extractRunFixture(t)
 	head := extractTestGit(t, root, "rev-parse", "HEAD")
-	facts := ExtractGitFacts{Host: "fixture-host"}
+	facts := extractGitFacts{host: "fixture-host"}
 	meta := "---\nrepository: " + root + "\nhost: fixture-host\n"
 	extractTestGit(t, root, "branch", "fixture-present")
-	exists, known, err := facts.WorktreeBranchExists("", []byte(meta+"branch: fixture-present\n---\n"))
+	exists, known, err := facts.worktreeBranchExists("", []byte(meta+"branch: fixture-present\n---\n"))
 	extractAssertFact(t, exists, known, err, true, true)
-	exists, known, err = facts.WorktreeBranchExists("", []byte(meta+"branch: fixture-missing\n---\n"))
+	exists, known, err = facts.worktreeBranchExists("", []byte(meta+"branch: fixture-missing\n---\n"))
 	extractAssertFact(t, exists, known, err, false, true)
-	landed, known, err := facts.ReportResultInGit("", []byte(meta+"result_commit: "+head+"\n---\n"))
+	landed, known, err := facts.reportResultInGit("", []byte(meta+"result_commit: "+head+"\n---\n"))
 	extractAssertFact(t, landed, known, err, true, true)
 	tree := extractTestGit(t, root, "rev-parse", "HEAD^{tree}")
 	unlanded := extractTestGit(t, root, "commit-tree", tree, "-p", head, "-m", "unlanded fixture result")
-	landed, known, err = facts.ReportResultInGit("", []byte(meta+"result_commit: "+unlanded+"\n---\n"))
+	landed, known, err = facts.reportResultInGit("", []byte(meta+"result_commit: "+unlanded+"\n---\n"))
 	extractAssertFact(t, landed, known, err, false, false)
 	for _, data := range []string{meta + "branch: fixture-missing\nhost: fixture-peer\n---\n", "no metadata, only prose", "---\nbranch: fixture-missing\n---\n", meta + "result_commit: HEAD\n---\n", "---\nrepository: " + t.TempDir() + "\nbranch: fixture-missing\n---\n"} {
-		exists, known, err := facts.WorktreeBranchExists("", []byte(data))
+		exists, known, err := facts.worktreeBranchExists("", []byte(data))
 		extractAssertFact(t, exists, known, err, false, false)
-		landed, known, err := facts.ReportResultInGit("", []byte(data))
+		landed, known, err := facts.reportResultInGit("", []byte(data))
 		extractAssertFact(t, landed, known, err, false, false)
 	}
 }
@@ -194,8 +194,8 @@ func TestExtractRunLinkedPlans(t *testing.T) {
 	extractRunOK(t, os.Symlink(plans, filepath.Join(target, "cycle")))
 	dry := extractRunJSON(t, ExtractRunOptions{DryRun: true})
 	rows := extractFixtureRows(t, dry.ExtractResult)
-	extractRunEqual(t, rows["reports/b.md"].Action, ExtractKeep)
-	extractRunEqual(t, rows["reports/b.md"].Reason, ExtractLinked)
+	extractRunEqual(t, rows["reports/b.md"].Action, extractKeep)
+	extractRunEqual(t, rows["reports/b.md"].Reason, extractLinked)
 	extractRunEqual(t, len(rows["reports/b.md"].Signals.LinkedBy), 1)
 }
 
@@ -209,14 +209,14 @@ func TestExtractRecallCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	sources := map[string][]byte{"reports/a.md": []byte("a\n"), "reports/b.md": []byte("b\n")}
-	keep := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "T", Text: "ab", Sources: []string{"reports/a.md", "reports/b.md"}}}, Purge: []string{}}
+	keep := extractRewriteAnswer{Entries: []extractEntry{{Title: "T", Text: "ab", Sources: []string{"reports/a.md", "reports/b.md"}}}, Purge: []string{}}
 	ledger := filepath.Join(dir, "loss.log")
-	report, err := CheckExtractRecall([]string{log}, ledger, sources, keep, now)
-	if err != nil || report.Queried != 2 || report.Lost != 0 {
+	report, err := checkExtractRecall([]string{log}, ledger, sources, keep, now)
+	if err != nil || report.queried != 2 || report.lost != 0 {
 		t.Fatalf("kept successors: report=%+v err=%v", report, err)
 	}
-	drop := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "T", Text: "a", Sources: []string{"reports/a.md"}}}, Purge: []string{"reports/b.md"}}
-	if report, err := CheckExtractRecall([]string{log}, ledger, sources, drop, now); err == nil || report.Lost != 1 || !strings.Contains(err.Error(), "limit 2%") {
+	drop := extractRewriteAnswer{Entries: []extractEntry{{Title: "T", Text: "a", Sources: []string{"reports/a.md"}}}, Purge: []string{"reports/b.md"}}
+	if report, err := checkExtractRecall([]string{log}, ledger, sources, drop, now); err == nil || report.lost != 1 || !strings.Contains(err.Error(), "limit 2%") {
 		t.Fatalf("dropped queried entry: report=%+v err=%v", report, err)
 	}
 	checkExtractRecallVerdict(t)
@@ -233,55 +233,49 @@ func TestExtractRecallCumulativeAndNoLog(t *testing.T) {
 	if err := os.WriteFile(log, []byte(lines.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	batch := func(a, b string) (ExtractRecallReport, error) {
+	batch := func(a, b string) (extractRecallReport, error) {
 		sources := map[string][]byte{a: []byte("a\n"), b: []byte("b\n")}
-		ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "T", Text: "x", Sources: []string{"other.md"}}}, Purge: []string{a, b}}
-		return CheckExtractRecall([]string{log}, ledger, sources, ans, now)
+		ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "T", Text: "x", Sources: []string{"other.md"}}}, Purge: []string{a, b}}
+		return checkExtractRecall([]string{log}, ledger, sources, ans, now)
 	}
 	report, err := batch("reports/s0.md", "reports/s1.md")
-	if err != nil || report.Lost != 2 {
+	if err != nil || report.lost != 2 {
 		t.Fatalf("first batch (2%% of served): report=%+v err=%v", report, err)
 	}
-	if err := RecordExtractLoss(ledger, now.Add(-time.Hour), report.Lost); err != nil {
+	if err := recordExtractLoss(ledger, now.Add(-time.Hour), report.lost); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordExtractRefusal(ledger, now, "group", errors.New("check refused")); err != nil {
+	if err := recordExtractRefusal(ledger, now, "group", errors.New("check refused")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := batch("reports/s2.md", "reports/s3.md"); err == nil || !strings.Contains(err.Error(), "4 of 100") {
 		t.Fatalf("second batch must pass the cumulative limit: %v", err)
 	}
-	if _, err := CheckExtractRecall(nil, ledger, nil, ExtractRewriteAnswer{}, now); !errors.Is(err, ErrExtractNoAccessLog) {
+	if _, err := checkExtractRecall(nil, ledger, nil, extractRewriteAnswer{}, now); !errors.Is(err, errExtractNoAccessLog) {
 		t.Fatalf("no access log err = %v", err)
 	}
 }
 
 func checkExtractRecallVerdict(t *testing.T) {
 	t.Helper()
-	if size, _, err := ExtractRecallMeasure(t.TempDir()); err != nil || size != 0 {
+	if size, _, err := extractRecallMeasure(t.TempDir()); err != nil || size != 0 {
 		t.Fatalf("empty store measure = %d, %v", size, err)
-	}
-	if err := (ExtractRecallReport{BytesBefore: 10, BytesAfter: 5}).Verdict(); err != nil {
-		t.Fatalf("smaller store: %v", err)
-	}
-	if err := (ExtractRecallReport{BytesBefore: 5, BytesAfter: 10}).Verdict(); err == nil {
-		t.Fatal("grown store passed")
 	}
 }
 
 func TestExtractRefusalsExpireAndLedgerPrunes(t *testing.T) {
 	ledger := filepath.Join(t.TempDir(), "loss.log")
 	now := time.Now()
-	if err := RecordExtractRefusal(ledger, now.AddDate(0, 0, -accessRotateDays-1), "old", errors.New("old recall budget")); err != nil {
+	if err := recordExtractRefusal(ledger, now.AddDate(0, 0, -accessRotateDays-1), "old", errors.New("old recall budget")); err != nil {
 		t.Fatal(err)
 	}
-	if rows, err := ExtractRefusals(ledger); err != nil || len(rows) != 0 {
+	if rows, err := extractRefusals(ledger); err != nil || len(rows) != 0 {
 		t.Fatalf("expired refusal still blocks a retry: %v, %v", rows, err)
 	}
-	if err := RecordExtractRefusal(ledger, now, "current", errors.New("current check")); err != nil {
+	if err := recordExtractRefusal(ledger, now, "current", errors.New("current check")); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := ExtractRefusals(ledger)
+	rows, err := extractRefusals(ledger)
 	if err != nil || len(rows) != 1 || rows["current"] != "current check" {
 		t.Fatalf("current refusal lost: %v, %v", rows, err)
 	}

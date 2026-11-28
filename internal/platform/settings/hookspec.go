@@ -386,7 +386,9 @@ func HookEvents() []string {
 func HookModules() string {
 	var names []string
 	for _, sp := range Specs() {
-		names = append(names, sp.Name)
+		if !slices.Contains(names, sp.Name) {
+			names = append(names, sp.Name)
+		}
 	}
 	return HookHelp("modules: ", names)
 }

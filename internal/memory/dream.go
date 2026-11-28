@@ -94,13 +94,13 @@ func dreamDue(now time.Time) bool {
 
 // dreamOptions drive one consolidation.
 type dreamOptions struct {
-	CWD   string
-	Run   AgentFunc
-	Out   io.Writer
-	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
+	cwd   string
+	run   AgentFunc
+	out   io.Writer
+	ifDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 
-	Trigger string // session-start | schedule | manual, for the result record
-	Forced  bool
+	trigger string // session-start | schedule | manual, for the result record
+	forced  bool
 
 	log *os.File // the run's log, when the caller opened it before catch-up; Out already tees into it
 }
@@ -139,15 +139,15 @@ func dreamProcedure() string {
 
 // dream runs one consolidation and records it, whatever the outcome, in dream-results.jsonl.
 func dream(o dreamOptions) error {
-	if o.Out == nil {
-		o.Out = io.Discard
+	if o.out == nil {
+		o.out = io.Discard
 	}
 	begin := time.Now()
 	if o.log == nil {
 		o = o.withLog()
 	}
 	log := o.log
-	res := DreamResult{At: begin, Trigger: o.Trigger, Forced: o.Forced}
+	res := DreamResult{At: begin, Trigger: o.trigger, Forced: o.forced}
 	err := dreamRun(o, &res)
 	res.DurationMs = time.Since(begin).Milliseconds()
 	finishDreamResult(&res, err, log)
@@ -156,11 +156,11 @@ func dream(o dreamOptions) error {
 
 // withLog opens the run's log and tees Out into it; a log that cannot open loses only the copy.
 func (o dreamOptions) withLog() dreamOptions {
-	if o.Out == nil {
-		o.Out = io.Discard
+	if o.out == nil {
+		o.out = io.Discard
 	}
 	if log, _ := openDreamLog(); log != nil {
-		o.log, o.Out = log, io.MultiWriter(o.Out, log)
+		o.log, o.out = log, io.MultiWriter(o.out, log)
 	}
 	return o
 }
@@ -198,8 +198,8 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 	_, failures, _ := dreamStamp() // read before the in-lock stamp resets the count
 	notDue := false
 	lockErr := paths.WithFileLock(lockPathOf(), func() error {
-		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
-			fmt.Fprintln(o.Out, "memory dream: "+dreamNotDue)
+		if notDue = o.ifDue && !dreamDue(time.Now()); notDue {
+			fmt.Fprintln(o.out, "memory dream: "+dreamNotDue)
 			return nil
 		}
 		run = dreamLocked(o)
@@ -209,12 +209,12 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 		res.Reason = dreamNotDue
 		return nil
 	}
-	if lockErr == nil && run.runErr == nil && o.Run != nil {
+	if lockErr == nil && run.runErr == nil && o.run != nil {
 		run.runAgent(o) // no store lock across the model call
 		dreamExtract(o, run.runErr)
 	}
 	run.fill(res)
-	flags := dreamPerformance(o.Out)
+	flags := dreamPerformance(o.out)
 	if err := errors.Join(lockErr, run.runErr, run.archiveErr, dreamSettle(o, flags)); err != nil { // settle after unlocking
 		return errors.Join(err, stampDream(time.Now(), failures+1))
 	}
@@ -225,15 +225,15 @@ func dreamRun(o dreamOptions, res *DreamResult) error {
 func dreamSettle(o dreamOptions, flags []string) error {
 	if _, err := settleBank(time.Now()); err != nil {
 		settleErr := fmt.Errorf("settle: %w", err)
-		fmt.Fprintln(o.Out, "memory dream:", settleErr)
+		fmt.Fprintln(o.out, "memory dream:", settleErr)
 		return settleErr
 	}
-	problems := doctor(o.CWD, DefaultStaleDays, time.Now())
+	problems := doctor(o.cwd, DefaultStaleDays, time.Now())
 	if len(flags) > 0 {
 		problems = append([]string{strings.Join(flags, "; ")}, problems...)
 	}
 	if err := cacheDoctorNotice(problems); err != nil {
-		fmt.Fprintln(o.Out, "memory dream: doctor notice:", err)
+		fmt.Fprintln(o.out, "memory dream: doctor notice:", err)
 	}
 	return nil
 }
@@ -267,15 +267,15 @@ func dreamLocked(o dreamOptions) dreamRan {
 	r.archived = n
 	if err != nil {
 		r.archiveErr = fmt.Errorf("archive: %w", err)
-		fmt.Fprintln(o.Out, "memory dream:", r.archiveErr)
+		fmt.Fprintln(o.out, "memory dream:", r.archiveErr)
 	}
-	fmt.Fprintf(o.Out, "memory dream: archived %d block(s)\n", n)
-	if o.Run == nil {
+	fmt.Fprintf(o.out, "memory dream: archived %d block(s)\n", n)
+	if o.run == nil {
 		return r
 	}
 	since, _, _ := effectiveStamp(time.Now()) // no stamp: the zero time lists every file
 	changed := dreamChanged(since)
-	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
+	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.out))
 	prompt := agentDreamPrompt(changed)
 	listing, base, files, docs, err := dreamListing()
 	r.prompt, r.base, r.files, r.docs, r.runErr = prompt+listing, base, files, docs, err
@@ -343,37 +343,37 @@ func (r *dreamRan) runAgent(o dreamOptions) {
 	// the rtk spawn and the plan snapshot are independent, so they run concurrently
 	parallel.Rethrow(parallel.All(2, func(i int) error {
 		if i == 0 {
-			r.plan = startPlanPhase(o.CWD)
+			r.plan = startPlanPhase(o.cwd)
 		} else {
 			misses, rtkErr = readDreamRtk()
 		}
 		return nil
 	})...)
-	defer func() { r.dropReverted(r.plan.finish(o.Out)) }()
+	defer func() { r.dropReverted(r.plan.finish(o.out)) }()
 	prompt := r.prompt + r.plan.promptBlock()
-	writeDreamRtk(o.Out, misses, rtkErr)
+	writeDreamRtk(o.out, misses, rtkErr)
 	if block := rtkPromptBlock(misses); block != "" {
-		fmt.Fprintln(o.Out, "memory dream: tools-off; deferred proposal guidance:", block)
+		fmt.Fprintln(o.out, "memory dream: tools-off; deferred proposal guidance:", block)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	r.fb = new(CodeFallback)
 	ctx, r.job = WithJobReport(WithCodeFallback(ctx, r.fb))
-	ctx = WithJobOutput(ctx, o.Out)
-	ctx, answer := WithJobAnswer(ctx, DreamBatchSchema())
-	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.CWD)
-	fmt.Fprintln(o.Out, dreamRunLine(who, err, r.job.Local))
+	ctx = WithJobOutput(ctx, o.out)
+	ctx, answer := WithJobAnswer(ctx, dreamBatchSchema())
+	who, err := o.run(withChildEnv(ctx, UpdateChildEnv+"=1", dreamChildEnv+"=1"), prompt, o.cwd)
+	fmt.Fprintln(o.out, dreamRunLine(who, err, r.job.Local))
 	if err != nil && strings.Contains(err.Error(), "\n") {
-		fmt.Fprintln(o.Out, "memory dream: error detail:", err)
+		fmt.Fprintln(o.out, "memory dream: error detail:", err)
 	}
 	if err == nil {
-		if err = r.applyAnswer(*answer, o.Out); err != nil && refused(err) {
+		if err = r.applyAnswer(*answer, o.out); err != nil && refused(err) {
 			err = r.retryAnswer(o, prompt, err)
 		}
 		err = r.job.named(err)
 	}
 	r.runErr = err
-	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.Out))
+	r.archiveErr = errors.Join(r.archiveErr, dreamIngest(o.out))
 }
 
 // retryAnswer gives the one code-mode fallback the failure and a fresh listing, then applies its corrected batch.
@@ -385,8 +385,8 @@ func (r *dreamRan) retryAnswer(o dreamOptions, prompt string, failed error) erro
 	r.base, r.files, r.docs = base, files, docs
 	ctx, cancel := context.WithTimeout(withChildEnv(context.Background(), UpdateChildEnv+"=1", dreamChildEnv+"=1"), updateTimeout)
 	defer cancel()
-	return r.fb.Retry(ctx, prompt+"\n\nFresh entry listing:"+listing, o.CWD, DreamBatchSchema(), r.job.models(), failed,
-		func(answer string) error { return r.applyAnswer(answer, o.Out) })
+	return r.fb.retry(ctx, prompt+"\n\nFresh entry listing:"+listing, o.cwd, dreamBatchSchema(), r.job.models(), failed,
+		func(answer string) error { return r.applyAnswer(answer, o.out) })
 }
 
 // applyAnswer records only committed operations: a failed batch writes nothing, including its ok ops.
@@ -431,11 +431,11 @@ func (r *dreamRan) applyChecked(batch Batch, out io.Writer) error {
 	}
 	if _, confirmed := errors.AsType[*committedErr](err); err != nil && !confirmed {
 		// the commit state is uncertain: attempt no side entry and list them all
-		return &AfterCommitError{Err: fmt.Errorf("dream batch: %w; side entries not attempted: [%s]", err, strings.Join(sideLabels(batch), ", "))}
+		return &afterCommitError{err: fmt.Errorf("dream batch: %w; side entries not attempted: [%s]", err, strings.Join(sideLabels(batch), ", "))}
 	}
 	// a confirmed commit (a settle failure included): the side entries apply and no retry may re-apply the bank
 	if err = errors.Join(err, r.applySide(batch, out)); err != nil {
-		return &AfterCommitError{Err: fmt.Errorf("dream batch: %w", err)}
+		return &afterCommitError{err: fmt.Errorf("dream batch: %w", err)}
 	}
 	return nil
 }

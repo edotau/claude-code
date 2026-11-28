@@ -352,9 +352,9 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 		dir, logRE string
 		env        []string
 	}{
-		{[]string{"memory", "update", "--transcript", "/t.jsonl", "--cwd", "/c", "--session", "s1"}, "/c", "update-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
+		{[]string{"memory", "update", "--transcript", "/t.jsonl", "--cwd", "/c", "--session", "s1"}, "/c", "update-" + stamp + `\.log`, []string{detachedEnv + "=1"}},
 		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, paths.MemoryStateDir(), `watch-s1\.log`, nil},
-		{[]string{"memory", "update", "--catchup", "--skip", "s1"}, "/c", "catchup-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
+		{[]string{"memory", "update", "--catchup", "--skip", "s1"}, "/c", "catchup-" + stamp + `\.log`, []string{detachedEnv + "=1"}},
 		{[]string{"memory", "index", "--mint-only"}, "/r", "",
 			[]string{providers.EnvSessionProfile + "=p1", UpdateChildEnv + "=1"}},
 	}
@@ -367,13 +367,13 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 			t.Errorf("launch %d: args %q dir %q; want args %q dir %q log %q", i, g.args, g.dir, w.args, w.dir, w.logRE)
 		}
 	}
-	if r, ok := readUpdateResult("s1"); !ok || r.Status != updatePending || r.Log != (*got)[0].log {
+	if r, ok := readUpdateResult("s1"); !ok || r.status != updatePending || r.log != (*got)[0].log {
 		t.Errorf("update result = %+v, %v; want pending with log %q", r, ok, (*got)[0].log)
 	}
 }
 
 func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
-	base := StubSpawn(t, true)
+	base := stubSpawn(t, true)
 	outer, restoreOuter := StubSpawns(true)
 	inner, restoreInner := StubSpawns(false)
 	if spawn.update("", "", "") || !spawn.catchup("", "") || !spawn.watcher(nil, "") || !spawn.refresh("", "") {
@@ -407,8 +407,8 @@ func sameLaunch(a, b launch) bool {
 	return a.bin == b.bin && a.dir == b.dir && a.log == b.log && slices.Equal(a.args, b.args) && slices.Equal(a.env, b.env)
 }
 
-// StubSpawn is memtest.StubSpawn for this package's own tests, which cannot import memtest (cycle).
-func StubSpawn(tb testing.TB, ok bool) *Spawns {
+// stubSpawn is memtest.StubSpawn for this package's own tests, which cannot import memtest (cycle).
+func stubSpawn(tb testing.TB, ok bool) *Spawns {
 	tb.Helper()
 	s, restore := StubSpawns(ok)
 	tb.Cleanup(restore)

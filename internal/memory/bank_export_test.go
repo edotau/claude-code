@@ -127,7 +127,7 @@ func TestExportGuard(t *testing.T) {
 	if rep := exportGuard(t, db); !slices.Equal(rep.Written, []string{"conventions.md", "feedback/x.md"}) || exportRead(t, root, "feedback/x.md") != note {
 		t.Fatalf("first export = %+v, want both files rendered byte-equal", rep)
 	}
-	if _, err := os.Stat(NativeIndex()); err != nil {
+	if _, err := os.Stat(nativeIndex()); err != nil {
 		t.Fatalf("MEMORY.md missing after export: %v", err)
 	}
 	exportWrite(t, root, "notes/new.md", "# New\n\nhi\n")
@@ -506,7 +506,7 @@ func TestExportGuardKeepsNoCopyOfAGitVersion(t *testing.T) {
 	root := paths.MemoryStoreDir()
 	v1 := "# X\n\nv1\n"
 	exportWrite(t, root, "notes/x.md", v1)
-	if _, _, err := StoreRepo().Commit([]string{"notes/x.md"}, "seed", ""); err != nil {
+	if _, _, err := StoreRepo().commit([]string{"notes/x.md"}, "seed", ""); err != nil {
 		t.Fatal(err)
 	}
 	db := &fakeExportDB{root: root, docs: map[string]string{"notes/x.md": "# X\n\nv2\n"}, last: map[string]string{"notes/x.md": textutil.SHA256Hex([]byte(v1))}}

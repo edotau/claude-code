@@ -245,11 +245,11 @@ func (s *semanticQuery) cosineRow(row vectorRow) (float64, bool) {
 func (s *semanticQuery) candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	var all []scoredHit
 	for i, seg := range segs {
-		if seg == nil || files[i].Bank == "archive" || files[i].Bank == techdebtDir {
+		if seg == nil || files[i].bank == "archive" || files[i].bank == techdebtDir {
 			continue
 		}
-		for doc := range seg.Docs() {
-			block, _ := seg.Doc(doc)
+		for doc := range seg.docs() {
+			block, _ := seg.doc(doc)
 			h, cos, ok := s.hitFor(files[i], block, floor)
 			if !ok {
 				continue
@@ -324,7 +324,7 @@ func (s *semanticQuery) hitFor(f corpusFile, block string, floor float64) (Searc
 	if isSupersededBlock(block) {
 		return SearchHit{}, 0, false
 	}
-	h := SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block}
+	h := SearchHit{Bank: f.bank, File: filepath.Base(f.path), Block: block}
 	h.ID = s.blocks[hitHash(h)]
 	cos, ok := s.cosineRow(s.rows[h.ID])
 	if h.ID == "" || !ok || cos < floor {

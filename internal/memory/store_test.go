@@ -129,8 +129,8 @@ func initStore(t *testing.T) {
 	if err := repo.plainDir(); err != nil {
 		t.Fatal(err)
 	}
-	if !repo.Exists() { // a copy of the template whose root check passed; Ensure below still refuses remotes
-		gitDir := filepath.Join(repo.Dir, ".git")
+	if !repo.exists() { // a copy of the template whose root check passed; Ensure below still refuses remotes
+		gitDir := filepath.Join(repo.dir, ".git")
 		if err := os.CopyFS(gitDir, os.DirFS(storeTemplate(t))); err != nil {
 			t.Fatal(err)
 		}
@@ -153,10 +153,10 @@ var realInitDirs sync.Map
 // copyInit is gitInit for tests: a copy of the template .git, marked root-verified like initStore does.
 func copyInit(real func(storeRepo) error) func(storeRepo) error {
 	return func(r storeRepo) error {
-		if _, ok := realInitDirs.Load(r.Dir); ok || r.Dir == storeTmpl.dir {
+		if _, ok := realInitDirs.Load(r.dir); ok || r.dir == storeTmpl.dir {
 			return real(r)
 		}
-		gitDir := filepath.Join(r.Dir, ".git")
+		gitDir := filepath.Join(r.dir, ".git")
 		if err := os.CopyFS(gitDir, os.DirFS(filepath.Join(storeTmpl.dir, ".git"))); err != nil {
 			return err
 		}
@@ -232,9 +232,9 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv(k, v)
 	}
 	tb := &hosttest.MainTB{}
-	StubSpawn(tb, true) // no memory test may launch a real detached worker
+	stubSpawn(tb, true) // no memory test may launch a real detached worker
 	if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
-		storeTmpl.err = storeRepo{Dir: storeTmpl.dir}.Ensure()
+		storeTmpl.err = storeRepo{dir: storeTmpl.dir}.Ensure()
 	}
 	if storeTmpl.err == nil { // git's inert sample hooks: fewer files for every per-test copy to write and remove
 		samples, _ := filepath.Glob(filepath.Join(storeTmpl.dir, ".git", "hooks", "*.sample"))
@@ -376,7 +376,7 @@ func mustRemove(t *testing.T, path string) {
 // wantAction fails unless r.Action is want.
 func wantAction(t *testing.T, label string, r linkResult, want string) {
 	t.Helper()
-	if r.Action != want {
+	if r.action != want {
 		t.Fatalf("%s: %+v", label, r)
 	}
 }
@@ -401,7 +401,7 @@ func TestEnsureLinkStates(t *testing.T) {
 	mustMkdir(t, other)
 	r := ensureLink(link, other)
 	wantAction(t, "wrong link", r, "relinked")
-	if !strings.Contains(r.Detail, target) {
+	if !strings.Contains(r.detail, target) {
 		t.Fatalf("wrong link: %+v", r)
 	}
 	assertLinkedTo(t, link, other)
@@ -459,7 +459,7 @@ func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; linkNativeFor must resolve afresh
 	probes := countGitProbes(t, "--git-common-dir")
 	res, ok := linkNativeFor(root)
-	if !ok || res.Target != paths.MemoryStoreDir() || res.Action != "linked" {
+	if !ok || res.target != paths.MemoryStoreDir() || res.action != "linked" {
 		t.Fatalf("linkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
 	}
 	if *probes != 1 {
@@ -502,7 +502,7 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 		}
 		res, ok := linkNativeFor(root)
 		wantTarget := paths.MemorySubDir("")
-		if !ok || res.Target != wantTarget {
+		if !ok || res.target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
 		}
 		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; got != paths.MemoryStoreDir() {
@@ -515,7 +515,7 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 		if err := os.Symlink(paths.MemoryStoreDir(), link); err != nil {
 			t.Fatal(err)
 		}
-		flagged := slices.ContainsFunc(brokenNativeLinks(root), func(r linkResult) bool { return r.Link == link })
+		flagged := slices.ContainsFunc(brokenNativeLinks(root), func(r linkResult) bool { return r.link == link })
 		if flagged {
 			t.Error("a link to the store root was flagged broken")
 		}
@@ -728,7 +728,7 @@ func TestCommitCapturesDirtyNativeEditsBeforeOverwrite(t *testing.T) {
 	commit := func(subject, data string) {
 		t.Helper()
 		err := WithBankLock(BankLockWait, func() error {
-			_, err := commitChangesLocked(subject, []storeChange{{Rel: "r/a.md", Data: []byte(data)}})
+			_, err := commitChangesLocked(subject, []storeChange{{rel: "r/a.md", data: []byte(data)}})
 			return err
 		})
 		if err != nil {

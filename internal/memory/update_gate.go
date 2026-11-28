@@ -447,7 +447,7 @@ var CodeModeRun func(ctx context.Context, prompt, workdir, schema, model string)
 
 // CodeFallback allows one CodeModeRun per job: a second call fails without dispatching.
 type CodeFallback struct {
-	Model string // "" is opus
+	model string // "" is opus
 	used  atomic.Bool
 	last  atomic.Pointer[string] // how the one dispatch ended
 }
@@ -465,8 +465,8 @@ func JobCodeFallback(ctx context.Context) *CodeFallback {
 	return f
 }
 
-// FallbackModel maps the fallback's model name to a catalog id or alias; an unknown id is an error.
-func FallbackModel(name string) (string, error) {
+// fallbackModel maps the fallback's model name to a catalog id or alias; an unknown id is an error.
+func fallbackModel(name string) (string, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		name = models.Opus
@@ -502,7 +502,7 @@ func (f *CodeFallback) Run(ctx context.Context, prompt, workdir, schema string) 
 	}
 	defer cleanup()
 	prompt = strings.ReplaceAll(prompt, paths.MemoryStoreDir(), dir) + "\n\nWrite nothing and run no memory command: answer with the typed batch only."
-	answer, who, err = CodeModeRun(ctx, prompt, dir, schema, f.Model)
+	answer, who, err = CodeModeRun(ctx, prompt, dir, schema, f.model)
 	if err == nil {
 		if _, derr := decodeBatch(answer); derr != nil {
 			err = fmt.Errorf("code-mode answer rejected: %w", derr)
@@ -516,8 +516,8 @@ func (f *CodeFallback) Run(ctx context.Context, prompt, workdir, schema string) 
 	return answer, who, err
 }
 
-// Retry gives the one fallback a failed first answer and applies the corrected Batch; both failures are named.
-func (f *CodeFallback) Retry(ctx context.Context, prompt, workdir, schema, first string, failed error, apply func(answer string) error) error {
+// retry gives the one fallback a failed first answer and applies the corrected Batch; both failures are named.
+func (f *CodeFallback) retry(ctx context.Context, prompt, workdir, schema, first string, failed error, apply func(answer string) error) error {
 	prompt += assets.MemoryRetryNote(failed.Error())
 	answer, who, err := f.Run(ctx, prompt, workdir, schema)
 	if err == nil {
@@ -525,7 +525,7 @@ func (f *CodeFallback) Retry(ctx context.Context, prompt, workdir, schema, first
 			return nil
 		}
 	}
-	return fmt.Errorf("typed write failed on %s (%v); code-mode fallback on %s failed: %w", cmp.Or(first, "the first model"), failed, cmp.Or(who, f.Model, "opus"), err)
+	return fmt.Errorf("typed write failed on %s (%v); code-mode fallback on %s failed: %w", cmp.Or(first, "the first model"), failed, cmp.Or(who, f.model, "opus"), err)
 }
 
 // ValidateBatchAnswer reports why a typed answer is unusable; nil means it decodes and validates.

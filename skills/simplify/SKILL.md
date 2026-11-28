@@ -1,6 +1,9 @@
 ---
 name: simplify
-description: Review the changed code for reuse, simplification, efficiency and altitude, then apply the safe fixes. Use for "/simplify", "simplify this", "clean up the diff", "tighten this before review/commit", "is there a helper for this already", and the harness's mandatory simplify gate (quality.md Verification Order step 5). Overrides the built-in /simplify. Not for bug hunting (/code-review) or whole-repo refactors.
+description: >-
+  Review changed code for reuse, simplification, efficiency and altitude, then apply safe fixes (quality.md
+  Verification Order step 5; overrides /simplify). Use for "/simplify", "simplify this", "clean up the diff",
+  "tighten before commit". Not for /code-review.
 argument-hint: "[focus on <area>] [paths…|--base <ref>]"
 ---
 

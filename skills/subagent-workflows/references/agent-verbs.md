@@ -47,3 +47,46 @@ Flags and lifecycle: [cost-routing.md](cost-routing.md) → Ask flags and lifecy
 
 Choose once, run once, observe and report through `../SKILL.md` → External relay contract.
 Fallback: [cost-routing.md](cost-routing.md) → Fallback.
+
+## Carried dispatch details
+
+For an agent whose row sets `Carry` (codex, copilot, gemini, opencode), run the ask yourself as a background Bash
+task, then follow it with one wait call; `--carry` refuses pi and claude and takes no `--dry-run` or `--env` (preview
+by dropping it). Pi runs the same way without `--carry`, on any Databricks model for review, audits and self-tested
+edits. As an Agent leaf instead, pick the type (`agents/<type>.md`); its own CLI on its own login stays reachable here
+(`claude-code <agent> …`, overlay `{"runner":"cli"}`). Codex handles cross-family review, plan vetting and delegated
+edits (`claude-code codex review` for a diff), gemini research and codebase sweeps, opencode code and docs work,
+copilot test repair and mechanical edits:
+
+```bash
+claude-code agents ask --carry --background --overlay '{"agent":"<agent>"}' [ask flags] - < BRIEF
+claude-code agents result -f <id>
+```
+
+The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
+ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
+`agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase instead of `quiet`; the idle limit applies.
+**Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line runs the task as a Pi ask first; review,
+docs and gate leaves stay in-context. A brief naming `Agent: pi` (or the type `pi`) is retyped to `coworker`; with
+`Codemode: off` it stays a `claude` leaf running a plain Pi ask. A Pi refusal or failed start (not on the profile's
+menu, no Databricks route, guard did not load) is the one refusal exception: it does the task in-context, `Ran on:`
+naming the failed Pi attempt and what then ran. A brief needing the Agent tool, skills or MCP says `Agent: in-context`;
+`Agent: claude` in a wave plan runs a headless claude ask. Copilot repair briefs name
+`rules/standards/testing-guidelines.md` → TEST and use overlay `"tools":true`.
+
+## External relay checklist
+
+- Reserve the brief with `claude-code agents brief --path <agent>`, read it, then attach the task at that exact path.
+  Keep the prescribed route and flags; add `--workdir` only for the brief's `Workdir:`.
+- Use `agents ask --background` for background work, never shell backgrounding or `run_in_background`.
+- On usage, startup failure or vendor refusal, return the command, redacted error and job id; do not silently
+  substitute an agent (except the default Pi refusal above).
+- Wait with one `claude-code agents result -f <id>` or `agents wait <id> --timeout 590s` per turn. Never start another
+  poller, sleep, or poll files, status or verdicts. After four waits with a running job, hand back its id and follow
+  command as "job still running".
+- When the job ends, make `SubagentHandback` the next action. Include manager messages received meanwhile under
+  "Open items (not delivered to the job)". Then stop; later notifications get "already reported".
+- Return the work agent's verdict under `## Result`, preceded by its actual `ask: ran on` receipt and job/session
+  ids. Add `Relay note:` for dispatch errors; never manufacture a receipt. An unattributed ask is unproven.
+- Run only the stage's prescribed `agents diff --verify <id>`; fan-in belongs to the manager. Inside the vendor CLI or
+  Pi, do the task directly; never invoke the wrapper or ask yourself.

@@ -218,7 +218,7 @@ func TestCandidatesEndToEnd(t *testing.T) {
 		AnswerJob(ctx, `{"ops":[]}`)
 		return "stub", nil
 	}
-	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {
+	if err := dream(dreamOptions{cwd: root, run: run}); err != nil {
 		t.Fatal(err)
 	}
 	if got := candidateProblems(); len(got) != 0 {

@@ -31,12 +31,12 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 		}
 		return "fixture", os.Mkdir(path, 0o700)
 	}
-	err = update(updateOptions{CWD: root, Session: "settle-failure", Run: run})
+	err = update(updateOptions{cwd: root, session: "settle-failure", run: run})
 	if err == nil || !strings.Contains(err.Error(), "settle:") {
 		t.Fatalf("successful agent with failed settlement returned %v, want settlement error", err)
 	}
 	result, ok := readUpdateResult("settle-failure")
-	if !ok || result.Status != updateFailed {
+	if !ok || result.status != updateFailed {
 		t.Fatalf("failed settlement recorded %+v, ok=%v, want failed", result, ok)
 	}
 }
@@ -62,7 +62,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- update(updateOptions{CWD: root, Run: func(context.Context, string, string) (string, error) {
+		done <- update(updateOptions{cwd: root, run: func(context.Context, string, string) (string, error) {
 			return "fixture", os.WriteFile(history, []byte("# History\n\n## New session\n\n- Updated the bank.\n"), 0o600)
 		}})
 	}()
@@ -145,7 +145,7 @@ func TestUpdateReturnsReceiptWriteError(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) { return "fixture", nil }
-	err := update(updateOptions{CWD: root, Session: "receipt-failure", Run: run})
+	err := update(updateOptions{cwd: root, session: "receipt-failure", run: run})
 	if err == nil || !strings.Contains(err.Error(), "record update result") {
 		t.Fatalf("Update = %v, want receipt write error", err)
 	}
@@ -171,7 +171,7 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	}
 	var updateErr error
 	ran, err := paths.TryFileLock(lockPathOf()+".lock", 0, func() error {
-		updateErr = update(updateOptions{CWD: root, Session: "busy", Run: func(context.Context, string, string) (string, error) {
+		updateErr = update(updateOptions{cwd: root, session: "busy", run: func(context.Context, string, string) (string, error) {
 			t.Error("agent ran while a peer held the store lock")
 			return "fixture", nil
 		}})
@@ -190,8 +190,8 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	if !ok || st.state != "bg" || st.edits != 0 || !st.at.Equal(at) {
 		t.Errorf("stamp after busy update = %+v ok=%v, want bg with 0 covered edits at %v", st, ok, at)
 	}
-	if res, _ := readUpdateResult("busy"); res.Status != updateFailed {
-		t.Errorf("receipt status %q, want failed", res.Status)
+	if res, _ := readUpdateResult("busy"); res.status != updateFailed {
+		t.Errorf("receipt status %q, want failed", res.status)
 	}
 }
 
@@ -218,7 +218,7 @@ func TestUpdateHoldsHomeBankLockDuringAgentRun(t *testing.T) {
 		}
 		return "fixture", nil
 	}
-	if err := update(updateOptions{CWD: root, Session: "home-lock", Run: run}); err != nil {
+	if err := update(updateOptions{cwd: root, session: "home-lock", run: run}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	if calls == 0 {
@@ -240,7 +240,7 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	prevFg, prevDetached := updateLockWait, detachedLockWait
 	updateLockWait, detachedLockWait = 10*time.Millisecond, 5*time.Second
 	t.Cleanup(func() { updateLockWait, detachedLockWait = prevFg, prevDetached })
-	t.Setenv(DetachedEnv, "1")
+	t.Setenv(detachedEnv, "1")
 	held, release := make(chan struct{}), make(chan struct{})
 	go func() {
 		_, _ = paths.TryFileLock(lockPathOf()+".lock", 0, func() error { close(held); <-release; return nil })
@@ -248,7 +248,7 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	<-held
 	time.AfterFunc(100*time.Millisecond, func() { close(release) }) // longer than updateLockWait, far inside detachedLockWait
 	ranAgent := false
-	err := update(updateOptions{CWD: root, Session: "detached", Run: func(context.Context, string, string) (string, error) {
+	err := update(updateOptions{cwd: root, session: "detached", run: func(context.Context, string, string) (string, error) {
 		ranAgent = true
 		return "fixture", nil
 	}})
@@ -273,7 +273,7 @@ func TestUpdatePlansAudit(t *testing.T) {
 	write(t, plan, body)
 	run := func(context.Context, string, string) (string, error) { return "fake", nil }
 	var out bytes.Buffer
-	opts := updateOptions{Run: run, CWD: root, Out: &out}
+	opts := updateOptions{run: run, cwd: root, out: &out}
 	start := time.Now()
 	if err := update(opts); err != nil {
 		t.Fatal(err)
@@ -296,22 +296,22 @@ func checkUpdateAuditSkips(t *testing.T, opts updateOptions, plan, body, log, be
 		write(t, plan, body)
 		o := opts
 		var out bytes.Buffer
-		o.Out = &out
+		o.out = &out
 		switch mode {
 		case "historical":
-			o.Historical = true
+			o.historical = true
 		case "non-git":
-			o.CWD = t.TempDir()
+			o.cwd = t.TempDir()
 		case "no-home":
-			o.CWD = gitRepo(t, t.TempDir(), "no-home")
+			o.cwd = gitRepo(t, t.TempDir(), "no-home")
 		case "quiet":
-			sha := strings.TrimSpace(hosttest.In(t, opts.CWD, "rev-parse", "--short=7", "HEAD"))
+			sha := strings.TrimSpace(hosttest.In(t, opts.cwd, "rev-parse", "--short=7", "HEAD"))
 			write(t, plan, "- [x] 1.1 Fixture ("+sha+")\n")
 		case "error":
-			o.CWD = gitRepo(t, t.TempDir(), "no-trunk")
-			write(t, filepath.Join(plans.Home(o.CWD), filepath.Base(plan)), body)
-			hosttest.In(t, o.CWD, "branch", "-m", "topic")
-			hosttest.In(t, o.CWD, "config", "init.defaultBranch", "missing")
+			o.cwd = gitRepo(t, t.TempDir(), "no-trunk")
+			write(t, filepath.Join(plans.Home(o.cwd), filepath.Base(plan)), body)
+			hosttest.In(t, o.cwd, "branch", "-m", "topic")
+			hosttest.In(t, o.cwd, "config", "init.defaultBranch", "missing")
 		}
 		if err := update(o); err != nil {
 			t.Fatalf("%s: %v", mode, err)
@@ -335,8 +335,8 @@ func checkUpdateAuditSkips(t *testing.T, opts updateOptions, plan, body, log, be
 func checkUpdateAuditWorktree(t *testing.T, opts updateOptions, plan, body string) {
 	t.Helper()
 	lane := filepath.Join(t.TempDir(), "lane")
-	hosttest.In(t, opts.CWD, "worktree", "add", "-qb", "lane", lane)
-	opts.CWD = lane
+	hosttest.In(t, opts.cwd, "worktree", "add", "-qb", "lane", lane)
+	opts.cwd = lane
 	write(t, plan, body)
 	if err := update(opts); err != nil {
 		t.Fatal(err)

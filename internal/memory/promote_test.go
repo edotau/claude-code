@@ -123,13 +123,13 @@ func TestPrunePreservesEntryBytes(t *testing.T) {
 				body, want = head+kept+old, head+kept[:len(kept)-1] // the newline joining the moved entry goes with it
 			}
 			write(t, Path(name), body)
-			if n, err := archiveFile(name, 1, testEnv().Now); err != nil || n != 1 {
+			if n, err := archiveFile(name, 1, testEnv().now); err != nil || n != 1 {
 				t.Fatalf("archive = %d, %v", n, err)
 			}
 			if got := mustRead(t, Path(name)); got != want {
 				t.Errorf("kept bytes changed: got %q want %q", got, want)
 			}
-			if got := mustRead(t, archivePath(name, testEnv().Now)); !strings.Contains(got, old) {
+			if got := mustRead(t, archivePath(name, testEnv().now)); !strings.Contains(got, old) {
 				t.Errorf("moved bytes changed: %q", got)
 			}
 		})
@@ -183,7 +183,7 @@ func TestPruneKeepsOutsideArchiveEdit(t *testing.T) {
 	path := Path("conventions.md")
 	body := "# C\n\n- old <!-- id:12345678 -->\n\n- newest <!-- id:23456789 -->\n"
 	write(t, path, body)
-	archive := archivePath("conventions.md", testEnv().Now)
+	archive := archivePath("conventions.md", testEnv().now)
 	write(t, archive, "# Archive\n")
 	outside := "# Archive\n\n- outside\n"
 	prev := readFile
@@ -196,7 +196,7 @@ func TestPruneKeepsOutsideArchiveEdit(t *testing.T) {
 		}
 		return b, err
 	}
-	if _, err := archiveFile("conventions.md", 1, testEnv().Now); err == nil {
+	if _, err := archiveFile("conventions.md", 1, testEnv().now); err == nil {
 		t.Fatal("archive conflict reported as success")
 	}
 	if got := mustRead(t, archive); got != outside {

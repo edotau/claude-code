@@ -21,7 +21,7 @@ import (
 
 // leaseClient embeds each text as a 3-dim vector and counts the texts sent.
 func leaseClient(calls *int, hook func()) *EmbedClient {
-	return &EmbedClient{Model: "fake-gte", EmbedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
+	return &EmbedClient{model: "fake-gte", embedFunc: func(_ context.Context, texts []string) ([][]float32, error) {
 		*calls += len(texts)
 		if hook != nil {
 			hook()
@@ -157,7 +157,7 @@ func (e *leaseEnv) raceKeepsWinner() {
 func (e *leaseEnv) partialKeepsMintedAt() {
 	e.t.Helper()
 	old := backdate(e.t, 2*time.Hour)
-	failing := &EmbedClient{Model: e.c.Model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+	failing := &EmbedClient{model: e.c.model, embedFunc: func(context.Context, []string) ([][]float32, error) {
 		return nil, errors.New("boom")
 	}}
 	if _, _, err := embedChanged(e.ctx, e.root, failing); err == nil {
@@ -331,12 +331,12 @@ func TestEmbedModelChangeIgnoresForeignLease(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, c); err != nil {
 		t.Fatal(err)
 	}
-	other := &EmbedClient{Model: "other-model", EmbedFunc: c.EmbedFunc}
+	other := &EmbedClient{model: "other-model", embedFunc: c.embedFunc}
 	n, _, err := embedChanged(context.Background(), root, other)
 	if err != nil || n != 1 || calls != 2 {
 		t.Fatalf("model change inside lease: n=%d calls=%d err=%v", n, calls, err)
 	}
-	if rec := loadEmbedCache(); rec.Model != other.Model {
+	if rec := loadEmbedCache(); rec.Model != other.model {
 		t.Fatalf("foreign cache survived the model change: %+v", rec)
 	}
 }
@@ -421,7 +421,7 @@ func TestNewSemanticReadErrorIsReported(t *testing.T) {
 	t.Cleanup(func() { readEmbedCache, openEmbedClient = prevRead, prevOpen })
 	readEmbedCache = func() (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
 	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
-		return &EmbedClient{Model: model, EmbedFunc: func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }}, nil
+		return &EmbedClient{model: model, embedFunc: func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }}, nil
 	}
 	if _, err := embedQuery(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("unreadable cache: err %v, want 'unreadable'", err)
@@ -441,7 +441,7 @@ func TestEmbedQueryRequestLeavesBeforeRowsLoad(t *testing.T) {
 	prevOpen, prevRead := openEmbedClient, readEmbedCache
 	t.Cleanup(func() { openEmbedClient, readEmbedCache = prevOpen, prevRead })
 	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
-		return &EmbedClient{Model: model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{model: model, embedFunc: func(context.Context, []string) ([][]float32, error) {
 			close(sent)
 			return [][]float32{{1, 0, 0}}, nil
 		}}, nil
@@ -478,7 +478,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
-		return &EmbedClient{Model: model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+		return &EmbedClient{model: model, embedFunc: func(context.Context, []string) ([][]float32, error) {
 			if midQuery != nil {
 				midQuery()
 			}
@@ -573,7 +573,7 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(_ context.Context, profile, model string) (*EmbedClient, error) {
-		return &EmbedClient{Model: "other-gte"}, nil
+		return &EmbedClient{model: "other-gte"}, nil
 	}
 	_, err := embedQuery(context.Background(), "q")
 	if _, statErr := os.Stat(filepath.Join(paths.MemoryStateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {

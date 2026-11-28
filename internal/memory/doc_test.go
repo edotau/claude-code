@@ -95,24 +95,24 @@ func TestDocGrammarAndStructure(t *testing.T) {
 	if d.Entries[0].ID != "0a1b2c3d" || d.Header != "# Decisions" {
 		t.Errorf("id/header = %q %q", d.Entries[0].ID, d.Header)
 	}
-	if got := d.OldestFirst(0, 2); got[0] != 1 {
+	if got := d.oldestFirst(0, 2); got[0] != 1 {
 		t.Errorf("dated OldestFirst = %v", got)
 	}
 }
 
 func TestDocSectionsAndFences(t *testing.T) {
 	p := ParseDoc("progress.md", []byte(docFixtures["progress.md"]))
-	if lo, hi := p.Section("Now"); lo != 1 || hi != 3 {
+	if lo, hi := p.section("Now"); lo != 1 || hi != 3 {
 		t.Errorf("Section(Now) = %d,%d", lo, hi)
 	}
-	if lo, _ := p.Section("Nope"); lo != -1 {
+	if lo, _ := p.section("Nope"); lo != -1 {
 		t.Errorf("absent section lo = %d", lo)
 	}
-	if got := p.OldestFirst(1, 3); got[0] != 2 {
+	if got := p.oldestFirst(1, 3); got[0] != 2 {
 		t.Errorf("sections OldestFirst = %v (higher Seq is older)", got)
 	}
 	c := ParseDoc("conventions-2026-10.md", []byte(docFixtures["conventions.md"]))
-	if c.Grammar != GrammarBullets || c.OldestFirst(0, 2)[0] != 0 {
+	if c.Grammar != GrammarBullets || c.oldestFirst(0, 2)[0] != 0 {
 		t.Errorf("conventions archive = %+v", c)
 	}
 	f := ParseDoc("fenced.md", []byte(docFixtures["fenced.md"]))
@@ -169,29 +169,29 @@ func TestMarkerLinear(t *testing.T) {
 
 func TestParseRefSlugEdges(t *testing.T) {
 	for _, in := range []string{"0a1b2c3d--", "0a1b2c3d---", "0a1b2c3d--a", "0a1b2c3d-a-"} {
-		if _, ok := ParseRef(in); ok {
+		if _, ok := parseRef(in); ok {
 			t.Errorf("ParseRef(%q) accepted", in)
 		}
 	}
-	if r, ok := ParseRef("0a1b2c3d-a-b"); !ok || r.Alias != "a-b" {
+	if r, ok := parseRef("0a1b2c3d-a-b"); !ok || r.alias != "a-b" {
 		t.Errorf("ParseRef inner hyphen = %+v %v", r, ok)
 	}
 }
 
 func TestParseRef(t *testing.T) {
-	ok := map[string]Ref{
-		"0a1b2c3d":      {Hex: "0a1b2c3d"},
-		"z0a1b2c3d":     {Hex: "0a1b2c3d", Derived: true},
-		"0a1b2c3d-slug": {Hex: "0a1b2c3d", Alias: "slug"},
+	ok := map[string]ref{
+		"0a1b2c3d":      {hex: "0a1b2c3d"},
+		"z0a1b2c3d":     {hex: "0a1b2c3d", derived: true},
+		"0a1b2c3d-slug": {hex: "0a1b2c3d", alias: "slug"},
 	}
 	for in, want := range ok {
-		got, good := ParseRef(in)
-		if !good || got != want || got.String() != in {
+		got, good := parseRef(in)
+		if !good || got != want {
 			t.Errorf("ParseRef(%q) = %+v %v", in, got, good)
 		}
 	}
 	for _, in := range []string{"", "0a1b2c3", "0A1B2C3D", "zzzzzzzz", "0a1b2c3d-", "0a1b2c3d slug", "z-slug", "0a1b2c3dd"} {
-		if _, good := ParseRef(in); good {
+		if _, good := parseRef(in); good {
 			t.Errorf("ParseRef(%q) accepted", in)
 		}
 	}
@@ -200,7 +200,7 @@ func TestParseRef(t *testing.T) {
 func TestRefMarker(t *testing.T) {
 	line := "a `<!-- id:11111111 -->` b <!-- id:0a1b2c3d --> c"
 	r, lo, hi, ok := marker(line)
-	if !ok || r.Hex != "0a1b2c3d" || line[lo:hi] != "<!-- id:0a1b2c3d -->" {
+	if !ok || r.hex != "0a1b2c3d" || line[lo:hi] != "<!-- id:0a1b2c3d -->" {
 		t.Errorf("marker = %+v %d %d %v", r, lo, hi, ok)
 	}
 	if _, _, _, ok := marker("`<!-- id:11111111 -->`"); ok {
@@ -214,7 +214,7 @@ func TestIDMarkersIgnoreCodeSpans(t *testing.T) {
 		if id := entryID([]string{line}); id != "" {
 			t.Errorf("example became id %s: %q", id, line)
 		}
-		out, n := stampIDs("conventions.md", "- ", line+"\n", testEnv().Now)
+		out, n := stampIDs("conventions.md", "- ", line+"\n", testEnv().now)
 		if n != 1 || !strings.Contains(out, span) || entryID(strings.Split(out, "\n")) == "11111111" {
 			t.Errorf("example prevented stamping or changed: %d %q", n, out)
 		}
@@ -238,7 +238,7 @@ func TestMarkerOutsideEscapedBackticks(t *testing.T) {
 func TestStampIDsKeepsHeadingBlocks(t *testing.T) {
 	keep := "## Existing section\n\n" + strings.Repeat("old   words ", 20) + "\n\n\n"
 	in := "# C\n\n- needs id\n\n" + keep + "- has id <!-- id:12345678 -->\n"
-	out, n := stampIDs("conventions.md", "- ", in, testEnv().Now)
+	out, n := stampIDs("conventions.md", "- ", in, testEnv().now)
 	if n != 1 || !strings.Contains(out, keep) {
 		t.Fatalf("stamping changed the next heading block: %d\n%s", n, out)
 	}
@@ -247,7 +247,7 @@ func TestStampIDsKeepsHeadingBlocks(t *testing.T) {
 func TestStampCRLFAndFencedMarkers(t *testing.T) {
 	for _, hard := range []string{"", "  "} {
 		in := "- example" + hard + "\r\n  ```md\r\n  <!-- id:11111111 -->\r\n  ```\r\n"
-		out, n := stampIDs("conventions.md", "- ", in, testEnv().Now)
+		out, n := stampIDs("conventions.md", "- ", in, testEnv().now)
 		lines := strings.Split(out, "\n")
 		id := entryID(lines)
 		if n != 1 || id == "" || id == "11111111" || !strings.HasSuffix(lines[0], hard+"\r") {
@@ -638,7 +638,7 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	if got.Block == "" {
 		t.Fatal("fixture: knowledge note not indexed")
 	}
-	if _, block, err := ShowBlock(entryFromHit(got).ID); err != nil || !strings.Contains(block, "knowledge body zebra") {
+	if _, block, err := ShowBlock(entryFromHit(got).id); err != nil || !strings.Contains(block, "knowledge body zebra") {
 		t.Errorf("knowledge ref does not expand: %v %q", err, block)
 	}
 }

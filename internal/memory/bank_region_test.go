@@ -55,7 +55,7 @@ func refreshIndex(t *testing.T) (indexReport, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rep, mustRead(t, NativeIndex())
+	return rep, mustRead(t, nativeIndex())
 }
 
 func readIfExistsString(p string) string {
@@ -89,7 +89,7 @@ func TestNativeIndexHoldsPinnedPlusNewestTwentyAndAMoreLine(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		seedNotes(t, 50, 0) // the oldest note is pinned and also would never be among the newest
 		rep, got := refreshIndex(t)
-		if rep.Pinned != 1 || rep.Newest != 20 || rep.More != 29 || !strings.Contains(got, "- 29 more: see "+routerFile) {
+		if rep.pinned != 1 || rep.newest != 20 || rep.more != 29 || !strings.Contains(got, "- 29 more: see "+routerFile) {
 			t.Errorf("report %+v:\n%s", rep, got)
 		}
 		if strings.Count(got, "](feedback/f00.md)") != 1 || !strings.Contains(got, "## Pinned\n- [f00]") {
@@ -101,7 +101,7 @@ func TestNativeIndexHoldsPinnedPlusNewestTwentyAndAMoreLine(t *testing.T) {
 		if len(assets.MemoryIndexHint()) > 120 || len(assets.MemoryBlockBegin()) > 120 {
 			t.Error("the hint and begin lines must stay within 120 characters")
 		}
-		if again, _ := refreshIndex(t); again.Bytes != rep.Bytes {
+		if again, _ := refreshIndex(t); again.bytes != rep.bytes {
 			t.Error("a second refresh with the same files and clock must not change the file")
 		}
 		writeNote(t, "feedback", "f00.md", "---\nname: f00\ndescription: hook 0\n---\n")
@@ -121,8 +121,8 @@ func TestNativeIndexReportsLostPinUntilNextRefresh(t *testing.T) {
 		}
 		want := "1 note(s) lost metadata.pinned: feedback/f00.md"
 		rep, _ := refreshIndex(t)
-		if rep.LostPins != want || !rep.notable() {
-			t.Fatalf("refresh advisory = %q, want %q", rep.LostPins, want)
+		if rep.lostPins != want || !rep.notable() {
+			t.Fatalf("refresh advisory = %q, want %q", rep.lostPins, want)
 		}
 		if got := indexProblems(indexNow); !slices.Equal(got, []string{want}) {
 			t.Fatalf("review advisories = %q, want only %q", got, want)
@@ -144,9 +144,9 @@ func TestFolderPointersJoinTheNewestListByFileDate(t *testing.T) {
 			write(t, paths.MemorySub("handoffs", name), "handoff\n")
 			lines = append(lines, fmt.Sprintf("- [h%03d](handoffs/%s) — handoff %d", i, name, i))
 		}
-		write(t, NativeIndex(), strings.Join(lines, "\n")+"\n")
+		write(t, nativeIndex(), strings.Join(lines, "\n")+"\n")
 		rep, got := refreshIndex(t)
-		if rep.Pinned != 0 || rep.Newest != bankIndexNewest || rep.More != handoffs+5-bankIndexNewest || strings.Contains(got, "## Pinned") {
+		if rep.pinned != 0 || rep.newest != bankIndexNewest || rep.more != handoffs+5-bankIndexNewest || strings.Contains(got, "## Pinned") {
 			t.Fatalf("folder pointers must not pin: %+v", rep)
 		}
 		last, cut := lines[handoffs-1], lines[handoffs-bankIndexNewest]
@@ -262,19 +262,19 @@ func (rt *roundTrip) inject(t *testing.T, step string) {
 		}
 		return
 	}
-	appendFile(t, NativeIndex(), e+"\n")
+	appendFile(t, nativeIndex(), e+"\n")
 }
 
 // sessionEvent is a whole-file edit an editor or the owner makes to MEMORY.md before some sessions.
 func sessionEvent(t *testing.T, session int) {
 	t.Helper()
-	switch cur := readIfExistsString(NativeIndex()); session {
+	switch cur := readIfExistsString(nativeIndex()); session {
 	case 15:
-		write(t, NativeIndex(), "\ufeff"+cur)
+		write(t, nativeIndex(), "\ufeff"+cur)
 	case 9:
-		write(t, NativeIndex(), strings.ReplaceAll(cur, "\n", "\r\n"))
+		write(t, nativeIndex(), strings.ReplaceAll(cur, "\n", "\r\n"))
 	case 13:
-		write(t, NativeIndex(), "")
+		write(t, nativeIndex(), "")
 	}
 }
 
@@ -307,7 +307,7 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 		for session := range 16 {
 			sessionEvent(t, session)
 			l, add := rt.entries()
-			write(t, NativeIndex(), appendModelText(rt.r, readIfExistsString(NativeIndex()), l, add))
+			write(t, nativeIndex(), appendModelText(rt.r, readIfExistsString(nativeIndex()), l, add))
 			rt.injectedAtStep = []string{"", "renamed", "appended", "installed", "held"}[session%5]
 			var extra []string
 			if session%8 == 7 {
@@ -326,7 +326,7 @@ func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 	t.Helper()
 	cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
 	if rt.injectedAtStep == "held" {
-		f, err := os.OpenFile(NativeIndex(), os.O_WRONLY|os.O_APPEND, 0)
+		f, err := os.OpenFile(nativeIndex(), os.O_WRONLY|os.O_APPEND, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -350,8 +350,8 @@ func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 	maps.Copy(rt.want, rt.pending) // written during the refresh: the follow-up one folds them
 	rt.check(t, session, before, rt.want)
 	if session < 5 || session == 15 {
-		cur, mem := readIfExistsString(cat), readIfExistsString(NativeIndex())
-		if refreshIndex(t); readIfExistsString(cat) != cur || readIfExistsString(NativeIndex()) != mem {
+		cur, mem := readIfExistsString(cat), readIfExistsString(nativeIndex())
+		if refreshIndex(t); readIfExistsString(cat) != cur || readIfExistsString(nativeIndex()) != mem {
 			t.Fatalf("session %d: a refresh with no new input changed a byte", session)
 		}
 	}
@@ -374,7 +374,7 @@ func (rt *roundTrip) check(t *testing.T, session int, before string, want map[st
 			t.Fatalf("session %d: entry %.80q is stored %d times, want 1", session, e, got[e])
 		}
 	}
-	if mem := readIfExistsString(NativeIndex()); strings.Count(mem, "\n") > bankIndexMaxLines || len(mem) > bankIndexMaxBytes {
+	if mem := readIfExistsString(nativeIndex()); strings.Count(mem, "\n") > bankIndexMaxLines || len(mem) > bankIndexMaxBytes {
 		t.Fatalf("session %d: MEMORY.md is %d lines / %d bytes, over its bounds", session, strings.Count(mem, "\n"), len(mem))
 	}
 }
@@ -395,16 +395,16 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 	}
 	runBank(t, func(t *testing.T) {
 		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
-		write(t, NativeIndex(), "- [a](notes/a.md) — one\n")
+		write(t, nativeIndex(), "- [a](notes/a.md) — one\n")
 		refreshIndex(t)
 		cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
 		older := mustRead(t, cat)
-		appendFile(t, NativeIndex(), "- [a](notes/a.md) — two\nfree text\n")
+		appendFile(t, nativeIndex(), "- [a](notes/a.md) — two\nfree text\n")
 		refreshIndex(t)
-		baseCat, baseMem := mustRead(t, cat), mustRead(t, NativeIndex())
+		baseCat, baseMem := mustRead(t, cat), mustRead(t, nativeIndex())
 		for name, edit := range edits {
 			write(t, cat, baseCat)
-			write(t, NativeIndex(), baseMem)
+			write(t, nativeIndex(), baseMem)
 			if name == "empty" {
 				_ = os.RemoveAll(filepath.Join(paths.MemoryStoreDir(), ".git")) // no history is ever needed
 			}
@@ -414,7 +414,7 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 			if got := mustRead(t, cat); !strings.HasPrefix(got, owner) {
 				t.Errorf("%s: the owner's index.md is not a prefix of the refreshed one:\n%q\n%q", name, owner, got)
 			}
-			if name == "crlf" && !strings.Contains(mustRead(t, NativeIndex()), "— one\n") {
+			if name == "crlf" && !strings.Contains(mustRead(t, nativeIndex()), "— one\n") {
 				t.Error("a CRLF-converted index.md must still read back its records")
 			}
 		}
@@ -424,9 +424,9 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 func TestEmptiedMemoryMdIsRegeneratedFromIndexMd(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
-		write(t, NativeIndex(), "- [a](notes/a.md) — kept\n")
+		write(t, nativeIndex(), "- [a](notes/a.md) — kept\n")
 		_, first := refreshIndex(t)
-		write(t, NativeIndex(), "")
+		write(t, nativeIndex(), "")
 		if _, got := refreshIndex(t); got != first || !strings.Contains(got, "- [a](notes/a.md) — kept\n") {
 			t.Errorf("an emptied MEMORY.md must come back from index.md:\n%s", got)
 		}
@@ -437,11 +437,11 @@ func TestNativeIndexClipsNewestFirstNeverPinned(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		seedNotes(t, 150, seq(140)...)
 		rep, got := refreshIndex(t)
-		if !rep.Clipped || rep.Newest != 0 || rep.Pinned != 140 || strings.Count(got, "](feedback/") != 140 || !strings.Contains(rep.String(), "WARNING") {
+		if !rep.clipped || rep.newest != 0 || rep.pinned != 140 || strings.Count(got, "](feedback/") != 140 || !strings.Contains(rep.String(), "WARNING") {
 			t.Errorf("pinned set over the soft cap must keep every pin and drop the newest list: %+v", rep)
 		}
 		seedNotes(t, 150, seq(60)...)
-		if rep, _ = refreshIndex(t); rep.Clipped || rep.Lines > bankIndexMaxLines || rep.Bytes > bankIndexMaxBytes || rep.Pinned != 60 {
+		if rep, _ = refreshIndex(t); rep.clipped || rep.lines > bankIndexMaxLines || rep.bytes > bankIndexMaxBytes || rep.pinned != 60 {
 			t.Errorf("60 pins plus newest must fit by construction: %+v", rep)
 		}
 	})
@@ -459,13 +459,13 @@ func TestPinsOverTheLoaderLimitAreClippedOldestFirstAndReported(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		seedNotes(t, 230, seq(230)...)
 		line := "- [Local](feedback/f00.md) — keep"
-		write(t, NativeIndex(), line+"\n")
+		write(t, nativeIndex(), line+"\n")
 		rep, err := refreshNativeIndex(indexNow, false, nil)
 		if !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "230 pinned") || !strings.Contains(err.Error(), "unpin") {
 			t.Fatalf("err=%v, want the pin overflow with its advice", err)
 		}
-		mem := mustRead(t, NativeIndex())
-		if rep.Lines > loaderMaxLines || len(mem) > loaderMaxBytes || !strings.Contains(mem, "(feedback/f229.md)") || !slices.Contains(stored(t), line) {
+		mem := mustRead(t, nativeIndex())
+		if rep.lines > loaderMaxLines || len(mem) > loaderMaxBytes || !strings.Contains(mem, "(feedback/f229.md)") || !slices.Contains(stored(t), line) {
 			t.Errorf("MEMORY.md must fit the loader with the newest pins, and the entry stay stored: %+v", rep)
 		}
 	})
@@ -477,8 +477,8 @@ func TestPointerAddedInsideAnEditedBlockIsFolded(t *testing.T) {
 		_, got := refreshIndex(t)
 		top, pinned, tail := "- [f05](feedback/f05.md) — top", "- [f06](feedback/f06.md) — in pinned", "- [f07](feedback/f07.md) — after"
 		got = top + "\n" + strings.Replace(got, "## Pinned\n", "## Pinned\n"+pinned+"\n", 1) + tail + "\n"
-		write(t, NativeIndex(), got)
-		if rep, _ := refreshIndex(t); rep.Folded != 3 || rep.Unresolved != 0 {
+		write(t, nativeIndex(), got)
+		if rep, _ := refreshIndex(t); rep.folded != 3 || rep.unresolved != 0 {
 			t.Errorf("report %+v, want the three added lines folded and no generated line", rep)
 		}
 		if s := stored(t); !slices.Equal(s, []string{top, pinned, tail}) {
@@ -494,7 +494,7 @@ func TestNotesWithCRLFBOMOrInlineMetadataAreListedNeverEdited(t *testing.T) {
 		for f, body := range notes {
 			writeNote(t, "notes", f, body)
 		}
-		write(t, NativeIndex(), "- [c](notes/crlf.md) — kept\n")
+		write(t, nativeIndex(), "- [c](notes/crlf.md) — kept\n")
 		_, got := refreshIndex(t)
 		for _, want := range []string{"(notes/crlf.md) — kept", "(notes/bom.md) — bom", "(notes/inline.md) — id"} {
 			if !strings.Contains(got, want) {
@@ -515,9 +515,9 @@ func TestUnresolvedShowsTheNewestTenAndKeepsAllInIndexMd(t *testing.T) {
 		for i := range 12 {
 			free = append(free, fmt.Sprintf("- [gone%d](notes/gone%d.md) — missing", i, i))
 		}
-		write(t, NativeIndex(), strings.Join(free, "\n")+"\n")
+		write(t, nativeIndex(), strings.Join(free, "\n")+"\n")
 		rep, got := refreshIndex(t)
-		if rep.Unresolved != 12 || !strings.Contains(got, "gone11.md") || strings.Contains(got, "gone1.md") ||
+		if rep.unresolved != 12 || !strings.Contains(got, "gone11.md") || strings.Contains(got, "gone1.md") ||
 			!strings.Contains(got, "- 2 more unresolved in index.md\n") || len(stored(t)) != 12 {
 			t.Errorf("want the newest 10 shown, a count and all 12 stored: %+v\n%s", rep, got)
 		}
@@ -546,30 +546,30 @@ func TestAliasedIndexFilesAreRefusedWithNothingChanged(t *testing.T) {
 	aliases := map[string]func() error{
 		"index.md to MEMORY.md": func() error { return os.Symlink(nativeIndexFile, catalogPath()) },
 		"index.md to a note":    func() error { return os.Symlink("notes/a.md", catalogPath()) },
-		"MEMORY.md symlink":     func() error { _ = os.Remove(NativeIndex()); return os.Symlink("notes/a.md", NativeIndex()) },
+		"MEMORY.md symlink":     func() error { _ = os.Remove(nativeIndex()); return os.Symlink("notes/a.md", nativeIndex()) },
 		"kept copy symlink": func() error {
 			_ = os.MkdirAll(paths.MemoryStateDir(), 0o755)
 			return os.Symlink("notes/a.md", asidePath())
 		},
 		"catalog.md symlink": func() error { return os.Symlink("notes/a.md", storePath(routerFile)) },
-		"index.md hard link": func() error { return os.Link(NativeIndex(), catalogPath()) },
+		"index.md hard link": func() error { return os.Link(nativeIndex(), catalogPath()) },
 		"kept copy hard link": func() error {
 			_ = os.MkdirAll(paths.MemoryStateDir(), 0o755)
-			return os.Link(NativeIndex(), asidePath())
+			return os.Link(nativeIndex(), asidePath())
 		},
 	}
 	for name, alias := range aliases {
 		runBank(t, func(t *testing.T) {
 			writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\nsynthetic\n")
-			write(t, NativeIndex(), "- symlink-token\n")
+			write(t, nativeIndex(), "- symlink-token\n")
 			if err := alias(); err != nil {
 				t.Skip("this filesystem cannot make the alias:", err)
 			}
 			before := snapshotIndexFiles(t)
 			for range 2 {
 				rep, err := refreshNativeIndex(indexNow, false, nil)
-				if !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "refused") || rep.Left {
-					t.Fatalf("%s: err=%v left=%v, want a refusal naming the file", name, err, rep.Left)
+				if !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "refused") || rep.left {
+					t.Fatalf("%s: err=%v left=%v, want a refusal naming the file", name, err, rep.left)
 				}
 			}
 			if after := snapshotIndexFiles(t); !maps.Equal(before, after) {
@@ -587,9 +587,9 @@ func TestMemoryMdStaysWhenHardLinksAreUnsupported(t *testing.T) {
 		t.Cleanup(func() { paths.NoReplaceLink = os.Link })
 		for i := range 3 {
 			e := fmt.Sprintf("- link-fail %d", i)
-			appendFile(t, NativeIndex(), e+"\n")
+			appendFile(t, nativeIndex(), e+"\n")
 			_, err := refreshNativeIndex(indexNow, false, nil)
-			mem := readIfExistsString(NativeIndex())
+			mem := readIfExistsString(nativeIndex())
 			if err != nil || !strings.HasPrefix(mem, assets.MemoryBlockBegin()) || !strings.Contains(mem, e+"\n") || !slices.Contains(stored(t), e) {
 				t.Fatalf("refresh %d: err=%v; MEMORY.md must hold the new text and the entry be stored, without hard links", i, err)
 			}
@@ -610,11 +610,11 @@ func TestEntryBytesAreKeptAndBlankSeparatorsReported(t *testing.T) {
 	}
 	for name, c := range cases {
 		runBank(t, func(t *testing.T) {
-			write(t, NativeIndex(), c.in)
+			write(t, nativeIndex(), c.in)
 			rep, err := refreshNativeIndex(indexNow, false, nil)
-			if err != nil || !slices.Equal(stored(t), c.stored) || rep.Blank != c.blank ||
+			if err != nil || !slices.Equal(stored(t), c.stored) || rep.blank != c.blank ||
 				c.blank > 0 && !strings.Contains(rep.String(), "blank line(s)") {
-				t.Errorf("%s: stored %q, blank %d (%v), want %q and %d reported", name, stored(t), rep.Blank, err, c.stored, c.blank)
+				t.Errorf("%s: stored %q, blank %d (%v), want %q and %d reported", name, stored(t), rep.blank, err, c.stored, c.blank)
 			}
 		})
 	}
@@ -625,7 +625,7 @@ func TestEditedBlockKeepsEveryLineItDidNotGenerate(t *testing.T) {
 		seedNotes(t, 25)
 		_, cur := refreshIndex(t)
 		e := "- new-entry\n" + assets.MemoryIndexHint() + "\n  user-tail" // a generated line inside a new entry is the entry's
-		write(t, NativeIndex(), strings.Replace(cur, blockEndPrefix, e+"\n"+blockEndPrefix, 1))
+		write(t, nativeIndex(), strings.Replace(cur, blockEndPrefix, e+"\n"+blockEndPrefix, 1))
 		seedNotes(t, 26) // the "N more" count changes, so the old count line is no longer one the generator writes
 		refreshIndex(t)
 		if s := stored(t); !slices.Equal(s, []string{e}) {
@@ -640,7 +640,7 @@ func TestChangedGeneratedCounterIsNeitherInputNorUnresolved(t *testing.T) {
 		_, cur := refreshIndex(t)
 		i := strings.Index(cur, " more: see ")
 		j := strings.LastIndex(cur[:i], "\n- ") + len("\n- ")
-		write(t, NativeIndex(), cur[:j]+"999"+cur[i:])
+		write(t, nativeIndex(), cur[:j]+"999"+cur[i:])
 		_, next := refreshIndex(t)
 		if s := stored(t); len(s) != 0 || strings.Contains(next, "## "+titleUnresolved) {
 			t.Errorf("stored %q, unresolved shown %v: a generator counter is not an entry", s, strings.Contains(next, titleUnresolved))
@@ -652,7 +652,7 @@ func TestPromotedEntryDeletedFromIndexAndKeptCopyStaysGone(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
 		e := "- [a](notes/a.md) custom"
-		write(t, NativeIndex(), e+"\n")
+		write(t, nativeIndex(), e+"\n")
 		refreshIndex(t)
 		_ = os.Remove(paths.MemorySub("notes", "a.md")) // the promotion prompt's steps: the note, its record, its kept-copy line
 		write(t, catalogPath(), strings.Replace(mustRead(t, catalogPath()), encodeRecord(e), "", 1))
@@ -665,17 +665,17 @@ func TestPromotedEntryDeletedFromIndexAndKeptCopyStaysGone(t *testing.T) {
 
 func TestRefreshRefusesWhenTheKeptCopyCannotBeRenamedAcrossVolumes(t *testing.T) {
 	runBank(t, func(t *testing.T) {
-		write(t, NativeIndex(), "- keep-me\n")
+		write(t, nativeIndex(), "- keep-me\n")
 		renameFile = func(string, string) error { return &os.LinkError{Op: "rename", Err: errors.New("cross-device link")} }
 		t.Cleanup(func() { renameFile = os.Rename })
 		_, err := refreshNativeIndex(indexNow, false, nil)
 		if !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "one volume") {
 			t.Fatalf("err = %v, want a refusal naming the volume", err)
 		}
-		if mustRead(t, NativeIndex()) != "- keep-me\n" {
+		if mustRead(t, nativeIndex()) != "- keep-me\n" {
 			t.Error("MEMORY.md changed on a refused refresh")
 		}
-		if left, _ := filepath.Glob(NativeIndex() + ".tmp-*"); len(left) != 0 {
+		if left, _ := filepath.Glob(nativeIndex() + ".tmp-*"); len(left) != 0 {
 			t.Errorf("staged temp files left: %v", left)
 		}
 	})

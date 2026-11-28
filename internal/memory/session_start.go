@@ -96,7 +96,7 @@ func chainNote(chain, sessionID string, now time.Time) string {
 		note = assets.MemoryPreviousSession(prevID)
 	}
 	if res, ok := readUpdateResult(prevID); ok && res.needsAttention(now) {
-		note += assets.MemoryUpdateRecovery(prevID, res.Status, res.Log)
+		note += assets.MemoryUpdateRecovery(prevID, res.status, res.log)
 	}
 	return note
 }
@@ -451,7 +451,7 @@ func sessionSurface(root string) string {
 		parts = append(parts, capChars(head, focusCapChars))
 	}
 	if !nativeLinked(root, paths.MemorySubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(NativeIndex()); err == nil && len(data) > 0 {
+		if data, err := os.ReadFile(nativeIndex()); err == nil && len(data) > 0 {
 			parts = append(parts, capChars(assets.MemoryNativeContext(strings.TrimSpace(string(data))), indexCapChars))
 		}
 	}

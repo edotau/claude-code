@@ -654,8 +654,8 @@ func refsStamp(gitDir string) string {
 
 // historyBlobs lists the blob ids rel had in the store's git history, newest first; none without a repo.
 func historyBlobs(root, rel string) []string {
-	repo := storeRepo{Dir: root}
-	if !repo.Exists() {
+	repo := storeRepo{dir: root}
+	if !repo.exists() {
 		return nil
 	}
 	key, stamp := root+"\x00"+rel, refsStamp(filepath.Join(root, ".git"))
@@ -732,7 +732,7 @@ var blobSums sync.Map
 
 // mergeable reports a top-level or archived id-keyed log the grammar orders newest-first or appended.
 func mergeable(rel string) bool {
-	g := GrammarOf(rel)
+	g := grammarOf(rel)
 	top := !strings.Contains(rel, "/") || strings.HasPrefix(rel, "archive/")
 	return top && (g == GrammarDated || g == GrammarBullets)
 }

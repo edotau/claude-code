@@ -3,6 +3,43 @@
 Templates for `../SKILL.md` → Phase 1 → Handoff contract (same fields); paste each role's context, never make it
 rebuild the plan. `Agent: in-context` = the leaf does it itself.
 
+## Handoff contract details
+
+**Brief (in)** — a fresh agent can act from it alone (the CLI starts cold and cannot see this session):
+
+- `Objective:` one outcome. `Agent:` the work agent; omit for the selected type, `in-context` for direct work; keep
+  it consistent with the type (no hidden relay). The hook reads `Agent:` only before the first blank line.
+- `Model:` is not parsed by the hook: put overlay `model` on the carried ask
+  (`agents ask --carry --overlay '{"agent":"<a>","model":"m"}'`).
+- `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:` identifies a plan
+  task for the hook's slot claim (`Task: Phase W.k`): the hand-back then carries its `verify:` result. `Tier:
+  fast|standard|deep` (own line) sets the task tier that picks an unpinned run's model (`agent.TaskTier`); without it
+  the wording decides. A gate-run leaf that only reports carries `Tier: fast`.
+- `Owns:` absolute paths and forbidden files; the report lists the files actually changed. `Method:` the skill.
+  `Context:` evidence, decisions, plan path. `Constraints:` applicable rules and the shared-tree rule.
+  `Verify:` a scoped command; `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when requested.
+- A type with no agent file (`general-purpose`, `Explore`) gets no leaf rules: paste the `## Leaf rules` lines of
+  `internal/assets/brief/brief.tmpl` (no foreground `sleep`, no git or `sudo` probes in `~/.claude`) into its brief.
+- State what to report on a missing credential, a red gate, an unowned file or a dependency.
+- `claude-code agents brief --task F --own P…` prints the brief: `Owned:`, mode, your task, the leaf rules and the
+  reporting contract from `internal/assets/brief/brief.tmpl`; never restate that footer. Pipe it to `agents ask -`;
+  `agents diff --verify <id>` reads `Owned:` back.
+- Overlay `profile` leads then falls back unless `"fallback":"none"` pins it; carried asks carry the route as
+  `--overlay '<object>'` (provider and profile together; an inherited `COWORKER_OVERLAY` carries a child's derived
+  confinement). Overlay keys: `rules/harness/agent.md` → Overlay; `--remote` vs `--host`: `rules/harness/network.md`.
+
+**Report (out)** — verdict of at most 8 lines: a review's verdict word, else one Status: `DONE` ·
+`DONE_WITH_CONCERNS` (resolve before review) · `NEEDS_CONTEXT` (return to owner) · `BLOCKED` (change something; never
+resend unchanged); then `Ran on:` (the `ask: ran on …` line; `self` only for `claude`, `Explore`, `Plan` or an
+`Agent: in-context` brief), outcome per item, test or gate results, what needs a decision, and the report path. The
+full report (root cause, before/after output, numstat, teeth proof, commands) goes to
+`$(claude-code memory path reports YYYY-MM-DD-<name>.md)`. Scratch files only under `/tmp/<job>/`, removed before
+reporting.
+
+**Ownership** — one writer per file, split by file not topic; one package parallelizes when each leaf creates its own
+new file and reports its API surface; the manager makes the integration edit and owns decisions. Leaves remain
+terminal (an external `ask` is allowed). Commit authority: `rules/standards/worktree-git.md` → Worktrees.
+
 ## Every brief adds
 
 ```text

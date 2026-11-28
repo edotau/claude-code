@@ -57,7 +57,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
 	}
-	_ = writeUpdateResult(s1, UpdateResult{Status: updateFailed, Time: time.Now(), Log: "/x.log"})
+	_ = writeUpdateResult(s1, updateResult{status: updateFailed, time: time.Now(), log: "/x.log"})
 	got = sessionStartContext(t, s2, repo)
 	if strings.Contains(got, "scaffolded") {
 		t.Errorf("notice must not re-announce the scaffold: %q", got[:min(len(got), 500)])
@@ -130,16 +130,16 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 	if !ok {
 		t.Fatal("linkNativeFor ok=false after cutover")
 	}
-	if res.Action != "ok" {
-		t.Errorf("link action after SessionStart = %s, want ok (already linked)", res.Action)
+	if res.action != "ok" {
+		t.Errorf("link action after SessionStart = %s, want ok (already linked)", res.action)
 	}
-	fi, err := os.Lstat(res.Link)
+	fi, err := os.Lstat(res.link)
 	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("SessionStart did not create a native-memory symlink at %s: %v", res.Link, err)
+		t.Fatalf("SessionStart did not create a native-memory symlink at %s: %v", res.link, err)
 	}
-	target, err := os.Readlink(res.Link)
-	if err != nil || target != res.Target {
-		t.Errorf("link -> %q, want %s (%v)", target, res.Target, err)
+	target, err := os.Readlink(res.link)
+	if err != nil || target != res.target {
+		t.Errorf("link -> %q, want %s (%v)", target, res.target, err)
 	}
 }
 
@@ -160,7 +160,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	StartSession("first", repo, time.Now())
 
 	res, ok := linkNativeFor(repo)
-	if !ok || res.Action != "ok" || res.Target != paths.MemoryStoreDir() {
+	if !ok || res.action != "ok" || res.target != paths.MemoryStoreDir() {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, paths.MemoryStoreDir())
 	}
 }

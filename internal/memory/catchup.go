@@ -175,24 +175,24 @@ func transcriptPrompt(content json.RawMessage) string {
 }
 
 // sweepSkip is why a finished session needs no save ("" = it does), plus the receipt it read once for sweepWhy.
-func sweepSkip(c sweepCand, current string, now time.Time, heads *headCache) (string, UpdateResult, bool) {
+func sweepSkip(c sweepCand, current string, now time.Time, heads *headCache) (string, updateResult, bool) {
 	switch {
 	case c.id == current:
-		return "current session", UpdateResult{}, false
+		return "current session", updateResult{}, false
 	case now.Sub(c.mtime) < updateRearmCooldown:
-		return "live (modified within cooldown)", UpdateResult{}, false
+		return "live (modified within cooldown)", updateResult{}, false
 	case !heads.interactive(c):
-		return "headless (worker/leaf/ping)", UpdateResult{}, false
+		return "headless (worker/leaf/ping)", updateResult{}, false
 	}
 	res, ok := readUpdateResult(c.id)
-	if ok && res.Status == updateOK && res.Time.After(c.mtime) {
+	if ok && res.status == updateOK && res.time.After(c.mtime) {
 		return "already saved", res, ok
 	}
 	return "", res, ok
 }
 
 // sweepWhy returns why an eligible session needs saving, or "" when its edits are covered; res is c's receipt.
-func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int, res UpdateResult, hasResult bool) string {
+func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int, res updateResult, hasResult bool) string {
 	st, hasStamp := readStamp(stampPath(c.id))
 	covered := 0
 	if hasStamp {
@@ -200,7 +200,7 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int, res U
 	}
 	c.edits = count(c.path, countPath(c.id))
 	if hasResult && res.needsAttention(now) && !ownerFixRequired(res) && (!hasStamp || st.state != "catchup" || secondRetryDue(st, res, now)) {
-		return "update " + res.Status
+		return "update " + res.status
 	}
 	if newEditsSinceFailure(*c, covered, res, hasResult) {
 		return fmt.Sprintf("%d edits, %d covered", c.edits, covered)
@@ -209,21 +209,21 @@ func sweepWhy(c *sweepCand, now time.Time, count func(string, string) int, res U
 }
 
 // newEditsSinceFailure admits a failed owner-fix session only when its transcript changed after the failure.
-func newEditsSinceFailure(c sweepCand, covered int, r UpdateResult, hasResult bool) bool {
+func newEditsSinceFailure(c sweepCand, covered int, r updateResult, hasResult bool) bool {
 	if c.edits < updateMinEdits || c.edits <= covered {
 		return false
 	}
-	return !hasResult || !ownerFixRequired(r) || c.mtime.After(r.Time)
+	return !hasResult || !ownerFixRequired(r) || c.mtime.After(r.time)
 }
 
 // ownerFixRequired marks failures that a retry of the same edits cannot repair.
-func ownerFixRequired(r UpdateResult) bool {
-	return r.Status == updateFailed && (r.Class == JobClassAuth || r.Class == JobClassBudget)
+func ownerFixRequired(r updateResult) bool {
+	return r.status == updateFailed && (r.class == JobClassAuth || r.class == JobClassBudget)
 }
 
 // secondRetryDue: one catch-up ran, its failed receipt is within a day of its stamp, and a day has passed.
-func secondRetryDue(st updateStamp, res UpdateResult, now time.Time) bool {
-	return st.attempts < 2 && now.Sub(st.at) > catchupRetry && res.Time.Sub(st.at) < catchupRetry
+func secondRetryDue(st updateStamp, res updateResult, now time.Time) bool {
+	return st.attempts < 2 && now.Sub(st.at) > catchupRetry && res.time.Sub(st.at) < catchupRetry
 }
 
 // retryStamp is a catch-up stamp's time and attempt count; a failed one keeps its time and counts up.
@@ -252,7 +252,7 @@ func sweepCandidates(current string, now time.Time, all bool, count func(string,
 			if c.why = sweepWhy(&c, now, count, res, ok); c.why == "" {
 				skip = "nothing new"
 				if ok && ownerFixRequired(res) {
-					skip = "needs fix (" + res.Class + ")"
+					skip = "needs fix (" + res.class + ")"
 				}
 			}
 		}
@@ -365,7 +365,7 @@ func runSweep(current string, now time.Time, out io.Writer) {
 		}
 		cancel()
 		// An older OK receipt from a previous update must not count as this run's save.
-		if res, ok := readUpdateResult(c.id); ok && res.Status == updateOK && res.Time.After(started) {
+		if res, ok := readUpdateResult(c.id); ok && res.status == updateOK && res.time.After(started) {
 			saved++
 		}
 	}

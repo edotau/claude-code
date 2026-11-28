@@ -26,13 +26,13 @@ type extractFactsFixture struct {
 	err     error
 }
 
-func (f *extractFactsFixture) WorktreeBranchExists(rel string, data []byte) (bool, bool, error) {
+func (f *extractFactsFixture) worktreeBranchExists(rel string, data []byte) (bool, bool, error) {
 	f.calls = append(f.calls, rel)
 	missing, known := f.missing[rel]
 	return !missing, known, f.err
 }
 
-func (f *extractFactsFixture) ReportResultInGit(rel string, data []byte) (bool, bool, error) {
+func (f *extractFactsFixture) reportResultInGit(rel string, data []byte) (bool, bool, error) {
 	f.calls = append(f.calls, rel)
 	landed, known := f.landed[rel]
 	return landed, known, f.err
@@ -52,9 +52,9 @@ func extractFixtureFile(t *testing.T, root, rel, body string, mod time.Time) {
 	}
 }
 
-func extractFixtureRows(t *testing.T, result ExtractResult) map[string]ExtractRow {
+func extractFixtureRows(t *testing.T, result ExtractResult) map[string]extractRow {
 	t.Helper()
-	rows := map[string]ExtractRow{}
+	rows := map[string]extractRow{}
 	for _, row := range result.Rows {
 		if _, ok := rows[row.Path]; ok {
 			t.Fatalf("duplicate row for %s", row.Path)
@@ -101,19 +101,19 @@ func TestClassifyExtractRejectsInvalidInputs(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		root string
-		opts ExtractOptions
+		opts extractOptions
 		want string
 	}{
-		{"clock", root, ExtractOptions{}, "Now"},
-		{"store", filepath.Join(root, "absent"), ExtractOptions{Now: now}, "store"},
-		{"links", root, ExtractOptions{Now: now, LinkSources: []string{filepath.Join(root, "absent")}}, "link source"},
-		{"logs", root, ExtractOptions{Now: now, AccessLogs: []string{filepath.Join(root, "absent")}}, "access log"},
-		{"logs-directory", root, ExtractOptions{Now: now, AccessLogs: []string{root}}, "access log"},
-		{"logs-generation", root, ExtractOptions{Now: now, AccessLogs: []string{filepath.Join(badLogs, "home.log")}}, "access log"},
-		{"facts", root, ExtractOptions{Now: now, Facts: &extractFactsFixture{err: factErr}}, factErr.Error()},
+		{"clock", root, extractOptions{}, "Now"},
+		{"store", filepath.Join(root, "absent"), extractOptions{now: now}, "store"},
+		{"links", root, extractOptions{now: now, linkSources: []string{filepath.Join(root, "absent")}}, "link source"},
+		{"logs", root, extractOptions{now: now, accessLogs: []string{filepath.Join(root, "absent")}}, "access log"},
+		{"logs-directory", root, extractOptions{now: now, accessLogs: []string{root}}, "access log"},
+		{"logs-generation", root, extractOptions{now: now, accessLogs: []string{filepath.Join(badLogs, "home.log")}}, "access log"},
+		{"facts", root, extractOptions{now: now, facts: &extractFactsFixture{err: factErr}}, factErr.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ClassifyExtract(tc.root, tc.opts)
+			got, err := classifyExtract(tc.root, tc.opts)
 			if err == nil || !strings.Contains(err.Error(), tc.want) || len(got.Rows) != 0 || len(got.Folders) != 0 {
 				t.Fatalf("got %+v, %v; want no partial plan and error containing %q", got, err, tc.want)
 			}
@@ -144,31 +144,31 @@ func extractValueBodies() map[string]string {
 	}
 }
 
-func extractValueReasons() map[ExtractReason][]string {
-	return map[ExtractReason][]string{
-		ExtractEmpty:           {"reports/empty.md"},
-		ExtractDuplicate:       {"reports/copy-b.md", "reports/copy-of-linked.md"},
-		ExtractDuplicateSource: {"reports/copy-a.md"},
-		ExtractMissingBranch:   {"worktrees/gone.md"}, ExtractResultInGit: {"reports/landed.md"},
-		ExtractLowValue:  {"reports/whitespace.md", "reports/unlanded.md", "reports/unknown.md", "reports/boundary.md", "worktrees/alive.md", "worktrees/unknown.md", "reports/from-index.md"},
-		ExtractPinned:    {"worktrees/pinned-gone.md", "notes/top-pin.md"},
-		ExtractLinked:    {"reports/z-linked-copy.md", "reports/linked-empty.md", "reports/from-bank.md", "reports/from-catalog.md", "reports/from-plan.md", "reports/from-external.md"},
-		ExtractYoung:     {"reports/young.md", "reports/future.md"},
-		ExtractProtected: {"progress.md", "MEMORY.md", "catalog.md", "index.md", "plans/active.md", "reports/attachment.txt"},
+func extractValueReasons() map[extractReason][]string {
+	return map[extractReason][]string{
+		extractEmpty:           {"reports/empty.md"},
+		extractDuplicate:       {"reports/copy-b.md", "reports/copy-of-linked.md"},
+		extractDuplicateSource: {"reports/copy-a.md"},
+		extractMissingBranch:   {"worktrees/gone.md"}, extractResultInGit: {"reports/landed.md"},
+		extractLowValue:  {"reports/whitespace.md", "reports/unlanded.md", "reports/unknown.md", "reports/boundary.md", "worktrees/alive.md", "worktrees/unknown.md", "reports/from-index.md"},
+		extractPinned:    {"worktrees/pinned-gone.md", "notes/top-pin.md"},
+		extractLinked:    {"reports/z-linked-copy.md", "reports/linked-empty.md", "reports/from-bank.md", "reports/from-catalog.md", "reports/from-plan.md", "reports/from-external.md"},
+		extractYoung:     {"reports/young.md", "reports/future.md"},
+		extractProtected: {"progress.md", "MEMORY.md", "catalog.md", "index.md", "plans/active.md", "reports/attachment.txt"},
 	}
 }
 
-func assertExtractValueRows(t *testing.T, rows map[string]ExtractRow, bodies map[string]string) {
+func assertExtractValueRows(t *testing.T, rows map[string]extractRow, bodies map[string]string) {
 	t.Helper()
 	expected := 0
 	for reason, paths := range extractValueReasons() {
 		for _, rel := range paths {
 			expected++
 			row := rows[rel]
-			action := map[ExtractReason]ExtractAction{ExtractEmpty: ExtractPurge, ExtractDuplicate: ExtractPurge,
-				ExtractMissingBranch: ExtractPurge, ExtractResultInGit: ExtractPurge, ExtractLowValue: ExtractRewrite}[reason]
+			action := map[extractReason]extractAction{extractEmpty: extractPurge, extractDuplicate: extractPurge,
+				extractMissingBranch: extractPurge, extractResultInGit: extractPurge, extractLowValue: extractRewrite}[reason]
 			if action == "" {
-				action = ExtractKeep
+				action = extractKeep
 			}
 			got := []any{row.Reason, row.Action, row.Size}
 			want := []any{reason, action, int64(len(bodies[rel]))}
@@ -197,7 +197,7 @@ func TestClassifyExtractDeadFilesAndValue(t *testing.T) {
 	facts := &extractFactsFixture{missing: map[string]bool{"worktrees/gone.md": true, "worktrees/alive.md": false},
 		landed: map[string]bool{"reports/landed.md": true, "reports/unlanded.md": false}}
 	before := extractFixtureSnapshot(t, root)
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now, Facts: facts, AccessLogs: []string{extractEmptyLog(t, now)}, LinkSources: []string{filepath.Join(planDir, "plan.md")}, StoreAliases: []string{"/original/store"}})
+	got, err := classifyExtract(root, extractOptions{now: now, facts: facts, accessLogs: []string{extractEmptyLog(t, now)}, linkSources: []string{filepath.Join(planDir, "plan.md")}, storeAliases: []string{"/original/store"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,17 +208,17 @@ func TestClassifyExtractDeadFilesAndValue(t *testing.T) {
 	if !reflect.DeepEqual(before, extractFixtureSnapshot(t, root)) {
 		t.Error("classifier changed store bytes, modes or mtimes")
 	}
-	withoutFacts, err := ClassifyExtract(root, ExtractOptions{Now: now, AccessLogs: []string{extractEmptyLog(t, now)}})
+	withoutFacts, err := classifyExtract(root, extractOptions{now: now, accessLogs: []string{extractEmptyLog(t, now)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := extractFixtureRows(t, withoutFacts)["worktrees/gone.md"]
-	if values := []any{r.Action, r.Reason}; !reflect.DeepEqual(values, []any{ExtractRewrite, ExtractLowValue}) {
+	if values := []any{r.Action, r.Reason}; !reflect.DeepEqual(values, []any{extractRewrite, extractLowValue}) {
 		t.Error("absent facts must not prove branch missing")
 	}
 }
 
-func assertExtractEvidence(t *testing.T, rows map[string]ExtractRow) {
+func assertExtractEvidence(t *testing.T, rows map[string]extractRow) {
 	t.Helper()
 	got := []any{rows["reports/future.md"].Age, rows["reports/boundary.md"].Age,
 		rows["reports/copy-of-linked.md"].DuplicateOf, rows["reports/copy-b.md"].DuplicateOf,
@@ -257,18 +257,18 @@ func TestClassifyExtractRecallLog(t *testing.T) {
 	}
 	log := seedExtractRecallLogs(t, logs, now)
 	before := extractFixtureSnapshot(t, logs)
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now, AccessLogs: []string{filepath.Join(logs, log)}})
+	got, err := classifyExtract(root, extractOptions{now: now, accessLogs: []string{filepath.Join(logs, log)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows := extractFixtureRows(t, got)
 	hot := rows["notes/recalled.md"]
-	if got := []any{hot.Action, hot.Reason, hot.Signals.RecallDays, hot.Signals.RecalledRecently, hot.Signals.LastRecalled}; !reflect.DeepEqual(got, []any{ExtractKeep, ExtractRecalled, 2, true, now.Add(-time.Hour)}) {
+	if got := []any{hot.Action, hot.Reason, hot.Signals.RecallDays, hot.Signals.RecalledRecently, hot.Signals.LastRecalled}; !reflect.DeepEqual(got, []any{extractKeep, extractRecalled, 2, true, now.Add(-time.Hour)}) {
 		t.Errorf("recall attribution = %+v", hot)
 	}
 	for _, name := range []string{"session-only", "search-only", "future", "cold"} {
 		row := rows["notes/"+name+".md"]
-		if got := []any{row.Action, row.Signals.RecallKnown, row.Signals.RecalledRecently}; !reflect.DeepEqual(got, []any{ExtractRewrite, true, false}) {
+		if got := []any{row.Action, row.Signals.RecallKnown, row.Signals.RecalledRecently}; !reflect.DeepEqual(got, []any{extractRewrite, true, false}) {
 			t.Errorf("non-recall, future or out-of-window access credited: %+v", row)
 		}
 	}
@@ -299,21 +299,21 @@ func TestClassifyExtractBudgetsAndGroups(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()
 	bytes := seedExtractHandoffs(t, root, now)
-	opts := ExtractOptions{Now: now}
-	got, err := ClassifyExtract(root, opts)
+	opts := extractOptions{now: now}
+	got, err := classifyExtract(root, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := ClassifyExtract(root, opts)
+	again, err := classifyExtract(root, opts)
 	if !reflect.DeepEqual([]any{got, err}, []any{again, nil}) {
 		t.Fatal("classifier must be deterministic", err)
 	}
-	idx := slices.IndexFunc(got.Folders, func(f ExtractFolderTotal) bool { return f.Folder == "handoffs" })
+	idx := slices.IndexFunc(got.Folders, func(f extractFolderTotal) bool { return f.Folder == "handoffs" })
 	if idx < 0 {
 		t.Fatal("missing handoffs totals")
 	}
 	folder := got.Folders[idx]
-	if values := []any{folder.OverBudget, folder.RewriteExcess, folder.Files, folder.Bytes, folder.Actions[ExtractKeep].Files, folder.Actions[ExtractRewrite].Files, len(folder.Groups)}; !reflect.DeepEqual(values, []any{2, 2, 62, bytes, 1, 61, 2}) {
+	if values := []any{folder.OverBudget, folder.RewriteExcess, folder.Files, folder.Bytes, folder.Actions[extractKeep].Files, folder.Actions[extractRewrite].Files, len(folder.Groups)}; !reflect.DeepEqual(values, []any{2, 2, 62, bytes, 1, 61, 2}) {
 		t.Fatalf("totals = %+v", folder)
 	}
 	if folder.Groups[0].YoungestAge <= folder.Groups[1].YoungestAge {
@@ -322,7 +322,7 @@ func TestClassifyExtractBudgetsAndGroups(t *testing.T) {
 	assertExtractGroups(t, folder, bytes)
 }
 
-func assertExtractGroups(t *testing.T, folder ExtractFolderTotal, bytes int64) {
+func assertExtractGroups(t *testing.T, folder extractFolderTotal, bytes int64) {
 	t.Helper()
 	var groupBytes int64
 	for _, group := range folder.Groups {
@@ -331,7 +331,7 @@ func assertExtractGroups(t *testing.T, folder ExtractFolderTotal, bytes int64) {
 			t.Error("high-value file entered a rewrite group")
 		}
 	}
-	if groupBytes+folder.Actions[ExtractKeep].Bytes != bytes {
+	if groupBytes+folder.Actions[extractKeep].Bytes != bytes {
 		t.Error("candidate groups and keep bytes must account for the whole folder")
 	}
 }
@@ -348,7 +348,7 @@ func TestClassifyExtractDoesNotFollowSymlinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now})
+	got, err := classifyExtract(root, extractOptions{now: now})
 	if err != nil || len(got.Rows) != 0 {
 		t.Fatalf("followed symlink or failed: %+v, %v", got, err)
 	}
@@ -373,12 +373,12 @@ func TestClassifyExtractLinkForms(t *testing.T) {
 	}
 	source := filepath.Join(parent, "plans", "plan.md")
 	extractFixtureFile(t, parent, "plans/plan.md", links.String(), now)
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now, LinkSources: []string{source}, StoreAliases: []string{"/original/store"}})
+	got, err := classifyExtract(root, extractOptions{now: now, linkSources: []string{source}, storeAliases: []string{"/original/store"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range got.Rows {
-		if values := []any{row.Action, row.Reason, row.Signals.LinkedBy}; !reflect.DeepEqual(values, []any{ExtractKeep, ExtractLinked, []string{source}}) {
+		if values := []any{row.Action, row.Reason, row.Signals.LinkedBy}; !reflect.DeepEqual(values, []any{extractKeep, extractLinked, []string{source}}) {
 			t.Errorf("missed link to %+v", row)
 		}
 	}
@@ -393,13 +393,13 @@ func TestClassifyExtractPurgeBudget(t *testing.T) {
 	for i := range extractFolderBudgets["handoffs"] + 1 {
 		extractFixtureFile(t, root, fmt.Sprintf("handoffs/%03d.md", i), "same handoff", now.AddDate(0, 0, -20))
 	}
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now, AccessLogs: []string{extractEmptyLog(t, now)}})
+	got, err := classifyExtract(root, extractOptions{now: now, accessLogs: []string{extractEmptyLog(t, now)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, folder := range got.Folders {
 		if folder.Folder == "handoffs" {
-			values := []int{folder.OverBudget, folder.RewriteExcess, folder.Actions[ExtractKeep].Files, folder.Actions[ExtractPurge].Files}
+			values := []int{folder.OverBudget, folder.RewriteExcess, folder.Actions[extractKeep].Files, folder.Actions[extractPurge].Files}
 			if !slices.Equal(values, []int{1, 0, 1, extractFolderBudgets["handoffs"]}) {
 				t.Errorf("purges did not eliminate rewrite trigger: %+v", folder)
 			}
@@ -410,9 +410,9 @@ func TestClassifyExtractPurgeBudget(t *testing.T) {
 func TestClassifyExtractLargeFile(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()
-	body := strings.Repeat("x", importMaxFile+1)
+	body := strings.Repeat("x", 4<<20+1)
 	extractFixtureFile(t, root, "archive/large.md", body, now.AddDate(0, 0, -20))
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now})
+	got, err := classifyExtract(root, extractOptions{now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestClassifyExtractLargeFile(t *testing.T) {
 		t.Fatalf("got %d rows", len(got.Rows))
 	}
 	row := got.Rows[0]
-	if values := []any{row.Size, row.Action, row.Reason}; !reflect.DeepEqual(values, []any{int64(len(body)), ExtractRewrite, ExtractLowValue}) {
+	if values := []any{row.Size, row.Action, row.Reason}; !reflect.DeepEqual(values, []any{int64(len(body)), extractRewrite, extractLowValue}) {
 		t.Errorf("large file = %+v", row)
 	}
 }
@@ -453,25 +453,25 @@ func TestClassifyExtractUnknownRecall(t *testing.T) {
 		extractFixtureFile(t, root, "worktrees/"+name+".md", body, now.AddDate(0, 0, -20))
 	}
 	facts := &extractFactsFixture{missing: map[string]bool{"worktrees/gone.md": true}}
-	got, err := ClassifyExtract(root, ExtractOptions{Now: now, Facts: facts})
+	got, err := classifyExtract(root, extractOptions{now: now, facts: facts})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range got.Rows {
-		if row.Action != ExtractRewrite {
+		if row.Action != extractRewrite {
 			t.Errorf("unknown recall must not permit purge: %+v", row)
 		}
 	}
 	rows := extractFixtureRows(t, got)
-	if rows["worktrees/gone.md"].Reason != ExtractRecallUnknown {
+	if rows["worktrees/gone.md"].Reason != extractRecallUnknown {
 		t.Error("missing unknown-recall reason")
 	}
 }
 
-func extractRewriteFixture(t *testing.T) (string, ExtractGroup) {
+func extractRewriteFixture(t *testing.T) (string, extractGroup) {
 	t.Helper()
 	root := t.TempDir()
-	group := ExtractGroup{Action: ExtractRewrite}
+	group := extractGroup{Action: extractRewrite}
 	for i := range 5 {
 		rel := fmt.Sprintf("handoffs/%03d.md", i)
 		extractFixtureFile(t, root, rel, fmt.Sprintf("handoff %d: decision and open task", i), time.Now())
@@ -480,16 +480,16 @@ func extractRewriteFixture(t *testing.T) (string, ExtractGroup) {
 	return root, group
 }
 
-func extractRewriteFake(t *testing.T, root string, group ExtractGroup, answer []byte, calls *int) func(context.Context, string, string, string, string) (string, string, error) {
+func extractRewriteFake(t *testing.T, root string, group extractGroup, answer []byte, calls *int) func(context.Context, string, string, string, string) (string, string, error) {
 	t.Helper()
-	defaultModel, err := FallbackModel("")
+	defaultModel, err := fallbackModel("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return func(_ context.Context, prompt, workdir, schema, model string) (string, string, error) {
 		*calls++
 		if got, want := []any{workdir == root, filepath.IsAbs(workdir), strings.HasPrefix(filepath.Base(workdir), "memory-extract-"), schema, model},
-			[]any{false, true, true, ExtractRewriteSchema(), defaultModel}; !reflect.DeepEqual(got, want) {
+			[]any{false, true, true, extractRewriteSchema(), defaultModel}; !reflect.DeepEqual(got, want) {
 			t.Errorf("dispatch workdir=%q schema=%q model=%q", workdir, schema, model)
 		}
 		for i, rel := range group.Paths {
@@ -507,7 +507,7 @@ func extractRewriteFake(t *testing.T, root string, group ExtractGroup, answer []
 func TestExtractRewriteConsolidatesHandoffs(t *testing.T) {
 	root, group := extractRewriteFixture(t)
 	before := extractFixtureSnapshot(t, root)
-	answer, err := json.Marshal(ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Five decisions and open tasks", Sources: group.Paths}}, Purge: []string{}})
+	answer, err := json.Marshal(extractRewriteAnswer{Entries: []extractEntry{{Title: "Handoffs", Text: "Five decisions and open tasks", Sources: group.Paths}}, Purge: []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestExtractRewriteConsolidatesHandoffs(t *testing.T) {
 	defer func() { CodeModeRun = old }()
 	calls := 0
 	CodeModeRun = extractRewriteFake(t, root, group, answer, &calls)
-	got, err := RewriteExtractGroup(context.Background(), root, group, "")
+	got, err := rewriteExtractGroup(context.Background(), root, group, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestExtractRewriteRejectsOutsideSource(t *testing.T) {
 		calls++
 		return `{"entries":[{"title":"bad","text":"bad","sources":["handoffs/outside.md"]}],"purge":[]}`, "fake-pi", nil
 	}
-	got, err := RewriteExtractGroup(context.Background(), root, group, "")
+	got, err := rewriteExtractGroup(context.Background(), root, group, "")
 	if err == nil || !strings.Contains(err.Error(), "outside the group") || calls != 1 || len(got.Entries) != 0 {
 		t.Fatalf("rewrite=%+v calls=%d err=%v", got, calls, err)
 	}
@@ -575,26 +575,26 @@ func TestExtractRewriteRejectsInvalidGroups(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name  string
-		group ExtractGroup
+		group extractGroup
 		model string
 		want  string
 	}{
-		{"action", ExtractGroup{Action: ExtractPurge, Paths: group.Paths}, "", "rewrite group"},
-		{"empty", ExtractGroup{Action: ExtractRewrite}, "", "rewrite group"},
-		{"traversal", ExtractGroup{Action: ExtractRewrite, Paths: []string{"../outside.md"}}, "", "invalid group path"},
-		{"duplicate", ExtractGroup{Action: ExtractRewrite, Paths: []string{group.Paths[0], group.Paths[0]}}, "", "invalid group path"},
-		{"missing", ExtractGroup{Action: ExtractRewrite, Paths: []string{"handoffs/missing.md"}}, "", "extract rewrite read"},
+		{"action", extractGroup{Action: extractPurge, Paths: group.Paths}, "", "rewrite group"},
+		{"empty", extractGroup{Action: extractRewrite}, "", "rewrite group"},
+		{"traversal", extractGroup{Action: extractRewrite, Paths: []string{"../outside.md"}}, "", "invalid group path"},
+		{"duplicate", extractGroup{Action: extractRewrite, Paths: []string{group.Paths[0], group.Paths[0]}}, "", "invalid group path"},
+		{"missing", extractGroup{Action: extractRewrite, Paths: []string{"handoffs/missing.md"}}, "", "extract rewrite read"},
 		{"model", group, "unknown-model", "not in the catalog"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := RewriteExtractGroup(context.Background(), root, tc.group, tc.model)
+			_, err := rewriteExtractGroup(context.Background(), root, tc.group, tc.model)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("err=%v, want %q", err, tc.want)
 			}
 		})
 	}
 	CodeModeRun = nil
-	if _, err := RewriteExtractGroup(context.Background(), root, group, ""); err == nil || !strings.Contains(err.Error(), "no code-mode agent") {
+	if _, err := rewriteExtractGroup(context.Background(), root, group, ""); err == nil || !strings.Contains(err.Error(), "no code-mode agent") {
 		t.Errorf("nil runner err=%v", err)
 	}
 	if calls != 0 {
@@ -612,24 +612,24 @@ func extractQuietRepo(t *testing.T, repo storeRepo) {
 	}
 }
 
-func extractApplyFixture(t *testing.T) (storeRepo, ExtractGroup, string, map[string][]byte) {
+func extractApplyFixture(t *testing.T) (storeRepo, extractGroup, string, map[string][]byte) {
 	t.Helper()
-	repo := storeRepo{Dir: gitRepo(t, t.TempDir(), "memory")}
+	repo := storeRepo{dir: gitRepo(t, t.TempDir(), "memory")}
 	extractQuietRepo(t, repo)
-	group := ExtractGroup{Action: ExtractRewrite}
+	group := extractGroup{Action: extractRewrite}
 	original := make(map[string][]byte)
 	for i := range 5 {
 		rel := fmt.Sprintf("handoffs/%03d.md", i)
 		body := fmt.Sprintf("handoff %d: decision and open task\n", i)
-		extractFixtureFile(t, repo.Dir, rel, body, time.Now())
+		extractFixtureFile(t, repo.dir, rel, body, time.Now())
 		original[rel] = []byte(body)
 		group.Paths = append(group.Paths, rel)
 	}
 	idx := "# Index\n\n[first](../handoffs/000.md)\n\nhandoffs/001.md\n"
-	extractFixtureFile(t, repo.Dir, "notes/idx.md", idx, time.Now())
+	extractFixtureFile(t, repo.dir, "notes/idx.md", idx, time.Now())
 	original["notes/idx.md"] = []byte(idx)
 	rels := append(slices.Clone(group.Paths), "notes/idx.md")
-	if _, committed, err := repo.Commit(rels, "seed", ""); err != nil || !committed {
+	if _, committed, err := repo.commit(rels, "seed", ""); err != nil || !committed {
 		t.Fatalf("seed commit: committed=%v err=%v", committed, err)
 	}
 	return repo, group, idx, original
@@ -641,9 +641,9 @@ func TestExtractApplyCommitAndRevert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Five Handoffs", Text: "Preserved decisions and tasks", Sources: group.Paths}}, Purge: []string{}}
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Five Handoffs", Text: "Preserved decisions and tasks", Sources: group.Paths}}, Purge: []string{}}
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
-	sha, err := ApplyExtractRewrite(repo, group, ans, now)
+	sha, err := applyExtractRewrite(repo, group, ans, now)
 	if err != nil || sha == "" {
 		t.Fatalf("apply sha=%q err=%v", sha, err)
 	}
@@ -657,20 +657,20 @@ func TestExtractApplyCommitAndRevert(t *testing.T) {
 func assertExtractOriginal(t *testing.T, repo storeRepo, original map[string][]byte) {
 	t.Helper()
 	for rel, want := range original {
-		got, err := os.ReadFile(filepath.Join(repo.Dir, rel))
+		got, err := os.ReadFile(filepath.Join(repo.dir, rel))
 		if err != nil || string(got) != string(want) {
 			t.Errorf("reverted %s = %q, err=%v", rel, got, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(repo.Dir, "notes/extract-2026-11-26-five-handoffs.md")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(repo.dir, "notes/extract-2026-11-26-five-handoffs.md")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("unexpected note: %v", err)
 	}
 }
 
-func assertExtractApplied(t *testing.T, repo storeRepo, group ExtractGroup, idx, before string) {
+func assertExtractApplied(t *testing.T, repo storeRepo, group extractGroup, idx, before string) {
 	t.Helper()
 	note := "notes/extract-2026-11-26-five-handoffs.md"
-	data, err := os.ReadFile(filepath.Join(repo.Dir, note))
+	data, err := os.ReadFile(filepath.Join(repo.dir, note))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +691,7 @@ func assertExtractApplied(t *testing.T, repo storeRepo, group ExtractGroup, idx,
 
 func assertExtractLink(t *testing.T, repo storeRepo, idx string) {
 	t.Helper()
-	linked, err := os.ReadFile(filepath.Join(repo.Dir, "notes/idx.md"))
+	linked, err := os.ReadFile(filepath.Join(repo.dir, "notes/idx.md"))
 	if err != nil || !strings.Contains(string(linked), "extract-2026-11-26-five-handoffs.md") || strings.Contains(string(linked), "handoffs/") || string(linked) == idx {
 		t.Fatalf("idx=%q err=%v", linked, err)
 	}
@@ -700,7 +700,7 @@ func assertExtractLink(t *testing.T, repo storeRepo, idx string) {
 func assertExtractSourcesRemoved(t *testing.T, repo storeRepo, sources []string) {
 	t.Helper()
 	for _, source := range sources {
-		if _, err := os.Stat(filepath.Join(repo.Dir, source)); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(repo.dir, source)); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("source %s remains: %v", source, err)
 		}
 	}
@@ -708,20 +708,20 @@ func assertExtractSourcesRemoved(t *testing.T, repo storeRepo, sources []string)
 
 func TestExtractApplyMissingSourceLeavesTree(t *testing.T) {
 	repo, group, _, _ := extractApplyFixture(t)
-	missing := filepath.Join(repo.Dir, group.Paths[4])
+	missing := filepath.Join(repo.dir, group.Paths[4])
 	if err := os.Remove(missing); err != nil {
 		t.Fatal(err)
 	}
-	before := extractFixtureSnapshot(t, repo.Dir)
+	before := extractFixtureSnapshot(t, repo.dir)
 	countBefore, err := repo.run("rev-list", "--count", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
-	if sha, err := ApplyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)); err == nil || sha != "" {
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	if sha, err := applyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)); err == nil || sha != "" {
 		t.Fatalf("missing source sha=%q err=%v", sha, err)
 	}
-	if !reflect.DeepEqual(before, extractFixtureSnapshot(t, repo.Dir)) {
+	if !reflect.DeepEqual(before, extractFixtureSnapshot(t, repo.dir)) {
 		t.Fatal("failed apply changed the tree")
 	}
 	if count, err := repo.run("rev-list", "--count", "HEAD"); err != nil || count != countBefore {
@@ -735,7 +735,7 @@ func TestExtractApplyCommitFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(repo.Dir, ".git", ref+".lock")
+	lock := filepath.Join(repo.dir, ".git", ref+".lock")
 	if err := os.WriteFile(lock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -744,14 +744,14 @@ func TestExtractApplyCommitFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+	ans := extractRewriteAnswer{Entries: []extractEntry{
 		{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths},
 		{Title: "Shared Handoffs", Text: "Also preserved", Sources: group.Paths[:2]},
 	}, Purge: []string{}}
-	if sha, err := ApplyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)); err == nil || sha != "" {
+	if sha, err := applyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)); err == nil || sha != "" {
 		t.Fatalf("failed commit sha=%q err=%v", sha, err)
 	}
-	if status, err := repo.Status(); err != nil || len(status) != 0 {
+	if status, err := repo.status(); err != nil || len(status) != 0 {
 		t.Fatalf("failed shared-source apply left dirty tree: %v, %v", status, err)
 	}
 	assertExtractOriginal(t, repo, original)
@@ -767,15 +767,15 @@ func TestExtractApplyCollisionsAndPurge(t *testing.T) {
 	repo, group, _, _ := extractApplyFixture(t)
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 	base := "notes/extract-2026-11-26-handoffs.md"
-	extractFixtureFile(t, repo.Dir, base, "existing note\n", now)
-	if _, committed, err := repo.Commit([]string{base}, "seed collision", ""); err != nil || !committed {
+	extractFixtureFile(t, repo.dir, base, "existing note\n", now)
+	if _, committed, err := repo.commit([]string{base}, "seed collision", ""); err != nil || !committed {
 		t.Fatalf("seed collision: committed=%v err=%v", committed, err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+	ans := extractRewriteAnswer{Entries: []extractEntry{
 		{Title: "Handoffs", Text: "First", Sources: group.Paths[:2]},
 		{Title: "Handoffs", Text: "Second", Sources: group.Paths[2:4]},
 	}, Purge: group.Paths[4:]}
-	if _, err := ApplyExtractRewrite(repo, group, ans, now); err != nil {
+	if _, err := applyExtractRewrite(repo, group, ans, now); err != nil {
 		t.Fatal(err)
 	}
 	for rel, want := range map[string]string{base: "existing note\n", "notes/extract-2026-11-26-handoffs-2.md": "First", "notes/extract-2026-11-26-handoffs-3.md": "Second"} {
@@ -790,7 +790,7 @@ func TestExtractApplyCollisionsAndPurge(t *testing.T) {
 
 func assertExtractNoteContains(t *testing.T, repo storeRepo, rel, want string) {
 	t.Helper()
-	got, err := os.ReadFile(filepath.Join(repo.Dir, rel))
+	got, err := os.ReadFile(filepath.Join(repo.dir, rel))
 	if err != nil || !strings.Contains(string(got), want) {
 		t.Errorf("note %s = %q, err=%v", rel, got, err)
 	}
@@ -798,7 +798,7 @@ func assertExtractNoteContains(t *testing.T, repo storeRepo, rel, want string) {
 
 func TestExtractApplyStagedIndexUntouched(t *testing.T) {
 	repo, group, _, original := extractApplyFixture(t)
-	extractFixtureFile(t, repo.Dir, "notes/staged.md", "staged\n", time.Now())
+	extractFixtureFile(t, repo.dir, "notes/staged.md", "staged\n", time.Now())
 	if _, err := repo.run("add", "--", "notes/staged.md"); err != nil {
 		t.Fatal(err)
 	}
@@ -806,9 +806,9 @@ func TestExtractApplyStagedIndexUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
-	if sha, err := ApplyExtractRewrite(repo, group, ans, now); err == nil || sha != "" {
+	if sha, err := applyExtractRewrite(repo, group, ans, now); err == nil || sha != "" {
 		t.Fatalf("staged index sha=%q err=%v", sha, err)
 	}
 	assertExtractOriginal(t, repo, original)
@@ -820,16 +820,16 @@ func TestExtractApplyStagedIndexUntouched(t *testing.T) {
 func TestExtractApplySameDirectoryPaths(t *testing.T) {
 	repo, group, _, _ := extractApplyFixture(t)
 	idx := "handoffs/idx.md"
-	extractFixtureFile(t, repo.Dir, idx, "[relative](000.md)\nhandoffs/001.md\n", time.Now())
-	if _, committed, err := repo.Commit([]string{idx}, "seed handoff index", ""); err != nil || !committed {
+	extractFixtureFile(t, repo.dir, idx, "[relative](000.md)\nhandoffs/001.md\n", time.Now())
+	if _, committed, err := repo.commit([]string{idx}, "seed handoff index", ""); err != nil || !committed {
 		t.Fatalf("seed index: committed=%v err=%v", committed, err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Five Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
 	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
-	if _, err := ApplyExtractRewrite(repo, group, ans, now); err != nil {
+	if _, err := applyExtractRewrite(repo, group, ans, now); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(filepath.Join(repo.Dir, idx))
+	got, err := os.ReadFile(filepath.Join(repo.dir, idx))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -844,8 +844,8 @@ func TestExtractLossCarryAndOwnerWords(t *testing.T) {
 	const sha = "a1b2c3d4e5f6"
 	const quote = `owner: "keep the exact words"`
 	sources := map[string][]byte{source: []byte("commit " + sha + "\n" + quote + "\n")}
-	answer := func(text string) ExtractRewriteAnswer {
-		return ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Run", Text: text, Sources: []string{source}}}, Purge: []string{}}
+	answer := func(text string) extractRewriteAnswer {
+		return extractRewriteAnswer{Entries: []extractEntry{{Title: "Run", Text: text, Sources: []string{source}}}, Purge: []string{}}
 	}
 	for _, tc := range []struct {
 		name, text, want string
@@ -857,7 +857,7 @@ func TestExtractLossCarryAndOwnerWords(t *testing.T) {
 		{"dead sha", quote, "", func(string) bool { return false }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := CheckExtractLoss(sources, answer(tc.text), tc.live)
+			err := checkExtractLoss(sources, answer(tc.text), tc.live)
 			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), source) || !strings.Contains(err.Error(), tc.want)) {
 				t.Fatalf("loss check error = %v, want %q", err, tc.want)
 			}
@@ -871,17 +871,17 @@ func TestExtractLossProtectedAndSearchTerms(t *testing.T) {
 	for _, item := range items {
 		t.Run(item, func(t *testing.T) {
 			sources := map[string][]byte{source: []byte(item + "\n")}
-			ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Run", Text: "summary", Sources: []string{source}}}, Purge: []string{}}
-			if err := CheckExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), source) || !strings.Contains(err.Error(), strings.Trim(item, "`")) {
+			ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Run", Text: "summary", Sources: []string{source}}}, Purge: []string{}}
+			if err := checkExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), source) || !strings.Contains(err.Error(), strings.Trim(item, "`")) {
 				t.Fatalf("dropped item error = %v", err)
 			}
 			ans.Entries[0].Text = item
-			if err := CheckExtractLoss(sources, ans, nil); err != nil {
+			if err := checkExtractLoss(sources, ans, nil); err != nil {
 				t.Fatalf("retained item: %v", err)
 			}
-			ans.Entries = []ExtractEntry{{Title: "Other", Text: item, Sources: []string{"other.md"}}}
+			ans.Entries = []extractEntry{{Title: "Other", Text: item, Sources: []string{"other.md"}}}
 			ans.Purge = []string{source}
-			if err := CheckExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), source) {
+			if err := checkExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), source) {
 				t.Fatalf("purged item error = %v", err)
 			}
 		})
@@ -892,7 +892,7 @@ func TestExtractLossLiveSHAAndSingleQuote(t *testing.T) {
 	repo, _, _, _ := extractApplyFixture(t)
 	live, err := extractLiveSHA(repo)
 	extractRunOK(t, err)
-	if _, err := extractLiveSHA(storeRepo{Dir: t.TempDir()}); err == nil {
+	if _, err := extractLiveSHA(storeRepo{dir: t.TempDir()}); err == nil {
 		t.Fatal("an unreadable object inventory must not pass the loss check")
 	}
 	if !live("a1b2c3d4e5f6") || live("deadbee") {
@@ -900,24 +900,24 @@ func TestExtractLossLiveSHAAndSingleQuote(t *testing.T) {
 	}
 	const source = "reports/run.md"
 	sources := map[string][]byte{source: []byte("owner said 'keep the exact words'\n")}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Run", Text: "similar words", Sources: []string{source}}}, Purge: []string{}}
-	if err := CheckExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), "keep the exact words") {
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Run", Text: "similar words", Sources: []string{source}}}, Purge: []string{}}
+	if err := checkExtractLoss(sources, ans, nil); err == nil || !strings.Contains(err.Error(), "keep the exact words") {
 		t.Fatalf("paraphrased single quote error = %v", err)
 	}
 	ans.Entries[0].Text = "'keep the exact words'"
-	if err := CheckExtractLoss(sources, ans, nil); err != nil {
+	if err := checkExtractLoss(sources, ans, nil); err != nil {
 		t.Fatalf("retained single quote: %v", err)
 	}
 }
 
 func TestExtractApplyRefusesUncommittedSourceEdit(t *testing.T) {
 	repo, group, _, _ := extractApplyFixture(t)
-	extractFixtureFile(t, repo.Dir, group.Paths[0], "hand edit, never committed\n", time.Now())
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "x", Sources: group.Paths}}, Purge: []string{}}
-	if got, err := ApplyExtractRewrite(repo, group, ans, time.Now()); got != "" || err == nil || !strings.Contains(err.Error(), "uncommitted") {
+	extractFixtureFile(t, repo.dir, group.Paths[0], "hand edit, never committed\n", time.Now())
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Handoffs", Text: "x", Sources: group.Paths}}, Purge: []string{}}
+	if got, err := applyExtractRewrite(repo, group, ans, time.Now()); got != "" || err == nil || !strings.Contains(err.Error(), "uncommitted") {
 		t.Fatalf("apply sha=%q err=%v", got, err)
 	}
-	if data, err := os.ReadFile(filepath.Join(repo.Dir, group.Paths[0])); err != nil || !strings.Contains(string(data), "hand edit") {
+	if data, err := os.ReadFile(filepath.Join(repo.dir, group.Paths[0])); err != nil || !strings.Contains(string(data), "hand edit") {
 		t.Fatalf("hand edit lost: %q %v", data, err)
 	}
 }
@@ -926,20 +926,20 @@ func TestExtractLossApplyRefusalLeavesTree(t *testing.T) {
 	repo, group, _, _ := extractApplyFixture(t)
 	const sha = "a1b2c3d4e5f6"
 	rel := group.Paths[0]
-	extractFixtureFile(t, repo.Dir, rel, "live commit "+sha+"\n", time.Now())
-	if _, committed, err := repo.Commit([]string{rel}, "sha source", ""); err != nil || !committed {
+	extractFixtureFile(t, repo.dir, rel, "live commit "+sha+"\n", time.Now())
+	if _, committed, err := repo.commit([]string{rel}, "sha source", ""); err != nil || !committed {
 		t.Fatalf("commit source: committed=%v err=%v", committed, err)
 	}
-	before := extractFixtureSnapshot(t, repo.Dir)
+	before := extractFixtureSnapshot(t, repo.dir)
 	count, err := repo.run("rev-list", "--count", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
-	if got, err := ApplyExtractRewrite(repo, group, ans, time.Now()); got != "" || err == nil || !strings.Contains(err.Error(), sha) {
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	if got, err := applyExtractRewrite(repo, group, ans, time.Now()); got != "" || err == nil || !strings.Contains(err.Error(), sha) {
 		t.Fatalf("apply sha=%q err=%v", got, err)
 	}
-	if !reflect.DeepEqual(before, extractFixtureSnapshot(t, repo.Dir)) {
+	if !reflect.DeepEqual(before, extractFixtureSnapshot(t, repo.dir)) {
 		t.Fatal("refused apply changed tree")
 	}
 	if after, err := repo.run("rev-list", "--count", "HEAD"); err != nil || after != count {
@@ -963,13 +963,13 @@ func TestExtractLossMarkdownAndTimestamps(t *testing.T) {
 		{"italic id", "_aabbccdd_\n", "aabbccdd"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Run", Text: "summary", Sources: []string{source}}}, Purge: []string{}}
-			err := CheckExtractLoss(map[string][]byte{source: []byte(tc.body)}, ans, nil)
+			ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Run", Text: "summary", Sources: []string{source}}}, Purge: []string{}}
+			err := checkExtractLoss(map[string][]byte{source: []byte(tc.body)}, ans, nil)
 			if err == nil || !strings.Contains(err.Error(), tc.item) {
 				t.Fatalf("dropped item error = %v, want %q", err, tc.item)
 			}
 			ans.Entries[0].Text = tc.item
-			if err := CheckExtractLoss(map[string][]byte{source: []byte(tc.body)}, ans, nil); err != nil {
+			if err := checkExtractLoss(map[string][]byte{source: []byte(tc.body)}, ans, nil); err != nil {
 				t.Fatalf("retained item: %v", err)
 			}
 		})
@@ -989,11 +989,11 @@ func TestExtractSharedSourceValidatesAndAppliesOnce(t *testing.T) {
 	repo, group, _, original := extractApplyFixture(t)
 	before, err := repo.run("rev-parse", "HEAD^{tree}")
 	extractRunOK(t, err)
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+	ans := extractRewriteAnswer{Entries: []extractEntry{
 		{Title: "One", Text: "decision and open task", Sources: group.Paths},
 		{Title: "Two", Text: "decision and open task", Sources: group.Paths[:2]},
 	}, Purge: []string{}}
-	sha, err := ApplyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC))
+	sha, err := applyExtractRewrite(repo, group, ans, time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC))
 	if err != nil || sha == "" {
 		t.Fatalf("apply sha=%q err=%v", sha, err)
 	}
@@ -1002,7 +1002,7 @@ func TestExtractSharedSourceValidatesAndAppliesOnce(t *testing.T) {
 		assertExtractNoteContains(t, repo, "notes/extract-2026-11-26-"+name+".md", "decision and open task")
 	}
 	// Shared source links and commit mappings use the last citing entry.
-	linked, err := os.ReadFile(filepath.Join(repo.Dir, "notes/idx.md"))
+	linked, err := os.ReadFile(filepath.Join(repo.dir, "notes/idx.md"))
 	if err != nil || strings.Contains(string(linked), "handoffs/") || strings.Contains(string(linked), "extract-2026-11-26-one.md") || !strings.Contains(string(linked), "extract-2026-11-26-two.md") {
 		t.Fatalf("shared source links=%q err=%v", linked, err)
 	}
@@ -1020,7 +1020,7 @@ func TestExtractSharedSourceValidatesAndAppliesOnce(t *testing.T) {
 	if after, err := repo.run("rev-parse", "HEAD^{tree}"); err != nil || after != before {
 		t.Fatalf("revert tree=%q want %q err=%v", after, before, err)
 	}
-	if status, err := repo.Status(); err != nil || len(status) != 0 {
+	if status, err := repo.status(); err != nil || len(status) != 0 {
 		t.Fatalf("revert left dirty tree: %v, %v", status, err)
 	}
 }
@@ -1028,7 +1028,7 @@ func TestExtractSharedSourceValidatesAndAppliesOnce(t *testing.T) {
 func TestExtractLossSeesUnionOfEntries(t *testing.T) {
 	const source = "reports/run.md"
 	sources := map[string][]byte{source: []byte("see 2026-11-26 and `term-x`\n")}
-	split := ExtractRewriteAnswer{Entries: []ExtractEntry{
+	split := extractRewriteAnswer{Entries: []extractEntry{
 		{Title: "a", Text: "date 2026-11-26", Sources: []string{source}},
 		{Title: "b", Text: "search `term-x`", Sources: []string{source}},
 	}, Purge: []string{}}
@@ -1041,11 +1041,11 @@ func TestExtractLossSeesUnionOfEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("split facts refused: %v", err)
 	}
-	if err := CheckExtractLoss(sources, split, func(string) bool { return false }); err != nil {
+	if err := checkExtractLoss(sources, split, func(string) bool { return false }); err != nil {
 		t.Fatalf("union should keep both facts: %v", err)
 	}
 	split.Entries = split.Entries[:1]
-	if err := CheckExtractLoss(sources, split, func(string) bool { return false }); err == nil {
+	if err := checkExtractLoss(sources, split, func(string) bool { return false }); err == nil {
 		t.Fatal("dropped fact not refused")
 	}
 }
@@ -1083,26 +1083,26 @@ func TestExtractSharedSourceRecallCountsUnion(t *testing.T) {
 		"reports/c.md":        []byte("c\n"),
 		"reports/unserved.md": []byte("not recalled\n"),
 	}
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{
+	ans := extractRewriteAnswer{Entries: []extractEntry{
 		{Title: "a", Text: "a", Sources: []string{"reports/a.md", "reports/b.md"}},
 		{Title: "b", Text: "b", Sources: []string{"reports/a.md", "reports/c.md"}},
 	}, Purge: []string{"reports/unserved.md"}}
-	report, err := CheckExtractRecall([]string{log}, ledger, sources, ans, now)
-	if err != nil || report.Queried != 3 || report.Lost != 0 {
+	report, err := checkExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err != nil || report.queried != 3 || report.lost != 0 {
 		t.Fatalf("shared union: report=%+v err=%v", report, err)
 	}
 	ans.Entries[1].Sources = []string{"reports/a.md"}
 	ans.Purge = append(ans.Purge, "reports/c.md")
-	report, err = CheckExtractRecall([]string{log}, ledger, sources, ans, now)
-	if err == nil || !strings.Contains(err.Error(), "limit 2%") || report.Queried != 3 || report.Lost != 1 {
+	report, err = checkExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err == nil || !strings.Contains(err.Error(), "limit 2%") || report.queried != 3 || report.lost != 1 {
 		t.Fatalf("purged distinct source: report=%+v err=%v", report, err)
 	}
 	// A source retained by only the later entry must not be skipped either.
 	ans.Entries[0].Sources = []string{"reports/b.md"}
 	ans.Entries[1].Sources = []string{"reports/a.md", "reports/c.md"}
 	ans.Purge = []string{"reports/unserved.md"}
-	report, err = CheckExtractRecall([]string{log}, ledger, sources, ans, now)
-	if err != nil || report.Queried != 3 || report.Lost != 0 {
+	report, err = checkExtractRecall([]string{log}, ledger, sources, ans, now)
+	if err != nil || report.queried != 3 || report.lost != 0 {
 		t.Fatalf("later successor: report=%+v err=%v", report, err)
 	}
 }
@@ -1118,7 +1118,7 @@ func dreamExtractLossy(t *testing.T, calls *int) {
 		if err := json.Unmarshal([]byte(data), &files); err != nil {
 			t.Fatal(err)
 		}
-		entry, purge := ExtractEntry{Title: "Handoffs"}, []string{}
+		entry, purge := extractEntry{Title: "Handoffs"}, []string{}
 		for i, f := range files {
 			if i < 3 {
 				purge = append(purge, f.Path)
@@ -1127,7 +1127,7 @@ func dreamExtractLossy(t *testing.T, calls *int) {
 			entry.Text += f.Text + "\n"
 			entry.Sources = append(entry.Sources, f.Path)
 		}
-		answer, err := json.Marshal(ExtractRewriteAnswer{Entries: []ExtractEntry{entry}, Purge: purge})
+		answer, err := json.Marshal(extractRewriteAnswer{Entries: []extractEntry{entry}, Purge: purge})
 		return string(answer), "fake-pi", err
 	}
 	t.Cleanup(func() { CodeModeRun = old })
@@ -1138,7 +1138,7 @@ func dreamExtractLossyStore(t *testing.T) (root string, calls *int) {
 	isolatedConfig(t)
 	initStore(t)
 	root = paths.MemoryStoreDir()
-	extractQuietRepo(t, storeRepo{Dir: root})
+	extractQuietRepo(t, storeRepo{dir: root})
 	dreamSeedHandoffs(t, root)
 	var log strings.Builder
 	for i := range 62 {
@@ -1158,12 +1158,12 @@ func dreamExtractLossyStore(t *testing.T) (root string, calls *int) {
 func TestDreamExtractSkipsRefusedGroupUntilSourceChanges(t *testing.T) {
 	root, calls := dreamExtractLossyStore(t)
 	var first strings.Builder
-	dreamExtract(dreamOptions{Out: &first}, nil)
+	dreamExtract(dreamOptions{out: &first}, nil)
 	if *calls != 1 || !strings.Contains(first.String(), "extract refused:") {
 		t.Fatalf("first run: calls=%d out=%q", *calls, first.String())
 	}
 	var second strings.Builder
-	dreamExtract(dreamOptions{Out: &second}, nil)
+	dreamExtract(dreamOptions{out: &second}, nil)
 	if !strings.Contains(second.String(), "extract skipped handoffs group (") || !strings.Contains(second.String(), "): refused earlier: extract recall:") {
 		t.Fatalf("second run must skip the refused group: %q", second.String())
 	}
@@ -1176,7 +1176,7 @@ func TestDreamExtractSkipsRefusedGroupUntilSourceChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	var third strings.Builder
-	dreamExtract(dreamOptions{Out: &third}, nil)
+	dreamExtract(dreamOptions{out: &third}, nil)
 	if *calls <= before {
 		t.Fatalf("a changed source must re-admit its group: out=%q", third.String())
 	}
@@ -1184,19 +1184,19 @@ func TestDreamExtractSkipsRefusedGroupUntilSourceChanges(t *testing.T) {
 
 func TestDreamExtractBusyRefusalIsNotRecorded(t *testing.T) {
 	_, calls := dreamExtractLossyStore(t)
-	t.Setenv(DetachedEnv, "")
+	t.Setenv(detachedEnv, "")
 	old := updateLockWait
 	updateLockWait = 50 * time.Millisecond
 	t.Cleanup(func() { updateLockWait = old })
 	var out strings.Builder
 	_, err := paths.TryFileLock(lockPathOf()+".lock", time.Second, func() error {
-		dreamExtract(dreamOptions{Out: &out}, nil)
+		dreamExtract(dreamOptions{out: &out}, nil)
 		return nil
 	})
 	if err != nil || *calls != 1 || !strings.Contains(out.String(), ErrBankBusy.Error()) {
 		t.Fatalf("busy run: err=%v calls=%d out=%q", err, *calls, out.String())
 	}
-	refused, err := ExtractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
+	refused, err := extractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
 	if err != nil || len(refused) != 0 {
 		t.Fatalf("a busy refusal must not be recorded: %v %v", refused, err)
 	}
@@ -1217,11 +1217,11 @@ func TestDreamExtractTemporaryFailureIsNotRecorded(t *testing.T) {
 		return answer, who, err
 	}
 	var out strings.Builder
-	dreamExtract(dreamOptions{Out: &out}, nil)
+	dreamExtract(dreamOptions{out: &out}, nil)
 	if *calls != 1 || !strings.Contains(out.String(), "sources changed while the model ran") {
 		t.Fatalf("temporary failure: calls=%d out=%q", *calls, out.String())
 	}
-	refused, err := ExtractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
+	refused, err := extractRefusals(filepath.Join(paths.MemoryStateDir(), "extract-loss.log"))
 	if err != nil || len(refused) != 0 {
 		t.Fatalf("a temporary failure must not block a future attempt: %v %v", refused, err)
 	}
@@ -1232,17 +1232,17 @@ func TestDreamExtractTemporaryFailureIsNotRecorded(t *testing.T) {
 
 func TestExtractApplyRefusesEditedLink(t *testing.T) {
 	repo, group, _, original := extractApplyFixture(t)
-	file := filepath.Join(repo.Dir, "notes/idx.md")
+	file := filepath.Join(repo.dir, "notes/idx.md")
 	write(t, file, "owner edit: handoffs/000.md\n")
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
-	if _, err := ApplyExtractRewrite(repo, group, ans, time.Now()); err == nil || !strings.Contains(err.Error(), "uncommitted source edits") {
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths}}, Purge: []string{}}
+	if _, err := applyExtractRewrite(repo, group, ans, time.Now()); err == nil || !strings.Contains(err.Error(), "uncommitted source edits") {
 		t.Fatalf("edited link accepted: %v", err)
 	}
 	if got := mustRead(t, file); got != "owner edit: handoffs/000.md\n" {
 		t.Fatalf("owner edit overwritten: %q", got)
 	}
 	for _, rel := range group.Paths {
-		if got := mustRead(t, filepath.Join(repo.Dir, rel)); got != string(original[rel]) {
+		if got := mustRead(t, filepath.Join(repo.dir, rel)); got != string(original[rel]) {
 			t.Fatalf("source changed: %s", rel)
 		}
 	}
@@ -1293,15 +1293,15 @@ func TestDreamExtractFailedApplyRefundsLoss(t *testing.T) {
 	}
 	write(t, accessLogPath(), log.String())
 	ledger := filepath.Join(paths.MemoryStateDir(), "extract-loss.log")
-	extractRunOK(t, RecordExtractLoss(ledger, now, 1))
+	extractRunOK(t, recordExtractLoss(ledger, now, 1))
 	before := mustRead(t, ledger)
 	ref, err := repo.run("symbolic-ref", "HEAD")
 	extractRunOK(t, err)
-	write(t, filepath.Join(repo.Dir, ".git", ref+".lock"), "")
-	seen, err := dreamReadSources(repo.Dir, group.Paths)
+	write(t, filepath.Join(repo.dir, ".git", ref+".lock"), "")
+	seen, err := dreamReadSources(repo.dir, group.Paths)
 	extractRunOK(t, err)
-	ans := ExtractRewriteAnswer{Entries: []ExtractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths[1:]}}, Purge: group.Paths[:1]}
-	_, err = dreamApplyChecked(repo.Dir, group, ans, seen, ExtractOptions{AccessLogs: []string{accessLogPath()}})
+	ans := extractRewriteAnswer{Entries: []extractEntry{{Title: "Handoffs", Text: "Preserved", Sources: group.Paths[1:]}}, Purge: group.Paths[:1]}
+	_, err = dreamApplyChecked(repo.dir, group, ans, seen, extractOptions{accessLogs: []string{accessLogPath()}})
 	if err == nil || !refused(err) || mustRead(t, ledger) != before {
 		t.Fatalf("failed apply kept a debit: %v, ledger=%q", err, mustRead(t, ledger))
 	}

@@ -350,7 +350,7 @@ func embedIndex(ctx context.Context, out, errw io.Writer, root, profile string, 
 			embed = reembedEntries
 		}
 		if n, total, err = embed(ctx, root, c); err == nil && n > 0 {
-			fmt.Fprintf(out, "embedded %d of %d entries (%s)\n", n, total, c.Model)
+			fmt.Fprintf(out, "embedded %d of %d entries (%s)\n", n, total, c.model)
 		}
 	}
 	if err != nil && !errors.Is(err, errEmbedValid) { // a valid cache is the normal case, not a skip
@@ -403,7 +403,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, paths.MemorySubDir(""))
 		return nil
 	}
-	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
+	return update(updateOptions{run: o.Run, transcript: transcript, cwd: root, session: session, historical: o.Historical, out: o.Out})
 }
 
 // DreamRunOptions is one `memory update --dream`.
@@ -442,12 +442,12 @@ func RunDream(o DreamRunOptions) error {
 		}
 	}
 	if o.DryRun {
-		fmt.Fprint(o.Out, previewDream().Report())
+		fmt.Fprint(o.Out, previewDream().report())
 		return nil
 	}
-	d := dreamOptions{CWD: root, Run: o.Run, Out: o.Out, IfDue: !o.Force, Trigger: cmp.Or(o.Trigger, DreamTriggerManual), Forced: o.Force}.withLog()
+	d := dreamOptions{cwd: root, run: o.Run, out: o.Out, ifDue: !o.Force, trigger: cmp.Or(o.Trigger, DreamTriggerManual), forced: o.Force}.withLog()
 	if o.Force || dreamDue(time.Now()) {
-		dreamCatchup(d.Out)
+		dreamCatchup(d.out)
 	}
 	return dream(d)
 }
@@ -494,7 +494,7 @@ func FormatCheck(w io.Writer) (dirty bool, err error) { return FormatReport(w, t
 // ReviewOptions is one `memory review`.
 type ReviewOptions struct {
 	StaleDays                 int
-	Brief, Notice, Candidates bool
+	Brief, Notice, candidates bool
 	Candidate, Enforced       string // a candidate id; Enforced is the sha or file:line that closes it
 	Approve                   bool
 	Propose                   string // one candidate record as JSON; Go validates and appends it
@@ -524,12 +524,12 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 			fmt.Fprintln(w, "- "+p)
 		}
 	}
-	fmt.Fprint(w, collectBankStats().Report())
-	if !o.Brief && !o.Candidates {
+	fmt.Fprint(w, collectBankStats().report())
+	if !o.Brief && !o.candidates {
 		writeOpenCandidates(w)
 		writeHookSignals(w, time.Now())
 	}
-	if o.Candidates {
+	if o.candidates {
 		ref := assets.MemoryReviewProcedure()
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, ref)
@@ -544,7 +544,7 @@ func TimelineReport(w io.Writer, n int) error {
 		return fmt.Errorf("sessionHistory: %w", err)
 	}
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s  update   %s\n", e.Time.Format("2006-01-02 15:04"), e.Line)
+		fmt.Fprintf(w, "%s  update   %s\n", e.time.Format("2006-01-02 15:04"), e.line)
 	}
 	if len(sessions) > 0 {
 		fmt.Fprintln(w, "-- sessionHistory --")
@@ -557,41 +557,41 @@ func TimelineReport(w io.Writer, n int) error {
 
 // dreamPreview is `memory update --dream --dry-run`'s deterministic report of the mechanical steps only.
 type dreamPreview struct {
-	Dir           string
-	Oversized     []string // bank files over cap
-	Archivable    int      // durable-file overflow blocks that would move to this store's archive/
-	SessionRotate int      // sessionHistory entries that would rotate to archive/
-	Unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
-	HookP95       []dreamBenchEntry
-	HookP95Err    error
-	RtkMisses     []rtkMiss
-	RtkErr        error
+	dir           string
+	oversized     []string // bank files over cap
+	archivable    int      // durable-file overflow blocks that would move to this store's archive/
+	sessionRotate int      // sessionHistory entries that would rotate to archive/
+	unreadable    []string // "name: error" for each bank file that could not be read, so was not checked
+	hookP95       []dreamBenchEntry
+	hookP95Err    error
+	rtkMisses     []rtkMiss
+	rtkErr        error
 }
 
-// Any reports whether the preview found anything a real dream run would change mechanically.
-func (p dreamPreview) Any() bool {
-	return len(p.Oversized) > 0 || p.Archivable > 0 || p.SessionRotate > 0 || len(p.HookP95) > 0
+// any reports whether the preview found anything a real dream run would change mechanically.
+func (p dreamPreview) any() bool {
+	return len(p.oversized) > 0 || p.archivable > 0 || p.sessionRotate > 0 || len(p.hookP95) > 0
 }
 
-// Report renders the preview as `memory update --dream --dry-run`'s stdout.
-func (p dreamPreview) Report() string {
+// report renders the preview as `memory update --dream --dry-run`'s stdout.
+func (p dreamPreview) report() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "bank: %s\n", p.Dir)
-	if len(p.Oversized) > 0 {
-		fmt.Fprintf(&b, "over cap: %s\n", strings.Join(p.Oversized, ", "))
+	fmt.Fprintf(&b, "bank: %s\n", p.dir)
+	if len(p.oversized) > 0 {
+		fmt.Fprintf(&b, "over cap: %s\n", strings.Join(p.oversized, ", "))
 	}
-	if p.Archivable > 0 {
-		fmt.Fprintf(&b, "would archive %d block(s)\n", p.Archivable)
+	if p.archivable > 0 {
+		fmt.Fprintf(&b, "would archive %d block(s)\n", p.archivable)
 	}
-	if p.SessionRotate > 0 {
-		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.SessionRotate)
+	if p.sessionRotate > 0 {
+		fmt.Fprintf(&b, "would rotate %d sessionHistory entr(ies) to archive/\n", p.sessionRotate)
 	}
-	for _, u := range p.Unreadable {
+	for _, u := range p.unreadable {
 		fmt.Fprintf(&b, "home %s — unreadable, so not checked\n", u)
 	}
-	writeDreamP95(&b, p.HookP95, p.HookP95Err)
-	writeDreamRtk(&b, p.RtkMisses, p.RtkErr)
-	if !p.Any() && len(p.Unreadable) == 0 {
+	writeDreamP95(&b, p.hookP95, p.hookP95Err)
+	writeDreamRtk(&b, p.rtkMisses, p.rtkErr)
+	if !p.any() && len(p.unreadable) == 0 {
 		b.WriteString("nothing to consolidate mechanically — a real run still applies the judgment pass (dedup, merge, cross-pollinate)\n")
 	}
 	return b.String()
@@ -603,18 +603,18 @@ func previewDream() dreamPreview {
 	// the telemetry scan and the rtk spawn are independent of the bank reads, so they run alongside them
 	parallel.Rethrow(parallel.All(2, func(i int) error {
 		if i == 1 {
-			p.HookP95, p.HookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
-			p.RtkMisses, p.RtkErr = readDreamRtk()
+			p.hookP95, p.hookP95Err = readDreamP95(filepath.Join(paths.StateDir(), "hooks"), time.Now())
+			p.rtkMisses, p.rtkErr = readDreamRtk()
 			return nil
 		}
 		local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
-		p.Dir, p.Oversized, p.Unreadable = paths.MemorySubDir(""), local.Oversized, local.Unreadable
+		p.dir, p.oversized, p.unreadable = paths.MemorySubDir(""), local.oversized, local.unreadable
 		for name, capLines := range archiveCaps {
 			_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
-			p.Archivable += len(overflow)
+			p.archivable += len(overflow)
 		}
 		_, _, rotate := sessionOverflow(string(local.data["sessionHistory.md"]))
-		p.SessionRotate = len(rotate)
+		p.sessionRotate = len(rotate)
 		return nil
 	})...)
 	return p

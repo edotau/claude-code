@@ -324,7 +324,7 @@ func TestRunDirectCapsContext(t *testing.T) {
 	}
 	t.Cleanup(func() { native["memory-start"] = orig })
 	var out strings.Builder
-	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), &out, io.Discard); code != core.ExitProceed {
+	if code := runDirect("", "memory-start", strings.NewReader(`{"session_id":"s"}`), &out, io.Discard); code != core.ExitProceed {
 		t.Fatalf("exit %d", code)
 	}
 	var doc struct {
@@ -443,7 +443,7 @@ const askCmd = `python3 -c "open('/Users/me/.ssh/x','w')"`
 func TestSafetyAskDocumentExactShape(t *testing.T) {
 	narrowAllow(t, hosttest.TierHarness(t))
 	var out, errb bytes.Buffer
-	if code := runDirect("safety-scan", hosttest.BashPayload(askCmd), &out, &errb); code != core.ExitProceed {
+	if code := runDirect("", "safety-scan", hosttest.BashPayload(askCmd), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
 	}
 	var top map[string]json.RawMessage

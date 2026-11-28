@@ -100,7 +100,7 @@ func revisedIDs(block, self string) []string {
 	var out []string
 	for _, m := range reviseRef().FindAllStringSubmatchIndex(body, -1) {
 		id := body[m[4]:m[5]]
-		if _, ok := ParseRef(strings.ToLower(id)); ok && declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
+		if _, ok := parseRef(strings.ToLower(id)); ok && declarationOutside(body[:m[2]]) && id != self && !slices.Contains(out, id) {
 			out = append(out, id)
 		}
 	}
@@ -186,7 +186,7 @@ func replacedBy(block string) string {
 // pointerRef is the ref of a line holding only the pointer settle writes, "" when line is not one.
 func pointerRef(line string) string {
 	if m := replacedPointer().FindStringSubmatch(line); m != nil {
-		if _, ok := ParseRef(m[1]); ok {
+		if _, ok := parseRef(m[1]); ok {
 			return m[1]
 		}
 	}
@@ -196,7 +196,7 @@ func pointerRef(line string) string {
 // dropSeeNotes removes each "(see <ref>)" pointer from s.
 func dropSeeNotes(s string) string {
 	return seeNote().ReplaceAllStringFunc(s, func(note string) string {
-		if _, ok := ParseRef(seeNote().FindStringSubmatch(note)[1]); ok {
+		if _, ok := parseRef(seeNote().FindStringSubmatch(note)[1]); ok {
 			return ""
 		}
 		return note
@@ -412,8 +412,8 @@ var slugMarker = sync.OnceValue(func() *regexp.Regexp {
 
 // slugAlias reports whether tok is a persisted-form alias ref (<hex>-<slug>), not a content ref.
 func slugAlias(tok string) bool {
-	r, ok := ParseRef(tok)
-	return ok && !r.Derived && r.Alias != ""
+	r, ok := parseRef(tok)
+	return ok && !r.derived && r.alias != ""
 }
 
 // locateBlocks maps each persisted block id, and each title-line slug alias, to its first location.
@@ -623,7 +623,7 @@ func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit,
 			if seg == nil { // a missing or unreadable file has no segment
 				continue
 			}
-			for d := range seg.Docs() {
+			for d := range seg.docs() {
 				raw, _ := seg.docRaw(d)
 				if !bytes.Contains(raw, needle) {
 					continue
@@ -633,7 +633,7 @@ func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit,
 					continue
 				}
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id}, true
+				return SearchHit{Bank: f.bank, File: filepath.Base(f.path), Block: block, ID: id}, true
 			}
 		}
 		return SearchHit{}, false

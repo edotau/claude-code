@@ -318,7 +318,7 @@ type copilotScan struct {
 func (sc *copilotScan) add(rec copilotRec) {
 	switch rec.Type {
 	case "assistant.message":
-		sc.texts = append(sc.texts, copilotEvent{Type: rec.Type, Content: rec.Data.Content})
+		sc.texts = append(sc.texts, copilotEvent{typ: rec.Type, content: rec.Data.Content})
 	case "tool.execution_start":
 		sc.starts = append(sc.starts, copilotStart{id: rec.Data.ToolCallID, evs: copilotToolEvents(rec.Data.ToolName, rec.Data.Arguments, sc.cwd)})
 	case "tool.execution_complete":
@@ -330,7 +330,7 @@ func (sc *copilotScan) add(rec copilotRec) {
 		}
 		sc.sawFileEdits = sc.sawFileEdits || len(rec.Data.FileEdits) > 0
 		for _, fe := range rec.Data.FileEdits {
-			sc.done = append(sc.done, copilotEvent{Type: "tool.execution_start", ToolName: "edit", Arguments: map[string]any{"path": fe.Path}})
+			sc.done = append(sc.done, copilotEvent{typ: "tool.execution_start", toolName: "edit", arguments: map[string]any{"path": fe.Path}})
 		}
 	}
 }
@@ -353,11 +353,11 @@ func copilotToolEvents(tool string, raw json.RawMessage, cwd string) []copilotEv
 	if json.Unmarshal(raw, &text) != nil {
 		var args map[string]any
 		_ = json.Unmarshal(raw, &args)
-		return []copilotEvent{{Type: "tool.execution_start", ToolName: tool, Arguments: args}}
+		return []copilotEvent{{typ: "tool.execution_start", toolName: tool, arguments: args}}
 	}
 	var out []copilotEvent
 	for _, p := range patchPaths(text, cwd) {
-		out = append(out, copilotEvent{Type: "tool.execution_start", ToolName: tool, Arguments: map[string]any{"path": p}})
+		out = append(out, copilotEvent{typ: "tool.execution_start", toolName: tool, arguments: map[string]any{"path": p}})
 	}
 	return out
 }
@@ -435,10 +435,10 @@ func loadOpencodeExport(data []byte) (agentTranscript, error) {
 
 // copilotEvent is the normalized event read from a Copilot events.jsonl.
 type copilotEvent struct {
-	Type      string // "tool.execution_start" or "assistant.message"
-	ToolName  string
-	Arguments map[string]any
-	Content   string
+	typ       string // "tool.execution_start" or "assistant.message"
+	toolName  string
+	arguments map[string]any
+	content   string
 }
 
 // loadCopilotEvents folds normalized Copilot events into transcript data.
@@ -446,10 +446,10 @@ func loadCopilotEvents(events []copilotEvent) agentTranscript {
 	b := &pathBuilder{seen: map[string]bool{}}
 	for _, e := range events {
 		switch {
-		case e.Type == "tool.execution_start" && copilotEditTools[strings.ToLower(e.ToolName)]:
-			b.edit(copilotArgPath(e.Arguments))
-		case e.Type == "assistant.message" && e.Content != "":
-			b.out.FinalText = e.Content
+		case e.typ == "tool.execution_start" && copilotEditTools[strings.ToLower(e.toolName)]:
+			b.edit(copilotArgPath(e.arguments))
+		case e.typ == "assistant.message" && e.content != "":
+			b.out.FinalText = e.content
 		}
 	}
 	return b.done()
