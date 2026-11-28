@@ -215,6 +215,7 @@ rtk:  # (install) pinned rtk release in bin/, checked against its checksums.txt;
 		&& [ "$$(sha256 $$t/rtk.tgz)" = "$$(grep -F "rtk-$$a.tar.gz" $$t/checksums.txt | cut -d' ' -f1)" ] \
 		&& tar -xzf $$t/rtk.tgz -C $$t rtk && mkdir -p bin && install -m 0755 $$t/rtk bin/rtk; then \
 		echo -e "$(C_OK)rtk $(RTK_VERSION) installed (checksum verified)"; \
+		echo -e "$(C_NOTE)rtk changed: re-record its answers with: go test -run '^TestRTKFastPathMatchesRTK$$' ./internal/platform/rtkwrap/ -update"; \
 	else echo -e "$(C_NOTE)rtk $(RTK_VERSION) skipped: download or checksum failed"; fi; rm -rf $$t
 
 typos:  # (install) pinned typos release in bin/, checked against the sums below; warns, never fails
