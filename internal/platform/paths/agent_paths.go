@@ -47,6 +47,18 @@ func CopilotHome() (string, error) {
 	return filepath.Join(home, ".copilot"), nil
 }
 
+// VendorPath is rel under home, moved to $CODEX_HOME or $COPILOT_HOME when home is the user's own, where the CLI reads.
+func VendorPath(home, rel string) string {
+	first, rest, _ := strings.Cut(filepath.ToSlash(rel), "/")
+	dir := map[string]func() (string, error){".codex": CodexHome, ".copilot": CopilotHome}[first]
+	if u, err := os.UserHomeDir(); dir != nil && err == nil && filepath.Clean(home) == filepath.Clean(u) {
+		if d, err := dir(); err == nil {
+			return filepath.Join(d, filepath.FromSlash(rest))
+		}
+	}
+	return filepath.Join(home, rel)
+}
+
 // OpencodeDataDir is $XDG_DATA_HOME/opencode (default ~/.local/share/opencode); with no home, under noHomeRoot.
 func OpencodeDataDir() string {
 	base := os.Getenv("XDG_DATA_HOME")

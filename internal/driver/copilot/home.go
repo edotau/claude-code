@@ -232,12 +232,16 @@ func jsonValuePresent(v json.RawMessage) bool {
 }
 
 func hooksPath(home string) string {
-	return filepath.Join(home, ".copilot", "hooks", "claude-code-harness.json")
+	return paths.VendorPath(home, filepath.Join(".copilot", "hooks", "claude-code-harness.json"))
 }
 
-func settingsPath(home string) string { return filepath.Join(home, ".copilot", "settings.json") }
+func settingsPath(home string) string {
+	return paths.VendorPath(home, filepath.Join(".copilot", "settings.json"))
+}
 
-func mcpConfigPath(home string) string { return filepath.Join(home, ".copilot", "mcp-config.json") }
+func mcpConfigPath(home string) string {
+	return paths.VendorPath(home, filepath.Join(".copilot", "mcp-config.json"))
+}
 
 // MsgMCPName is the harness MCP server (agents mcp) copilot gets, interactive and headless.
 const MsgMCPName = "harness"

@@ -40,7 +40,7 @@ func Names() []string {
 }
 
 func sub(parts ...string) func(string) string {
-	return func(home string) string { return filepath.Join(append([]string{home}, parts...)...) }
+	return func(home string) string { return paths.VendorPath(home, filepath.Join(parts...)) }
 }
 
 // stateRoot is an agent's local rendering: <state>/projections/<name>[/elem...] (gitignored, rebuilt by every sync).
@@ -62,4 +62,6 @@ func geminiSkillsDir(home string) string {
 }
 
 // copilotSkillsDir is copilot's native skills dir; the copilot pass links skills here too, beside agentsSkillsDir.
-func copilotSkillsDir(home string) string { return filepath.Join(home, ".copilot", "skills") }
+func copilotSkillsDir(home string) string {
+	return paths.VendorPath(home, filepath.Join(".copilot", "skills"))
+}
