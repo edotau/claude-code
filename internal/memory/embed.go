@@ -344,7 +344,7 @@ func embedQueryLive(ctx, parent context.Context, query string) (*semanticQuery, 
 	backoff := embedBackoffPath(profile)
 	pause := func() { // the caller's cancel or deadline says nothing about the endpoint
 		if parent.Err() == nil {
-			_ = paths.AtomicWriteNoSync(backoff, nil, 0o600)
+			_ = paths.AtomicWriteNoSync(backoff, []byte(strings.Repeat("x", backoffFailures(backoff)+1)), 0o600)
 		}
 	}
 	done := make(chan semanticResult, 1)
@@ -373,10 +373,27 @@ func embedQueryLive(ctx, parent context.Context, query string) (*semanticQuery, 
 
 // backoffPause is an error naming when semantic resumes while a backoff marker is still fresh.
 func backoffPause(backoff string) error {
-	if st, err := os.Stat(backoff); err == nil && time.Since(st.ModTime()) < embedBackoff {
-		return fmt.Errorf("endpoint failed recently; semantic paused until %s", st.ModTime().Add(embedBackoff).Format("15:04"))
+	st, err := os.Stat(backoff)
+	if err != nil {
+		return nil
+	}
+	wait := embedBackoff << min(max(st.Size()-1, 0), embedBackoffDoublings)
+	if time.Since(st.ModTime()) < wait {
+		return fmt.Errorf("endpoint failed recently; semantic paused until %s", st.ModTime().Add(wait).Format("15:04"))
 	}
 	return nil
+}
+
+// embedBackoffDoublings caps the pause at 16x embedBackoff: each consecutive failed query doubles it.
+const embedBackoffDoublings = 4
+
+// backoffFailures is the marker's consecutive-failure count (its size); a marker idle for an hour starts over.
+func backoffFailures(backoff string) int {
+	st, err := os.Stat(backoff)
+	if err != nil || time.Since(st.ModTime()) > time.Hour {
+		return 0
+	}
+	return int(min(st.Size(), embedBackoffDoublings))
 }
 
 // clearOldBackoff removes a backoff marker written before attempt began, since the endpoint just answered.
