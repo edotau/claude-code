@@ -3,10 +3,13 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,44 +24,44 @@ func TestCanOneShotHTTP(t *testing.T) {
 	if !CanOneShotHTTP(httpProv, "m1", RunOptions{Prompt: "hi"}) {
 		t.Fatal("expected HTTP provider with tools=false to allow one-shot HTTP")
 	}
+	if !CanOneShotHTTP(httpProv, "m1", RunOptions{Prompt: "hi", OutputSchema: `{"type":"object"}`, Attach: []string{"a.txt"}}) {
+		t.Fatal("expected OutputSchema and Attach with tools=false to allow one-shot HTTP")
+	}
 	if CanOneShotHTTP(cliProv, "m1", RunOptions{Prompt: "hi"}) {
 		t.Fatal("CLI-auth provider must not use one-shot HTTP")
 	}
 	if CanOneShotHTTP(httpProv, "m1", RunOptions{Prompt: "hi", Tools: true}) {
 		t.Fatal("tools=true must not use one-shot HTTP")
 	}
+	binFile := filepath.Join(t.TempDir(), "bad.bin")
+	if err := os.WriteFile(binFile, []byte{0x00, 0x01}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OneShotHTTP(context.Background(), providers.Target{Provider: httpProv, Model: "m1"},
+		RunOptions{Prompt: "hi", Attach: []string{binFile}}, wire.Discard); !errors.Is(err, ErrBadAttach) {
+		t.Fatalf("binary attach err = %v, want ErrBadAttach", err)
+	}
 }
 
 func TestOneShotHTTPDialects(t *testing.T) {
+	txtFile := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(txtFile, []byte("file-body-here"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
-		name     string
-		protocol string
-		sse      string
-		wantAns  string
-		wantOut  int
+		name, protocol, sse, wantAns string
+		wantOut                      int
 	}{
-		{
-			name:     "openai-chat",
-			protocol: providers.ProtocolOpenAI,
-			sse:      "data: {\"model\":\"m-chat\",\"error\":null,\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n",
-			wantAns:  "ok", wantOut: 2,
-		},
-		{
-			name:     "openai-responses",
-			protocol: providers.ProtocolResponses,
-			sse:      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"m-resp\",\"usage\":{\"input_tokens\":7,\"output_tokens\":3}}}\n\n",
-			wantAns:  "done", wantOut: 3,
-		},
-		{
-			name:     "anthropic",
-			protocol: providers.ProtocolAnthropic,
-			sse:      "data: {\"type\":\"message_start\",\"message\":{\"model\":\"m-anth\",\"usage\":{\"input_tokens\":4,\"output_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"yes\"}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":6}}\n\ndata: {\"type\":\"message_stop\"}\n\n",
-			wantAns:  "yes", wantOut: 6,
-		},
+		{"openai-chat", providers.ProtocolOpenAI, "data: {\"model\":\"m-chat\",\"error\":null,\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n", "ok", 2},
+		{"openai-responses", providers.ProtocolResponses, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"m-resp\",\"usage\":{\"input_tokens\":7,\"output_tokens\":3}}}\n\n", "done", 3},
+		{"anthropic", providers.ProtocolAnthropic, "data: {\"type\":\"message_start\",\"message\":{\"model\":\"m-anth\",\"usage\":{\"input_tokens\":4,\"output_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"yes\"}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":6}}\n\ndata: {\"type\":\"message_stop\"}\n\n", "yes", 6},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			var gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, _ := io.ReadAll(r.Body)
+				gotBody = string(raw)
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = fmt.Fprint(w, tc.sse)
 			}))
@@ -67,12 +70,15 @@ func TestOneShotHTTPDialects(t *testing.T) {
 				Routes: map[string]string{tc.protocol: srv.URL}, Auth: providers.Auth{Type: providers.AuthNone}}
 			var out bytes.Buffer
 			res, err := OneShotHTTP(context.Background(), providers.Target{Provider: p, Model: "m1"},
-				RunOptions{Prompt: "ping", Effort: "low"}, wire.NewTextSink(&out))
+				RunOptions{Prompt: "ping", Effort: "low", Attach: []string{txtFile}, OutputSchema: `{"type":"object"}`}, wire.NewTextSink(&out))
 			if err != nil {
 				t.Fatalf("OneShotHTTP(%s) err = %v", tc.name, err)
 			}
 			if res.Answer != tc.wantAns || out.String() != tc.wantAns || res.Usage.OutputTokens != tc.wantOut {
 				t.Fatalf("got answer=%q stream=%q out=%d, want %q / %d", res.Answer, out.String(), res.Usage.OutputTokens, tc.wantAns, tc.wantOut)
+			}
+			if !strings.Contains(gotBody, "file-body-here") || !strings.Contains(gotBody, `\"type\":\"object\"`) {
+				t.Fatalf("body(%s) missing attach or schema: %s", tc.name, gotBody)
 			}
 		})
 	}

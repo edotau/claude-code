@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -157,4 +159,68 @@ func execNative(native string, args []string, cause error) int {
 	// exec ends this process: a refresh token already sent must reach the vault first
 	providers.FinishExchanges()
 	return helptext.Fail("exec %s: %v", native, proc.Exec(native, args, env))
+}
+
+// Ultrareview is the scope of one `claude ultrareview`; Post is never sent, so findings stay local.
+type Ultrareview struct {
+	Base, Commit, Focus string
+	Uncommitted, PR     bool
+	JSON                bool
+}
+
+// Argv builds the ultrareview argument list; a scope the cloud review cannot express is refused.
+func (u Ultrareview) Argv() ([]string, error) {
+	if u.Uncommitted || u.Commit != "" {
+		return nil, errors.New("ultrareview reviews the branch, a base branch or a PR: --uncommitted and --commit are not supported")
+	}
+	args, err := u.targetArg()
+	if err != nil {
+		return nil, err
+	}
+	if u.JSON {
+		args = append(args, "--json")
+	}
+	return args, nil
+}
+
+func (u Ultrareview) targetArg() ([]string, error) {
+	switch {
+	case u.Base != "" && u.PR:
+		return nil, errors.New("at most one of --base, --pr")
+	case strings.HasPrefix(u.Base, "-"):
+		return nil, fmt.Errorf("--base ref %q must not start with -", u.Base)
+	case u.PR:
+		if _, err := strconv.ParseUint(u.Focus, 10, 32); err != nil {
+			return nil, errors.New("ultrareview --pr takes the PR number: --pr 123")
+		}
+		return []string{"ultrareview", u.Focus}, nil
+	case u.Focus != "":
+		return nil, errors.New("ultrareview takes no focus words")
+	case u.Base != "":
+		return []string{"ultrareview", u.Base}, nil
+	default:
+		return []string{"ultrareview"}, nil
+	}
+}
+
+// RunUltrareview runs `claude ultrareview` on Claude's own Anthropic login and returns its exit code.
+func RunUltrareview(ctx context.Context, argv []string) int {
+	bin, err := ClaudeBinary()
+	if err != nil {
+		return helptext.Fail("claude review: %v", err)
+	}
+	unset := []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"} // proxy and profile wiring: the cloud runs on the own login
+	return agent.RunOwnLogin(ctx, "claude", bin, unset, argv)
+}
+
+// hashedOverlayPath names the file by content so a later launch never rewrites one a live session loaded.
+func hashedOverlayPath(path string, data []byte) string {
+	base := strings.TrimSuffix(path, ".json")
+	if i := strings.LastIndex(base, "-"); i >= 0 && len(base)-i-1 == 12 { // drop an earlier hash
+		if _, err := strconv.ParseUint(base[i+1:], 16, 64); err == nil {
+			base = base[:i]
+		}
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%s-%x.json", base, sum[:6])
 }

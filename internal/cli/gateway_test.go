@@ -443,7 +443,7 @@ func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
 		t.Fatal(err)
 	}
 	for _, b := range []string{"codex", "copilot", "opencode", "gemini"} {
-		if err := os.WriteFile(filepath.Join(dir, "bin", b), []byte("#!/bin/sh\ncase \"$1\" in exec|run|-p|--prompt) touch "+marker+";; esac\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "bin", b), []byte("#!/bin/sh\ncase \"$1\" in login) echo \"Logged in using ChatGPT\";; exec|run|-p|--prompt) touch "+marker+";; esac\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

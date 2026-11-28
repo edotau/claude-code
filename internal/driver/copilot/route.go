@@ -161,8 +161,7 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteByokAnthropic, Provider: p.Name, Model: p.Models[models.Opus],
 			Reason: "BYOK via ANTHROPIC_API_KEY", OK: true}
 	}
-	s := copilotSchema()
-	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: " + s.CLI.ConfigureHint}
+	return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: " + row.CLI.ConfigureHint}
 }
 
 // copilotRouteDetail is copilot's resolved dispatch, never a credential; its GitHub login adds model source and pins.
@@ -170,7 +169,7 @@ func copilotRouteDetail(ctx context.Context, reg *providers.Registry, selErr err
 	if selErr != nil {
 		return fmt.Sprintf("(%v)", selErr)
 	}
-	ri := copilotSchema().DescribeRoute(ctx, reg)
+	ri := row.DescribeRoute(ctx, reg)
 	if !ri.OK {
 		return ri.Reason
 	}

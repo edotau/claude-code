@@ -314,6 +314,11 @@ func withForward(argv []string, port int) []string {
 	return withTunnel(argv, "-L", p+":localhost:"+p)
 }
 
+// withReverseForward adds a reverse forward of remotePort to localPort on a connection of its own.
+func withReverseForward(argv []string, remotePort, localPort int) []string {
+	return withTunnel(argv, "-R", strconv.Itoa(remotePort)+":localhost:"+strconv.Itoa(localPort))
+}
+
 // withTunnel adds one -L or -R forward on a connection of its own that fails when the forward cannot be made.
 func withTunnel(argv []string, flag, spec string) []string {
 	return slices.Insert(slices.Clone(argv), 1, append(egress.OwnConn(), flag, spec)...)

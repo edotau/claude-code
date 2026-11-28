@@ -4,6 +4,9 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"go/parser"
+	"go/token"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -495,5 +498,32 @@ func TestPlanAdmissionRejectsCLIBeforeRunner(t *testing.T) {
 	c = assembly.admit(c, tail, &Preflight{})
 	if len(c.Dispatches) != 1 || c.Dispatches[0].Agent != tail.Agent {
 		t.Fatalf("fallback = %+v", c)
+	}
+}
+
+func TestRoutePlanFilesZeroExecImports(t *testing.T) {
+	files := []string{
+		"routeplan.go", "routeplan_chain.go", "route.go", "modelroute.go",
+		"rotation.go", "pirunner.go", "localhop.go", "preflight.go",
+	}
+	fset := token.NewFileSet()
+	parsed := 0
+	for _, name := range files {
+		f, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			if name == "routeplan_chain.go" && errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		parsed++
+		for _, imp := range f.Imports {
+			if strings.Trim(imp.Path.Value, `"`) == "os/exec" {
+				t.Errorf("%s imports os/exec; pure route-planning files must not shell out", name)
+			}
+		}
+	}
+	if parsed == 0 {
+		t.Fatal("no route-planning files parsed")
 	}
 }

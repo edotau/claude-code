@@ -221,7 +221,7 @@ func TestRegistryLaunchArgvPinsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, prefix := copilotSchema().LaunchSpec()
+	_, prefix := row.LaunchSpec()
 	argv := slices.Concat(prefix, cr.Argv, cr.Args)
 	for _, flag := range []string{"--reasoning-effort", "--context", "--model"} {
 		if n := countOf(argv, flag); n != 1 {
@@ -425,10 +425,10 @@ func TestCopilotArgvFlagsAreDeclared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, prefix := copilotSchema().LaunchSpec()
+	_, prefix := row.LaunchSpec()
 	for _, h := range []*agent.Headless{nil, {Prompt: "prompt", Tools: true, Autonomous: true}} {
 		argv := slices.Concat(prefix, cr.Argv, cr.Args, copilotArgv(h))
-		if got := copilotSchema().CLI.Undeclared(argv); len(got) > 0 {
+		if got := row.CLI.Undeclared(argv); len(got) > 0 {
 			t.Errorf("copilot passes %v, not in its row's Flags", got)
 		}
 	}
@@ -476,11 +476,11 @@ func TestUnpinnedOwnLoginRoute(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ri := copilotSchema().Eng().DescribeRoute(t.Context(), reg)
+			ri := row.Eng().DescribeRoute(t.Context(), reg)
 			if ri.Route != c.want {
 				t.Errorf("route = %s (%s), want %s", ri.Route, ri.Reason, c.want)
 			}
-			ft, note, ok := copilotSchema().Eng().FallbackTarget(t.Context(), reg)
+			ft, note, ok := row.Eng().FallbackTarget(t.Context(), reg)
 			if !ok || ft.Provider != reg.Providers[ri.Provider] || ft.Model != ri.Model || note != ri.Reason {
 				t.Errorf("fallback = %+v, %q, %v; route = %+v", ft, note, ok, ri)
 			}
@@ -509,7 +509,7 @@ func TestCopilotRouteCapsFallbackParity(t *testing.T) {
 		route string
 	}{{nil, agent.RouteNone}, {&providers.Registry{}, agent.RouteNone}, {reg, agent.RouteDatabricks},
 		{byok, agent.RouteByokAnthropic}} {
-		r, d := tc.reg, copilotSchema().Eng()
+		r, d := tc.reg, row.Eng()
 		want := describeCopilotRoute(t.Context(), r)
 		if want.Route != tc.route {
 			t.Fatalf("route = %+v, want %s", want, tc.route)
@@ -530,7 +530,7 @@ func TestCopilotRouteCapsFallbackParity(t *testing.T) {
 }
 
 func TestCopilotRouteCapsDefaults(t *testing.T) {
-	d := copilotSchema().Eng()
+	d := row.Eng()
 	for _, p := range []*providers.Provider{nil, {}, {Provider: "github"}, {Auth: providers.Auth{Login: "copilot"}}} {
 		want := p != nil && p.Auth.Login == "copilot"
 		if d.LoginServes(p) != want || !d.FollowsPin(p) {

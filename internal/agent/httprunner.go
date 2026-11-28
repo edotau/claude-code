@@ -57,8 +57,8 @@ func oneShotFlagsOK(req RunOptions) bool {
 	if req.Tools || req.EnableMemory || req.Fleet || req.Persona != nil || req.Pack != nil {
 		return false
 	}
-	return cmp.Or(req.SessionID, req.DebugFile, req.OutputSchema) == "" &&
-		len(req.Env)+len(req.Attach)+len(req.GoogleTools)+len(req.Agents) == 0
+	return cmp.Or(req.SessionID, req.DebugFile) == "" &&
+		len(req.Env)+len(req.GoogleTools)+len(req.Agents) == 0
 }
 
 // oneShotEndpoint selects the best streaming HTTP dialect and URL for (p, model).
@@ -101,35 +101,36 @@ func OneShotHTTP(ctx context.Context, t providers.Target, req RunOptions, sink w
 }
 
 func oneShotBody(dialect, model string, req RunOptions) ([]byte, error) {
+	prompt, err := AttachInline(req.Prompt, req.Attach)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.Contains(prompt, req.OutputSchema) {
+		prompt += wire.SchemaInstruction(req.OutputSchema)
+	}
 	sys := strings.TrimSpace(strings.Join([]string{req.SystemPrompt, req.AppendSystemPrompt}, "\n"))
 	switch dialect {
-	case providers.ProtocolAnthropic:
-		body := map[string]any{
-			"model": model, "max_tokens": oneShotMaxTokens, "stream": true,
-			"messages": []map[string]string{{"role": "user", "content": req.Prompt}},
+	case providers.ProtocolAnthropic, providers.ProtocolResponses:
+		body := map[string]any{"model": model, "input": prompt, "stream": true}
+		sysKey, effKey := "instructions", "reasoning"
+		if dialect == providers.ProtocolAnthropic {
+			delete(body, "input")
+			body["max_tokens"] = oneShotMaxTokens
+			body["messages"] = []map[string]string{{"role": "user", "content": prompt}}
+			sysKey, effKey = "system", "output_config"
 		}
 		if sys != "" {
-			body["system"] = sys
+			body[sysKey] = sys
 		}
 		if req.Effort != "" {
-			body["output_config"] = map[string]string{"effort": req.Effort}
-		}
-		return json.Marshal(body)
-	case providers.ProtocolResponses:
-		body := map[string]any{"model": model, "input": req.Prompt, "stream": true}
-		if sys != "" {
-			body["instructions"] = sys
-		}
-		if req.Effort != "" {
-			body["reasoning"] = map[string]string{"effort": req.Effort}
+			body[effKey] = map[string]string{"effort": req.Effort}
 		}
 		return json.Marshal(body)
 	default:
-		msgs := make([]map[string]string, 0, 2)
+		msgs := []map[string]string{{"role": "user", "content": prompt}}
 		if sys != "" {
-			msgs = append(msgs, map[string]string{"role": "system", "content": sys})
+			msgs = []map[string]string{{"role": "system", "content": sys}, msgs[0]}
 		}
-		msgs = append(msgs, map[string]string{"role": "user", "content": req.Prompt})
 		body := map[string]any{"model": model, "messages": msgs, "stream": true}
 		if !strings.Contains(strings.ToLower(model), "gemini") {
 			body["stream_options"] = map[string]bool{"include_usage": true}

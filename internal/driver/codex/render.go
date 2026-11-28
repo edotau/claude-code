@@ -44,7 +44,7 @@ func codexProviderSection(ctx context.Context, reg *providers.Registry, sel prov
 	if err != nil {
 		return "", err
 	}
-	target, note, err := codexSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, routed)
+	target, note, err := row.ResolveTarget(ctx, agent.RunOptions{}, reg, sel, routed)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -56,7 +56,7 @@ func codexProviderSection(ctx context.Context, reg *providers.Registry, sel prov
 		return codexLoginSection(target.Provider.Name, existing, out)
 	}
 	target = codexRenderModel(ctx, reg, target, out)
-	_, argv, err := codexSchema().Configure(ctx, target)
+	_, argv, err := row.Configure(ctx, target)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil

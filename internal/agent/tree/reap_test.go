@@ -407,8 +407,8 @@ func TestReapOrphanOwnTimeout(t *testing.T) {
 	}{
 		{"inside explicit", 30 * time.Minute, 20 * time.Minute, false, false, false},
 		{"past explicit", 30 * time.Minute, 32 * time.Minute, false, false, true},
-		{"default inside", 0, 9 * time.Minute, false, false, false},
-		{"default past", 0, 17 * time.Minute, false, false, true},
+		{"default inside", 0, agent.DefaultToolsTimeout - 6*time.Minute, false, false, false},
+		{"default past", 0, agent.DefaultToolsTimeout + 2*time.Minute, false, false, true},
 		{"pruned timeout unknown", 30 * time.Minute, 20 * time.Minute, true, false, false},
 		{"pruned at ceiling", 0, orphanMissingTimeout + orphanSlack, true, false, false},
 		{"pruned past ceiling", 0, orphanMissingTimeout + orphanSlack + time.Second, true, false, true},

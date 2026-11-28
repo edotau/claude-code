@@ -151,10 +151,19 @@ func TestLoginForward(t *testing.T) {
 			t.Errorf("loginForward(%q) = %q, %d; want %q, %d", c.in, got, port, c.want, c.port)
 		}
 	}
-	argv := withForward([]string{"ssh", "-o", "ControlMaster=auto", "--", "devhost", "x"}, 8030)
-	i, m := slices.Index(argv, "-L"), slices.Index(argv, "ControlMaster=no")
-	if i < 0 || argv[i+1] != "8030:localhost:8030" || m < 0 || m > slices.Index(argv, "ControlMaster=auto") {
-		t.Errorf("forward must precede the reuse options and \"--\": %q", argv)
+	base := []string{"ssh", "-o", "ControlMaster=auto", "--", "devhost", "x"}
+	for _, tc := range []struct {
+		got        []string
+		flag, spec string
+	}{
+		{withForward(base, 8030), "-L", "8030:localhost:8030"},
+		{withReverseForward(base, 8040, 8030), "-R", "8040:localhost:8030"},
+	} {
+		want := []string{"ssh", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ExitOnForwardFailure=yes",
+			tc.flag, tc.spec, "-o", "ControlMaster=auto", "--", "devhost", "x"}
+		if !slices.Equal(tc.got, want) {
+			t.Errorf("got %q, want %q", tc.got, want)
+		}
 	}
 }
 

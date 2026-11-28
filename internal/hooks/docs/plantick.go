@@ -308,15 +308,24 @@ type PlanLookup struct {
 	cands []planCand
 }
 
+// canClaimBrief reports whether brief or desc has enough signal for matchBriefTask to match an open plan task.
+func canClaimBrief(brief, desc string) bool {
+	return briefTaskRe().MatchString(brief) || len(strings.Fields(normTask(desc))) >= 3
+}
+
 // PrefetchPlan starts the read-only plan lookup ClaimPlanTask needs, so it overlaps the caller's other reads.
 func PrefetchPlan(in *core.Input) *PlanLookup {
 	if !core.SpawnTools[in.ToolName] || in.Nested("tool_use_id") == "" {
 		return nil
 	}
+	brief, desc := in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description")
+	if !canClaimBrief(brief, desc) {
+		return &PlanLookup{}
+	}
 	l := &PlanLookup{done: make(chan struct{})}
 	go func() {
 		defer close(l.done)
-		l.cands = planCands(in.CWD, briefPlan(in.Nested("tool_input", "prompt")))
+		l.cands = planCands(in.CWD, briefPlan(brief))
 	}()
 	return l
 }
@@ -326,39 +335,43 @@ func (l *PlanLookup) wait(cwd, brief string) []planCand {
 	if l == nil {
 		return planCands(cwd, briefPlan(brief))
 	}
-	<-l.done
+	if l.done != nil {
+		<-l.done
+	}
 	return l.cands
 }
 
 // ClaimPlanTask claims the first candidate plan's task a spawn names (`Task:` line or unique title match), else nothing.
 func ClaimPlanTask(in *core.Input, id string, pre *PlanLookup) error {
-	if !core.SpawnTools[in.ToolName] || id == "" {
+	brief, desc := in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description")
+	if !core.SpawnTools[in.ToolName] || id == "" || !canClaimBrief(brief, desc) {
 		return nil
 	}
-	brief := in.Nested("tool_input", "prompt")
 	for _, c := range pre.wait(in.CWD, brief) {
-		task, ok := matchBriefTask(c.parsed, brief, in.Nested("tool_input", "description"))
-		if !ok {
-			continue
+		if task, ok := matchBriefTask(c.parsed, brief, desc); ok {
+			return writePlanClaim(in, id, c, task)
 		}
-		if task.Claim != "" { // the locked ClaimFree below re-checks
-			return nil
-		}
-		agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
-		text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(c.worktreeName, "main"), time.Now().Format("15:04"))
-		if err := plans.ClaimFree(c.plan, taskKey(task), text); err != nil {
-			return fmt.Errorf("plan-claim: %w", err)
-		}
-		if err := recordClaim(id, c.plan); err != nil {
-			return fmt.Errorf("plan-claim: record: %w", err)
-		}
-		if c.worktreeName == "" {
-			return nil
-		}
-		if _, err := worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(c.plan), ".md"), time.Now()); err != nil {
-			return fmt.Errorf("plan-claim: ledger: %w", err)
-		}
+	}
+	return nil
+}
+
+func writePlanClaim(in *core.Input, id string, c planCand, task plans.Task) error {
+	if task.Claim != "" { // the locked ClaimFree below re-checks
 		return nil
+	}
+	agent := cmp.Or(in.Nested("tool_input", "subagent_type"), in.ToolName)
+	text := fmt.Sprintf("working: %s %s · worktree %s · since %s", agent, id, cmp.Or(c.worktreeName, "main"), time.Now().Format("15:04"))
+	if err := plans.ClaimFree(c.plan, taskKey(task), text); err != nil {
+		return fmt.Errorf("plan-claim: %w", err)
+	}
+	if err := recordClaim(id, c.plan); err != nil {
+		return fmt.Errorf("plan-claim: record: %w", err)
+	}
+	if c.worktreeName == "" {
+		return nil
+	}
+	if _, err := worktree.SetLedgerTask(in.CWD, taskKey(task)+" in "+strings.TrimSuffix(filepath.Base(c.plan), ".md"), time.Now()); err != nil {
+		return fmt.Errorf("plan-claim: ledger: %w", err)
 	}
 	return nil
 }
@@ -369,7 +382,10 @@ func ClearPlanClaim(cwd, id string) error {
 		return nil
 	}
 	rec := claimRecord(id)
-	claimed, _ := os.ReadFile(rec) // the plan ClaimPlanTask claimed in; none falls back to the default plans
+	claimed, rerr := os.ReadFile(rec) // the plan ClaimPlanTask claimed in; none falls back to the default plans
+	if errors.Is(rerr, os.ErrNotExist) && !hasClaimInRecentPlans(cwd, id) {
+		return nil
+	}
 	var errs []error
 	for _, c := range planCands(cwd, string(claimed)) {
 		for _, t := range c.parsed.Tasks {
@@ -385,6 +401,28 @@ func ClearPlanClaim(cwd, id string) error {
 		return fmt.Errorf("plan-claim: release: %w", err)
 	}
 	return nil
+}
+
+// hasClaimInRecentPlans checks whether any dated plan in cwd's or config's plans home holds a claim for id.
+func hasClaimInRecentPlans(cwd, id string) bool {
+	needle := []byte(" " + id + " ")
+	var dirs []string
+	if top, _ := paths.CheckoutOf(cwd); top != "" {
+		dirs = append(dirs, plans.PeekHome(paths.Real(top)))
+	}
+	dirs = append(dirs, plans.PeekHome(paths.ConfigDir()))
+	for _, d := range dirs {
+		entries, _ := os.ReadDir(d)
+		for _, e := range entries {
+			if !e.Type().IsRegular() || !undatedNameRe().MatchString(e.Name()) || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			if b, err := os.ReadFile(filepath.Join(d, e.Name())); err == nil && bytes.Contains(b, needle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // claimRecord is where ClaimPlanTask notes the plan a spawn's claim went to, for the clear that has no brief.
@@ -422,31 +460,33 @@ func planCands(cwd, named string) []planCand {
 	if top != "" {
 		wt = plans.WorktreeName(top)
 	}
-	var out []planCand
-	add := func(p string, parsed plans.Plan) {
-		if p == "" || slices.ContainsFunc(out, func(o planCand) bool { return paths.SameFile(o.plan, p) }) {
-			return
-		}
-		c := planCand{plan: p, parsed: parsed}
-		if top != "" && paths.SameFile(filepath.Dir(p), plans.PeekHome(top)) {
-			c.worktreeName = wt
-		}
-		out = append(out, c)
-	}
 	if named != "" {
 		parsed, _ := plans.Parse(named) // an unreadable named plan has no tasks to claim, and no fallback
-		add(named, parsed)
-		return out
+		return appendPlanCand(nil, named, parsed, top, wt)
 	}
+	var out []planCand
+	skip, cfgHome := plans.MirrorDests(), plans.PeekHome(paths.ConfigDir())
 	if top != "" {
-		if p, parsed, ok := plans.Active(plans.PeekHome(top), wt, plans.MirrorDests()); ok {
-			add(p, parsed)
+		repoHome := plans.PeekHome(top)
+		p, parsed, ok := plans.Active(repoHome, wt, skip)
+		out = appendPlanCand(out, p, parsed, top, wt)
+		if repoHome == cfgHome && (wt == "" || !ok) {
+			return out
 		}
 	}
-	if p, parsed, ok := plans.Active(plans.PeekHome(paths.ConfigDir()), "", plans.MirrorDests()); ok {
-		add(p, parsed)
+	p, parsed, _ := plans.Active(cfgHome, "", skip)
+	return appendPlanCand(out, p, parsed, top, wt)
+}
+
+func appendPlanCand(out []planCand, p string, parsed plans.Plan, top, wt string) []planCand {
+	if p == "" || slices.ContainsFunc(out, func(o planCand) bool { return paths.SameFile(o.plan, p) }) {
+		return out
 	}
-	return out
+	c := planCand{plan: p, parsed: parsed}
+	if top != "" && paths.SameFile(filepath.Dir(p), plans.PeekHome(top)) {
+		c.worktreeName = wt
+	}
+	return append(out, c)
 }
 
 // briefPlan is the absolute plan file a brief names, else "".
@@ -553,7 +593,7 @@ var landingEntry = sync.OnceValue(func() *regexp.Regexp {
 
 // landedRange is the HEAD move a fresh merge or pull left in the reflog, whatever it printed or a later command did.
 func landedRange(ctx context.Context, cwd, cmd string) (before, after, dir string) {
-	if !landingRun().MatchString(cmd) {
+	if !landingRun().MatchString(cmd) || !hasGitMergeOrPull(cmd) {
 		return "", "", ""
 	}
 	for _, d := range commitCandidates(cwd, cmd) {
@@ -574,6 +614,13 @@ func landedRange(ctx context.Context, cwd, cmd string) (before, after, dir strin
 		}
 	}
 	return "", "", ""
+}
+
+// hasGitMergeOrPull verifies with shell tokenization that cmd invokes git merge or pull, not a quoted string.
+func hasGitMergeOrPull(cmd string) bool {
+	return shell.EachGit(cmd, "", func(_ string, verb string, _ []string) bool {
+		return verb == "merge" || verb == "pull"
+	})
 }
 
 // PlanBriefTask is the open task a hand-back worked in a parsed active plan: its plan_task, else its Task: line.

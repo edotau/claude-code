@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/proc"
-
 	"github.com/edotau/claude-code/internal/platform/textutil"
+	"github.com/edotau/claude-code/internal/remote/tailscale"
 )
 
 // EnvHost names the egress host for this process and its children; `claude-code --remote <host>` sets it.
@@ -63,17 +63,47 @@ func isDatabricksHost(hostname string) bool {
 	return slices.ContainsFunc(workspaceSuffixes, func(s string) bool { return strings.HasSuffix(hostname, s) })
 }
 
-// Seams: tests swap the workspace predicate and the ssh spawn, and shrink the start deadline.
+// Seams: tests swap the workspace/tailnet predicates and the ssh spawn, and shrink the start deadline.
 var (
-	isWorkspace = isDatabricksHost
-	spawn       = spawnSSH
-	startWait   = 15 * time.Second
+	isWorkspace   = isDatabricksHost
+	tailnetDirect = isTailnetDirect
+	spawn         = spawnSSH
+	startWait     = 15 * time.Second
 )
 
-// proxyFor sends workspace requests through host's tunnel, or fails them; other requests keep the env proxy.
+// isTailnetDirect reports whether host is this machine or the active online Tailscale exit node.
+func isTailnetDirect(ctx context.Context, host string) bool {
+	if tailscale.IsLocalHost(ctx, host) {
+		return true
+	}
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	st, err := tailscale.CachedStatus(ctx)
+	if h == "" || strings.Contains(h, "@") || err != nil {
+		return false
+	}
+	if matchesNode(h, st.DNSName, st.IPs) {
+		return true
+	}
+	for _, p := range st.Peers {
+		if p.Online && p.ExitNode && matchesNode(h, p.DNSName, p.IPs) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesNode reports whether h (lowercased, no trailing dot) matches a tailnet node's DNSName, short name or IP.
+func matchesNode(h, dns string, ips []string) bool {
+	dns = strings.ToLower(strings.TrimSuffix(dns, "."))
+	short, _, _ := strings.Cut(dns, ".")
+	return (dns != "" && (h == dns || h == short)) ||
+		slices.ContainsFunc(ips, func(ip string) bool { return strings.EqualFold(ip, h) })
+}
+
+// proxyFor sends workspace requests direct when host is on the active tailnet path, else through host's tunnel.
 func proxyFor(host string) func(*http.Request) (*url.URL, error) {
 	return func(req *http.Request) (*url.URL, error) {
-		if host == "" || !isWorkspace(req.URL.Hostname()) {
+		if host == "" || !isWorkspace(req.URL.Hostname()) || tailnetDirect(req.Context(), host) {
 			return http.ProxyFromEnvironment(req)
 		}
 		addr, err := Ensure(req.Context(), host)

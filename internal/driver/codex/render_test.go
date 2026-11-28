@@ -687,7 +687,7 @@ func TestCodexLaunchAuthKeepsShortTimeout(t *testing.T) {
 	_, reg, sel := routeFixture(t, "qa")
 	target := providers.Target{Provider: reg.Providers["qa"], Model: sel.Aliases[models.Opus].Model}
 	target = codexRenderModel(context.Background(), reg, target, io.Discard)
-	_, argv, err := codexSchema().Configure(context.Background(), target)
+	_, argv, err := row.Configure(context.Background(), target)
 	if err != nil || !strings.Contains(strings.Join(argv, " "), "timeout_ms = 15000") {
 		t.Fatalf("launch argv must keep timeout_ms = 15000: %v\n%v", err, argv)
 	}

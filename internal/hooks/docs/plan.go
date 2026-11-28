@@ -290,14 +290,12 @@ func plansRoot() string { return filepath.Join(paths.ConfigDir(), "plans") }
 
 // isUndatedDraft reports whether abs is a markdown file directly under <config>/plans/ not dated or a README.
 func isUndatedDraft(abs string) bool {
-	if !isMarkdownPath(abs) || strings.EqualFold(strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)), "readme") {
+	base := filepath.Base(abs)
+	if !isMarkdownPath(abs) || strings.EqualFold(strings.TrimSuffix(base, filepath.Ext(base)), "readme") || undatedNameRe().MatchString(base) {
 		return false
 	}
-	// Canonicalize both sides: a draft spelled through a symlink must still match the real plans dir.
-	if paths.Real(filepath.Dir(abs)) != paths.Real(plansRoot()) {
-		return false
-	}
-	return !undatedNameRe().MatchString(filepath.Base(abs))
+	dir, root := filepath.Clean(filepath.Dir(abs)), filepath.Clean(plansRoot())
+	return dir == root || paths.Real(dir) == paths.Real(root)
 }
 
 // templateHeading is one section the plan template's requires, matched by level + a text prefix.
@@ -438,8 +436,11 @@ func hasNameToken(base string, words ...string) bool {
 
 // firstDraftWrite reports whether path is an undated draft not yet on disk; a later write was already checked.
 func firstDraftWrite(path string) bool {
+	if !isUndatedDraft(path) {
+		return false
+	}
 	_, err := os.Stat(path)
-	return isUndatedDraft(path) && err != nil
+	return err != nil
 }
 
 // missingTemplate lists the labels of the template headings content lacks, in template order.
@@ -529,7 +530,7 @@ var hookLockWait = time.Second
 
 // Mirror (PostToolUse Write|Edit) copies each undated-draft write to its dated file; the first dest is recorded.
 func Mirror(in *core.Input, stderr io.Writer) int {
-	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); paths.InsideDir(p, plansRoot()) {
+	if p := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD); isMarkdownPath(p) && paths.InsideDir(p, plansRoot()) {
 		plans.RecordBorn(p) // a dated plan written by the tool itself; drafts get theirs in writePlan
 	}
 	path, content, ok := mirrorSource(in)
@@ -537,31 +538,35 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 		return core.ExitProceed
 	}
 	err := paths.WithFileLockWithin(filepath.Join(paths.StateDir(), "plan-mirror"), hookLockWait, func() error {
-		base := filepath.Base(path)
-		dest, ok := plans.ReadRecordedDest(base)
-		if !ok {
-			dest, _ = planDestination(in, planTitle(content), content, false)
-			if err := plans.RecordDest(base, dest); err != nil {
-				dropEmptyClaim(dest)
-				return err
-			}
-		}
-		if cur, rerr := os.ReadFile(dest); rerr == nil && bytes.Equal(cur, content) {
-			return nil
-		}
-		err := os.MkdirAll(filepath.Dir(dest), 0o700)
-		if err == nil {
-			err = plans.WriteFile(dest, content)
-		}
-		if err != nil {
-			dropEmptyClaim(dest)
-		}
-		return err
+		return writeMirroredDraft(in, path, content)
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-mirror: %v\n", err)
 	}
 	return core.ExitProceed
+}
+
+func writeMirroredDraft(in *core.Input, path string, content []byte) error {
+	base := filepath.Base(path)
+	dest, ok := plans.ReadRecordedDest(base)
+	if !ok {
+		dest, _ = planDestination(in, planTitle(content), content, false)
+		if err := plans.RecordDest(base, dest); err != nil {
+			dropEmptyClaim(dest)
+			return err
+		}
+	}
+	if cur, rerr := os.ReadFile(dest); rerr == nil && bytes.Equal(cur, content) {
+		return nil
+	}
+	err := os.MkdirAll(filepath.Dir(dest), 0o700)
+	if err == nil {
+		err = plans.WriteFile(dest, content)
+	}
+	if err != nil {
+		dropEmptyClaim(dest)
+	}
+	return err
 }
 
 // mirrorSource returns the undated draft a Write/Edit touched and its non-blank content.

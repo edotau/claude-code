@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/rtkwrap"
+	"github.com/edotau/claude-code/internal/platform/settings"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
 	"github.com/edotau/claude-code/internal/routing/agentid"
 	"github.com/edotau/claude-code/internal/routing/providers"
@@ -584,4 +585,65 @@ func withPiOutput(ctx context.Context, name string, err error, tail *retry.TailB
 		return err
 	}
 	return agent.ChildErr(ctx, name, err, tail)
+}
+
+func init() { agent.Register(agent.Agent{Row: row, Driver: piEngine{agent.NewBaseEngine("pi")}}) }
+
+// row is pi's roster entry: it runs only on a routed Databricks profile, so it has no own login.
+var row = agent.Schema{Name: "pi", CLI: agent.CLI{
+	Flags: []string{"--mode", "--model", "--thinking", "--tools", "--no-tools", "--no-session", "--session", "--session-id",
+		"--session-dir", "--system-prompt", "--append-system-prompt", "--no-context-files", "--no-mcp", "--approve"},
+	HelpArgv:    []string{"--help"},
+	ScopedProxy: true,
+	Binary:      "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
+		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+	Extras:     map[string][]string{extraPackages: nil, extraPackagesApproved: nil},
+	ExtraCheck: map[string]func(string) error{extraPackages: validatePackages, extraPackagesApproved: validatePackages},
+	// a leaf that could pin or approve a package would choose the code every later pi run loads
+	ExtraOwnerOnly: []string{extraPackages, extraPackagesApproved},
+	MaxVersion:     "1.x", MaxReason: "2.x is untested with the harness pi route",
+	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, SessionID: agent.Native,
+		Tools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, Env: agent.Native,
+		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, WorkDir: agent.Emulated,
+		OutputSchema: agent.None, Persona: agent.None},
+	Events:        []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
+	PromptVia:     agent.PromptStdin,
+	ConfigureHint: "run `claude-code install --tools=pi`, then dispatch with --provider databricks --profile <p>",
+}}
+
+// refuseRequest refuses a --env or overlay entry that replaces the guard's wiring or could turn the guard off.
+func refuseRequest(req agent.RunOptions) error {
+	for _, kv := range req.Env {
+		k, _, _ := strings.Cut(kv, "=")
+		if guardWiring(k) {
+			return fmt.Errorf("--env %s: pi's guard wiring owns it; drop it from --env", k)
+		}
+		if settings.IsHookControlEnv(k) {
+			return fmt.Errorf("--env %s: a hook-control variable could turn pi's guard off; drop it from --env", k)
+		}
+	}
+	for _, k := range req.OverlaySet {
+		if guardWiring(k) {
+			return fmt.Errorf("overlay set %s: pi's guard wiring owns it; drop it from the overlay", k)
+		}
+		if settings.IsHookControlEnv(k) {
+			return fmt.Errorf("overlay set %s: a hook-control variable could turn pi's guard off; drop it from the overlay", k)
+		}
+	}
+	return nil
+}
+
+// guardWiring is an env name the pi guard sets itself; neither --env nor an overlay may replace it.
+func guardWiring(k string) bool {
+	k = strings.ToUpper(k)
+	return k == strings.ToUpper(agentDirEnv) || strings.HasPrefix(k, "HARNESS_PI_")
+}
+
+// withoutHookControl drops every hook-control variable from a child env: pi's own process never inherits one.
+func withoutHookControl(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return settings.IsHookControlEnv(k)
+	})
 }

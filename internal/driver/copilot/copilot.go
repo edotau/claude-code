@@ -50,7 +50,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	defer func() {
 		res.Transport = agent.StampProxy(res.Transport, proxyLabel(agent.TakeChosenProxy(agent.DispatchIDOf(ctx)), t, agent.IsDirect(ctx)))
 	}()
-	cs := copilotSchema()
+	cs := row
 	// copilot never resolves its own login: every target has a provider
 	t, _, err = cs.TargetCtx(ctx, req)
 	if err != nil {
@@ -506,12 +506,6 @@ func (copilotEngine) RouteDetail(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	return copilotRouteDetail(ctx, reg, selErr), true
-}
-
-// copilotSchema is the registered copilot roster row.
-func copilotSchema() agent.Schema {
-	s, _ := agent.LookupSchema("copilot")
-	return s
 }
 
 func init() {

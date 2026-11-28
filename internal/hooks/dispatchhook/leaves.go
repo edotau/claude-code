@@ -113,10 +113,12 @@ func workflowLeaves(in *core.Input, res core.Result) int {
 // Release retires the exact tool_use_id a spawn or Workflow claimed; a blocked dispatch wrote none, so it is a no-op.
 func Release(in *core.Input) core.Result {
 	res := core.Result{Context: reportFailedJobs(in)}
-	if owner, id := inflight.SessionOwner(), in.Nested("tool_use_id"); owner != 0 && id != "" {
-		inflight.Release(owner, id)
-		if core.SpawnTools[in.ToolName] { // only a spawn claims a plan task; a failed one never reaches SubagentStop
-			res = core.WithStderr(res, docs.ClearPlanClaim(in.CWD, id))
+	if id := in.Nested("tool_use_id"); id != "" {
+		if owner := inflight.SessionOwner(); owner != 0 {
+			inflight.Release(owner, id)
+			if core.SpawnTools[in.ToolName] { // only a spawn claims a plan task; a failed one never reaches SubagentStop
+				res = core.WithStderr(res, docs.ClearPlanClaim(in.CWD, id))
+			}
 		}
 	}
 	return res
@@ -131,21 +133,24 @@ func Stop(in *core.Input) core.Result {
 	if id == "" {
 		return core.Result{}
 	}
+	ownerCh := make(chan int, 1)
+	go func() { ownerCh <- inflight.SessionOwner() }()
 	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
 	note := leafGate(in, id, lr)
-	owner := inflight.SessionOwner()
+	owner := <-ownerCh
 	if owner == 0 { // the receipt step needs no owner; only the claim retire does
 		return note
 	}
-	dirs := []string{inflight.SubagentDir(in.TranscriptPath)}
+	var dirs []string
 	if in.AgentTranscriptPath != "" {
-		dirs = append([]string{filepath.Dir(in.AgentTranscriptPath)}, dirs...)
+		dirs = append(dirs, filepath.Dir(in.AgentTranscriptPath))
+	}
+	if sub := inflight.SubagentDir(in.TranscriptPath); sub != "" && !slices.Contains(dirs, sub) {
+		dirs = append(dirs, sub)
 	}
 	clearErr := docs.ClearStoppedClaim(in, dirs, id) // before the retire: it reads the same meta.json
 	for _, d := range dirs {
-		if d != "" {
-			inflight.RetireAgent(owner, d, id)
-		}
+		inflight.RetireAgent(owner, d, id)
 	}
 	reapLeaf(in, lr) // last: a reap that outruns the host timeout must not strand the claim and the slot
 	return core.WithStderr(note, clearErr)
@@ -199,14 +204,7 @@ func readLeaf(path string, w leafWant, cwd ...string) (r leafRead) {
 	}
 	defer f.Close()
 	seenFiles := map[string]bool{}
-	r.scanErr = textutil.EachLineErr(f, func(b []byte) {
-		if w.files {
-			r.files = appendOutputFiles(r.files, seenFiles, b)
-		}
-		if w.brief || w.ids && (bytes.Contains(b, toolUseKey) || bytes.Contains(b, toolResultKey)) {
-			r.scan.addLine(b)
-		}
-	})
+	r.scanErr = textutil.EachLineErr(f, func(b []byte) { r.readLine(w, seenFiles, b) })
 	if r.scanErr != nil {
 		r.files = nil // an unreadable transcript reaps nothing
 	}
@@ -217,6 +215,15 @@ func readLeaf(path string, w leafWant, cwd ...string) (r leafRead) {
 		r.ids = r.scan.ids
 	}
 	return r
+}
+
+func (r *leafRead) readLine(w leafWant, seenFiles map[string]bool, b []byte) {
+	if w.files && bytes.Contains(b, bgOutputKey) {
+		r.files = appendOutputFiles(r.files, seenFiles, b)
+	}
+	if w.brief || w.ids && (bytes.Contains(b, toolUseKey) || bytes.Contains(b, toolResultKey)) {
+		r.scan.addLine(b)
+	}
 }
 
 // leafGate notes a dispatch the stopping leaf started that is still alive and fixes a missing ran-on line; no block.
@@ -413,7 +420,12 @@ func exitID(lines []string) string {
 }
 
 // toolUseKey and toolResultKey prefilter the lines an ids-only read parses; an escaped quote in prose never matches.
-var toolUseKey, toolResultKey = []byte(`"tool_use"`), []byte(`"tool_result"`)
+var (
+	toolUseKey, toolResultKey = []byte(`"tool_use"`), []byte(`"tool_result"`)
+	bashToolKey, userTypeKey  = []byte(`"Bash"`), []byte(`"user"`)
+	handedBackKey             = []byte(handedBackMark)
+	bgOutputKey               = []byte("Output is being written to: /")
+)
 
 // askLaunchWindow is how long after a leaf's ask call its dispatch record may start; a later one is another job.
 const askLaunchWindow = 2 * time.Minute
@@ -441,10 +453,23 @@ type leafScan struct {
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
 	resumed           bool
-	lastText          string // the leaf's last assistant text, its report at a stop
 	bgAsks            []string
 	polls             map[string]pollCall // tool_use id → each `agents result <id>` call
 	reported          []string            // ids already known at the last delivered hand-back
+}
+
+func (s *leafScan) hasTrackedCalls() bool {
+	return len(s.pendingAsks)+len(s.askCalls)+len(s.reviewCalls)+len(s.polls) > 0
+}
+
+func (s *leafScan) wantsLine(b []byte) bool {
+	if bytes.Contains(b, toolUseKey) && bytes.Contains(b, bashToolKey) {
+		return true
+	}
+	if bytes.Contains(b, toolResultKey) {
+		return s.hasTrackedCalls() || bytes.Contains(b, handedBackKey)
+	}
+	return (!s.seenBrief || s.handedBack) && bytes.Contains(b, userTypeKey)
 }
 
 // leafToolResult is one tool_result item of a user message.
@@ -467,6 +492,9 @@ type leafToolUse struct {
 
 // addLine reads one transcript line: the brief, tool calls and results, hook blocks; assistant text never counts.
 func (s *leafScan) addLine(b []byte) {
+	if !s.wantsLine(b) {
+		return
+	}
 	var m struct {
 		Type      string    `json:"type"`
 		Timestamp time.Time `json:"timestamp"`
@@ -480,9 +508,6 @@ func (s *leafScan) addLine(b []byte) {
 	switch {
 	case m.Type == "assistant":
 		s.addCalls(m.Message.Content, m.Timestamp)
-		if text := transcript.ContentText(m.Message.Content); strings.TrimSpace(text) != "" {
-			s.lastText = text
-		}
 	case m.Type != "user":
 	case !s.seenBrief && !bytes.Contains(b, toolResultKey): // the first user message is the brief
 		s.seenBrief = true
@@ -570,42 +595,76 @@ func (s *leafScan) addResults(content json.RawMessage) {
 
 // scanResult reads one tool result: an ask call's ran-on or did-not-run line, a delivered or denied hand-back.
 func (s *leafScan) scanResult(it leafToolResult) {
+	if !s.isTrackedResult(it.ToolUseID) {
+		s.noteHandback(it)
+		return
+	}
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
 	denied := it.IsError && hookDenyRe().MatchString(text)
-	success := !it.IsError
-	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
+	s.resolvePendingAsk(it.ToolUseID, denied)
+	s.recordAskOutcome(it, raw, text, denied)
+	s.recordPollOutcome(it.ToolUseID, text, !it.IsError)
+	s.noteHandback(it)
+}
+
+func (s *leafScan) isTrackedResult(id string) bool {
+	_, pending := s.pendingAsks[id]
+	_, polled := s.polls[id]
+	return pending || polled || s.askCalls[id] || s.reviewCalls[id]
+}
+
+func (s *leafScan) noteHandback(it leafToolResult) {
+	if !it.IsError && bytes.Contains(it.Content, handedBackKey) && strings.Contains(transcript.ContentText(it.Content), handedBackMark) {
+		s.handedBack, s.reported = true, slices.Clone(s.ids)
+	}
+}
+
+func (s *leafScan) resolvePendingAsk(id string, denied bool) {
+	if at, ok := s.pendingAsks[id]; ok {
 		if !denied {
 			s.askTimes = append(s.askTimes, at)
-			s.asks = append(s.asks, askCall{at, s.askCmds[it.ToolUseID]})
+			s.asks = append(s.asks, askCall{at, s.askCmds[id]})
 		}
-		delete(s.pendingAsks, it.ToolUseID)
+		delete(s.pendingAsks, id)
 	}
-	if s.askCalls[it.ToolUseID] && success {
+}
+
+func hasRanReceipt(text string) bool {
+	return ranOnPattern().MatchString(text) && boundReceipt(text)
+}
+
+func (s *leafScan) recordAskOutcome(it leafToolResult, raw, text string, denied bool) {
+	if s.askCalls[it.ToolUseID] && !it.IsError {
 		s.addBgAsk(text)
-		s.addIDs(strings.TrimPrefix(text, raw+"\n")) // a persisted result's ids sit in its saved output, not the preview
-		ran := ranOnPattern().MatchString(text) && boundReceipt(text)
-		s.ranOn = s.ranOn || ran
-		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
-	}
-	if !denied && (s.reviewCalls[it.ToolUseID] || s.askCalls[it.ToolUseID] && it.IsError) { // ran even if exit != 0
-		s.ranOn = s.ranOn || ranOnPattern().MatchString(text) && boundReceipt(text)
-	}
-	if p, ok := s.polls[it.ToolUseID]; ok {
-		if m := bgOutputPattern().FindStringSubmatch(text); m != nil {
-			p.bgFile = m[1]
-		} else {
-			p.done = true
-			if success {
-				s.addPollID(p.job)
-			}
+		s.addIDs(strings.TrimPrefix(text, raw+"\n"))
+		ran := hasRanReceipt(text)
+		if ran {
+			s.ranOn = true
+		} else if didNotRunRe().MatchString(text) {
+			s.askFailed = true
 		}
-		s.polls[it.ToolUseID] = p
-	}
-	if it.IsError || !strings.Contains(text, handedBackMark) {
 		return
 	}
-	s.handedBack, s.reported = true, slices.Clone(s.ids)
+	if !denied && (s.reviewCalls[it.ToolUseID] || s.askCalls[it.ToolUseID]) && hasRanReceipt(text) {
+		s.ranOn = true
+	}
+}
+
+func (s *leafScan) recordPollOutcome(id, text string, success bool) {
+	p, ok := s.polls[id]
+	if !ok {
+		return
+	}
+	if m := bgOutputPattern().FindStringSubmatch(text); m != nil {
+		p.bgFile = m[1]
+	} else {
+		p.done = true
+		if success {
+			s.addPollID(p.job)
+		}
+	}
+	s.polls[id] = p
 }
 
 // savedResultRe matches a persisted tool result's "Full output saved to:" path; only a tool-results file is read.

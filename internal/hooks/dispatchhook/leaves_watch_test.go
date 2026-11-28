@@ -261,7 +261,7 @@ func TestRunningLine(t *testing.T) {
 	rec := func(id, ag, task string, age time.Duration) agent.Record {
 		return agent.Record{ID: id, Agent: ag, PlanTask: task, Time: now.Add(-age)}
 	}
-	r1, r2 := rec("j1", "codex", "Phase 2.2", 6*time.Minute), rec("j2", "opencode", "", 40*time.Second)
+	r1, r2 := rec("j1", "codex", "Phase 2.2", 16*time.Minute), rec("j2", "opencode", "", 40*time.Second)
 	many := []agent.Record{r1, r2, rec("j3", "a", "", time.Minute), rec("j4", "a", "", time.Minute), rec("j5", "a", "", time.Minute)}
 	for _, c := range []struct {
 		name    string
@@ -270,8 +270,8 @@ func TestRunningLine(t *testing.T) {
 		want    string
 	}{
 		{"none", nil, nil, ""},
-		{"entries", []agent.Record{r1, r2}, nil, "running: Task Phase 2.2 (codex · 6m · ⚠ no event 6m); Job j2 (opencode · 40s · last event 40s ago)"},
-		{"cap", many, nil, "running: Task Phase 2.2 (codex · 6m · ⚠ no event 6m); Job j2 (opencode · 40s · last event 40s ago); Job j3 (a · 1m · no live signal from a); Job j4 (a · 1m · no live signal from a); +1 more"},
+		{"entries", []agent.Record{r1, r2}, nil, "running: Task Phase 2.2 (codex · 16m · ⚠ no event 16m); Job j2 (opencode · 40s · last event 40s ago)"},
+		{"cap", many, nil, "running: Task Phase 2.2 (codex · 16m · ⚠ no event 16m); Job j2 (opencode · 40s · last event 40s ago); Job j3 (a · 1m · no live signal from a); +2 more"},
 		{"stale excluded", []agent.Record{r1, r2}, []agent.StaleJob{{ID: "j1"}}, "running: Job j2 (opencode · 40s · last event 40s ago)"},
 	} {
 		if got := runningLine(c.running, c.stale, now); got != c.want {

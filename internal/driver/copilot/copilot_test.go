@@ -210,8 +210,7 @@ func TestQuotaHandoffEligible(t *testing.T) {
 
 // A target without a provider is a fatal error.
 func TestInitialResult(t *testing.T) {
-	cs := copilotSchema()
-	if _, err := initialResult(cs, providers.Target{Model: "auto"}); !isFatal(err) {
+	if _, err := initialResult(row, providers.Target{Model: "auto"}); !isFatal(err) {
 		t.Errorf("no provider: err = %v, want a typed fatal error", err)
 	}
 }
@@ -803,7 +802,7 @@ func TestRouteEnvDirectUnitSkipsRegistry(t *testing.T) {
 	dbx := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: "key", Env: "DBX_CLI_TOKEN"}}, Model: "claude-sonnet-5-5"}
 	ctx := agent.WithDirect(context.Background())
-	rt, _, _ := copilotEngine{}.routeEnv(ctx, copilotSchema(), agent.RunOptions{}, dbx) // BYOK may fail on credentials
+	rt, _, _ := copilotEngine{}.routeEnv(ctx, row, agent.RunOptions{}, dbx) // BYOK may fail on credentials
 	if rt != nil || calls != 0 {
 		t.Fatalf("routeEnv on a direct unit: registry route %v, discover calls %d; want BYOK", rt, calls)
 	}
@@ -967,5 +966,17 @@ func TestRegistryLaunchPassesVendorModelUnvalidated(t *testing.T) {
 	plan, err := agent.LaunchPlan(t.Context(), "copilot", o, args)
 	if err != nil || len(plan.Argv) < 2 || !slices.Equal(plan.Argv[len(plan.Argv)-2:], []string{"--model", "passthrough-not-in-menu"}) {
 		t.Fatalf("passthrough argv = %q, error %v", plan.Argv, err)
+	}
+}
+
+func TestSDKRuntimeNotLinked(t *testing.T) {
+	ask, list := SDKAsk, SDKListModels
+	SDKAsk, SDKListModels = nil, nil
+	t.Cleanup(func() { SDKAsk, SDKListModels = ask, list })
+	if _, err := copilotAsk(t.Context(), Options{}, "hi", nil); !errors.Is(err, errNoSDK) {
+		t.Fatalf("Ask without SDK = %v, want %v", err, errNoSDK)
+	}
+	if _, err := sdkListModels(t.Context(), Options{}); !errors.Is(err, errNoSDK) {
+		t.Fatalf("ListModels without SDK = %v, want %v", err, errNoSDK)
 	}
 }

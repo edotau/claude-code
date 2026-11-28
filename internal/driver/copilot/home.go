@@ -270,7 +270,7 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 		return drift, err
 	}
 	drift = drift || sd || md
-	target, note, err := copilotSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
+	target, note, err := row.ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
 	if err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
@@ -278,7 +278,7 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 	if note != "" {
 		fmt.Fprintln(out, note)
 	}
-	if _, _, err := copilotSchema().Configure(ctx, target); err != nil {
+	if _, _, err := row.Configure(ctx, target); err != nil {
 		fmt.Fprintf(out, "copilot: skipped: %v\n", err)
 		return drift, nil
 	}

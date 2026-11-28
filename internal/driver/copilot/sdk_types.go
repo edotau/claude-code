@@ -1,9 +1,20 @@
 package copilot
 
 import (
+	"context"
+	"errors"
+
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/routing/models"
 )
+
+// SDKAsk is set by internal/driver/copilot/sdk at init; hook binaries leave it nil.
+var SDKAsk func(context.Context, Options, string, []string) (Result, error)
+
+// SDKListModels is set by internal/driver/copilot/sdk at init; hook binaries leave it nil.
+var SDKListModels func(context.Context, Options) ([]Model, error)
+
+var errNoSDK = errors.New("copilot: SDK runtime is not linked (import internal/driver/copilot/sdk)")
 
 // Options configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type Options struct {

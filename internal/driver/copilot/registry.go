@@ -163,8 +163,7 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 
 func newCopilotRegistryProvider(name, wire, base string, p *providers.Provider) copilotRegistryProvider {
 	rt := copilotWireRoute[wire]
-	spec := copilotSchema()
-	return copilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + spec.CLI.RouterSuffix[wire],
+	return copilotRegistryProvider{Name: name, Type: rt.typ, WireAPI: rt.wireAPI, BaseURL: base + row.CLI.RouterSuffix[wire],
 		Bearer: wire != providers.ProtocolAnthropic, Headers: p.Headers}
 }
 

@@ -25,6 +25,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/platform/redact"
 	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/router"
@@ -109,7 +110,6 @@ func (geminiEngine) AuthStatus() providers.AuthState {
 	return providers.AuthState{Present: true, Source: "Google login (agy)", Method: providers.AuthCLI}
 }
 
-// Plan is empty: agy reports no plan.
 func (geminiEngine) Plan(context.Context, providers.AuthState) providers.Subscription {
 	return providers.Subscription{}
 }
@@ -1051,3 +1051,31 @@ var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 
 // extraUseGuardRules gates the guard denies in agy's settings and --settings; only "false" turns them off.
 const extraUseGuardRules = "useGuardRules"
+
+var errAgyMissingResult = errors.New("agy: stream ended without a result event")
+
+const agyDiagnosticLines = 5
+
+func agyMissingResultErr(err error, logPath, stderr string) error {
+	if !errors.Is(err, errAgyMissingResult) || agent.CutoffOf(err) != "" {
+		return err
+	}
+	if len(stderr) == agyLogTailBytes {
+		_, stderr, _ = strings.Cut(stderr, "\n") // stderr's bounded buffer can also begin inside a secret
+	}
+	log, readErr := readTail(logPath, agyLogTailBytes)
+	if readErr == nil && len(log) == agyLogTailBytes {
+		_, log, _ = strings.Cut(log, "\n") // a clipped first line may hold only a secret's suffix
+	}
+	detail := redact.TextSecrets(strings.TrimSpace(stderr + "\n" + log))
+	if detail == "" {
+		return err
+	}
+	lines := strings.Split(detail, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "AGY_ERROR:") {
+			return fmt.Errorf("%w; agy diagnostics: %s", err, line)
+		}
+	}
+	return fmt.Errorf("%w; agy log: %s", err, strings.Join(lines[max(0, len(lines)-agyDiagnosticLines):], "\n"))
+}

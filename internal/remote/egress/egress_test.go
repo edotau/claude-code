@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -18,9 +19,17 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
-
+	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
+	"github.com/edotau/claude-code/internal/remote/tailscale"
 )
+
+func TestMain(m *testing.M) {
+	restore := tailscale.StubMacAppCLI("")
+	code := hosttest.Main(m)
+	restore()
+	os.Exit(code)
+}
 
 // socksServer is a CONNECT-only, no-auth SOCKS5 server on a loopback port; it stands in for `ssh -D`.
 type socksServer struct {
@@ -386,5 +395,71 @@ func TestStartRetriesOnlyBindFailures(t *testing.T) {
 				t.Fatalf("start err = %v after %d spawns; want err=%v after %d", err, spawns, tc.wantErr, tc.wantSpawn)
 			}
 		})
+	}
+}
+
+// Proxy skips the ssh tunnel when tailnetDirect reports the host is already on the active tailnet path.
+func TestTailnetDirectSkipsTunnelAndFallsBackToSSH(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	origWorkspace, origDirect, origSpawn := isWorkspace, tailnetDirect, spawn
+	t.Cleanup(func() { isWorkspace, tailnetDirect, spawn = origWorkspace, origDirect, origSpawn })
+	isWorkspace = func(h string) bool { return h == "adb.azuredatabricks.net" }
+	tailnetDirect = func(_ context.Context, host string) bool { return host == "ts-exit" }
+	var spawns int
+	spawn = func(_ string, port int, _ string) (int, <-chan struct{}, error) {
+		spawns++
+		s := startSocks(t, port)
+		t.Cleanup(func() { _ = s.l.Close() })
+		return 0, nil, nil
+	}
+
+	directReq, _ := http.NewRequestWithContext(WithHost(t.Context(), "ts-exit"), http.MethodGet, "https://adb.azuredatabricks.net/api/2.0/clusters/list", nil)
+	if u, err := Proxy(directReq); err != nil || u != nil || spawns != 0 {
+		t.Fatalf("tailnet direct Proxy = %v, %v (spawns=%d); want nil, nil and 0 spawns", u, err, spawns)
+	}
+
+	sshReq, _ := http.NewRequestWithContext(WithHost(t.Context(), "ssh-only"), http.MethodGet, "https://adb.azuredatabricks.net/api/2.0/clusters/list", nil)
+	if u, err := Proxy(sshReq); err != nil || u == nil || u.Scheme != "socks5h" || spawns != 1 {
+		t.Fatalf("ssh fallback Proxy = %v, %v (spawns=%d); want socks5h and 1 spawn", u, err, spawns)
+	}
+}
+
+// isTailnetDirect matches this node and the online active exit node from cached tailscale status, rejecting others.
+func TestIsTailnetDirectMatchesActiveExitNodeAndLocalHost(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	statusPath := filepath.Join(paths.StateDir(), "tailscale", "status.json")
+	if err := os.MkdirAll(filepath.Dir(statusPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]any{
+		"schema": 1,
+		"at":     time.Now(),
+		"status": map[string]any{
+			"BackendState": "Running",
+			"DNSName":      "self-node.tailnet.ts.net.",
+			"IPs":          []string{"100.64.0.1"},
+			"Peers": []map[string]any{
+				{"DNSName": "exit-peer.tailnet.ts.net.", "IPs": []string{"100.64.0.2", "fd7a:115c:a1e0::2"}, "Online": true, "ExitNode": true, "ExitNodeOption": true},
+				{"DNSName": "offline-exit.tailnet.ts.net.", "IPs": []string{"100.64.0.3"}, "Online": false, "ExitNode": true, "ExitNodeOption": true},
+				{"DNSName": "idle-peer.tailnet.ts.net.", "IPs": []string{"100.64.0.4"}, "Online": true, "ExitNode": false, "ExitNodeOption": true},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statusPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"localhost", "self-node", "self-node.tailnet.ts.net", "100.64.0.1",
+		"exit-peer", "EXIT-PEER.tailnet.ts.net.", "100.64.0.2", "FD7A:115C:A1E0::2"} {
+		if !isTailnetDirect(t.Context(), host) {
+			t.Errorf("isTailnetDirect(%q) = false, want true", host)
+		}
+	}
+	for _, host := range []string{"", "user@exit-peer", "offline-exit", "100.64.0.3", "idle-peer", "100.64.0.4", "unknown-box"} {
+		if isTailnetDirect(t.Context(), host) {
+			t.Errorf("isTailnetDirect(%q) = true, want false", host)
+		}
 	}
 }

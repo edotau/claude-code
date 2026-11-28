@@ -414,11 +414,6 @@ var codexLeafArgs = proc.Values{
 // codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop plugins and ChatGPT app connectors.
 var codexToolsOffArgs = proc.Values{"skills.include_instructions": "false", "features.plugins": "false", "features.apps": "false"}
 
-func codexSchema() agent.Schema {
-	s, _ := agent.LookupSchema("codex")
-	return s
-}
-
 // codexKeyEnv carries the credential codex's config names (the config text names the variable, not the secret).
 const codexKeyEnv = "HARNESS_CODEX_API_KEY"
 
