@@ -180,8 +180,13 @@ func liveQueued(main string) []worktree.QueuedLane {
 		wg.Go(func() { drop[i] = laneTipTime(q.Lane) > q.QueuedAt }) // one git log per lane, so they overlap
 	}
 	wg.Wait()
-	i := -1
-	return slices.DeleteFunc(queued, func(worktree.QueuedLane) bool { i++; return drop[i] })
+	live := queued[:0]
+	for i, q := range queued {
+		if !drop[i] {
+			live = append(live, q)
+		}
+	}
+	return live
 }
 
 func laneQueueKey(q worktree.QueuedLane) string {
