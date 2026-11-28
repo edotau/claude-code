@@ -1,0 +1,1 @@
+internal/memory/shadow/vectors.go:writeMintedStamp	unversioned: marker: stamp of the last embedding-vector mint

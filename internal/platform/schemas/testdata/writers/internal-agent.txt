@@ -8,6 +8,7 @@ internal/agent/limits.go:liveDispatchChildren	unversioned: cache: .children.idx 
 internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file, flock only, no content
 internal/agent/record.go:ClaimDispatchID	unversioned: marker: exclusive hook-launch claim containing the dispatch ID
 internal/agent/record.go:claimRecord	unversioned: claim: the running record, linked in whole
+internal/agent/record.go:pruneThrottled	unversioned: marker: .prune.stamp, the last dispatch-record prune time
 internal/agent/record.go:saveLocked	dispatch-record
 internal/agent/record.go:syncActiveMarker	unversioned: marker: a running dispatch's active-index sidecar
 internal/agent/record_read.go:markerWant	unversioned: marker: active-index sidecar rebuilt for each running record

@@ -1,3 +1,5 @@
+internal/dev/review/bench/auto.go:SetAuditMode	unversioned: text: the bench audit mode (on, auto or off) under the bench state dirs
+internal/dev/review/bench/auto.go:writeCandidates	unversioned: json: bottleneck candidates recorded from benchmark regressions
 internal/dev/review/bench/bench.go:compareSnapshot	unversioned: text: a temporary copy of the validated rolling baseline for one comparison
 internal/dev/review/bench/bench.go:writeOut	unversioned: output: a bench run result written to the --out file the caller names
 internal/dev/review/bench/bench.go:writeRunFile	unversioned: text: a benchmark run and the rolling baseline under state/harness/bench

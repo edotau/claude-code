@@ -1,5 +1,4 @@
 internal/memory/agent_input.go:writeSynthTranscript	unversioned: text: Claude-shaped transcript synthesized from an agent session
-internal/memory/bank.go:stampLayout	unversioned: marker: flat-layout stamp of a fresh store
 internal/memory/bank_commit.go:syncGitignore	unversioned: text: memory store .gitignore, a harness-written copy refreshed
 internal/memory/bank_commit.go:write	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_export.go:writeTemp	unversioned: memory-bank: exported memory store file
@@ -12,6 +11,7 @@ internal/memory/bank_settle.go:restore	unversioned: memory-bank: previous report
 internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/catalog.md router
 internal/memory/bank_settle.go:writeIfStill	unversioned: memory-bank: settle step rewrite of a bank file, skipped when edited outside
 internal/memory/bank_store.go:retireFilesTruth	unversioned: marker: the retired memory truth file, rewritten to db
+internal/memory/bank_store.go:stampLayout	unversioned: marker: flat-layout stamp of a fresh store
 internal/memory/candidates.go:appendLocked	unversioned: text: proposed-test list, one JSON object per line
 internal/memory/candidates.go:ingestTestProposals	unversioned: text: report ingestion watermark, one timestamp
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
@@ -22,12 +22,12 @@ internal/memory/doctor.go:markDoctorNoticeShown	unversioned: text: once-a-day do
 internal/memory/doctor.go:recordIndexProblem	unversioned: text: last failed settle's cause, read by memory review
 internal/memory/dream.go:appendDreamResult	unversioned: log: dream run results JSONL, newest 200
 internal/memory/dream.go:openDreamLog	unversioned: log: per-run dream output log
+internal/memory/dream.go:queueDreamBench	unversioned: log: dream benchmark improvement queue JSONL
+internal/memory/dream.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
 internal/memory/dream.go:stampDream	unversioned: text: per-store dream timestamp stamp
-internal/memory/dream_audit.go:queueDreamBench	unversioned: log: dream benchmark improvement queue JSONL
-internal/memory/dream_audit.go:saveDreamBenchState	unversioned: cache: daily importer ranking and benchmark rotation cursor
 internal/memory/embed.go:embedQueryLive	unversioned: marker: semantic-recall backoff stamp
 internal/memory/embed_store.go:refreshEmbeddings	unversioned: marker: embedding refresh spawn stamp
-internal/memory/extract_recall.go:appendExtractLedger	unversioned: log: extract loss and refusal ledger, text lines
+internal/memory/extract_run.go:appendExtractLedger	unversioned: log: extract loss and refusal ledger, text lines
 internal/memory/extract_run.go:extractClaimIndex	unversioned: git-index: exclusive purge index lock
 internal/memory/extract_run.go:extractIndexFile	unversioned: git-index: temporary purge index
 internal/memory/extract_run.go:extractInstallPurge	unversioned: git-index: restore the original index if purge fails before committing
@@ -37,9 +37,9 @@ internal/memory/queue.go:spawnSelf	unversioned: log: detached worker log, humans
 internal/memory/recall.go:markSeen	unversioned: log: seen-ids list, text lines
 internal/memory/recall.go:resetSeen	unversioned: log: seen-ids list rewrite
 internal/memory/recall.go:writeQueryVec	unversioned: cache: query embedding per model and query hash, 24h, 200 files
-internal/memory/recall_index.go:writeRecallIndex	unversioned: text: recall index, rebuilt on a miss
 internal/memory/recall_log.go:appendAccessLines	unversioned: log: memory access log, text lines
 internal/memory/recall_log.go:learnRecallLocked	unversioned: cache: rolling recall tallies and access log checkpoints
+internal/memory/recall_log.go:writeRecallIndex	unversioned: text: recall index, rebuilt on a miss
 internal/memory/sandbox.go:UpdateSandboxRegistry	unversioned: text: sandbox dir list, one path per line
 internal/memory/sandbox.go:placeStoreRels	unversioned: memory-bank: disposable flat sandbox copy
 internal/memory/sandbox.go:recordSandbox	unversioned: marker: sandbox owner pid and start
@@ -48,10 +48,10 @@ internal/memory/session_start.go:writeChain	unversioned: text: last-session chai
 internal/memory/session_start.go:writeSessionRoot	unversioned: text: per-session launch repository root
 internal/memory/update.go:receiptDir	unversioned: marker: completed flat update receipt migration
 internal/memory/update.go:writeUpdateResult	unversioned: text: update result text
+internal/memory/update_gate.go:IdleUpdateWatch	unversioned: marker: idle watcher claim file, restamped with the watcher pid
+internal/memory/update_gate.go:claimWatcher	unversioned: marker: idle watcher claim file
 internal/memory/update_gate.go:writeCountState	unversioned: text: edit count stamp
 internal/memory/update_gate.go:writeSidecar	unversioned: text: update sidecar text
 internal/memory/update_gate.go:writeStampAttempts	unversioned: text: update stamp
 internal/memory/verbs.go:completeHandoff	unversioned: marker: steward handoff completion receipt
 internal/memory/verbs.go:markHandoff	unversioned: marker: steward handoff request holding the session handoff path and id
-internal/memory/watch.go:IdleUpdateWatch	unversioned: marker: idle watcher claim file, restamped with the watcher pid
-internal/memory/watch.go:claimWatcher	unversioned: marker: idle watcher claim file
