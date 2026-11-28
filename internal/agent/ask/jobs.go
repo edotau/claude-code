@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	acts "github.com/edotau/claude-code/internal/agent/actions"
 	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
@@ -558,17 +559,22 @@ func msgReadCall(sender string, raw json.RawMessage) (string, error) {
 	return text, nil
 }
 
-// ServeMsgs serves msg_send and msg_read as a stdio MCP server; the sender is --from, else the session's name.
-func ServeMsgs(from string) int {
+// ServeHarness serves the msg tools plus every actions-table tool as one stdio MCP server named harness.
+func ServeHarness(from string) int {
 	sender, code := msgSender(from)
 	if code != 0 {
 		return code
 	}
+	tools := msgTools(sender)
+	for _, spec := range acts.Table {
+		tools = append(tools, mcpstdio.Tool{Name: spec.Name, Description: spec.Description, InputSchema: spec.Schema,
+			Call: func(ctx context.Context, raw json.RawMessage) (string, error) { return runTableAction(ctx, spec, raw) }})
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	srv := &mcpstdio.Server{Name: "msg", Version: "1.0.0", Tools: msgTools(sender)}
+	srv := &mcpstdio.Server{Name: "harness", Version: "1.0.0", Tools: tools}
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil && ctx.Err() == nil {
-		return helptext.Fail("agents msg: %v", err)
+		return helptext.Fail("agents mcp: %v", err)
 	}
 	return 0
 }

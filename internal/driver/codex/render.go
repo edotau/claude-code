@@ -425,13 +425,13 @@ func MCPTableRange(raw []byte, name string) (start, end int) {
 	return start, len(raw)
 }
 
-// codexMsgSection adds the msg MCP server (msg_send, msg_read) to the managed section unless the owner declared one.
+// codexMsgSection adds the harness MCP server (agents mcp) to the managed section unless the owner declared one.
 func codexMsgSection(section, stripped string) string {
-	if start, _ := MCPTableRange([]byte(stripped), "msg"); start >= 0 {
+	if start, _ := MCPTableRange([]byte(stripped), "harness"); start >= 0 {
 		return section
 	}
 	bin := filepath.Join(paths.BinDir(), "claude-code")
-	table := MCPTable("msg", bin, []string{"agents", "msg", "--mcp", "--from", "codex"})
+	table := MCPTable("harness", bin, []string{"agents", "mcp", "--from", "codex"})
 	if section == "" {
 		return codexBannerSection(strings.TrimRight(table, "\n"))
 	}

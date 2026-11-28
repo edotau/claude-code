@@ -136,7 +136,7 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 		t.Fatalf("permissions key missing or wrong type: %s", raw)
 	}
 	allow, ok := perms["allow"].([]any)
-	wantAllow := []any{"read_url(antigravity.google)", "mcp(msg/msg_send)", "mcp(msg/msg_read)"}
+	wantAllow := []any{"read_url(antigravity.google)", "mcp(harness/msg_send)", "mcp(harness/msg_read)", "mcp(harness/gate)", "mcp(harness/diff)"}
 	if !ok || !reflect.DeepEqual(allow, wantAllow) {
 		t.Errorf("permissions.allow = %v, want %v: %s", allow, wantAllow, raw)
 	}
@@ -501,10 +501,10 @@ func TestRenderGeminiMCP(t *testing.T) {
 	}
 	wantMsg := map[string]any{
 		"command": filepath.Join(filepath.Dir(settings.SettingsFile()), "bin", "claude-code"),
-		"args":    []any{"agents", "msg", "--mcp", "--from", "gemini"},
+		"args":    []any{"agents", "mcp", "--from", "gemini"},
 	}
-	if !reflect.DeepEqual(doc.MCPServers["msg"], wantMsg) {
-		t.Errorf("msg server = %v, want %v", doc.MCPServers["msg"], wantMsg)
+	if !reflect.DeepEqual(doc.MCPServers["harness"], wantMsg) {
+		t.Errorf("msg server = %v, want %v", doc.MCPServers["harness"], wantMsg)
 	}
 	_, err := agent.RenderConfigs(opts)
 	if second, _ := os.ReadFile(path); err != nil || !bytes.Equal(first, second) {

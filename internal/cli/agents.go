@@ -49,7 +49,8 @@ func agentsSpec() *helptext.Node {
 		"list":   {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":    {Flags: ask.CompletionFlags()},
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
-		"msg":    {Flags: []helptext.Flag{flag("from"), flag("file"), flag("format"), boolFlag("mcp")}},
+		"msg":    {Flags: []helptext.Flag{flag("from"), flag("file"), flag("format")}},
+		"mcp":    {Flags: []helptext.Flag{flag("from")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
@@ -111,6 +112,7 @@ var agentsPage = helptext.Page{
 		{"brief", "render a leaf brief or reserve its file with --path"},
 		{"send", "send a turn to a live session, or resume a finished job"},
 		{"msg", "message an agent or chat: msg @name \"text\"; bare reads new"},
+		{"mcp", "serve msg, gate and diff tools as a stdio MCP server"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -153,7 +155,10 @@ var agentsSubPages = map[string][3]string{
 		"shows its sender. Quote '#name': a bare # starts a shell comment. A live Claude member also gets each " +
 		"message as a notice on its next hook. msg @parent <note> is a leaf's one-line note (200 characters, literal " +
 		"text) to its dispatcher: exit 0 with \"no dispatcher to notify\" on stderr when none is live; it skips a " +
-		"repeat and refuses a sixth unread note. --mcp serves msg_send and msg_read over stdio MCP as --from. " +
+		"repeat and refuses a sixth unread note. " +
+		"Exit 0, 1 failed, 2 usage."},
+	"mcp": {"mcp --from <agent>", "Serve the harness tools over stdio MCP as one server: msg_send and msg_read " +
+		"(the sender is --from, never a tool argument), gate and diff (typed arguments; Go builds the command). " +
 		"Exit 0, 1 failed, 2 usage."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
@@ -220,7 +225,7 @@ func wireAsk() {
 // agentsVerbs routes `agents <verb>` to its handler.
 var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "sync": cmdAgentsSync,
-	"tree": cmdAgentsTree, "send": cmdAgentsSend, "msg": cmdAgentsMsg, "label": cmdAgentsLabel,
+	"tree": cmdAgentsTree, "send": cmdAgentsSend, "msg": cmdAgentsMsg, "mcp": cmdAgentsMcp, "label": cmdAgentsLabel,
 	"codemode":  cmdAgentsCodemode,
 	"dashboard": cmdAgentsDashboard,
 	"diff":      cmdAgentsDiff,
@@ -739,20 +744,27 @@ func cmdAgentsMsg(args []string) int {
 	fs := agentsFlags("msg")
 	from := fs.String("from", "", "who you are; default the calling Claude session's name")
 	format := fs.String("format", helptext.Text, "how reads print: text or json")
-	mcp := fs.Bool("mcp", false, "serve msg_send and msg_read as a stdio MCP server")
 	var files []string
 	helptext.ListVar(fs, &files, "file", "PATH", "attach a file (up to 8 MiB); repeatable", false)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if *mcp {
-		if len(pos) > 0 || len(files) > 0 {
-			return helptext.FailUsage("agents msg: --mcp takes no target, text or --file")
-		}
-		return ask.ServeMsgs(*from)
-	}
 	return runMsg(pos, *from, *format, files)
+}
+
+// cmdAgentsMcp is `agents mcp --from <agent>`: the harness tools as a stdio MCP server.
+func cmdAgentsMcp(args []string) int {
+	fs := agentsFlags("mcp")
+	from := fs.String("from", "", "who you are; default the calling Claude session's name")
+	pos, err := helptext.ParseArgs(fs, args)
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if len(pos) > 0 {
+		return helptext.FailUsage("agents mcp: takes no arguments, got %q", pos[0])
+	}
+	return ask.ServeHarness(*from)
 }
 
 // runMsg sends when there is text or a file, else reads; pos[0] is the @name or #name target when present.

@@ -7,8 +7,8 @@
       "enabled": true,
       "type": "local"
     },
-    "msg": {
-      "command": ["claude-code", "agents", "msg", "--mcp", "--from", "opencode"],
+    "harness": {
+      "command": ["claude-code", "agents", "mcp", "--from", "opencode"],
       "enabled": true,
       "type": "local"
     },

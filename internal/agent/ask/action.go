@@ -11,11 +11,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	acts "github.com/edotau/claude-code/internal/agent/actions"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/platform/proc"
@@ -26,22 +28,16 @@ import (
 const localAgent = "local"
 
 // actionArgv is the verb argv for the spec's action; Go builds it from typed fields, never from free text.
+// gate and diff come from the actions table; actionCheck has already refused what the table refuses.
 func actionArgv(action string, own []string, agentName, model string) []string {
-	scope := func(flag string) []string {
-		if len(own) == 0 {
-			return nil
-		}
-		return []string{flag, strings.Join(own, ",")}
-	}
 	switch action {
-	case "gate":
-		return append([]string{"worktree", "gate", "--run"}, scope("--scope")...)
+	case "gate", "diff":
+		argv, _, _ := acts.Argv(action, ownArgs(action, own))
+		return argv
 	case "scope":
-		return append([]string{"worktree", "gate", "--format", "json"}, scope("--scope")...)
-	case "diff":
-		argv := []string{"agents", "diff", "--format", "json"}
-		for _, p := range own {
-			argv = append(argv, "--path", p)
+		argv := []string{"worktree", "gate", "--format", "json"}
+		if len(own) > 0 {
+			argv = append(argv, "--scope", strings.Join(own, ","))
 		}
 		return argv
 	case "gateway":
@@ -55,6 +51,21 @@ func actionArgv(action string, own []string, agentName, model string) []string {
 		return argv
 	}
 	return nil
+}
+
+// ownArgs is the brief's own list as the table's typed arguments for gate (scope) or diff (paths).
+func ownArgs(action string, own []string) json.RawMessage {
+	key := map[string]string{"gate": "scope", "diff": "paths"}[action]
+	if cwd, err := os.Getwd(); err == nil && action == "gate" { // briefs name files by absolute path; the gate scope is relative
+		own = slices.Clone(own)
+		for i, p := range own {
+			if rel, err := filepath.Rel(cwd, p); err == nil && filepath.IsAbs(p) && filepath.IsLocal(rel) {
+				own[i] = rel
+			}
+		}
+	}
+	raw, _ := json.Marshal(map[string][]string{key: own})
+	return raw
 }
 
 // actionOutCap bounds the child output kept in the envelope and the log.
@@ -99,6 +110,9 @@ func actionRefusal(f *askFlags) string {
 func actionCheck(f *askFlags) error {
 	if why := actionRefusal(f); why != "" {
 		return fmt.Errorf("brief action runs no model: not with %s", why)
+	}
+	if _, _, err := acts.Argv(f.action, ownArgs(f.action, f.actionOwn)); err != nil {
+		return fmt.Errorf("brief own: %w", err)
 	}
 	if f.action == "gateway" && len(f.actionOwn) > 0 {
 		return errors.New("brief own: the gateway action takes no own paths")
@@ -229,4 +243,35 @@ func finishAction(rec *agent.Record, buf, stderr *capBuffer, runErr error, took 
 		saveErr = fmt.Errorf("action record %s not saved: %w", rec.ID, err)
 	}
 	return errors.Join(logErr, saveErr)
+}
+
+// runTableAction runs the table action's argv in this binary under the dispatch tools timeout; a failure carries the output.
+func runTableAction(ctx context.Context, spec acts.Spec, raw json.RawMessage) (string, error) {
+	argv, err := spec.Argv(raw)
+	if err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, agent.DefaultToolsTimeout)
+	defer cancel()
+	out := &capBuffer{}
+	cmd := exec.CommandContext(ctx, exe, argv...)
+	cmd.Stdout, cmd.Stderr = out, out
+	proc.TreeCancel(cmd, 0)
+	cmd.WaitDelay = proc.ExecWaitDelay
+	runErr := cmd.Run()
+	text := out.String()
+	if out.cut {
+		text += "\n[output cut at 1 MiB]\n"
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](runErr); ok && spec.Name == "diff" && ee.ExitCode() == 3 {
+		return text, nil // agents diff exits 3 for files outside --path: a finding in its JSON, not a failure
+	}
+	if runErr != nil {
+		return "", fmt.Errorf("%s failed: %v\n%s", spec.Name, cmp.Or(ctx.Err(), runErr), text)
+	}
+	return text, nil
 }

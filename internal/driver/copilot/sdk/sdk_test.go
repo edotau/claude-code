@@ -903,7 +903,7 @@ func TestBuildClientOptionsArmedBYOK(t *testing.T) {
 
 // A tools run carries the msg stdio server on create and resume; a tools-off run loads no MCP.
 func TestMsgServerOnCreateAndResume(t *testing.T) {
-	o := Options{AllowAllTools: true, MsgMCP: []string{"/bin/claude-code", "agents", "msg", "--mcp", "--from", "copilot"}}
+	o := Options{AllowAllTools: true, MsgMCP: []string{"/bin/claude-code", "agents", "mcp", "--from", "copilot"}}
 	want := map[string]copilot.MCPServerConfig{MsgMCPName: copilot.MCPStdioServerConfig{
 		Command: "/bin/claude-code", Args: o.MsgMCP[1:], Tools: []string{"*"},
 	}}

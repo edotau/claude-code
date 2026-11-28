@@ -20,8 +20,8 @@ import (
 	"github.com/edotau/claude-code/internal/routing/agentid"
 )
 
-// agyMsgAllowRules are the msg MCP tool grants added to agy's allow list so `agy -p` calls them without prompting.
-var agyMsgAllowRules = []string{"mcp__msg__msg_send", "mcp__msg__msg_read"}
+// agyMsgAllowRules are the harness MCP tool grants added to agy's allow list so `agy -p` calls them without prompting.
+var agyMsgAllowRules = []string{"mcp__harness__msg_send", "mcp__harness__msg_read", "mcp__harness__gate", "mcp__harness__diff"}
 
 func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings(agentid.Gemini)
@@ -61,13 +61,16 @@ func renderGeminiMCP(home string, o agentconfig.RenderOptions, out io.Writer) (b
 				return false
 			}
 		}
-		if cur, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != "claude-code" {
-			fmt.Fprintf(out, "gemini-mcp: skipped: %s declares its own msg server\n", path)
+		if cur, ok := servers["harness"].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != "claude-code" {
+			fmt.Fprintf(out, "gemini-mcp: skipped: %s declares its own harness server\n", path)
 			return false
 		}
-		servers["msg"] = map[string]any{
+		if old, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(old["command"])) == "claude-code" {
+			delete(servers, "msg") // the server's name before it carried more than messages
+		}
+		servers["harness"] = map[string]any{
 			"command": filepath.Join(paths.BinDir(), "claude-code"),
-			"args":    []string{"agents", "msg", "--mcp", "--from", "gemini"},
+			"args":    []string{"agents", "mcp", "--from", "gemini"},
 		}
 		obj["mcpServers"] = servers
 		return true

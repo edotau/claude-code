@@ -239,12 +239,12 @@ func settingsPath(home string) string { return filepath.Join(home, ".copilot", "
 
 func mcpConfigPath(home string) string { return filepath.Join(home, ".copilot", "mcp-config.json") }
 
-// MsgMCPName is the harness message MCP server (agents msg --mcp) copilot gets, interactive and headless.
-const MsgMCPName = "msg"
+// MsgMCPName is the harness MCP server (agents mcp) copilot gets, interactive and headless.
+const MsgMCPName = "harness"
 
 // MsgMCPCommand is the msg server's argv: the absolute harness binary, then its args; the sender is copilot.
 func MsgMCPCommand() []string {
-	return []string{filepath.Join(paths.BinDir(), "claude-code"), "agents", "msg", "--mcp", "--from", "copilot"}
+	return []string{filepath.Join(paths.BinDir(), "claude-code"), "agents", "mcp", "--from", "copilot"}
 }
 
 // Copilot hooks load from the user directory; plugin preToolUse hooks do not fire.
@@ -323,6 +323,9 @@ func renderCopilotMCP(home string, o agentconfig.RenderOptions, out io.Writer) (
 		if cur, ok := servers[MsgMCPName].(map[string]any); ok && filepath.Base(fmt.Sprint(cur["command"])) != filepath.Base(argv[0]) {
 			fmt.Fprintf(out, "copilot-mcp: skipped: %s declares its own %s server\n", path, MsgMCPName)
 			return false
+		}
+		if old, ok := servers["msg"].(map[string]any); ok && filepath.Base(fmt.Sprint(old["command"])) == filepath.Base(argv[0]) {
+			delete(servers, "msg") // the server's name before it carried more than messages
 		}
 		servers[MsgMCPName] = entry
 		obj["mcpServers"] = servers

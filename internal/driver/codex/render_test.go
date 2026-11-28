@@ -715,7 +715,7 @@ func TestCodexRestartNoticeOnlyOnRouteChange(t *testing.T) {
 func TestCodexRendersMsgMCPServer(t *testing.T) {
 	for name, fixture := range map[string]string{
 		"fresh":   "[mcp_servers.other]\ncommand = \"keep\"\n",
-		"foreign": "[mcp_servers.msg]\ncommand = \"mine\"\n\n[mcp_servers.other]\ncommand = \"keep\"\n",
+		"foreign": "[mcp_servers.harness]\ncommand = \"mine\"\n\n[mcp_servers.other]\ncommand = \"keep\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := agenttest.Scratch(t)
@@ -739,13 +739,13 @@ func TestCodexRendersMsgMCPServer(t *testing.T) {
 			}
 			first := render()
 			t.Log(first)
-			if n := strings.Count(first, "[mcp_servers.msg]"); n != 1 {
+			if n := strings.Count(first, "[mcp_servers.harness]"); n != 1 {
 				t.Fatalf("msg tables = %d, want 1:\n%s", n, first)
 			}
 			if !strings.Contains(first, "[mcp_servers.other]\ncommand = \"keep\"") {
 				t.Errorf("foreign table lost:\n%s", first)
 			}
-			if got := strings.Contains(first, `args = ["agents", "msg", "--mcp", "--from", "codex"]`); got != (name == "fresh") {
+			if got := strings.Contains(first, `args = ["agents", "mcp", "--from", "codex"]`); got != (name == "fresh") {
 				t.Errorf("managed msg args present = %v:\n%s", got, first)
 			}
 			if second := render(); second != first {

@@ -9,12 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/actions"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
@@ -310,7 +310,6 @@ var (
 	piGateKeys     = []string{"scope"}
 	piReportKeys   = []string{"kind", "body"}
 	piMsgKeys      = []string{"to", "text", "files"}
-	piScopeEntry   = regexp.MustCompile(`^[A-Za-z0-9._/@+-]+$`)
 )
 
 // isPiAction reports whether tool is a runner action: it names no path and runs at most one harness argv.
@@ -339,15 +338,15 @@ func piActionArgv(tool string, input map[string]any, cwd string) ([]string, erro
 	case "msg":
 		return piMsgArgv(input)
 	}
-	argv := []string{"worktree", "gate", "--run", "--format", "json"}
-	scope, err := piGateScope(input["scope"])
+	raw, err := json.Marshal(input)
 	if err != nil {
 		return nil, err
 	}
-	if scope == "" {
-		return argv, nil
+	argv, _, err := actions.Argv("gate", raw)
+	if err != nil {
+		return nil, err
 	}
-	return append(argv, "--scope", scope), nil
+	return slices.Insert(argv, 3, "--format", "json"), nil // after "worktree gate --run", before --scope
 }
 
 // piReportArgv files the body as the run's own report; the model supplies neither the dispatch id nor the argv.
@@ -421,26 +420,6 @@ func piMsgFiles(list any) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
-}
-
-// piGateScope is the comma-joined scope dirs; each must be a clean relative directory.
-func piGateScope(list any) (string, error) {
-	if list == nil {
-		return "", nil
-	}
-	items, ok := list.([]any)
-	if !ok {
-		return "", errors.New("gate: scope must be an array of directories")
-	}
-	var scope []string
-	for _, it := range items {
-		s, _ := it.(string)
-		if !filepath.IsLocal(s) || !piScopeEntry.MatchString(s) {
-			return "", fmt.Errorf("gate: scope entry %q is not a clean relative directory", s)
-		}
-		scope = append(scope, s)
-	}
-	return strings.Join(scope, ","), nil
 }
 
 // judgePiAction judges a runner action: a gate is judged as the bash line it will run, a handback runs nothing.

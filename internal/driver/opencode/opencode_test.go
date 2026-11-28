@@ -45,8 +45,8 @@ func TestOpencodeMsgMCPAndToolsOff(t *testing.T) {
 	if err := json.Unmarshal(body, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	msg, _ := json.Marshal(cfg.MCP["msg"])
-	if string(msg) != `{"command":["claude-code","agents","msg","--mcp","--from","opencode"],"enabled":true,"type":"local"}` {
+	msg, _ := json.Marshal(cfg.MCP["harness"])
+	if string(msg) != `{"command":["claude-code","agents","mcp","--from","opencode"],"enabled":true,"type":"local"}` {
 		t.Fatalf("msg = %s", msg)
 	}
 	off := map[string]any{}
