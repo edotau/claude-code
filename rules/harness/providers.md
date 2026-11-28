@@ -53,6 +53,9 @@ Anthropic, or the agent's own login).
 
 opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 
+A Claude subscription keeps Remote Control; API keys pay per token. For headless Max, configure mints
+`claude setup-token` into vault `CLAUDE_CODE_OAUTH_TOKEN`.
+
 ## Providers
 
 Built-ins: `internal/assets/providers/defaults.json` (use its provider-keyed shape). The vault's provider overlay
@@ -331,6 +334,11 @@ The shared daemon and standing scopes spawn from installed `bin/claude-code`, ne
 install` runs `gateway proxy --restart --if-changed`; the status line and doctor compare `proxy.json`'s executable
 SHA-256 with the installed binary, and the first idle poll replaces a stale or down daemon. Streams drain for up
 to 2 minutes while the replacement serves; `--stop` waits as long. The replacement loads new token code.
+
+`claude-code gateway jev` operates the Open-Jev classifier (flags: `-h`; bare = `--status`). `--train` starts detached
+and watches (Ctrl-C only detaches). `--serve CHECKPOINT` takes only a run's base or a gold-gate pass, installs a
+macOS login item named by `--service FILE` and restores the old item if the server stays down. `--trainer DIR --out
+DIR` are remembered after first use. `train-jev.sh` is a thin front for it; `doctor` has a `jev` row.
 
 ### Session tokens
 

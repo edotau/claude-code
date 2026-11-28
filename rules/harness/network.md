@@ -12,6 +12,9 @@ paths:
   to vault-backed `${ENV}`; never remove/rotate without owner confirmation.
 - Cleanup: `claude-code clean [--list|--dry-run]` applies by default, never sweeps credentials/settings.
   Projections/sessions require opt-in `--target`.
+  `rtk make sweep [DRY_RUN=1] [AGE=7d] [ONLY=<targets>]` removes; preview first as needed.
+- Tailscale: `claude-code tailscale --token` needs the owner's terminal, browser re-auth and vault OAuth client
+  credentials or API key.
 - Proxy: `claude-code gateway proxy --status` lists standing scopes; `--stop` stops them and the daemon.
   `--restart --if-changed` restarts only after binary changes (install/status line run it when idle).
   Actual changed-binary restarts stop tunnels; plain restart leaves them. In-flight requests need `--force`.

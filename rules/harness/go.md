@@ -19,6 +19,15 @@ These conventions for `github.com/edotau/claude-code` override the general golan
 - **Layout is memory:** one concept has one name across command/package, settings/type/table/vault/configure,
   and package/techdebt/memory area. Fix a name/place mismatch instead of recording it in memory; mirroring is a guide.
 - Scratch writers use `state/harness/<area>/` or the git dir, never a repo root; ignoring the file is not a fix.
+- `state/vault.db`: untracked secrets; `state/certs/`: CA bundles; `state/harness/<owner>/`: schema-versioned state
+  migrated on read; `state/harness/backups/`: plaintext backups via `paths.Backup`. Doctor reports formats.
+- Outside state: machine-wide `/tmp/claude-code-bench-<uid>` lock, `$TMPDIR/claude-code-verify` trees,
+  `~/.claude/run/clip.sock`, bin, plans, memory, settings and vendor homes.
+- `docs/templates/` indexes embedded templates. `container/` holds the Ubuntu podman image
+  (`make image|image-audit|image-shell`); rootless Linux installs Tailscale static binaries without starting its daemon.
+- TypeScript mods: slash-usage, dispatch-spawn, codemode (`/codemode on|off|status`); build with `tsc -p mods/<name>`.
+  agents-band is unloaded by default; add its path to `CLAUDE_CODE_PLUGIN_DIRS`, then `/reload-plugins`.
+  It shows leaf claims/notes and free dirty files (`agents tree --files`).
 - No DI container, cobra or viper: wire explicitly in `Run`; parse config in the area's package.
 
 ## CLI and TUI text

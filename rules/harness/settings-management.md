@@ -17,6 +17,19 @@ It keeps a backup in `state/harness/backups/`; explicit `--fmt --check --out <fi
 - Build/install the current tree: `rtk make install`; preview with `claude-code install --dry-run`.
 - Owner-run reset: `claude-code configure restore`, with a timestamped backup first; no check/dry-run mode.
   `--agent all` or `--agent X` renders only agent configs.
+- `rtk make bootstrap`: install Go without sudo, harness, completion, then configure; `CHECK=1` checks instead.
+- `rtk make install` installs missing agent CLIs/Tailscale; `TOOLS=1` updates all, `TOOLS=copilot,codex` selects,
+  then doctor runs. `claude-code install --tools=<name>` does the tool work without doctor.
+- Vendor installers scrub credentials, install under `~/.local/bin` and link `bin/<agent>`; verify version or route.
+  `DEV_TOOLS=1` installs pinned gate tools by default; zero skips them.
+- Existing `~/.claude`: back up user data and resolve collisions manually before installing a checkout;
+  never overwrite credentials or user files. Use `make bootstrap` for a fresh checkout.
+- `claude-code configure` reuses env, vault and CLI logins and asks only for missing values.
+- `configure vscode [--check|--dry-run]` merges the settings and keybindings templates (`internal/assets/ui/vscode/`)
+  into VS Code, with backups.
+- Status line: it shows provider/profile, model, context, git and weekly/token limits.
+  `~/.claude/state/statusline/config.json` controls `segments`: false disables a key.
+  Default off: proxy, duration, session. Other keys: path, model, provider, context, limits, total, git, velocity.
 - Hook changes: `hooks.md`; format/lint and leaf-scoped fixes: `rules/standards/quality.md` → Verification Order.
 
 ## Where settings come from
@@ -30,6 +43,7 @@ It keeps a backup in `state/harness/backups/`; explicit `--fmt --check --out <fi
   keyed by session Claude model ids, never from `settings.json`.
 - Host tools: `internal/agent/tools/deps.go`. Install runs `install --tools --missing` using go/npm/uv/pipx,
   then brew as fallback. No root commands; apt is a hint. Skips/failures do not fail install; doctor reports each tool.
+  git/go/make/curl are report-only.
 - Add the async Bash PostToolUse entry by hand only after installing the supporting binary; keep Bash in the sync
   matcher for dispatch hand-back. Bash plan ticks and claims need the async entry:
 

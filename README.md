@@ -36,7 +36,7 @@ is, uncommitted edits included. `claude-code install --dry-run` previews all of 
 resets `settings.json` to the template (a backup is written first). Deleting the clone leaves behind the agent CLIs
 and host tools it installed, the files `agents sync` wrote into each agent CLI's home, the vault key in the OS
 keyring and, on a Mac, the clipboard launch agent. Fresh machine and install options:
-[`rules/harness/commands.md`](rules/harness/commands.md).
+[`rules/harness/settings-management.md`](rules/harness/settings-management.md).
 
 ## Five-minute tour
 
@@ -64,7 +64,7 @@ Every verb takes `-h`; `claude-code -h` lists the menu.
 | `settings.json` | Yours: hand-edited, tracked in git so every machine shares it |
 
 The full map is `CLAUDE.md` → Where things live. State formats, backups, `container/` and `mods/`:
-[`rules/harness/commands.md`](rules/harness/commands.md) → Layout.
+[`rules/harness/go.md`](rules/harness/go.md) → Layout and placement.
 
 ## Agents and dispatch
 
@@ -72,8 +72,9 @@ The full map is `CLAUDE.md` → Where things live. State formats, backups, `cont
 envelope; tools are on by default; `"tools":false` turns them off (how that is enforced differs per agent, see
 Safety). Batches, retries, remote hosts and reviews: `claude-code agents ask -h` and
 [`rules/harness/agent.md`](rules/harness/agent.md). Examples:
-[`rules/harness/commands.md`](rules/harness/commands.md) → Agents. In-session fan-out:
-[`rules/workflows/master-workflow.md`](rules/workflows/master-workflow.md).
+[`skills/subagent-workflows/references/agent-verbs.md`](skills/subagent-workflows/references/agent-verbs.md).
+In-session fan-out:
+[`rules/standards/worktree-git.md`](rules/standards/worktree-git.md) → Workflow.
 
 ## Providers and credentials
 
