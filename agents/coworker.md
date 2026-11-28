@@ -26,7 +26,7 @@ and brief fields: `skills/subagent-workflows/SKILL.md`.
 ## Invocation
 
 **In a session** — `Agent` with `subagent_type: coworker`, `/coworker <task>`, or a dispatch brief. **Headless** — the
-same ask from the main session (`rules/harness/agent.md` → pi code mode); overlay `"agent":"coworker"` is the same run.
+same ask from the main session (`rules/harness/agent.md` → Pi); overlay `"agent":"coworker"` is the same run.
 
 The one ask (PATH is the file `claude-code agents brief --path pi` prints; add `--workdir <dir>` only when the brief
 has a `Workdir:` line):

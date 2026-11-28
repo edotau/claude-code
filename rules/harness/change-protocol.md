@@ -17,7 +17,7 @@ Act on every applicable item when changing hooks, settings, agent configs, agent
 
 1. **Settings or hooks:** follow `settings-management.md` and `hooks.md`; hand-edit existing settings, run
    `claude-code doctor`, and install hook/spec changes with `rtk make install` for native projections.
-2. **Agent or command moved/renamed:** follow `rules/workflows/agents.md` → Agent and command files;
+2. **Agent or command moved/renamed:** follow `rules/harness/agent.md` → Authoring;
    search the old name and fix every caller in the same change.
 3. **Rule added/moved:** new `workflows/` and `harness/` rules need `paths:`; unscoped `standards/*.md`
    are the always-on core. Fix overlay extends links, the `CLAUDE.md` index, skills and commands in the same change.

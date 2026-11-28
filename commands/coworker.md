@@ -50,4 +50,4 @@ reads `coworker`. Empty `$ARGUMENTS` or `help`: print the block above and stop. 
    `claude-code agents result -f <id>`.
 
 Relay the report with its `ran on` line; never do the task yourself. Pi's bash is whole under the guard unless a file
-deny applies (`rules/harness/agent.md` → pi). Commands: `~/.claude/rules/workflows/agents.md` → Slash commands.
+deny applies (`rules/harness/agent.md` → pi). Commands: `~/.claude/rules/harness/agent.md` → Slash commands.

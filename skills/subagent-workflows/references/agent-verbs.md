@@ -64,7 +64,7 @@ claude-code agents result -f <id>
 ```
 
 The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
-ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
+ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Carried asks.
 `agents wait --progress` shows a Pi leaf's `compacting` or `retrying` phase instead of `quiet`; the idle limit applies.
 **Default leaf route:** a `claude` code leaf whose brief has no `Agent:` line runs the task as a Pi ask first; review,
 docs and gate leaves stay in-context. A brief naming `Agent: pi` (or the type `pi`) is retyped to `coworker`; with

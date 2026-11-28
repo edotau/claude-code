@@ -110,7 +110,7 @@ diff" request runs Simplify detect-only (report the findings) → Review.
   load) do it in-context and say so (`Ran on:`). A brief needing the Agent tool, skills or MCP names
   `Agent: in-context`.
 - A typed `claude` ask on a Databricks route runs through the pi runner first, its own CLI the later hop
-  (`rules/harness/agent.md` → pi runner). The owner layer (a contract owner with a terminal fleet) has a schema only;
+  (`rules/harness/agent.md` → Pi). The owner layer (a contract owner with a terminal fleet) has a schema only;
   nothing dispatches it yet (`skills/subagent-workflows/SKILL.md` → Owner layer), so you stay a terminal leaf.
 - Otherwise do the task yourself. Dispatch only when it needs another agent partway through, or the brief names
   one (`Agent:`).

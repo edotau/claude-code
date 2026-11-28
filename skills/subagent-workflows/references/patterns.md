@@ -69,7 +69,7 @@ pre-pass only); peer-to-peer agent debate (refute/rederive is one-way and blind)
 
 ## Split vs merge; skill vs agent vs brief
 
-`rules/workflows/agents.md` → Authoring: file, skill or brief (when to split or merge a role), Agent and command files
+`rules/harness/agent.md` → Authoring (when to split or merge a role), Agent and command files
 (skeleton, frontmatter) and Prose instructs, hooks guarantee (CLI registry, workflow receipt gates).
 
 ## Lessons from the trial

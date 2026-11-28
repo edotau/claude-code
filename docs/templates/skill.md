@@ -9,4 +9,4 @@ rtk claude-code agents brief --shape skill --name <stem> --description "<what it
 rtk claude-code agents brief --shape skill --name <stem> --description "..." --write   # create skills/<stem>/
 ```
 
-`--write` never overwrites an existing skill directory. Authoring rules: `rules/workflows/agents.md` → Authoring.
+`--write` never overwrites an existing skill directory. Authoring rules: `rules/harness/agent.md` → Authoring.

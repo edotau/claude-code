@@ -11,7 +11,7 @@ description: >-
 ## Execution mode: subagent
 
 Dispatch, roster and labels: `CLAUDE.md` guideline 3; leaves are terminal, so the main session is the one
-orchestration layer. Agent file = who (`rules/workflows/agents.md`), brief's `Method:` skill = how, this skill = when
+orchestration layer. Agent file = who (`rules/harness/agent.md`), brief's `Method:` skill = how, this skill = when
 and in what order, [patterns.md](references/patterns.md) = which shape.
 
 ## Who holds the plan
@@ -23,7 +23,7 @@ and in what order, [patterns.md](references/patterns.md) = which shape.
 
 ## Leaf types
 
-Shell `agents ask` belongs in a carried dispatch, workflow stage or requested script (`rules/workflows/agents.md`).
+Shell `agents ask` belongs in a carried dispatch, workflow stage or requested script (`rules/harness/agent.md`).
 
 | Leaf | Role |
 | --- | --- |

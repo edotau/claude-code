@@ -45,4 +45,4 @@ Otherwise:
    `claude-code agents result -f <id>`.
 
 Relay the result with its `ran on` line; never do the task yourself. Commands:
-`~/.claude/rules/workflows/agents.md` → Slash commands.
+`~/.claude/rules/harness/agent.md` → Slash commands.
