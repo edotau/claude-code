@@ -224,7 +224,7 @@ func (v claimView) dirtyPath(p string) (string, map[string]bool, error) {
 	}
 	scope := v.scopes[top]
 	if len(scope) == 0 {
-		scope = []string{":(literal)" + rel}
+		scope = []string{literalSpec(rel)}
 	}
 	var st dirtyState
 	st.top, st.dirty, st.err = worktree.ReadDirty(v.ctx, paths.Real(top), append([]string{"--"}, scope...)...)
@@ -232,12 +232,23 @@ func (v claimView) dirtyPath(p string) (string, map[string]bool, error) {
 	return st.top, st.dirty, st.err
 }
 
+// literalSpec quotes rel as a literal pathspec only when it carries pathspec magic or a leading dash.
+func literalSpec(rel string) string {
+	if strings.ContainsAny(rel, "*?[:\\") || strings.HasPrefix(rel, "-") {
+		return ":(literal)" + rel
+	}
+	return rel
+}
+
 func (v *claimView) scopePaths(edits []string) {
 	v.scopes = map[string][]string{}
 	for _, p := range edits {
+		if v.claims != nil && len(v.claims[p]) == 0 {
+			continue
+		}
 		top, _ := paths.CheckoutOf(filepath.Dir(p))
 		if rel, ok := paths.RelWithin(paths.Real(top), p); top != "" && ok {
-			v.scopes[top] = append(v.scopes[top], ":(literal)"+rel)
+			v.scopes[top] = append(v.scopes[top], literalSpec(rel))
 		}
 	}
 }
@@ -246,11 +257,14 @@ func (v *claimView) scopePaths(edits []string) {
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
 	bash := isBash(in)
-	git := gitAnyCmd().MatchString(cmd) || verbText.MatchString(cmd)
+	git := bash && (gitAnyCmd().MatchString(cmd) || verbText.MatchString(cmd))
 	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
 		return core.Result{}
 	}
 	edits := editPaths(in)
+	if !bash && len(edits) == 0 {
+		return core.Result{}
+	}
 	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
 	lane := laneVerdict(ctx, in, cmd, edits)
@@ -283,7 +297,7 @@ func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, 
 
 // laneVerdict, in lanes mode, notes a change to the live checkout or, once per session, another repo's main checkout.
 func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
-	if !worktreeLanes() {
+	if !worktreeLanes() || len(edits) == 0 && (!isBash(in) || !laneText(cmd)) {
 		return core.Result{}
 	}
 	live := paths.Real(paths.ConfigDir())
@@ -349,7 +363,7 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 
 // markLaneRepos records, after a landed edit, the other repos whose ask is then answered for this session.
 func markLaneRepos(in *core.Input, edits []string) {
-	if !worktreeLanes() {
+	if !worktreeLanes() || len(edits) == 0 && (!isBash(in) || !laneText(in.ToolCommand())) {
 		return
 	}
 	for _, root := range otherRoots(in, in.ToolCommand(), edits, paths.Real(paths.ConfigDir())) {
@@ -361,8 +375,12 @@ func markLaneRepos(in *core.Input, edits []string) {
 func otherRoots(in *core.Input, cmd string, edits []string, live string) []string {
 	set := map[string]bool{}
 	add := func(dir string) {
-		if top, main := paths.CheckoutOf(dir); top != "" && paths.Real(top) != live && paths.Real(top) == paths.Real(main) {
-			set[paths.Real(top)] = true
+		top, main := paths.CheckoutOf(dir)
+		if top == "" {
+			return
+		}
+		if realTop := paths.Real(top); realTop != live && (top == main || realTop == paths.Real(main)) {
+			set[realTop] = true
 		}
 	}
 	for _, p := range edits {
@@ -474,9 +492,12 @@ func applyDry(flags []string) bool {
 
 // claimResult runs the edit check on each edited path against the live claims.
 func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
+	if len(edits) == 0 {
+		return core.Result{}
+	}
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
-	if len(claims) > 0 {
+	if slices.ContainsFunc(edits, func(p string) bool { return len(claims[p]) > 0 }) {
 		v := claimView{ctx: ctx, in: in, cmd: cmd, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		v.scopePaths(edits)

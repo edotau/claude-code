@@ -674,3 +674,34 @@ func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestClaimEditSkipsGitAndCleanPeerCheckUsesIndex(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repo := claimFixture(t)
+	peerFile := filepath.Join(repo, "shared.txt")
+	claimEdit(t, repo, liveOwner, "sess-a", "shared.txt")
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(peerFile, old, old); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, repo, "add", "shared.txt")
+	hosttest.In(t, repo, "commit", "-qm", "commit shared")
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useClaimOwner(t, checkerOwner)
+	hosttest.WriteRel(t, repo, "a.txt", "dirty\n")
+	Claim(claimInput(t, map[string]any{"session_id": "sess-b", "cwd": repo, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": filepath.Join(repo, "a.txt")}}))
+	if _, err := os.Stat(claimsFile(checkerOwner, "sess-b")); err != nil {
+		t.Fatalf("Edit claim did not record without git: %v", err)
+	}
+	if r := ClaimCheck(claimInput(t, map[string]any{"session_id": "sess-b", "cwd": repo, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": peerFile}})); r.Decision != core.Allow || r.Context != "" || r.Stderr != "" {
+		t.Fatalf("clean peer check with broken git = %+v, want allow with no warning", r)
+	}
+}

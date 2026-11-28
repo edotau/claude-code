@@ -112,3 +112,16 @@ func TestFixNowThirdDeliveryIsPlainNotice(t *testing.T) {
 		t.Fatalf("unclaimed directives = %d, want 1 for the doctor row", len(un))
 	}
 }
+
+func TestFixNowMissingLogLeavesFailuresDirUntouched(t *testing.T) {
+	cwd := fixNowEnv(t)
+	if got := FixNow(&core.Input{SessionID: "s1", CWD: cwd}); got.Decision != core.Allow || got.Stderr != "" {
+		t.Fatalf("empty FixNow = %+v", got)
+	}
+	if _, _, err := worktree.FailuresSinceWithin(worktree.FailuresDir(), "s1", 10, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(worktree.FailuresDir()); !os.IsNotExist(err) {
+		t.Fatalf("missing log created %s: %v", worktree.FailuresDir(), err)
+	}
+}

@@ -65,15 +65,25 @@ func fixNowLines(ctx context.Context, in *core.Input, mainRepo string, fallback 
 	if !mainSession(ctx, in) {
 		return nil, nil, nil
 	}
-	o := fixNowOffer{root: worktree.FailuresDir(), session: in.SessionID, window: fixNowWindow(ctx), fallback: fallback}
-	recs, err := worktree.ListFailures(o.root)
-	if err != nil {
+	root := worktree.FailuresDir()
+	recs, err := worktree.ListFailures(root)
+	if err != nil || !slices.ContainsFunc(recs, directiveDue) {
 		return nil, nil, err
 	}
+	o := newFixNowOffer(ctx, in, root, fallback)
+	return o.collect(ctx, repoFailures(recs, mainRepo))
+}
+
+func newFixNowOffer(ctx context.Context, in *core.Input, root string, fallback bool) fixNowOffer {
+	o := fixNowOffer{root: root, session: in.SessionID, window: fixNowWindow(ctx), fallback: fallback}
 	typed := in.Prompt != "" && !core.AutomatedDelivery(in.Prompt) // this very prompt is the owner, whatever the stamp says
 	o.present = typed || time.Since(worktree.LastPrompt(o.root, o.session)) < o.window
+	return o
+}
+
+func (o fixNowOffer) collect(ctx context.Context, recs []worktree.Failure) (lines []string, sent map[string]bool, err error) {
 	seen, sent := map[string]bool{}, map[string]bool{}
-	for _, r := range slices.Backward(repoFailures(recs, mainRepo)) {
+	for _, r := range slices.Backward(recs) {
 		if len(lines) >= failureLines || ctx.Err() != nil {
 			break
 		}
@@ -119,6 +129,9 @@ func fixNowText(r worktree.Failure, present bool, window time.Duration) string {
 func FixNow(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-fixnow")
 	defer cancel()
+	if !mainSession(ctx, in) {
+		return core.Result{}
+	}
 	_, mainRepo := paths.CheckoutOf(newRun(ctx, in).dir)
 	lines, _, err := fixNowLines(ctx, in, mainRepo, false)
 	res := core.Result{}

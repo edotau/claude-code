@@ -85,10 +85,7 @@ func recordDispatch(owner int) string {
 
 // Claim records the written path (a Bash command's sed -i, redirect or tee targets too) and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
-	if in.SessionID == "" {
-		return core.Result{}
-	}
-	if !isBash(in) && in.ToolFailed() {
+	if in.SessionID == "" || (!isBash(in) && in.ToolFailed()) {
 		return core.Result{} // a failed edit changed nothing
 	}
 	edits := editPaths(in)
@@ -101,6 +98,14 @@ func Claim(in *core.Input) core.Result {
 	if owner == 0 {
 		return core.Result{}
 	}
+	lines := collectClaims(in, owner, edits, staged)
+	if len(lines) > 0 {
+		appendClaims(claimsFile(owner, in.SessionID), lines)
+	}
+	return core.Result{}
+}
+
+func collectClaims(in *core.Input, owner int, edits []string, staged bool) []worktree.Claim {
 	now := time.Now().Unix()
 	stamp := claimAgent(in)
 	if stamp == "" && in.Agent() != core.AgentClaude {
@@ -113,16 +118,14 @@ func Claim(in *core.Input) core.Result {
 	if staged {
 		lines = append(lines, stagedClaims(in, now, stamp)...) // external-agent edits are claimed when staged
 	}
-	lines = filterDirty(lines, !staged)
-	if len(lines) == 0 {
-		return core.Result{}
+	if isBash(in) {
+		lines = filterDirty(lines, !staged)
 	}
 	start, _ := ownerStart(owner) // "" on failure: the line then reads as live while the pid is
 	for i := range lines {
 		lines[i].OwnerStart = start
 	}
-	appendClaims(claimsFile(owner, in.SessionID), lines)
-	return core.Result{}
+	return lines
 }
 
 // filterDirty drops claims on paths the command left clean (it committed them); outside a repo or on error all stay.

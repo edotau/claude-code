@@ -171,7 +171,11 @@ const (
 
 // repoFailures keeps the records of the session's main checkout and those carrying no repo.
 func repoFailures(fails []worktree.Failure, top string) []worktree.Failure {
-	want, real := realDir(top), map[string]string{}
+	if len(fails) == 0 {
+		return nil
+	}
+	want := realDir(top)
+	real := map[string]string{top: want, want: want}
 	return slices.DeleteFunc(slices.Clone(fails), func(f worktree.Failure) bool {
 		if f.Repo == "" {
 			return false
@@ -233,12 +237,26 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 	if errors.Is(failErr, paths.ErrLockTimeout) { // busy log: stay silent, the cursor did not move
 		failErr = nil
 	}
-	_, mainRepo := paths.CheckoutOf(run.dir)
 	tail, warn := inboxLines(ctx, in, run) // the slow reads run first: a directive is recorded only just before the return
-	lines, sent, fixErr := fixNowLines(ctx, in, mainRepo, true)
-	failErr = cmp.Or(failErr, fixErr)
 	main := mainSession(ctx, in)
-	fails = slices.DeleteFunc(repoFailures(fails, mainRepo), func(f worktree.Failure) bool { return fixNowHides(ctx, main, sent, f) })
+	var lines []string
+	var sent map[string]bool
+	if len(fails) > 0 || main {
+		_, mainRepo := paths.CheckoutOf(run.dir)
+		var fixErr error
+		lines, sent, fixErr = fixNowLines(ctx, in, mainRepo, true)
+		failErr = cmp.Or(failErr, fixErr)
+		fails = slices.DeleteFunc(repoFailures(fails, mainRepo), func(f worktree.Failure) bool { return fixNowHides(ctx, main, sent, f) })
+	}
+	lines = appendFailureLines(lines, fails, more)
+	if failErr != nil {
+		warn += assets.HookFailuresWarn(failErr.Error())
+	}
+	lines = append(lines, tail...)
+	return core.CapContext(strings.Join(lines, "\n")), warn
+}
+
+func appendFailureLines(lines []string, fails []worktree.Failure, more int) []string {
 	if len(fails) > failureLines {
 		more, fails = more+len(fails)-failureLines, fails[:failureLines]
 	}
@@ -256,11 +274,7 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 	if claim != "" {
 		lines = append(lines, claim)
 	}
-	if failErr != nil {
-		warn += assets.HookFailuresWarn(failErr.Error())
-	}
-	lines = append(lines, tail...)
-	return core.CapContext(strings.Join(lines, "\n")), warn
+	return lines
 }
 
 // divergence is a checkout whose HEAD and upstream both have commits the other lacks.
