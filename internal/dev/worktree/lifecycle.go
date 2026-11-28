@@ -283,6 +283,10 @@ func createBase(main string, log io.Writer) string {
 			baseRef = settings.Worktree.BaseRef
 		}
 	}
+	head := invokingHead(main)
+	if head != "HEAD" {
+		return head // run inside a collector: a lane starts at the collector's head, never at the default branch
+	}
 	if baseRef == "fresh" {
 		ctx, cancel := gitTimeoutCtx()
 		defer cancel()
@@ -292,7 +296,7 @@ func createBase(main string, log io.Writer) string {
 			return ref
 		}
 	}
-	return invokingHead(main)
+	return head
 }
 
 // invokingHead is the HEAD commit of the linked worktree the process runs in, else "HEAD" (the primary's).
