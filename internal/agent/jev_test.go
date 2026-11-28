@@ -168,6 +168,12 @@ func TestJevShadowFinalHelperSafety(t *testing.T) {
 	if got := (JevShadow{Pick: "standard", Confidence: 0.60, Helper: "deep", Keyword: "standard"}).final(); got != "deep" {
 		t.Fatalf("helper deep = %q, want deep", got)
 	}
+	if got := (JevShadow{Pick: "standard", Confidence: 0.97, Keyword: "deep"}).final(); got != "deep" {
+		t.Errorf("a confident Open-Jev lowered a keyword deep to %q", got)
+	}
+	if got := (JevShadow{Pick: "deep", Confidence: 0.97, Keyword: "standard"}).final(); got != "deep" {
+		t.Errorf("a confident Open-Jev could not raise standard to deep: %q", got)
+	}
 	if got := (JevShadow{Pick: "standard", Confidence: 0.60, Helper: "fast", Keyword: "deep"}).final(); got != "deep" {
 		t.Fatalf("helper fast on deep keyword = %q, want deep", got)
 	}

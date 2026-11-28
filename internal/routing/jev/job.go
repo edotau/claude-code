@@ -47,7 +47,7 @@ func (e *UsageError) Error() string { return e.Msg }
 func usage(format string, a ...any) error { return &UsageError{Msg: fmt.Sprintf(format, a...)} }
 
 // Job holds the trainer and output directories; its files share <Out>/job with the shell script.
-type Job struct{ Trainer, Out string }
+type Job struct{ Trainer, Out, Service string }
 
 // StartOpts are the choices of a Start: Extra goes to the trainer and is kept across restarts.
 type StartOpts struct {
@@ -67,8 +67,9 @@ type PassState struct {
 type Status struct {
 	Server  string      `json:"server"` // up, down or off
 	URL     string      `json:"url"`
-	Model   string      `json:"model,omitempty"` // what the server says it serves
-	State   string      `json:"state"`           // running, complete or not running
+	Model   string      `json:"model,omitempty"`   // what the server says it serves
+	Serving string      `json:"serving,omitempty"` // the checkpoint the login item starts it with
+	State   string      `json:"state"`             // running, complete or not running
 	PID     int         `json:"pid,omitempty"`
 	Labels  string      `json:"labels"`
 	Options string      `json:"options"`
@@ -637,6 +638,7 @@ func matchTail(p string, re *regexp.Regexp, n int) []string {
 func (j Job) Status(ctx context.Context) Status {
 	var st Status
 	st.Server, st.URL, st.Model = Server(ctx)
+	st.Serving = j.Serving(ctx)
 	st.PID = j.PID()
 	switch {
 	case st.PID > 0:
@@ -657,6 +659,9 @@ func (j Job) Status(ctx context.Context) Status {
 // Text prints the status the way the shell script did, with the server line first.
 func (s Status) Text(w io.Writer) {
 	fmt.Fprintf(w, "server: %s (%s)%s\n", s.Server, s.URL, map[bool]string{true: " " + s.Model}[s.Model != ""])
+	if s.Serving != "" {
+		fmt.Fprintf(w, "serving: %s\n", s.Serving)
+	}
 	switch s.State {
 	case "running":
 		fmt.Fprintf(w, "RUNNING (pid %d)\n", s.PID)
@@ -790,21 +795,33 @@ func (j Job) Options(ctx context.Context, w io.Writer) error {
 type remembered struct {
 	Trainer string `json:"trainer"`
 	Out     string `json:"out"`
+	Service string `json:"service,omitempty"` // the server's login item file
 }
 
 func rememberedPath() string { return filepath.Join(paths.StateDir(), "jev", "job.json") }
 
-// Resolve fills a missing trainer or out directory from the remembered pair and remembers any change.
-func Resolve(trainer, out string) (Job, error) {
+// loadRemembered reads the remembered paths; a missing file is empty and a corrupt one is ignored whole.
+func loadRemembered() (remembered, error) {
 	var r remembered
-	if b, err := os.ReadFile(rememberedPath()); err == nil {
-		if json.Unmarshal(b, &r) != nil {
-			r = remembered{} // never use a partially decoded corrupt pair
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	b, err := os.ReadFile(rememberedPath())
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return r, nil
+	case err != nil:
+		return r, err
+	case json.Unmarshal(b, &r) != nil:
+		return remembered{}, nil // never use a partially decoded file
+	}
+	return r, nil
+}
+
+// Resolve fills a missing trainer, out directory or login item from the remembered ones and remembers any change.
+func Resolve(trainer, out, service string) (Job, error) {
+	r, err := loadRemembered()
+	if err != nil {
 		return Job{}, err
 	}
-	j := Job{Trainer: cmp.Or(trainer, r.Trainer), Out: cmp.Or(out, r.Out)}
+	j := Job{Trainer: cmp.Or(trainer, r.Trainer), Out: cmp.Or(out, r.Out), Service: cmp.Or(service, r.Service)}
 	var missing []string
 	for _, m := range []struct{ flag, v string }{{"--trainer", j.Trainer}, {"--out", j.Out}} {
 		if m.v == "" {
@@ -814,12 +831,13 @@ func Resolve(trainer, out string) (Job, error) {
 	if len(missing) > 0 {
 		return Job{}, usage("nothing remembered yet: pass %s (kept after first use)", strings.Join(missing, " and "))
 	}
-	var err error
-	if j.Trainer, err = filepath.Abs(j.Trainer); err != nil {
-		return Job{}, err
-	}
-	if j.Out, err = filepath.Abs(j.Out); err != nil {
-		return Job{}, err
+	for _, p := range []*string{&j.Trainer, &j.Out, &j.Service} {
+		if *p == "" { // only the login item may be unset
+			continue
+		}
+		if *p, err = filepath.Abs(*p); err != nil {
+			return Job{}, err
+		}
 	}
 	if remembered(j) == r {
 		return j, nil

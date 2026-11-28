@@ -17,7 +17,7 @@ import (
 type jevOpts struct {
 	status, train, attach, stop, options, worker bool // worker: hidden re-exec of --train --bg
 	bg, fg, fresh                                bool
-	labels, tasks, trainer, out                  string
+	labels, tasks, trainer, out, serve, service  string
 	labelsSet, tasksSet                          bool
 	format                                       *string
 	extra                                        []string
@@ -42,6 +42,8 @@ func jevFlags() (*flag.FlagSet, *jevOpts) {
 	fs.BoolVar(&o.stop, "stop", false, "stop the job's worker and trainer processes; --train continues it")
 	fs.BoolVar(&o.options, "options", false, "print the trainer's own option list")
 	fs.StringVar(&o.trainer, "trainer", "", "directory holding run-finetune-jev.sh (remembered after first use)")
+	fs.StringVar(&o.serve, "serve", "", "serve this checkpoint: it must be a run's base or have passed the gold gate")
+	fs.StringVar(&o.service, "service", "", "the server's login item file (remembered after first use)")
 	fs.StringVar(&o.out, "out", "", "output directory for checkpoints and reports (remembered after first use)")
 	o.format = helptext.FormatFlagWithUsage(fs, "output: text|json (json: --status only)")
 	return fs, o
@@ -60,7 +62,7 @@ func jevSplitArgs(args []string) (flags, extra []string) {
 // check rejects stray args and flag combinations; ok is false when code is the exit status.
 func (o *jevOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	actions := 0
-	for _, b := range []bool{o.status, o.train, o.attach, o.stop, o.options} {
+	for _, b := range []bool{o.status, o.train, o.attach, o.stop, o.options, o.serve != ""} {
 		if b {
 			actions++
 		}
@@ -86,7 +88,7 @@ func (o *jevOpts) combo(actions int) string {
 	case o.worker && (actions > 0 || only):
 		return "--worker is reserved for detached launches"
 	case actions > 1:
-		return "at most one of --status, --train, --attach, --stop, --options"
+		return "at most one of --status, --train, --attach, --stop, --options, --serve"
 	case !o.train && only:
 		return "--bg, --fg, --fresh, --labels, --tasks and -- options need --train"
 	case o.bg && o.fg:
@@ -115,12 +117,17 @@ func cmdGatewayJev(args []string) int {
 	if code, ok := o.check(fs); !ok {
 		return code
 	}
-	j, err := jev.Resolve(o.trainer, o.out)
+	j, err := jev.Resolve(o.trainer, o.out, o.service)
 	if err != nil {
 		return jevFail(err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	return jevRun(ctx, j, o)
+}
+
+// jevRun runs the one action the flags name; none is --status.
+func jevRun(ctx context.Context, j jev.Job, o *jevOpts) int {
 	switch {
 	case o.worker:
 		return jevFail(j.Worker(ctx, os.Stdout))
@@ -132,6 +139,8 @@ func cmdGatewayJev(args []string) int {
 		return jevFail(j.Stop(os.Stdout))
 	case o.options:
 		return jevFail(j.Options(ctx, os.Stdout))
+	case o.serve != "":
+		return jevFail(j.Serve(ctx, o.serve, os.Stdout))
 	}
 	st := j.Status(ctx)
 	if *o.format == helptext.JSON {

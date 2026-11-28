@@ -83,20 +83,8 @@ func Server(ctx context.Context) (state, target, model string) {
 	case err != nil:
 		return "down", target, ""
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target+"/health", nil)
-	if err != nil {
-		return "up", target, ""
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "up", target, ""
-	}
-	defer resp.Body.Close()
-	var h struct{ Model, Method string }
-	_ = json.NewDecoder(io.LimitReader(resp.Body, maxBody)).Decode(&h) // an unreadable reply leaves the model empty
-	return "up", target, strings.TrimSpace(h.Model + " " + h.Method)
+	model, _ = health(ctx, target)
+	return "up", target, model
 }
 
 // Error classes recorded on a dispatch; never a URL or body.

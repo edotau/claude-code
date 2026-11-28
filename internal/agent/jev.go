@@ -289,6 +289,8 @@ func jevBrief(prompt string) string {
 // routed is the tier a confident Open-Jev or the Qwen helper decides, and which did; a helper never turns deep to fast.
 func (j JevShadow) routed() (tier, source string) {
 	switch {
+	case j.Error == "" && j.Confidence >= jev.Confident && j.Keyword == "deep" && j.Pick != "deep":
+		return "", "" // the served checkpoint under-calls deep (2 of 18 real deep gold briefs right): keywords keep deep
 	case j.Error == "" && j.Confidence >= jev.Confident:
 		return j.Pick, "jev"
 	case j.Helper == "" || j.Helper == "fast" && j.Keyword == "deep":
