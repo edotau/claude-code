@@ -345,7 +345,7 @@ func (d *loopDriver) retryFailed(ctx context.Context, round int, rd *loopRound) 
 			continue
 		}
 		if r.Budget != "" {
-			d.logf("R%d.%s %s: not retried (%s budget); take over its lane", round, r.Part.ID, r.Status, r.Budget)
+			d.logf("R%d.%s %s: not retried (%s budget); dispatch a narrower task for its lane", round, r.Part.ID, r.Status, r.Budget)
 			r.Status = statusNeedsMain
 			continue
 		}

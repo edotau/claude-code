@@ -73,7 +73,6 @@ func failSpawn(rec *agent.Record, err error) error {
 	} else if uerr == nil {
 		*rec = cur
 	}
-	rec.NoteHealth(err)
 	if uerr != nil {
 		err = errors.Join(err, fmt.Errorf("save failed dispatch %s: %w", rec.ID, uerr))
 	}

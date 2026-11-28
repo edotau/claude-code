@@ -195,9 +195,6 @@ func reapLost(r Record) Record {
 				c.Error += "; worker " + rc
 			}
 		}
-		if !c.cancelled() { // a deliberate cancel is no failed attempt
-			c.NoteHealth(nil) // a lost run is a failed attempt, counted before its record is visible
-		}
 		return c, true
 	})
 	if err != nil {

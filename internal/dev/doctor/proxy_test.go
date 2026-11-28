@@ -1,12 +1,10 @@
 package doctor
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/proxyteam"
 	"github.com/edotau/claude-code/internal/routing/providers"
@@ -54,28 +52,5 @@ func TestSpendCapStatus(t *testing.T) {
 		if !strings.Contains(got, c.want) || bad != c.bad {
 			t.Errorf("%s: got (%q, %v), want (%q, %v)", c.name, got, bad, c.want, c.bad)
 		}
-	}
-}
-
-// Doctor ends the dispatch-down state only when the proxy check passed and the daemon answers.
-func TestClearDegradedOnlyOnPassingProxyCheck(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	up := false
-	defer func(old func(context.Context) (proxy.State, bool)) { proxyRunning = old }(proxyRunning)
-	proxyRunning = func(context.Context) (proxy.State, bool) { return proxy.State{}, up }
-	health.Degrade(health.ProxyDown)
-	clearDegraded(t.Context(), true)
-	clearDegraded(t.Context(), false)
-	if !health.Of("k").Degraded {
-		t.Fatal("a failing check or a silent daemon cleared the state")
-	}
-	up = true
-	clearDegraded(t.Context(), true)
-	if !health.Of("k").Degraded {
-		t.Fatal("a failing check cleared the state")
-	}
-	clearDegraded(t.Context(), false)
-	if health.Of("k").Degraded {
-		t.Fatal("a passing proxy check left the state set")
 	}
 }

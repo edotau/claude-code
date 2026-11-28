@@ -115,7 +115,7 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
   Simplify once over the merged diff before the shared other-family review.
 - **Landing & finish:** follow `rules/standards/worktree-git.md` → Worktrees, `skills/using-git-worktrees/SKILL.md` →
   The lane protocol, and `rules/standards/quality.md`. Send gaps to a still-running owner; never relaunch a
-  user-stopped leaf or resend a budget-ended task (main finishes partial work, R34). Plan ticks/strikes:
+  user-stopped leaf; a budget-ended task gets a narrower new task, not a resend (R34). Plan ticks/strikes:
   `rules/standards/standing-requirements.md` → R1 and R2.
 
 ## Shared tree
@@ -135,7 +135,7 @@ committed): [lane-orchestrator.md](references/lane-orchestrator.md) → Unit fil
 
 | Situation | Strategy |
 | --- | --- |
-| One leaf fails · budget ended | R34: main finishes partial work without resending; takes over after 2 failures. |
+| One leaf fails · budget ended | R34: read the report (id, files, stop point); dispatch a narrower task to another agent or route. |
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong. |
 | Unowned edit | Report it; remove only hunks proven to be the leaf's, preserving pre-existing edits. |
 | Block on a leaf | Report the refusal; guard policy: `rules/harness/hooks.md` → `safety-scan`. |

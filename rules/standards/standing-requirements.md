@@ -26,7 +26,7 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R11 make:** leaf targets/checks follow `quality.md`: lint, scoped diff checks, audit/install/fmt/build/verify/
   bootstrap and fixing `lint-<kind>` in the harness tree.
 - **R12 Dispatch timeout:** 15m default (up to 30m in plan task before dispatch; never extend mid-run; split larger
-  tasks). At timeout parent finishes work without resending (R34); past Bash's 10m cap use `--background` and
+  tasks). A timeout is reported with what it left (R34); past Bash's 10m cap use `--background` and
   `agents wait`. Enforced by `DefaultToolsTimeout`.
 - **R13 Guard walls:** `safety-scan` blocks deny matches and AI attribution (`hooks.md`). CLAUDE.md writes are
   main-session-only (leaves hand back the edit); lint/type suppressions ask in main, deny in agents.
@@ -73,8 +73,9 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R33 Peer coordination:** message holders of needed files/plans/areas immediately (`ListAgents`, `SendMessage`),
   record holdings/landing times in the plan, work free areas, and re-check after their estimate. Never idle on peers
   or edit files they hold.
-- **R34 Main takes over:** never resend budget-ended tasks (time/tokens/output/context); finish their files in main.
-  After two failed attempts or broken dispatch, main does remaining work until dispatch recovers.
+- **R34 Failures are reported, never a stop:** a failed or budget-ended dispatch (time/tokens/output/context) is
+  reported with its record id, lane, files and stop point. No stored state refuses a dispatch or sends work to the
+  main session; the session dispatches a new, narrower task to another agent or route (owner, 2026-11-26).
 - **R35 Hook model cap:** automatic fill is capped at sonnet or equivalent/lower tier regardless of plan; announce
   tasks needing more to main. Other hook dispatches keep their models.
 - **R36 Two schemas:** launch overlay (settings/vault/configs) and dispatch overlay (`--overlay {}`) only;

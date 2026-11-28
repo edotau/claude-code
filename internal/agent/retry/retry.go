@@ -18,7 +18,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/platform/textutil"
 	"github.com/edotau/claude-code/internal/remote/egress"
 	"github.com/edotau/claude-code/internal/routing/providers"
@@ -622,7 +621,6 @@ func proxyHop(fn func(context.Context, int) *Error) func(context.Context, int) *
 		if e == nil || !e.ProxyDown || !e.retryable() {
 			return e
 		}
-		health.Degrade(health.ProxyDown) // R34: dispatch is down for this and the next task until a probe passes
 		if spent {
 			e.Kind = KindFatal
 			return e

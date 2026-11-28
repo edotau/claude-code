@@ -143,7 +143,6 @@ func runDoctor(o *doctorOpts, targets []string) int {
 	}
 	if o.proxy {
 		detail, bad := proxyCheck(ctx)
-		clearDegraded(ctx, bad)
 		rows := append([]check{{Name: "proxy", OK: !bad, Detail: detail}}, proxyListenerChecks(ctx)...)
 		return printChecks(o, rows, !bad)
 	}

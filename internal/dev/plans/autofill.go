@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,22 +26,6 @@ const AutofillEnv = "HARNESS_AUTOFILL"
 
 // AutofillOrigin prefixes every automatic dispatch's batch id, so its record's task_id names where it came from.
 const AutofillOrigin = "autofill"
-
-// TaskKey mirrors agent.TaskKey: the brief sent and its "<plan-slug> <id>"; plans cannot import agent.
-type TaskKey struct{ Text, PlanTask string }
-
-// DispatchState mirrors agent.DispatchHealth's answer: dispatch is degraded, or this task failed Attempts times.
-type DispatchState struct {
-	Degraded bool
-	Reason   string
-	Attempts int
-}
-
-// DispatchHealth is set by internal/agent's init to agent.DispatchHealth; unset, dispatch reads as healthy.
-var DispatchHealth = func(TaskKey) DispatchState { return DispatchState{} }
-
-// DispatchFailed is set by internal/agent's init to count a failure no dispatch record saw; unset, it does nothing.
-var DispatchFailed = func(TaskKey, error) {}
 
 // AutofillInput is a ready read plus the session whose spend cap applies ("" checks the day cap only).
 type AutofillInput struct {
@@ -193,6 +176,9 @@ func crashed(id string) (string, bool) {
 // BatchRecord is the reaped status of the dispatch record for batch id written since since; nil links no records.
 var BatchRecord func(id string, since time.Time) (status string, ok bool)
 
+// FailedAttempts is how many of a plan task's latest dispatches failed in a row; nil links no records.
+var FailedAttempts func(planTask string) int
+
 // recordedStatus is BatchRecord's answer, or none when no record store is linked.
 func recordedStatus(id string, since time.Time) (string, bool) {
 	if BatchRecord == nil {
@@ -263,9 +249,6 @@ func releaseOne(f string, t Task) string {
 	key := strings.TrimSuffix(filepath.Base(f), ".md") + " " + taskKey(t)
 	if err := ClearClaimOwned(f, t.ID, m[1]); err != nil {
 		return "plans: autofill could not release " + key + ": " + err.Error()
-	}
-	if l := batchLine(m[1]); status == "crashed" && l.Prompt != "" { // no record saw it: count it once released (R34)
-		DispatchFailed(TaskKey{Text: l.Prompt, PlanTask: key}, errors.New("the batch run crashed"))
 	}
 	return "plans: autofill released " + key + ": its run ended " + status
 }
@@ -344,7 +327,7 @@ type autofillJob struct {
 	key, agent, model, prompt string
 }
 
-// autofillJobFor builds r's job, or why it is held; stop means nothing more may go out (spend cap, degraded).
+// autofillJobFor builds r's job, or why it is held; stop means nothing more may go out (spend cap).
 func autofillJobFor(in AutofillInput, r ReadyTask) (autofillJob, string, bool) {
 	j := autofillJob{root: in.Root, task: r, key: strings.TrimSuffix(filepath.Base(r.Plan), ".md") + " " + r.ID}
 	t, leaf, ok := planLine(r)
@@ -356,9 +339,10 @@ func autofillJobFor(in AutofillInput, r ReadyTask) (autofillJob, string, bool) {
 	if j.agent, j.model, j.prompt, why = autofillPick(r, leaf); why != "" {
 		return j, why, false
 	}
-	// a degraded dispatch state never stops the fill (owner, 2026-11-26); only a task that failed twice waits
-	if h := DispatchHealth(TaskKey{Text: j.prompt, PlanTask: j.key}); h.Attempts >= 2 {
-		return j, fmt.Sprintf("%d failed attempts, retries stopped (R34)", h.Attempts), false
+	if FailedAttempts != nil { // a task that keeps failing waits for a person; re-sending it each tick only spends
+		if n := FailedAttempts(j.key); n >= 2 {
+			return j, strconv.Itoa(n) + " failed attempts in a row, automatic fill stopped", false
+		}
 	}
 	return j, "", false
 }

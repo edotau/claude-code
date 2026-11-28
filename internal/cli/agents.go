@@ -592,7 +592,7 @@ func printResumeHints(rows []agent.WaitResult) {
 			continue
 		}
 		if rec, err := agent.LoadRecord(r.ID); err == nil {
-			if hint := agent.ResumeHint(rec); hint != "" { // the degraded notice (R34) replaces the resend line
+			if hint := agent.ResumeHint(rec); hint != "" {
 				fmt.Fprintln(os.Stderr, hint)
 			}
 		}

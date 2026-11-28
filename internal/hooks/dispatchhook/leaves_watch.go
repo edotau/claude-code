@@ -154,7 +154,7 @@ func watchTickLocked(key string, owner int, now time.Time, mode string, g *tickG
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
 	}
 	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
-		res.Context = core.JoinNonEmpty("\n", res.Context, core.JoinNonEmpty("; ", hb, degradedNote("", "")))
+		res.Context = core.JoinNonEmpty("\n", res.Context, hb)
 	}
 	return res
 }
@@ -296,11 +296,6 @@ func watchLine(s agent.StaleJob, mode string, g *tickGate) string {
 		agent.ShortDur(s.Age), agent.ShortDur(s.Silence))
 	if s.LastLine != "" && s.Reason == agent.WatchSilent {
 		head += "; last log line: " + s.LastLine
-	}
-	if rec, err := loadDispatch(s.ID); err == nil { // R34: no resume, no resend line while the task is degraded
-		if n := degradedNote(rec.Request.Prompt, rec.PlanTask); n != "" {
-			return head + "; " + n
-		}
 	}
 	if s.Resumable() && (mode == "dry" || g.live()) { // a cut tick starts nothing it cannot report
 		return head + "; " + resumeOnce(s, mode)

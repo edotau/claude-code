@@ -27,7 +27,7 @@ type autofillSpawned struct {
 }
 
 // autofillFixture writes one ready task (leaf, brief text; "" brief = needs a brief) and fakes spawn, health and spend.
-func autofillFixture(t *testing.T, leaf, brief string, health DispatchState) (AutofillInput, *[]autofillSpawned) {
+func autofillFixture(t *testing.T, leaf, brief string) (AutofillInput, *[]autofillSpawned) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -43,12 +43,11 @@ func autofillFixture(t *testing.T, leaf, brief string, health DispatchState) (Au
 	}
 	writeFile(t, plan, line+"\n")
 	var spawned []autofillSpawned
-	oldSpawn, oldBin, oldHealth := autofillSpawn, autofillBin, DispatchHealth
+	oldSpawn, oldBin := autofillSpawn, autofillBin
 	t.Cleanup(func() {
-		autofillSpawn, autofillBin, DispatchHealth = oldSpawn, oldBin, oldHealth
+		autofillSpawn, autofillBin = oldSpawn, oldBin
 	})
 	autofillBin = func() (string, error) { return "/bin/true", nil }
-	DispatchHealth = func(TaskKey) DispatchState { return health }
 	autofillSpawn = func(_ string, args []string, _ string, _ *os.File) int {
 		p, _ := Parse(plan)
 		s := autofillSpawned{args: args, claimed: len(p.Tasks) == 1 && strings.Contains(p.Tasks[0].Claim, AutofillOrigin)}
@@ -75,7 +74,7 @@ func (s autofillSpawned) matches(leaf, model string) bool {
 // one ready task goes out once, claimed first, at its family's sonnet tier, as --overlay only, origin autofill.
 func TestAutofillSendsOnceClaimedFirst(t *testing.T) {
 	for leaf, model := range map[string]string{"claude": "sonnet", "codex": "terra"} {
-		in, spawned := autofillFixture(t, leaf, "do the thing\n", DispatchState{})
+		in, spawned := autofillFixture(t, leaf, "do the thing\n")
 		if res := Autofill(in); len(res.Sent) != 1 || len(*spawned) != 1 {
 			t.Fatalf("%s: sent %v, spawns %d, want one", leaf, res.Sent, len(*spawned))
 		}
@@ -88,20 +87,18 @@ func TestAutofillSendsOnceClaimedFirst(t *testing.T) {
 	}
 }
 
-// every hold sends nothing: two failed attempts, no brief, an over-tier ask, the spend cap and the off key.
+// every hold sends nothing: no brief, an over-tier ask, the spend cap and the off key.
 func TestAutofillHolds(t *testing.T) {
 	for _, tc := range []struct {
 		name, leaf, brief, off, want string
-		health                       DispatchState
 	}{
-		{"attempts", "claude", "x\n", "", "held " + fillKey + ": 2 failed attempts", DispatchState{Attempts: 2}},
-		{"needs brief", "claude", "", "", "needs a brief", DispatchState{}},
-		{"over tier leaf", "claude opus", "x\n", "", "asks for opus", DispatchState{}},
-		{"over tier family", "gemini gemini-4-pro", "x\n", "", "asks for gemini-4-pro", DispatchState{}},
-		{"over tier brief", "claude", "Tier: claude opus\nx\n", "", "asks for opus", DispatchState{}},
-		{"off", "claude", "x\n", "off", "", DispatchState{}},
+		{"needs brief", "claude", "", "", "needs a brief"},
+		{"over tier leaf", "claude opus", "x\n", "", "asks for opus"},
+		{"over tier family", "gemini gemini-4-pro", "x\n", "", "asks for gemini-4-pro"},
+		{"over tier brief", "claude", "Tier: claude opus\nx\n", "", "asks for opus"},
+		{"off", "claude", "x\n", "off", ""},
 	} {
-		in, spawned := autofillFixture(t, tc.leaf, tc.brief, tc.health)
+		in, spawned := autofillFixture(t, tc.leaf, tc.brief)
 		t.Setenv(AutofillEnv, tc.off)
 		res := Autofill(in)
 		if len(res.Sent) != 0 || len(*spawned) != 0 {
@@ -125,25 +122,18 @@ func concludeBatch(t *testing.T, s autofillSpawned, status string) {
 	writeFile(t, filepath.Join(autofillDir(), id+".log"), `{"task_id":"`+id+`","status":"`+status+`"}`+"\n")
 }
 
-// a failed run's claim is released and the attempt count, not the claim, decides the retry; an ok run keeps it.
+// a failed run's claim is released; an ok run keeps it.
 func TestAutofillReleasesConcludedClaims(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
-	failed := 0
-	DispatchHealth = func(TaskKey) DispatchState { return DispatchState{Attempts: failed} }
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	in.Slots = 9 // recentSpawns counts the fresh batches; the slots are not what this test checks
-	for i, status := range []string{"error", "error"} {
-		if res := Autofill(in); len(res.Sent) != 1 {
-			t.Fatalf("run %d: sent %v, lines %v", i, res.Sent, res.Lines)
-		}
-		concludeBatch(t, (*spawned)[i], status)
-		failed++
+	if res := Autofill(in); len(res.Sent) != 1 {
+		t.Fatalf("sent %v, lines %v", res.Sent, res.Lines)
 	}
-	res := Autofill(in)
-	if len(res.Sent) != 0 || !strings.Contains(strings.Join(res.Lines, "\n"), "released "+fillKey) ||
-		!strings.Contains(strings.Join(res.Held, "\n"), "2 failed attempts") {
-		t.Fatalf("after two failures: sent %v, lines %v, held %v", res.Sent, res.Lines, res.Held)
+	concludeBatch(t, (*spawned)[0], "error")
+	if res := Autofill(in); !strings.Contains(strings.Join(res.Lines, "\n"), "released "+fillKey) {
+		t.Fatalf("after a failure: sent %v, lines %v", res.Sent, res.Lines)
 	}
-	in2, spawned2 := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+	in2, spawned2 := autofillFixture(t, "claude", "do the thing\n")
 	Autofill(in2)
 	concludeBatch(t, (*spawned2)[0], "ok")
 	if res := Autofill(in2); len(res.Sent) != 0 || len(res.Lines) != 0 {
@@ -162,7 +152,7 @@ func TestAutofillReleasesConcludedClaims(t *testing.T) {
 
 // a batch with no envelope is released only once it is past autofillStale and its process is gone.
 func TestAutofillReleasesCrashedBatch(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	in.Slots = 9
 	Autofill(in)
 	id, _ := (*spawned)[0].line["id"].(string)
@@ -176,22 +166,15 @@ func TestAutofillReleasesCrashedBatch(t *testing.T) {
 		t.Fatalf("a live old batch was released: sent %v, lines %v", res.Sent, res.Lines)
 	}
 	writeFile(t, filepath.Join(autofillDir(), id+".pid"), "0")
-	var failed []TaskKey
-	oldFailed := DispatchFailed
-	t.Cleanup(func() { DispatchFailed = oldFailed })
-	DispatchFailed = func(k TaskKey, _ error) { failed = append(failed, k) }
 	res := Autofill(in)
-	if len(failed) != 1 || failed[0].PlanTask != fillKey || failed[0].Text != "do the thing\n" {
-		t.Fatalf("a crashed batch must count one failed attempt: %v", failed)
-	}
 	if len(res.Sent) != 1 || !strings.Contains(strings.Join(res.Lines, "\n"), "released "+fillKey+": its run ended crashed") {
 		t.Fatalf("a dead batch with no envelope: sent %v, lines %v", res.Sent, res.Lines)
 	}
 }
 
-// a batch with no pid file and no record never ran: it is released as unsent and counts no failure.
-func TestAutofillUnsentBatchCountsNothing(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+// a batch with no pid file and no record never ran: it is released as unsent.
+func TestAutofillUnsentBatchIsReleased(t *testing.T) {
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	Autofill(in)
 	id, _ := (*spawned)[0].line["id"].(string)
 	old := time.Now().Add(-autofillStale - time.Minute)
@@ -201,18 +184,14 @@ func TestAutofillUnsentBatchCountsNothing(t *testing.T) {
 	if err := os.Remove(filepath.Join(autofillDir(), id+".pid")); err != nil {
 		t.Fatal(err)
 	}
-	var failed []TaskKey
-	oldFailed := DispatchFailed
-	t.Cleanup(func() { DispatchFailed = oldFailed })
-	DispatchFailed = func(k TaskKey, _ error) { failed = append(failed, k) }
-	if res := Autofill(in); len(failed) != 0 || !strings.Contains(strings.Join(res.Lines, "\n"), "its run ended unsent") {
-		t.Fatalf("unsent batch: failed %v, lines %v", failed, res.Lines)
+	if res := Autofill(in); !strings.Contains(strings.Join(res.Lines, "\n"), "its run ended unsent") {
+		t.Fatalf("unsent batch: lines %v", res.Lines)
 	}
 }
 
-// a dead batch whose worker left a record is the record's to count, so the sweep counts nothing more.
-func TestAutofillCrashedBatchWithRecordCountsOnce(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+// a dead batch whose worker left a record is released with the record's status.
+func TestAutofillCrashedBatchWithRecordIsReleased(t *testing.T) {
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	Autofill(in)
 	id, _ := (*spawned)[0].line["id"].(string)
 	old := time.Now().Add(-autofillStale - time.Minute)
@@ -223,19 +202,15 @@ func TestAutofillCrashedBatchWithRecordCountsOnce(t *testing.T) {
 	oldRecord := BatchRecord
 	t.Cleanup(func() { BatchRecord = oldRecord })
 	BatchRecord = func(bid string, _ time.Time) (string, bool) { return "error", bid == id }
-	var failed []TaskKey
-	oldFailed := DispatchFailed
-	t.Cleanup(func() { DispatchFailed = oldFailed })
-	DispatchFailed = func(k TaskKey, _ error) { failed = append(failed, k) }
 	res := Autofill(in)
-	if len(failed) != 0 || !strings.Contains(strings.Join(res.Lines, "\n"), "released "+fillKey+": its run ended error") {
-		t.Fatalf("recorded run counted again: failed %v, lines %v", failed, res.Lines)
+	if !strings.Contains(strings.Join(res.Lines, "\n"), "released "+fillKey+": its run ended error") {
+		t.Fatalf("recorded run: lines %v", res.Lines)
 	}
 }
 
 // a spawn that fails gives the claim back; a batch another trigger just started takes the one free slot.
 func TestAutofillRollbackAndRecentSlot(t *testing.T) {
-	in, _ := autofillFixture(t, "claude", "x\n", DispatchState{})
+	in, _ := autofillFixture(t, "claude", "x\n")
 	autofillSpawn = func(string, []string, string, *os.File) int { return 0 }
 	if res := Autofill(in); len(res.Sent) != 0 || !strings.Contains(strings.Join(res.Held, ";"), "dispatch:") {
 		t.Fatalf("failed spawn: sent %v, held %v", res.Sent, res.Held)
@@ -243,7 +218,7 @@ func TestAutofillRollbackAndRecentSlot(t *testing.T) {
 	if p, _ := Parse(in.Plans[0]); p.Tasks[0].Claim != "" || recentSpawns() != 0 {
 		t.Fatalf("claim %q or %d batch files kept after a failed spawn", p.Tasks[0].Claim, recentSpawns())
 	}
-	in2, spawned := autofillFixture(t, "claude", "x\n", DispatchState{})
+	in2, spawned := autofillFixture(t, "claude", "x\n")
 	writeFile(t, filepath.Join(autofillDir(), "autofill-peer.jsonl"), "{}\n")
 	in2.Slots = 1
 	if res := Autofill(in2); len(res.Sent) != 0 || len(*spawned) != 0 {
@@ -261,7 +236,7 @@ func slowAutofill(t *testing.T) {
 
 // a run past its deadline returns one notice instead of waiting.
 func TestAutofillDeadline(t *testing.T) {
-	in, _ := autofillFixture(t, "claude", "x\n", DispatchState{})
+	in, _ := autofillFixture(t, "claude", "x\n")
 	old := autofillDeadline
 	t.Cleanup(func() { autofillDeadline = old })
 	autofillDeadline = 20 * time.Millisecond
@@ -274,7 +249,7 @@ func TestAutofillDeadline(t *testing.T) {
 
 // the claim's batch file exists before the claim, so a crash between them is swept as a crashed batch.
 func TestAutofillBatchWrittenBeforeClaim(t *testing.T) {
-	in, _ := autofillFixture(t, "claude", "x\n", DispatchState{})
+	in, _ := autofillFixture(t, "claude", "x\n")
 	autofillSpawn = func(string, []string, string, *os.File) int {
 		if recentSpawns() != 1 {
 			t.Errorf("batch file missing at spawn")
@@ -286,7 +261,7 @@ func TestAutofillBatchWrittenBeforeClaim(t *testing.T) {
 
 // pruning removes only the running repo's old batches (and orphans), never another repository's evidence.
 func TestAutofillPruneKeepsOtherRepo(t *testing.T) {
-	in, _ := autofillFixture(t, "claude", "x\n", DispatchState{})
+	in, _ := autofillFixture(t, "claude", "x\n")
 	week := time.Now().Add(-autofillKeep - time.Hour)
 	for id, root := range map[string]string{"autofill-mine": in.Root, "autofill-theirs": "/other/repo"} {
 		for _, ext := range []string{".jsonl", ".log"} {
@@ -308,7 +283,7 @@ func TestAutofillPruneKeepsOtherRepo(t *testing.T) {
 
 // two ready tasks owning one file send one task per run; the other waits for the next.
 func TestAutofillSkipsOverlappingOwns(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	writeFile(t, in.Plans[0], "- [ ] 1.1 One — leaf: claude — verify: go test ./a — owns: a/a.go — brief: "+filepath.Join(filepath.Dir(in.Plans[0]), "brief.md")+
 		"\n- [ ] 1.2 Two — leaf: claude — verify: go test ./a — owns: a — brief: "+filepath.Join(filepath.Dir(in.Plans[0]), "brief.md")+"\n")
 	res := Autofill(in)
@@ -319,7 +294,7 @@ func TestAutofillSkipsOverlappingOwns(t *testing.T) {
 
 // a worker whose context is done claims nothing and spawns nothing.
 func TestAutofillCancelledContextDoesNothing(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "do the thing\n", DispatchState{})
+	in, spawned := autofillFixture(t, "claude", "do the thing\n")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	res := autofillLocked(ctx, in)
@@ -330,14 +305,5 @@ func TestAutofillCancelledContextDoesNothing(t *testing.T) {
 	job := autofillJob{root: in.Root, task: ReadyTask{Plan: in.Plans[0], ID: "Phase 1.1"}, planID: "1.1", key: fillKey}
 	if why := job.launch(ctx); !strings.Contains(why, "deadline") || len(*spawned) != 0 {
 		t.Fatalf("launch on a done context: %q, spawns %d", why, len(*spawned))
-	}
-}
-
-// A degraded dispatch state no longer stops the fill (owner, 2026-11-26): the ready task is still sent.
-func TestAutofillSendsWhileDegraded(t *testing.T) {
-	in, spawned := autofillFixture(t, "claude", "x\n", DispatchState{Degraded: true})
-	t.Setenv(AutofillEnv, "")
-	if res := Autofill(in); len(res.Sent) != 1 || len(*spawned) != 1 {
-		t.Fatalf("degraded: sent %v, lines %q", res.Sent, res.Lines)
 	}
 }

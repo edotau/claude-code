@@ -158,8 +158,7 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 // finish runs the recall, model pin and label steps and renders the result.
 func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string) core.Result {
 	st := in.Nested("tool_input", "subagent_type")
-	extraNote := core.JoinContext(e.recall(ctx, in, promptField, task, true), e.benchNote(in.CWD, task),
-		degradedNote(task, briefPlanTask(task)))
+	extraNote := core.JoinContext(e.recall(ctx, in, promptField, task, true), e.benchNote(in.CWD, task))
 	if e.mode == modeDeferred {
 		return core.Result{Context: extraNote}
 	}

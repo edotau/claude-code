@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
@@ -41,10 +40,6 @@ func init() {
 			Summary: "unknown overlay keys (" + origin + "): " + strings.Join(names, ",") + more, Time: time.Now().Unix()},
 			func(p string, fn func() error) error { return paths.WithFileLockWithin(p, overlayReportWait, fn) })
 	}
-	health.Report = func(reason, subject string) {
-		_, _ = ReportFailure(FailuresDir(), Failure{Kind: FailDegraded, Subject: reason + " " + subject,
-			Summary: health.Notice(reason), Log: filepath.Join(paths.StateDir(), "agent", "health.json"), Time: time.Now().Unix()})
-	}
 }
 
 // FailureKind is the typed set of failures that broadcast to live sessions.
@@ -60,13 +55,12 @@ const (
 	FailProxyDown  FailureKind = "proxy_down"
 	FailProxy5xx   FailureKind = "proxy_5xx"
 	FailHookP95    FailureKind = "hook_p95"
-	FailDegraded   FailureKind = "dispatch_degraded"
 	FailOverlayKey FailureKind = "overlay_unknown_key"
 )
 
 // FailureKinds lists every valid kind, in display order.
 var FailureKinds = []FailureKind{FailAudit, FailLaneGate, FailPlanCheck, FailBench, FailDispatch, FailContract,
-	FailProxyDown, FailProxy5xx, FailHookP95, FailDegraded, FailOverlayKey}
+	FailProxyDown, FailProxy5xx, FailHookP95, FailOverlayKey}
 
 // DirectiveKinds reach a main session as a fix-now directive; a kind joins this closed list once it is logged.
 var DirectiveKinds = []FailureKind{FailAudit, FailLaneGate, FailProxyDown, FailProxy5xx, FailContract}

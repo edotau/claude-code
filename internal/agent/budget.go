@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/health"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/platform/textutil"
@@ -93,7 +92,7 @@ func (r Record) changedFiles() []string {
 	return out
 }
 
-// TakeOverHint is the hand-back line for a budget end: no automatic re-send, the main session decides.
+// TakeOverHint is the hand-back line for a budget end: what the run left; the dispatcher sends a narrower task.
 func (r Record) TakeOverHint() string {
 	files := "none changed"
 	if n := len(r.Changed); n > 0 {
@@ -106,7 +105,7 @@ func (r Record) TakeOverHint() string {
 	if s := r.StoppedAt; s != nil {
 		at = fmt.Sprintf("%s after %d tool calls and %d B of text", s.Event, s.ToolCalls, s.TextBytes)
 	}
-	return fmt.Sprintf("take over lane %s, files %s, stopped at %s, or restart this one task (%s budget)",
+	return fmt.Sprintf("left lane %s, files %s, stopped at %s; dispatch a narrower task for the rest (%s budget)",
 		cmp.Or(r.Lane(), "(none recorded)"), files, at, r.BudgetKind)
 }
 
@@ -206,10 +205,6 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 		next = "continue with: claude-code agents ask --session " + res.SessionID + " --overlay " +
 			textutil.ShellQuote(agentconfig.Overlay{Agent: who}.Doc()) + " 'finish from what you have'"
 	}
-	reason := rec.degradedReason() // R34: a degraded task offers no resend, only the notice
-	if reason != "" {
-		next = health.Notice(reason)
-	}
 	lost := "no answer"
 	if n := t.text.Load(); n > 0 {
 		lost = fmt.Sprintf("%d B of text streamed", n)
@@ -222,9 +217,7 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	if rec.RanIdentity != "" {
 		hint += "; ran as the " + rec.RanIdentity + " identity"
 	}
-	if reason == "" {
-		hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
-	}
+	hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
 	if who == "gemini" {
 		hint += "; agy log: " + AgyLogPath(rec.ID)
 	}

@@ -182,7 +182,6 @@ func checkHostHealth(ctx context.Context, report func(bool, bool, string, string
 	soft(memoryDreamRow(time.Now()))
 	proxyDetail, proxyBad := proxyStatus(ctx)
 	report(!proxyBad, false, "proxy", proxyDetail)
-	clearDegraded(ctx, proxyBad)
 	var spendCap providers.SpendCap
 	if reg, err := providers.LoadShared(); err == nil {
 		spendCap = reg.Routing.SpendCap // a load error is already reported by the provider registry row

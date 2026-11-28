@@ -591,46 +591,6 @@ func TestFinishAfterSignalCountsCancelled(t *testing.T) {
 	}
 }
 
-// A vetoed run that ends in an error is not charged a failed attempt; an uncancelled one is.
-func TestFinishSaveSkipsHealthUnderCancel(t *testing.T) {
-	setConfigDir(t)
-	vetoed := deadRunning(t, func(r *Record) { r.PID = os.Getpid() })
-	if _, err := MarkCancelling(vetoed.ID); err != nil {
-		t.Fatal(err)
-	}
-	plain := deadRunning(t, func(r *Record) { r.PID = os.Getpid() })
-	for _, r := range []Record{vetoed, plain} {
-		r.finishSave(wire.Result{}, errors.New("model failed"), time.Second, nil)
-	}
-	if got := DispatchHealth(vetoed.taskKey()).Attempts; got != 0 {
-		t.Fatalf("cancelled run charged %d attempts, want 0", got)
-	}
-	if got := DispatchHealth(plain.taskKey()).Attempts; got != 1 {
-		t.Fatalf("uncancelled failed run charged %d attempts, want 1", got)
-	}
-}
-
-// A reader reaping a cancel-marked record as lost does not charge a failed attempt; an ordinary lost run is charged.
-func TestReapLostSkipsHealthForCancel(t *testing.T) {
-	setConfigDir(t)
-	vetoed := deadRunning(t, nil)
-	if _, err := MarkCancelling(vetoed.ID); err != nil {
-		t.Fatal(err)
-	}
-	plain := deadRunning(t, nil)
-	for _, r := range []Record{vetoed, plain} {
-		if got := reapLost(load(t, r.ID)); got.Status != "lost" {
-			t.Fatalf("reapLost status = %q, want lost", got.Status)
-		}
-	}
-	if h := DispatchHealth(vetoed.taskKey()); h.Attempts != 0 {
-		t.Fatalf("cancelled reap charged %d attempts", h.Attempts)
-	}
-	if h := DispatchHealth(plain.taskKey()); h.Attempts != 1 {
-		t.Fatalf("plain lost reap charged %d attempts, want 1", h.Attempts)
-	}
-}
-
 func TestAdoptionSurvivesMarkerFailure(t *testing.T) {
 	setConfigDir(t)
 	rec := deadRunning(t, nil)

@@ -54,7 +54,7 @@ func TestBudgetRecordRoundTripAndHandback(t *testing.T) {
 		t.Fatalf("round trip lost the budget fields: %+v %+v", back, back.StoppedAt)
 	}
 	hint := ResumeHint(back)
-	for _, want := range []string{"take over lane /lane", "/lane/a.go", "stopped at tool_use bash", "restart this one task"} {
+	for _, want := range []string{"left lane /lane", "/lane/a.go", "stopped at tool_use bash", "narrower task"} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("hand-back %q lacks %q", hint, want)
 		}

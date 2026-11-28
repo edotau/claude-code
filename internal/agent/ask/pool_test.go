@@ -112,18 +112,6 @@ func TestRunTasksPrepareErrorEnvelope(t *testing.T) {
 	}
 }
 
-// A prepare failure counts against its task's health like a run failure, so two of them stop its retries.
-func TestRunTasksPrepareFailureCountsAttempt(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	task := batchTask{ID: "a", Agent: "x", Plan: "p 1", Req: agent.RunOptions{Prompt: "prep-fail-task"}, Prepare: failPrepare("boom")}
-	for range 2 {
-		runTasks(t.Context(), []batchTask{task}, poolOptions{ID: "batch-h", Jobs: 1, Out: &bytes.Buffer{}})
-	}
-	if h := agent.DispatchHealth(agent.TaskKey{Text: "prep-fail-task", PlanTask: "p 1"}); !h.Degraded || h.Attempts != 2 {
-		t.Fatalf("health after two prepare failures: %+v", h)
-	}
-}
-
 // checkPrepareEnvelopes asserts one error envelope per task id in want, each carrying its message.
 func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, want map[string]string) {
 	t.Helper()

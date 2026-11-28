@@ -36,7 +36,7 @@ Main plans waves, dispatches, decides and integrates:
 
 1. Dispatch each row when its dependencies and owned files are free; refill after every hand-back.
 2. Collect completed work through `rules/standards/worktree-git.md` → Worktrees; fan-in does not start a lane review.
-3. Fix reported defects within the owner's priority; main handles what a leaf could not fix (R25, R28, R34).
+3. Fix reported defects within the owner's priority; main handles what a leaf could not fix (R25, R28).
 4. Act on routine decisions and record `DECISION:`; approval boundaries remain in `rules/standards/principles.md`.
 5. Give briefs verified context, a line cap and the matching test files; another package's test file is allowed
    when needed to avoid an import cycle. A leaf stops for production files another agent owns.

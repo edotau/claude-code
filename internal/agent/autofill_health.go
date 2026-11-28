@@ -7,17 +7,28 @@ import (
 )
 
 func init() {
-	plans.DispatchFailed = func(k plans.TaskKey, err error) { NoteStartFailure(TaskKey{Text: k.Text, PlanTask: k.PlanTask}, err) }
-	plans.DispatchHealth = func(k plans.TaskKey) plans.DispatchState {
-		h := DispatchHealth(TaskKey{Text: k.Text, PlanTask: k.PlanTask})
-		return plans.DispatchState{Degraded: h.Degraded, Reason: h.Reason, Attempts: h.Attempts}
-	}
 	plans.BatchRecord = func(id string, since time.Time) (string, bool) {
-		for _, r := range RecordsSince(since) { // reaps a lost record, which counts its failure once
+		for _, r := range RecordsSince(since) {
 			if r.TaskID == id {
 				return r.Status, true
 			}
 		}
 		return "", false
 	}
+	plans.FailedAttempts = func(planTask string) int {
+		n := 0
+		for _, r := range RecentRecords(failedAttemptsWindow) { // newest first: stop at the task's last success
+			if r.PlanTask != planTask || r.Status == "running" {
+				continue
+			}
+			if !r.Failed() {
+				break
+			}
+			n++
+		}
+		return n
+	}
 }
+
+// failedAttemptsWindow is how many recent records the automatic fill reads to count a task's failures in a row.
+const failedAttemptsWindow = 200
