@@ -45,9 +45,9 @@ Claude Code reads these source files directly; external CLI projections refresh 
    follow `rules/standards/worktree-git.md`. A lane lands on the local working branch without asking and without a
    full build or audit (uncommitted in the live checkout; the owner commits) unless its diff adds a restriction.
    **A push to origin main needs a green full build (macOS, `GOOS=linux` build, `GOOS=windows` vet) and `make audit`
-   first**; then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). A landing
-   that breaks the tree is its owner's to fix; when yours conflicts with work that passed, dispatch the repair.
-   `make install` after pulls.
+   first**; then install and live-check on the Mac (the required check; WSL is a periodic sync, R19). Landed code
+   may be imperfect: when a landing breaks something, the sessions involved say so over `agents msg`, agree who
+   takes the fix (usually whoever landed it; a repair leaf for a conflict) and keep moving. `make install` after pulls.
 
 ## Behavioral guidelines
 
