@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
@@ -375,19 +376,86 @@ func readDivergence(ctx context.Context, dir string) (*divergence, error) {
 	if err != nil || a == 0 || b == 0 {
 		return nil, err
 	}
-	ids, _, err := proc.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
-		"@{upstream}")
-	if len(ids) != 5 {
+	top, d, ok := refNames(dir)
+	if !ok { // git shortens a name differently when another ref shares it
+		ids, _, err := proc.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
+			"@{upstream}")
+		if len(ids) != 5 {
+			return nil, err
+		}
+		top, d = ids[0], &divergence{head: ids[1], up: ids[2], branch: ids[3], upName: ids[4]}
+	}
+	d.ahead, d.behind = a, b
+	d.rewritten, err = rewrittenAt(ctx, dir, top, a, b)
+	if err != nil {
 		return nil, err
+	}
+	return d, nil
+}
+
+// refNames is dir's checkout root and HEAD and upstream names from the ref files; ok=false when git must name them.
+func refNames(dir string) (top string, d *divergence, ok bool) {
+	key, branch, upRef, ok := namedRefPair(dir)
+	if !ok {
+		return "", nil, false
+	}
+	_, _, common, _ := keyableCheckout(dir)
+	upName, isRef := shortRef(upRef)
+	if !isRef || ambiguousRef(common, "refs/heads/"+branch, branch) || ambiguousRef(common, upRef, upName) {
+		return "", nil, false
+	}
+	ids := strings.Split(key, "\t") // top, HEAD sha, upstream sha
+	return ids[0], &divergence{head: ids[1], up: ids[2], branch: branch, upName: upName}, true
+}
+
+// shortRef is ref's name as git abbreviates a branch or remote-tracking ref.
+func shortRef(ref string) (string, bool) {
+	for _, prefix := range []string{"refs/heads/", "refs/remotes/"} {
+		if short, ok := strings.CutPrefix(ref, prefix); ok {
+			return short, true
+		}
+	}
+	return "", false
+}
+
+// ambiguousRef reports whether another ref answers to short, so git would print more than short for full.
+func ambiguousRef(common, full, short string) bool {
+	packed, _ := os.ReadFile(filepath.Join(common, "packed-refs"))
+	for _, cand := range []string{short, "refs/" + short, "refs/tags/" + short, "refs/heads/" + short,
+		"refs/remotes/" + short, "refs/remotes/" + short + "/HEAD"} {
+		if cand == full {
+			continue
+		}
+		_, err := os.Lstat(filepath.Join(common, cand)) // a path under a file (ENOTDIR) cannot be a ref
+		absent := os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR)
+		if !absent || strings.Contains(string(packed), " "+cand+"\n") {
+			return true
+		}
+	}
+	return false
+}
+
+// rewrittenAt reports whether a commit's patch sits on both sides; the flag is cached with the counts.
+func rewrittenAt(ctx context.Context, dir, top string, ahead, behind int) (bool, error) {
+	key, keyed := refPair(dir)
+	cache := revsFile(key)
+	if keyed {
+		if _, flag, ok := cachedRevs(cache, key); ok && flag != "" {
+			return flag == "1", nil
+		}
 	}
 	// A rewrite (amend, rebase) leaves the same patch on both sides; --cherry-mark tags those commits "=".
 	marked, _, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--cherry-mark", "HEAD...@{upstream}")
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") && hasPatch(ctx, ids[0], l[1:]) })
-	return &divergence{head: ids[1], up: ids[2], branch: ids[3], upName: ids[4], ahead: a, behind: b,
-		rewritten: rewritten}, nil
+	rewritten := slices.ContainsFunc(marked, func(l string) bool { return strings.HasPrefix(l, "=") && hasPatch(ctx, top, l[1:]) })
+	// Refs that moved while rev-list ran may not match its output, so only an unchanged key is stored.
+	if again, _ := refPair(dir); keyed && again == key && os.MkdirAll(filepath.Dir(cache), 0o700) == nil {
+		flag := map[bool]string{true: "1", false: "0"}[rewritten]
+		_ = paths.AtomicWriteNoSync(cache, []byte(key+"\n"+fmt.Sprintf("%d\t%d", ahead, behind)+"\n"+flag), 0o600)
+	}
+	return rewritten, nil
 }
 
 // hasPatch reports whether commit changes a file; empty commits share one patch-id yet replace nothing.
@@ -410,10 +478,12 @@ func bothSides(line string) (ahead, behind int, ok bool) {
 // aheadBehind is rev-list's HEAD...@{upstream} counts, reused while the HEAD and upstream ref shas stay unchanged.
 func aheadBehind(ctx context.Context, dir string) (ahead, behind int, err error) {
 	key, keyed := refPair(dir)
-	cache := filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+textutil.SHA256Hex([]byte(key))[:16])
+	cache := revsFile(key)
 	if keyed {
-		if ahead, behind, ok := cachedCounts(cache, key); ok {
-			return ahead, behind, nil
+		if counts, _, ok := cachedRevs(cache, key); ok {
+			if ahead, behind, ok := bothSides(counts); ok {
+				return ahead, behind, nil
+			}
 		}
 	}
 	counts, ok, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
@@ -428,14 +498,19 @@ func aheadBehind(ctx context.Context, dir string) (ahead, behind int, err error)
 	return ahead, behind, nil
 }
 
-// cachedCounts reads the counts stored under key; ok=false for a missing, stale or malformed file.
-func cachedCounts(cache, key string) (ahead, behind int, ok bool) {
+func revsFile(key string) string {
+	return filepath.Join(paths.StateDir(), "worktree-diverged", "revs-"+textutil.SHA256Hex([]byte(key))[:16])
+}
+
+// cachedRevs reads the counts line stored under key and its rewrite flag ("1", "0", or "" when not computed yet).
+func cachedRevs(cache, key string) (counts, flag string, ok bool) {
 	raw, err := os.ReadFile(cache)
-	k, counts, cut := strings.Cut(string(raw), "\n")
+	k, rest, cut := strings.Cut(string(raw), "\n")
 	if err != nil || !cut || k != key {
-		return 0, 0, false
+		return "", "", false
 	}
-	return bothSides(counts)
+	counts, flag, _ = strings.Cut(rest, "\n")
+	return counts, flag, true
 }
 
 // refPair is "<checkout>\t<HEAD sha>\t<upstream sha>" read from the ref files; ok=false leaves it to git.

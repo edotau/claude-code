@@ -770,3 +770,151 @@ func TestInboxInjectsUnreadMessagesOnce(t *testing.T) {
 		t.Errorf("second read = %+v, want nothing", again)
 	}
 }
+
+// benchGit runs git in dir for fixture setup; the PATH shim is installed only after the fixture exists.
+func benchGit(b *testing.B, dir string, args ...string) {
+	b.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		b.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// benchCommit writes a file in dir and commits it, so each commit changes content.
+func benchCommit(b *testing.B, dir, name string) {
+	b.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(name+"\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	benchGit(b, dir, "add", name)
+	benchGit(b, dir, "commit", "-q", "-m", name)
+}
+
+// benchIdentify gives a fixture checkout the author settings git commits need.
+func benchIdentify(b *testing.B, dir string) {
+	b.Helper()
+	for _, kv := range [][2]string{{"user.name", "B"}, {"user.email", "b@example.invalid"}, {"commit.gpgsign", "false"}} {
+		benchGit(b, dir, "config", kv[0], kv[1])
+	}
+}
+
+// benchUpstream makes origin with main ahead of and behind its clone; the clone is repo.
+func benchUpstream(b *testing.B, root, repo string) {
+	b.Helper()
+	bare, seed, other := filepath.Join(root, "origin.git"), filepath.Join(root, "seed"), filepath.Join(root, "other")
+	benchGit(b, root, "init", "-q", "--bare", "-b", "main", bare)
+	benchGit(b, root, "init", "-q", "-b", "main", seed)
+	benchIdentify(b, seed)
+	benchCommit(b, seed, "README.md")
+	benchGit(b, seed, "push", "-q", bare, "main")
+	benchGit(b, root, "clone", "-q", bare, repo)
+	benchGit(b, root, "clone", "-q", bare, other)
+	benchIdentify(b, repo)
+	benchIdentify(b, other)
+	for i := range 3 { // local commits: main ahead
+		benchCommit(b, repo, fmt.Sprintf("local-%d.txt", i))
+	}
+	for i := range 2 { // upstream commits: main behind
+		benchCommit(b, other, fmt.Sprintf("remote-%d.txt", i))
+	}
+	benchGit(b, other, "push", "-q", "origin", "main")
+	benchGit(b, repo, "fetch", "-q", "origin")
+}
+
+// benchBranches is the local branch count of the live checkout.
+const benchBranches = 200
+
+// benchLiveRepo is the live-shaped checkout: main ahead and behind upstream, 25 linked worktrees, the config dir.
+func benchLiveRepo(b *testing.B) string {
+	b.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		b.Skip("git executable unavailable")
+	}
+	root := b.TempDir()
+	repo := filepath.Join(root, "repo")
+	benchUpstream(b, root, repo)
+	for i := range benchBranches {
+		benchGit(b, repo, "update-ref", fmt.Sprintf("refs/heads/topic-%03d", i), "HEAD")
+	}
+	for i := range 25 {
+		benchGit(b, repo, "worktree", "add", "-q", "--detach", filepath.Join(root, "wt", fmt.Sprintf("w%02d", i)))
+	}
+	return repo
+}
+
+// benchInboxes creates empty inboxes for 5 sessions and 3 queued lanes under the config dir's notices.
+func benchInboxes(b *testing.B, lanes []string) {
+	b.Helper()
+	dir := filepath.Join(paths.StateDir(), "notices")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	for i := range 5 {
+		_ = os.WriteFile(filepath.Join(dir, worktree.SessionSlug(fmt.Sprintf("live-%d", i))+".jsonl"), nil, 0o600)
+	}
+	for _, lane := range lanes {
+		_ = os.WriteFile(filepath.Join(dir, worktree.SessionSlug(worktree.LaneInbox(lane))+".jsonl"), nil, 0o600)
+	}
+}
+
+// installGitShim puts a git on PATH that logs each invocation's args to the returned file.
+func installGitShim(b *testing.B) string {
+	b.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		b.Skip("git executable unavailable")
+	}
+	dir := b.TempDir()
+	log := filepath.Join(dir, "git.log")
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	b.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// BenchmarkWorktreeBusyLive times Busy on the live-shaped checkout: steady, and with the divergence limit expired.
+func BenchmarkWorktreeBusyLive(b *testing.B) {
+	repo := benchLiveRepo(b)
+	b.Setenv("CLAUDE_CONFIG_DIR", repo)
+	b.Setenv(worktreeModeEnv, "lanes")
+	lanes := make([]string, 3)
+	for i := range lanes {
+		lanes[i] = filepath.Join(filepath.Dir(repo), "wt", fmt.Sprintf("w%02d", i))
+	}
+	benchInboxes(b, lanes)
+	logFile := installGitShim(b)
+	in := &core.Input{SessionID: "live-0", CWD: repo, Prompt: "hello"}
+	Busy(in)
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", worktree.SessionSlug(in.SessionID))
+	gitCalls := func() int {
+		raw, _ := os.ReadFile(logFile)
+		_ = os.Truncate(logFile, 0)
+		return strings.Count(string(raw), "\n")
+	}
+	b.Run("steady", func(b *testing.B) {
+		gitCalls()
+		b.ReportAllocs()
+		for b.Loop() {
+			Busy(in)
+		}
+		b.ReportMetric(float64(gitCalls())/float64(b.N), "git/op")
+	})
+	b.Run("expired", func(b *testing.B) {
+		gitCalls()
+		b.ReportAllocs()
+		old := time.Now().Add(-2 * busyScanTTL)
+		for b.Loop() {
+			b.StopTimer()
+			_ = os.Chtimes(stamp, old, old)
+			divergenceCache.Lock() // each live prompt is a fresh process: the in-process memo starts empty
+			clear(divergenceCache.byDir)
+			divergenceCache.Unlock()
+			b.StartTimer()
+			Busy(in)
+		}
+		b.ReportMetric(float64(gitCalls())/float64(b.N), "git/op")
+	})
+}
