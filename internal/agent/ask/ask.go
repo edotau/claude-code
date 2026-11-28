@@ -198,7 +198,7 @@ func confinementValue(r *askRun) (route.Route, error) {
 	return recordConfinement(r.ov.Confinement(), rec)
 }
 
-// takeConfig settles the route unit whole and types a typed overlay: it and the flags must agree, flags win the rest.
+// takeConfig settles the route unit whole and types a typed overlay; a flag and key may repeat a value, never differ.
 func takeConfig(r *askRun, ov, typed agentconfig.Overlay) error {
 	r.ov = ov
 	if err := r.remoteWithHost(); err != nil {
@@ -211,7 +211,7 @@ func takeConfig(r *askRun, ov, typed agentconfig.Overlay) error {
 	cmdTyped := f.overlay != ""
 	r.typedOv = typed
 	if cmdTyped {
-		if err := unitConflict(f, fr, typed); err != nil {
+		if err := flagConflict(r.fs, f, fr, typed); err != nil {
 			return err
 		}
 		r.ovTyped = true

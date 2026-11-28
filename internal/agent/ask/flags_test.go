@@ -996,8 +996,12 @@ func TestRecordConfinementDefaultIsNone(t *testing.T) {
 	}
 }
 
+// Launch and ask agree on the model: the key alone or an equal flag is one setting; a different flag is refused.
 func TestFlagOverlayLaunchAskModelPrecedence(t *testing.T) {
-	for _, modelArgs := range [][]string{nil, {"--model", "opus"}, {"--model=haiku"}} {
+	if _, _, err := agent.ParseArgs([]string{"--overlay", `{"model":"sonnet"}`, "--model", "opus"}, true); err == nil {
+		t.Error("launch accepted --model opus beside overlay model sonnet")
+	}
+	for _, modelArgs := range [][]string{nil, {"--model", "sonnet"}, {"--model=sonnet"}} {
 		args := append([]string{"--overlay", `{"model":"sonnet"}`}, modelArgs...)
 		launch, rest, err := agent.ParseArgs(args, true)
 		if err != nil || len(rest) != 0 {

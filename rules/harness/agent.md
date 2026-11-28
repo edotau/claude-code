@@ -183,17 +183,21 @@ whole, overridden only by typed keys. Child budgets cannot exceed the parent's.
 Claude session state saves the route unit, model, inherited caps, runner and fence; `--resume` uses `HopResume`.
 Job records save route, model, fallback, caps and budgets as `Overlay`; `--retry`/`--job` use `Record.ReplayOverlay`.
 Ask chooses `--overlay`, else the run's `COWORKER_OVERLAY`, else the vault default (top-level only), never merging
-all three. Run keys fold onto flags, typed flags win, and settings sit below them (`providers.md` → Routing
-precedence). Children receive `COWORKER_OVERLAY` as a derived copy, not a third schema.
+all three. Run keys fold onto flags, a typed flag overrides an inherited or stored key, and settings sit below
+them (`providers.md` → Routing precedence). Children receive `COWORKER_OVERLAY` as a derived copy, not a third schema.
 
-**Not done yet.** The per-setting `ask` flags (`--provider`, `--profile`, `--model`, `--host` and the rest) still
-parse beside `--overlay`, though the owner ruled `--overlay` only (D8). The waves `rerun` line still prints
-`--provider` and `--profiles`, and the remote ask still emits `--profile` and `--env` beside the overlay document.
+**Flags and keys are one setting, typed once** (owner, 2026-11-27; supersedes D8's overlay-only ruling). Every launch
+and `ask` flag with an overlay key (`--profile`/`--provider` → `provider`+`profile`, `--model`, `--direct` →
+`endpoint`, `--keep-env` → `keep`, …) is accepted either way. Given both on one command line with the same value,
+they are one setting; with different values the command exits 2 naming the flag. Actions (`--print-env`, `-h`) stay
+flags.
+An interactive launch skips the keys only `ask`/`gateway` use (`fallback`, `cloud`, budgets, `tokenCommand`,
+`codexNetwork`) with a one-line note when typed and silently when inherited; the fence still binds at token mint.
 
 An explicit route names provider and profile together; endpoint travels with that unit (omitted endpoint uses the
-provider row). A partial unit is refused. Flags must agree with a typed overlay; a provider with profiles needs its
-profile, while a provider without profiles may be selected alone by flag. The pool pick is overlay profile `auto`;
-`ask --profile auto` and `label` refuse it. Batch lines carry an overlay document.
+provider row). A partial unit is refused. A batch-wide flag must agree with a line's overlay the same way; a provider
+with profiles needs its profile, while a provider without profiles may be selected alone by flag. The pool pick is
+overlay profile `auto`; `ask --profile auto` and `label` refuse it. Batch lines carry an overlay document.
 
 The table is the only overlay key catalogue. `*` means optional; `json.RawMessage` holds JSON. Schema `both`
 accepts launch and dispatch, `dispatch` rejects set values at launch, `none` rejects presence. Acceptance does not

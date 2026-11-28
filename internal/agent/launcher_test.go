@@ -432,7 +432,7 @@ func TestLaunchPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
 	}
 }
 
-// Given a route overlay, ParseArgs folds it into the launch; a fallback key is refused naming the key.
+// Given a route overlay, ParseArgs folds it into the launch; a fallback key is skipped, not refused.
 func TestLaunchOverlayRoute(t *testing.T) {
 	o, _, err := ParseArgs([]string{"--overlay", `{"provider":"databricks","profile":"dev","model":"opus"}`}, true)
 	if err != nil || o.Provider != "dev" || o.Model != "opus" || o.Route.Provider != "databricks" {
@@ -441,8 +441,8 @@ func TestLaunchOverlayRoute(t *testing.T) {
 	if _, err := launchOverlay(o); err != nil {
 		t.Fatalf("route overlay refused: %v", err)
 	}
-	if _, err := launchOverlay(LaunchOptions{Overlay: `{"fallback":"all"}`, PrintEnv: true}); err == nil || !strings.Contains(err.Error(), "fallback") {
-		t.Fatalf("fallback: %v", err)
+	if _, err := launchOverlay(LaunchOptions{Overlay: `{"fallback":"all"}`, PrintEnv: true}); err != nil {
+		t.Fatalf("fallback is skipped, not refused: %v", err)
 	}
 }
 
@@ -457,8 +457,7 @@ func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	o, _, err := ParseArgs([]string{"--model", "opus", "--overlay",
-		`{"provider":"databricks","profile":"auto","model":"sonnet"}`}, true)
+	o, _, err := ParseArgs([]string{"--model", "opus", "--overlay", `{"provider":"databricks","profile":"auto"}`}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,6 +509,20 @@ func TestApplyLaunchOverlayUnitIdentityAccount(t *testing.T) {
 	}
 }
 
+// --profile dev beside an overlay naming dev is one setting only when the overlay's provider is dev's row.
+func TestApplyLaunchOverlayProfileFlagAndKey(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	o := LaunchOptions{Overlay: `{"provider":"openai","profile":"dev"}`, Provider: "dev", ProfileFlag: true}
+	if _, err := ApplyLaunchOverlay(t.Context(), reg, &o, false); err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatalf("--profile dev beside overlay openai:dev = %v, want a conflict", err)
+	}
+	o = LaunchOptions{Overlay: `{"provider":"databricks","profile":"dev"}`, Provider: "dev", ProfileFlag: true}
+	if _, err := ApplyLaunchOverlay(t.Context(), reg, &o, false); err != nil {
+		t.Fatalf("--profile dev beside overlay databricks:dev = %v, want one setting", err)
+	}
+}
+
 // An agent CLI's plan carries the unit its overlay and flags resolved, not the caller's pre-resolution copy.
 func TestCLIPlanCarriesResolvedUnit(t *testing.T) {
 	vaulttest.Use(t)
@@ -555,25 +568,31 @@ func TestParseOverlayEmptyAndStdin(t *testing.T) {
 	}
 }
 
+// An equal or empty flag beside its overlay key is one setting; a different value is refused, not overridden.
 func TestParseOverlayFlagBoundaries(t *testing.T) {
 	const doc = `{"provider":"databricks","profile":"auto","model":"sonnet"}`
 	for _, tc := range []struct {
 		flags          []string
 		model, profile string
+		conflict       bool
 	}{
-		{nil, "sonnet", "auto"},
-		{[]string{"--model=opus"}, "opus", "auto"},
-		{[]string{"--model="}, "sonnet", "auto"},
-		{[]string{"--profile=local"}, "sonnet", "local"},
+		{nil, "sonnet", "auto", false},
+		{[]string{"--model=sonnet"}, "sonnet", "auto", false},
+		{[]string{"--model="}, "sonnet", "auto", false},
+		{[]string{"--model=opus"}, "", "", true},
+		{[]string{"--profile=local"}, "", "", true},
 	} {
 		args := append([]string{"--overlay", doc}, tc.flags...)
 		passthrough := []string{"--effort", "high", "--fallback", "none", "--codemode", "off"}
 		o, rest, err := ParseArgs(append(args, passthrough...), true)
+		if tc.conflict {
+			if err == nil || !strings.Contains(err.Error(), "conflicts with") {
+				t.Fatalf("%v: err %v, want a conflict", args, err)
+			}
+			continue
+		}
 		if err != nil || o.Model != tc.model || o.Provider != tc.profile || !slices.Equal(rest, passthrough) {
 			t.Fatalf("%v: %+v, rest %v, %v", args, o, rest, err)
-		}
-		if tc.profile == "local" && o.Route.Provider != "" {
-			t.Fatalf("typed profile mixed with overlay provider: %+v", o.Route)
 		}
 	}
 }

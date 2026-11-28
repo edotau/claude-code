@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -637,7 +638,7 @@ func checkRoutePair(reg *providers.Registry, provider, profile string) error {
 	return nil
 }
 
-// flagConflict refuses a typed flag setting a key of a batch line's overlay to another value.
+// flagConflict refuses a typed flag setting a key of the typed --overlay or a batch line's to another value.
 func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
 	return cmp.Or(unitConflict(f, fr, ov), settingConflict(fs, ov))
 }
@@ -661,15 +662,26 @@ func unitConflict(f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
 	return nil
 }
 
-// settingConflict refuses a typed --model, --effort, --fallback, --host or --runner that differs from its overlay key.
+// settingConflict refuses a typed per-run flag whose value differs from its overlay key; an equal pair is one setting.
 func settingConflict(fs *flag.FlagSet, ov agentconfig.Overlay) error {
 	values := overlayFlags(ov)
-	for _, key := range []string{"model", "effort", "fallback", "host", "runner"} {
-		if v := fs.Lookup(key).Value.String(); helptext.Explicit(fs, key) && v != "" && values[key] != "" && v != values[key] {
-			return fmt.Errorf("--%s %s conflicts with overlay %s %s", key, v, key, values[key])
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		v := fs.Lookup(key).Value.String()
+		if helptext.Explicit(fs, key) && v != "" && v != values[key] && !sameSetting(key, v, values[key]) {
+			return fmt.Errorf("--%s %s conflicts with overlay %s %s: give it once, or the same value", key, v, key, values[key])
 		}
 	}
 	return nil
+}
+
+// sameSetting reports a differently spelled flag value holding its overlay key's value: timeout parses as a duration.
+func sameSetting(key, flagValue, overlayValue string) bool {
+	if key != "timeout" {
+		return false
+	}
+	d1, err1 := time.ParseDuration(flagValue)
+	d2, err2 := time.ParseDuration(overlayValue)
+	return err1 == nil && err2 == nil && d1 == d2
 }
 
 // readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.

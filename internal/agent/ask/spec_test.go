@@ -472,22 +472,31 @@ func TestAskSchemaIsOverlayKeys(t *testing.T) {
 	}
 }
 
-// A typed per-run flag beats its typed --overlay key; a route flag naming another unit is still refused.
-func TestTypedFlagBeatsOverlayKey(t *testing.T) {
+// A flag and its --overlay key holding the same value are one setting; different values are refused.
+func TestFlagAndOverlayKeyDedupOrConflict(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
 	t.Setenv("PATH", dir)
-	code, out, stderr := hosttest.CaptureOutput(t, func() int {
-		return Cmd([]string{"--dry-run", "--agent", "claude", "--overlay", `{"model":"sonnet"}`, "--model", "opus", "--", "x"})
-	})
-	if argv := dryRunArgv(t, out); code != 0 || !strings.Contains(argv, "--model opus") || strings.Contains(argv, "--overlay") {
-		t.Fatalf("exit %d argv %q stderr %s, want --model opus and no --overlay left", code, argv, stderr)
-	}
-	var ov agentconfig.Overlay
-	ov.Provider, ov.Profile = "databricks", "dev"
-	if err := unitConflict(&askFlags{provider: "openai"}, route.Route{Provider: "openai"}, ov); err == nil {
-		t.Fatal("--provider openai beside an overlay on databricks was accepted")
+	for _, c := range []struct {
+		args []string
+		code int
+	}{
+		{[]string{"--overlay", `{"model":"sonnet"}`, "--model", "opus"}, 2},
+		{[]string{"--overlay", `{"model":"opus"}`, "--model", "opus"}, 0},
+		{[]string{"--overlay", `{"effort":"low"}`, "--effort", "high"}, 2},
+		{[]string{"--overlay", `{"model":"sonnet"}`}, 0},
+		{[]string{"--overlay", `{"model":"sonnet"}`, "--model="}, 0}, // an empty flag is unset, not a value
+		{[]string{"--overlay", `{"timeout":"5m"}`, "--timeout", "5m"}, 0},
+		{[]string{"--overlay", `{"timeout":"5m"}`, "--timeout", "300s"}, 0},
+		{[]string{"--overlay", `{"timeout":"5m"}`, "--timeout", "3m"}, 2},
+	} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int {
+			return Cmd(append(append([]string{"--dry-run", "--agent", "claude"}, c.args...), "--", "x"))
+		})
+		if (code == 0) != (c.code == 0) || (c.code != 0 && !strings.Contains(stderr, "conflicts with")) {
+			t.Errorf("%v: exit %d stderr %q, want exit %d", c.args, code, stderr, c.code)
+		}
 	}
 	fs, flags := askFlagSet()
 	if err := fs.Parse([]string{"--host", "east"}); err != nil {

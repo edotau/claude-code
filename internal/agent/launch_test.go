@@ -410,15 +410,21 @@ func TestConfinementCarriesDispatchLimits(t *testing.T) {
 	}
 }
 
-// Given a budget-only overlay, an interactive launch is refused naming the budget keys; a limit-only one passes.
-func TestLaunchOverlayRefusalNamesKeys(t *testing.T) {
+// Given dispatch-only keys, an interactive launch skips and names them instead of failing; limits pass untouched.
+func TestLaunchOverlaySkipsDispatchKeys(t *testing.T) {
 	for _, c := range []struct{ doc, want string }{
-		{`{"budgetUSD":1}`, "budgetUSD/budgetCredits"},
+		{`{"budgetUSD":1,"fallback":"pin"}`, "fallback,budgetUSD"},
 		{`{"maxChildren":2}`, ""},
 	} {
-		_, err := launchOverlay(LaunchOptions{Overlay: c.doc, PrintEnv: true})
-		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
-			t.Errorf("%s: err %v, want %q", c.doc, err, c.want)
+		if _, err := launchOverlay(LaunchOptions{Overlay: c.doc, PrintEnv: true}); err != nil {
+			t.Errorf("%s: launch refused: %v", c.doc, err)
+		}
+		o, err := agentconfig.LoadOverlayContext(context.Background(), c.doc, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(dropDispatchKeys(&o), ","); got != c.want || o.Fallback != "" || o.BudgetUSD != nil {
+			t.Errorf("%s: dropped %q (left %+v), want %q", c.doc, got, o, c.want)
 		}
 	}
 }

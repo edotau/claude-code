@@ -251,15 +251,11 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	if err != nil {
 		return agentconfig.Resolved{}, err
 	}
-	inherited, _, _ := route.ReadDoc(proc.Value(valuesContext(context.Background(), opts.Values), route.OverlayVar)) // auto arm included
-	if opts.Overlay == "" && inherited.Provider != "" && o.Provider == inherited.Provider && o.Profile == inherited.Profile {
-		o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account = "", "", "", "", "" // the inherited unit, not this launch's route
-	}
-	if o.BudgetUSD != nil || o.BudgetCredits != nil { // a budget needs the ask loop to meter it
-		return agentconfig.Resolved{}, errors.New("overlay budgetUSD/budgetCredits apply to agents ask only")
-	}
-	if key := refusedLaunchKey(o, opts.Overlay != ""); key != "" { // refuse, never silently ignore
-		return agentconfig.Resolved{}, errors.New("overlay " + key + " applies to agents ask and gateway, not an interactive launch")
+	dropped := dropDispatchKeys(&o)
+	if opts.Overlay == "" { // inherited, not typed: the parent's route is not this launch's; the fence still binds at mint
+		o.Endpoint, o.Provider, o.Profile, o.Identity, o.Account, o.Model, o.Effort = "", "", "", "", "", "", ""
+	} else if len(dropped) > 0 { // a convention, not a rule: a key this launch cannot use is skipped, never fatal
+		fmt.Fprintf(os.Stderr, "claude-code: overlay %s: not used by an interactive launch\n", strings.Join(dropped, ", "))
 	}
 	if opts.PrintEnv {
 		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil
@@ -267,21 +263,20 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	return agentconfig.ResolveOverlay(o)
 }
 
-// refusedLaunchKey names the first overlay key a launch cannot honor; the route, model and effort fold in ParseArgs.
-func refusedLaunchKey(o agentconfig.Overlay, explicit bool) string {
-	switch {
-	case o.Fallback != "":
-		return "fallback"
-	case o.TokenCommand != nil:
-		return "tokenCommand"
-	case o.CodexNetwork:
-		return "codexNetwork"
-	case o.Cloud:
-		return "cloud"
-	case !explicit && (!o.Route().IsZero() || o.Model != "" || o.Effort != ""): // only --overlay routes a launch
-		return "provider/profile/model/effort"
+// dropDispatchKeys clears the keys only agents ask and gateway use, returning their names; route and model fold.
+func dropDispatchKeys(o *agentconfig.Overlay) []string {
+	var names []string
+	for _, k := range []struct {
+		name string
+		set  bool
+	}{{"fallback", o.Fallback != ""}, {"tokenCommand", o.TokenCommand != nil}, {"codexNetwork", o.CodexNetwork},
+		{"cloud", o.Cloud}, {"budgetUSD", o.BudgetUSD != nil}, {"budgetCredits", o.BudgetCredits != nil}} {
+		if k.set {
+			names = append(names, k.name)
+		}
 	}
-	return ""
+	o.Fallback, o.TokenCommand, o.CodexNetwork, o.Cloud, o.BudgetUSD, o.BudgetCredits = "", nil, false, false, nil, nil
+	return names
 }
 
 // foldOverlay inlines a --overlay once (stdin reads once) and lets its route and model fill what no flag typed.
@@ -294,11 +289,34 @@ func (o *LaunchOptions) foldOverlay() error {
 		return err
 	}
 	o.Overlay = cmp.Or(ov.Doc(), "{}") // an explicit empty document must not fall back to the inherited overlay
+	if name := o.givenTwice(ov); name != "" {
+		return fmt.Errorf("--%s conflicts with its --overlay key: give it once, or the same value", name)
+	}
 	o.foldModel(ov)
 	if r := ov.Route(); o.Provider == "" && !r.IsZero() { // route comes whole from one source; typed --profile wins
 		o.foldRoute(r)
 	}
 	return nil
+}
+
+// givenTwice names the first launch flag whose --overlay key holds another value; an equal pair is one setting.
+func (o *LaunchOptions) givenTwice(ov agentconfig.Overlay) string {
+	for _, c := range []struct {
+		name       string
+		flag, keys bool
+		same       bool
+	}{
+		{"profile", o.ProfileFlag && o.Provider != "", ov.Provider != "" || ov.Profile != "", ov.Profile == o.Provider},
+		{"model", o.ModelFlag && o.Model != "", ov.Model != "", ov.Model == o.Model}, // --model= is unset, not a value
+		{"direct", o.Direct, ov.Endpoint != "", ov.Endpoint == EndpointDirect},
+		{"keep-env", len(o.KeepEnv) > 0, len(ov.Keep) > 0, slices.Equal(slices.Sorted(slices.Values(o.KeepEnv)),
+			slices.Sorted(slices.Values(ov.Keep)))},
+	} {
+		if c.flag && c.keys && !c.same {
+			return c.name
+		}
+	}
+	return ""
 }
 
 // foldModel fills an unset launch model from the overlay without overwriting a typed flag.
@@ -397,11 +415,26 @@ func ApplyLaunchOverlay(ctx context.Context, reg *providers.Registry, o *LaunchO
 		}
 	}
 	flags, flagKeys := launchFlagOverlay(reg, *o)
+	if name := profileConflict(reg, *o, typed); name != "" {
+		msg := "--profile " + name + " conflicts with its --overlay key: give it once, or the same value"
+		return ctx, &UsageError{Msg: msg}
+	}
 	eff, _, err := agentconfig.ApplyOverlay(reg, flagKeys, flags, typed, agentconfig.Overlay{})
 	if err != nil {
 		return ctx, &UsageError{Msg: err.Error(), Err: err}
 	}
 	return applyLaunchFields(ctx, reg, o, eff, claude)
+}
+
+// profileConflict names a typed --profile whose overlay pins the same profile to another provider; "" when one setting.
+func profileConflict(reg *providers.Registry, o LaunchOptions, typed agentconfig.Overlay) string {
+	if !o.ProfileFlag || typed.Provider == "" || typed.Profile != o.Provider {
+		return ""
+	}
+	if row := reg.Row(o.Provider); row != nil && row.Provider != typed.Provider {
+		return o.Provider
+	}
+	return ""
 }
 
 func launchFlagOverlay(reg *providers.Registry, o LaunchOptions) (agentconfig.Overlay, []string) {
