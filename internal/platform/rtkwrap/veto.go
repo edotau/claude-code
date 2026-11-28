@@ -1,6 +1,7 @@
 package rtkwrap
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -28,32 +29,77 @@ var rtkMachineLetters = sync.OnceValue(func() string {
 // rtkValueSubcommands are git subcommands whose stdout is a value parsed verbatim (`git rev-parse HEAD` has no flag).
 var rtkValueSubcommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_value_subcommands") })
 
-// Vetoed reports whether cmd stays out of rtk: linked-worktree git, machine flags, value git, raw-only go output.
-func Vetoed(cmd, cwd string) bool { return VetoRule(cmd, cwd) != "" }
+// Surface is one place a command can gain an rtk prefix; each gate row names the surfaces it holds on.
+type Surface uint8
 
-// VetoRule names the first veto cmd trips ("" when none).
-func VetoRule(cmd, cwd string) string {
-	switch {
+const (
+	ClaudeHook  Surface = 1 << iota // Claude Code's Bash hook
+	AgentHook                       // another agent's command hook
+	ModelOutput                     // ForModel: commands whose output a model reads
+	Shim                            // the PATH shims
+	hooks       = ClaudeHook | AgentHook
+	everywhere  = hooks | ModelOutput | Shim
+)
+
+// Call is one command up for an rtk prefix, with what a gate row may read to judge it.
+type Call struct{ Cmd, CWD, Bin, Session string }
+
+// exception is one gate row: a command it matches runs as typed on the surfaces in on.
+type exception struct {
+	name string
+	on   Surface
+	when func(Call) bool
+}
+
+// byCmd lifts a command-only condition into a gate row's condition.
+func byCmd(f func(string) bool) func(Call) bool { return func(c Call) bool { return f(c.Cmd) } }
+
+// exceptions is the gate, first match wins: add a row to keep a command as typed, widen on to cover a new surface.
+var exceptions = []exception{
+	{"codemode", hooks | ModelOutput, func(c Call) bool { return CodeModeFor(c.Session) }},
+	{"no-rtk", hooks | ModelOutput, func(c Call) bool { return c.Bin == "" }},
+	{"empty", hooks, byCmd(func(cmd string) bool { return len(shell.Tokens(cmd)) == 0 })},
+	{"wrapped", hooks, wrapped},
 	// a linked-worktree git stays raw: Claude Code's worktree check cannot verify an rtk-wrapped git
-	case rtkGitInLinkedWorktree(cmd, cwd):
-		return "linked-worktree"
-	case rtkGitCommits(cmd):
-		return "commit"
-	case rtkGitValueVetoed(cmd):
-		return "value-git"
-	case rtkGitBranchMutates(cmd):
-		return "branch-mutate"
-	case rtkMachineReadableFlag(cmd):
-		return "machine-flag"
-	case rtkGoRaw(cmd):
-		return "go-raw"
-	case rtkFileOutput(cmd):
-		return "file-output"
-	case rtkLsAll(cmd):
-		return "ls-all"
+	{"linked-worktree", everywhere, func(c Call) bool { return rtkGitInLinkedWorktree(c.Cmd, c.CWD) }},
+	{"commit", everywhere, byCmd(rtkGitCommits)},
+	{"value-git", everywhere, byCmd(rtkGitValueVetoed)},
+	{"branch-mutate", everywhere, byCmd(rtkGitBranchMutates)},
+	{"machine-flag", everywhere, byCmd(rtkMachineReadableFlag)},
+	{"go-raw", everywhere, byCmd(rtkGoRaw)},
+	{"file-output", everywhere, byCmd(rtkFileOutput)},
+	{"ls-all", everywhere, byCmd(rtkLsAll)},
+	{"env-altered", AgentHook | ModelOutput, byCmd(EnvAltered)},
+}
+
+// Exception names the first gate row that keeps c as typed on surface s ("" when none).
+func Exception(s Surface, c Call) string {
+	for _, row := range exceptions {
+		if row.on&s != 0 && row.when(c) {
+			return row.name
+		}
 	}
 	return ""
 }
+
+// wrapped reports c's first word already names rtk: bare rtk, the pinned binary, or it under $HOME.
+func wrapped(c Call) bool {
+	t := shell.Tokens(c.Cmd)
+	if len(t) == 0 {
+		return false
+	}
+	word := t[0]
+	if rest, ok := strings.CutPrefix(word, "$HOME/"); ok {
+		word = filepath.Join(os.Getenv("HOME"), rest)
+	}
+	return word == rtkName || word == c.Bin
+}
+
+// Vetoed reports whether cmd stays out of rtk on every surface.
+func Vetoed(cmd, cwd string) bool { return VetoRule(cmd, cwd) != "" }
+
+// VetoRule names the first gate row that holds on every surface for cmd ("" when none).
+func VetoRule(cmd, cwd string) string { return Exception(Shim, Call{Cmd: cmd, CWD: cwd}) }
 
 // segWords is seg's command words past env/sudo wrappers and an existing rtk prefix, so a veto sees the real command.
 func segWords(seg string) []string {

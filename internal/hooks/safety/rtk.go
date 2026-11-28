@@ -69,9 +69,9 @@ func rtkAgentRewrite(in *core.Input) core.Result {
 
 // rtkAgentEligible gates before the rtk exec; a code-mode run's scripts stay raw.
 func rtkAgentEligible(in *core.Input, bin, cmd string) bool {
-	return !rtkwrap.CodeModeFor(in.SessionID) && bin != "" &&
-		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && !rtkVetoed(cmd, in.CWD, bin) &&
-		!rtkwrap.EnvAltered(cmd) && rtkGatesAllow(in) && !rtkOpencodeEnvHit(in)
+	call := rtkwrap.Call{Cmd: cmd, CWD: in.CWD, Bin: bin, Session: in.SessionID}
+	return rtkwrap.Exception(rtkwrap.AgentHook, call) == "" && !core.GitCommitCmd().MatchString(cmd) &&
+		in.Agent() != core.AgentCopilot && rtkMayRewrite(cmd) && rtkGatesAllow(in) && !rtkOpencodeEnvHit(in)
 }
 
 // rtkOpencodeEnvHit: opencode's env layers (rtk reads only its files) hold a bash rule other than allow-all.
@@ -350,7 +350,8 @@ type rtkForm struct {
 
 // rtkPinnedForm is `rtk rewrite`'s form of cmd with every rtk pinned to bin; empty on a veto, no change or any error.
 func rtkPinnedForm(bin, cwd, cmd string) rtkForm {
-	if bin == "" || !rtkMayRewrite(cmd) || rtkVetoed(cmd, cwd, bin) {
+	gated := rtkwrap.Exception(rtkwrap.ClaudeHook, rtkwrap.Call{Cmd: cmd, CWD: cwd, Bin: bin}) != ""
+	if gated || !rtkMayRewrite(cmd) || core.GitCommitCmd().MatchString(cmd) {
 		return rtkForm{}
 	}
 	rewritten, decided := rtkwrap.FastPath(cmd) // zero forks for a skip or a plain command rtk wraps whole
@@ -445,20 +446,6 @@ func rtkWord(bin, home string, onPath bool) string {
 
 // rtkDoubleQuoteEscaper backslashes the four characters still special inside POSIX double quotes.
 var rtkDoubleQuoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
-
-// rtkWrapped reports whether word (an unquoted first token) already names bin: bare rtk, bin, or bin via $HOME.
-func rtkWrapped(word, bin string) bool {
-	if rest, ok := strings.CutPrefix(word, "$HOME/"); ok {
-		word = filepath.Join(os.Getenv("HOME"), rest)
-	}
-	return word == "rtk" || word == bin
-}
-
-// rtkVetoed reports whether cmd stays out of rtk: wrapped, any commit, or a shared rtkwrap veto.
-func rtkVetoed(cmd, cwd, bin string) bool {
-	tokens := shell.Tokens(cmd)
-	return len(tokens) == 0 || rtkWrapped(tokens[0], bin) || core.GitCommitCmd().MatchString(cmd) || rtkwrap.Vetoed(cmd, cwd)
-}
 
 // claudePrintRun reports whether a chain segment launches a headless claude print run (-p/--print).
 func claudePrintRun(cmd string) bool {

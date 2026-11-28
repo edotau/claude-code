@@ -21,7 +21,7 @@ var forms sync.Map // formKey -> model-facing form; only answers rtk gave are ke
 // ForModel is cmd's `rtk rewrite` form (exit 3 too) with every rtk pinned by path, so a child's PATH cannot swap it.
 func ForModel(ctx context.Context, cmd, cwd string) string {
 	bin := paths.RTKBinary()
-	if CodeMode() || bin == "" || Vetoed(cmd, cwd) || EnvAltered(cmd) { // code mode, no rtk, a veto or a PATH/HOME change
+	if Exception(ModelOutput, Call{Cmd: cmd, CWD: cwd, Bin: bin}) != "" {
 		return cmd
 	}
 	t := shell.Tokens(cmd)
