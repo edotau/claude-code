@@ -100,6 +100,10 @@ func AutomatedDelivery(prompt string) bool {
 	if strings.HasPrefix(p, "[SYSTEM NOTIFICATION - NOT USER INPUT]") {
 		return true
 	}
+	if !strings.Contains(p, "<agent-message") && !strings.Contains(p, "<task-notification") &&
+		!strings.Contains(p, "Another Claude session sent a message:") {
+		return false
+	}
 	rest := deliveryRe().ReplaceAllString(p, "")
 	return rest != p && strings.TrimSpace(reminderRe().ReplaceAllString(rest, "")) == ""
 }
