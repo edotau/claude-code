@@ -566,9 +566,9 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 	})
 }
 
-// TestSkillVerbsArePublicCLIVerbs checks every verb memory-bank.md names is dispatchable via memorySubcommands.
+// TestSkillVerbsArePublicCLIVerbs checks every verb persistent-memory.md names is dispatchable via memorySubcommands.
 func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
-	path := filepath.Join("..", "..", "rules", "workflows", "memory-bank.md")
+	path := filepath.Join("..", "..", "rules", "harness", "persistent-memory.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
@@ -576,7 +576,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 	body := string(data)
 	start := strings.Index(body, "\n## Verbs\n")
 	if start < 0 {
-		t.Fatal("memory-bank.md has no \"## Verbs\" section")
+		t.Fatal("persistent-memory.md has no \"## Verbs\" section")
 	}
 	section := body[start+1:]
 	if end := strings.Index(section[3:], "\n## "); end >= 0 {
@@ -597,7 +597,7 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 			}
 			seen[verb] = true
 			if _, ok := subs[verb]; !ok {
-				t.Errorf("memory-bank.md names unknown verb %q (not in memorySubcommands)", verb)
+				t.Errorf("persistent-memory.md names unknown verb %q (not in memorySubcommands)", verb)
 			}
 		}
 	}

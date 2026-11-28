@@ -208,7 +208,7 @@ The focus is the bank's Current Focus, Blockers, Next Steps and In Progress; the
 `projects/<slug>/memory` links to the store root. On `clear` it reports the compaction record, the newest
 model-written handoff under 24 h, then the session's generated one; on `compact` it injects this session's own
 steward handoff body first (budgeted within the 9,500-character context cap, with its path and a truncation notice),
-then the record and the pointers (`rules/workflows/memory-bank.md` → Who writes what)
+then the record and the pointers (`rules/harness/persistent-memory.md` → Who writes what)
 
 ## memory-compact
 

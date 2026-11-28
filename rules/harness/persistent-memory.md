@@ -13,7 +13,7 @@ Folders: archive, handoffs, reports, knowledge, worktrees, feedback, notes, tech
 No repo-key prefixes; handoff/report/worktree names are dated. Techdebt is searchable/cataloged, never prompt recall.
 Layout stamp: `.layout` (`flat 3`).
 `memory path [handoffs|reports|knowledge|worktrees|techdebt] [NAME]` strips old key prefixes, adds missing
-`.md` and dates dated-folder names; no NAME prints the root. Placement: `rules/harness/docs-placement.md`.
+`.md` and dates dated-folder names; no NAME prints the root. Placement: `rules/harness/documentation.md`.
 
 ## Precedence
 

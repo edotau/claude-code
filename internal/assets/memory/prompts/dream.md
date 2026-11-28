@@ -88,7 +88,7 @@ edit, promote or create a file there; step 4 runs only inside `memory update --d
 
 Inside dream, use the changed entries already read (no subagent, no re-read). Standalone, read `catalog.md` and the
 five typed files in the store root (`claude-code memory path`), then `feedback/` and `notes/`, then the higher tiers:
-`rules/standards/`, `rules/workflows/`, `~/.claude/CLAUDE.md`.
+`rules/standards/`, `rules/harness/`, `~/.claude/CLAUDE.md`.
 
 1. **Cross-reference** each entry against the higher tiers: a duplicate, a conflict (show both sides), or a gap no
    tier covers.
@@ -133,7 +133,7 @@ End with the Phase 6 report, then files changed and anything skipped.
 - **Archive superseded decisions, never delete them** — save the
   replacing entry with `claude-code memory remember --type project --supersedes <old id> '<entry>'` (the harness
   strikes the old one), move the body to `archive/` only once the active file is over cap.
-- **Respect the caps** — `rules/workflows/memory-bank.md`; Go enforces them on settle, but a
+- **Respect the caps** — `rules/harness/persistent-memory.md`; Go enforces them on settle, but a
   judgment edit must not write past one either.
 - **The RULES region is untouchable** — `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` in any native
   `MEMORY.md`, unattended or not.

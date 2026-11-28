@@ -19,7 +19,7 @@ Act on every applicable item when changing hooks, settings, agent configs, agent
    `claude-code doctor`, and install hook/spec changes with `rtk make install` for native projections.
 2. **Agent or command moved/renamed:** follow `rules/harness/agent.md` → Authoring;
    search the old name and fix every caller in the same change.
-3. **Rule added/moved:** new `workflows/` and `harness/` rules need `paths:`; unscoped `standards/*.md`
+3. **Rule added/moved:** new `harness/` rules need `paths:`; unscoped `standards/*.md`
    are the always-on core. Fix overlay extends links, the `CLAUDE.md` index, skills and commands in the same change.
 4. **Skill, CLAUDE.md or roster changed:** run `claude-code agents sync`, then `claude-code agents sync --check`.
    If projection roots are unwritable, report the boundary and exact pending command.
