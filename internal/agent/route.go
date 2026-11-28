@@ -984,8 +984,21 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 	}
 	if cand.Profile != "" { // the cell's row pins the dispatch to that profile, not the session's
 		disp.Model, disp.Route = cell.Model, rowRoute(rc.reg, cand.Profile)
+		disp.Model = unservedPinFallback(rc, cand, disp.Model)
 	}
 	return rc.dispatchAgent(cand, cell, disp)
+}
+
+// unservedPinFallback is the resolver's model when model is cand's record pin its row cannot serve, else model.
+func unservedPinFallback(rc routeCtx, cand router.Candidate, model string) string {
+	if pin := agentModelPinContext(rc.ctx, cand.Agent); pin == "" || pin != model || rc.explicitModel {
+		return model
+	}
+	q := QueryFor(PeekContext(rc.ctx), ModelQuery{Agent: cand.Agent, Profile: cand.Profile, Default: rc.alias})
+	if r, err := ResolveRun(rc.reg, q, time.Now()); err == nil && r.Note != "" {
+		return r.Model
+	}
+	return model
 }
 
 // hubOpencode reports a candidate that rides the opencode hub rather than its own agent CLI.
