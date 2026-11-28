@@ -274,6 +274,9 @@ func notifyChat(chat string, msg Message) error {
 	var errs []error
 	for _, h := range hits {
 		name := strings.TrimSuffix(filepath.Base(h), ".seq")
+		if chat[0] == '@' && name != chat[1:] {
+			continue // an inbox notifies its owner only, whatever an older store's member list says
+		}
 		if id, ok := live[name]; ok && name != msg.From {
 			errs = append(errs, Append(id, Notice{TS: time.Now().Unix(), From: msg.From + " in " + chat, Kind: msgKind,
 				Text: msgNotice(chat, msg)}))

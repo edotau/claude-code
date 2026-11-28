@@ -186,7 +186,7 @@ func (h *hookHost) fire(phase, event, tool string, payload map[string]any) (ctx 
 		if b.Spec.Event != event {
 			continue
 		}
-		res, err := hooks.Dispatch([]hooks.Bound{b}, event, core.ParseInput(bytes.NewReader(raw)), h.log)
+		res, err := hooks.Dispatch([]hooks.Bound{b}, event, core.ParseInputFor(bytes.NewReader(raw), core.AgentOpencode), h.log)
 		if err != nil {
 			h.note(phase, "event=%s hook=%s error=%v", event, b.Spec.Name, err)
 			continue
