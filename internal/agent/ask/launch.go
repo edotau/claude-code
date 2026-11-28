@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -61,7 +62,7 @@ func VSCode(name string, here bool, args []string) int {
 
 // vsCodeRouted opens VS Code on the typed route: a new window when it runs, else a detached start that becomes it.
 func vsCodeRouted(name string, here bool, args []string, opts agent.LaunchOptions, codeArgs []string) int {
-	plan, err := agent.LaunchPlan(context.Background(), name, opts, nil)
+	plan, err := agent.LaunchPlan(vsCodeFailover(opts), name, opts, nil)
 	if err != nil {
 		return helptext.Fail("%s vscode: %v", name, err)
 	}
@@ -77,6 +78,19 @@ func vsCodeRouted(name string, here bool, args []string, opts agent.LaunchOption
 		}
 	}
 	return agent.RunPlan(name, plan, opts, nil)
+}
+
+// vsCodeFailover lets the window's token move to a sibling profile of its provider on a 429: an IDE cannot re-route.
+func vsCodeFailover(opts agent.LaunchOptions) context.Context {
+	ctx := context.Background()
+	reg, err := providers.Load()
+	if err != nil {
+		return ctx
+	}
+	if row := reg.Row(cmp.Or(opts.Route.Profile, opts.Provider)); row != nil {
+		ctx = agent.WithAutoFailover(ctx, row.Provider)
+	}
+	return ctx
 }
 
 // vsCodeFirstParty opens `code --new-window` on the vendor login, dropping a gateway env a routed window passed on.
