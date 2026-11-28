@@ -265,9 +265,9 @@ func notifyRoom(room string, msg Message) error {
 
 func roomNotice(room string, msg Message) string {
 	runes := []rune(strings.Join(strings.Fields(msg.Text), " "))
-	text := fmt.Sprintf("room %s · %s: %s", room, msg.From, string(runes[:min(len(runes), roomNoticeCut)]))
+	text := fmt.Sprintf("msg @%s · %s: %s", room, msg.From, string(runes[:min(len(runes), roomNoticeCut)]))
 	if len(runes) > roomNoticeCut || len(msg.Files) > 0 {
-		text += " read: claude-code agents send --inbox " + room
+		text += " read: claude-code agents msg @" + room
 	}
 	return text
 }

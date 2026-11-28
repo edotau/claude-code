@@ -403,15 +403,12 @@ func sendParent(task string) int {
 	return 0
 }
 
-// RoomTarget is the `agents send` word that posts to a room, beside ParentTarget.
-const RoomTarget = "room"
-
 // roomFail exits 2 for a refused input and 1 for any other error.
 func roomFail(err error) int {
 	if errors.Is(err, worktree.ErrRoomInput) {
-		return helptext.FailUsage("agents send: %v", err)
+		return helptext.FailUsage("agents msg: %v", err)
 	}
-	return helptext.Fail("agents send: %v", err)
+	return helptext.Fail("agents msg: %v", err)
 }
 
 // roomSender is --from, else the calling Claude session's name; a zero code means ok.
@@ -420,24 +417,24 @@ func roomSender(from string) (string, int) {
 		from = worktree.CallerName()
 	}
 	if from == "" {
-		return "", helptext.FailUsage("agents send: --from <name> is required outside a Claude session")
+		return "", helptext.FailUsage("agents msg: --from <name> is required outside a Claude session")
 	}
 	return from, 0
 }
 
-// SendRoom posts text (stdin when "-") and the files to room as from.
-func SendRoom(room, text, from string, files []string) int {
+// SendMsg posts text (stdin when "-") and the files to chat as from.
+func SendMsg(room, text, from string, files []string) int {
 	sender, code := roomSender(from)
 	if code != 0 {
 		return code
 	}
 	body, err := resolveAskPrompt(text)
 	if err != nil {
-		return helptext.Fail("agents send: %v", err)
+		return helptext.Fail("agents msg: %v", err)
 	}
 	msg, err := worktree.PostRoom(room, sender, body, files)
 	if msg.Seq > 0 {
-		fmt.Printf("%s #%d posted\n", room, msg.Seq)
+		fmt.Printf("@%s #%d sent\n", room, msg.Seq)
 	}
 	if err != nil {
 		return roomFail(err)
@@ -451,14 +448,14 @@ type inboxItem struct {
 	worktree.Message
 }
 
-// SendInbox prints the posts the reader has not seen in rooms (every room it is in when none), then marks them seen.
-func SendInbox(rooms []string, from, format string) int {
+// ReadMsgs prints the posts the reader has not seen in rooms (every chat it is in when none), then marks them seen.
+func ReadMsgs(rooms []string, from, format string) int {
 	reader, code := roomSender(from)
 	if code != 0 {
 		return code
 	}
 	if format != helptext.Text && format != helptext.JSON {
-		return helptext.FailUsage("agents send: --inbox format must be text or json, not %q", format)
+		return helptext.FailUsage("agents msg: --format must be text or json, not %q", format)
 	}
 	rooms, err := roomsToRead(rooms, reader)
 	if err != nil {
@@ -493,7 +490,7 @@ func printInbox(items []inboxItem, format string) error {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		fmt.Fprintf(&b, "%s #%d %s: %s\n", it.Room, it.Seq, it.From, it.Text)
+		fmt.Fprintf(&b, "@%s #%d %s: %s\n", it.Room, it.Seq, it.From, it.Text)
 		for _, f := range it.Files {
 			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
 		}
