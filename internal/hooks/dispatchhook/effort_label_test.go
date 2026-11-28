@@ -432,6 +432,9 @@ func TestLabelBriefHeaderMatchesSplit(t *testing.T) {
 
 func TestPhase11HookDeadline(t *testing.T) {
 	effortHome(t)
+	old := jevHookBudget
+	jevHookBudget = 200 * time.Millisecond // the stalled test server is waited on for the budget, not a real second
+	t.Cleanup(func() { jevHookBudget = old })
 	var hits atomic.Int32
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -453,7 +456,7 @@ func TestPhase11HookDeadline(t *testing.T) {
 	res := agentEffortResult(ctx, in)
 	elapsed := time.Since(start)
 	if elapsed < jevHookBudget-50*time.Millisecond || elapsed > jevHookBudget+250*time.Millisecond {
-		t.Fatalf("hook Jev budget was not 450 ms: %s", elapsed)
+		t.Fatalf("hook Jev budget was not %s: %s", jevHookBudget, elapsed)
 	}
 	if hits.Load() != 1 || res.UpdatedInput["model"] != "haiku" {
 		t.Fatalf("no clean single-call keyword fallback: hits=%d result=%+v", hits.Load(), res)

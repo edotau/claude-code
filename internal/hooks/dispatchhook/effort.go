@@ -33,7 +33,8 @@ var (
 	blankLineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\n[ \t\r]*\n\s*`) })
 )
 
-const jevHookBudget = 450 * time.Millisecond
+// jevHookBudget is how long a dispatch hook waits for Open-Jev: its median answer is about 0.7 s; tests shrink it.
+var jevHookBudget = time.Second
 
 type jevHookKey struct{}
 
