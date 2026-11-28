@@ -1,3 +1,4 @@
 internal/hooks/wthook/claims.go:appendClaims	claims
 internal/hooks/wthook/worktree.go:aheadBehind	unversioned: cache: per-key rev-list ahead/behind counts; a lost one only costs a spawn
 internal/hooks/wthook/worktree.go:divergedCheckDue	unversioned: marker: empty per-session stamp, its mtime gates the divergence check
+internal/hooks/wthook/worktree.go:rewrittenAt	unversioned: cache: the same per-key file plus its rewrite flag line; a lost one only costs a spawn
