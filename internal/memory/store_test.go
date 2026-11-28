@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -431,7 +432,7 @@ func TestLinkNativeForNoopWithoutStore(t *testing.T) {
 	if err := os.RemoveAll(paths.MemoryStoreDir()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := linkNativeFor(t.TempDir()); ok {
+	if _, ok := linkNativeFor(t.TempDir(), nil); ok {
 		t.Error("linkNativeFor without a store must report ok=false")
 	}
 }
@@ -458,12 +459,40 @@ func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	root := repoRoot(t, "proj")
 	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; linkNativeFor must resolve afresh
 	probes := countGitProbes(t, "--git-common-dir")
-	res, ok := linkNativeFor(root)
+	res, ok := linkNativeFor(root, nil)
 	if !ok || res.target != paths.MemoryStoreDir() || res.action != "linked" {
 		t.Fatalf("linkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
 	}
 	if *probes != 1 {
 		t.Errorf("linkNativeFor ran the main-checkout probe %d times, want 1", *probes)
+	}
+}
+
+// BenchmarkBrokenNativeLinks scans 300 project dirs of 40 files each: 220 live links, one dangling, the rest bare.
+func BenchmarkBrokenNativeLinks(b *testing.B) {
+	cfg := b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	store := filepath.Join(cfg, "memory")
+	for i := range 300 {
+		dir := filepath.Join(cfg, "projects", fmt.Sprintf("-p%03d", i))
+		for j := range 40 {
+			write(b, filepath.Join(dir, fmt.Sprintf("s%02d.jsonl", j)), "{}\n")
+		}
+		target := store
+		if i == 7 {
+			target = filepath.Join(cfg, "gone")
+		}
+		if i < 220 && os.Symlink(target, filepath.Join(dir, "memory")) != nil {
+			b.Fatal("symlink")
+		}
+	}
+	if err := os.MkdirAll(store, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if n := len(brokenNativeLinks(cfg)); n != 1 {
+			b.Fatalf("broken links = %d, want 1", n)
+		}
 	}
 }
 
@@ -500,7 +529,7 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		res, ok := linkNativeFor(root)
+		res, ok := linkNativeFor(root, nil)
 		wantTarget := paths.MemorySubDir("")
 		if !ok || res.target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)

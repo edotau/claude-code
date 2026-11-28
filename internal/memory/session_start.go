@@ -21,10 +21,15 @@ var hasBank = bankExists
 
 // StartSession records the session root, renders the note line + bank surface and advances the session chain.
 func StartSession(sessionID, cwd string, now time.Time) string {
-	recordSessionRoot(sessionID, cwd)
-	prefix, banked := maybeAutoInit(cwd, hasBank()) // the gate probe; a scaffold and the surface re-probe
+	probe := &revParse{dir: cwd} // the root record and the native link share one git probe of cwd
+	recordSessionRoot(sessionID, cwd, probe)
+	had := hasBank()
+	prefix, banked := maybeAutoInit(cwd, had) // the gate probe; a scaffold and the surface re-probe
+	if !had {
+		probe = nil // a scaffold may have made a repo git would now find for cwd
+	}
 	if !IsUpdateChild() {
-		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
+		linkNativeFor(cwd, probe) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(paths.MemoryStateDir(), "last-session")
 	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now, doctorNoticeAt)
@@ -331,14 +336,14 @@ func SessionRoot(sessionID, cwd string) string {
 	return filepath.Clean(root)
 }
 
-// sessionRootFor is cwd's git toplevel, else its store origin, else its absolute path.
-func sessionRootFor(cwd string) string {
-	root := GitToplevel(cwd)
+// sessionRootFor is cwd's git toplevel, else its store origin, else its absolute path; git via probe.
+func sessionRootFor(cwd string, probe *revParse) string {
+	root := probe.toplevel(cwd)
 	switch {
 	case root == "": // not a work tree: git's main-checkout probe would fail the same way
 		root = resolveWith(cwd, func(string) (string, bool) { return "", true })
 	case paths.SamePath(root, paths.MemoryStoreDir()):
-		root = resolve(cwd)
+		root = resolveWith(cwd, probe.main)
 	}
 	if root == "" {
 		root, _ = filepath.Abs(cwd)
@@ -346,12 +351,12 @@ func sessionRootFor(cwd string) string {
 	return root
 }
 
-// recordSessionRoot preserves the first SessionStart root across resume and compaction.
-func recordSessionRoot(sessionID, cwd string) {
+// recordSessionRoot preserves the first SessionStart root across resume and compaction; git via probe.
+func recordSessionRoot(sessionID, cwd string, probe *revParse) {
 	if !looksLikeSessionID(sessionID) || IsUpdateChild() || SessionRoot(sessionID, "") != "" {
 		return
 	}
-	root := sessionRootFor(cwd)
+	root := sessionRootFor(cwd, probe)
 	if root == "" {
 		return
 	}

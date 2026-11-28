@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/assets"
-	"github.com/edotau/claude-code/internal/dev/transcript"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 )
@@ -179,13 +178,13 @@ func projectsMemory(slug string) string {
 // nativeRoots remembers the slug root linkNativeFor resolved per cleaned cwd, so nativeLinked skips a second git fork.
 var nativeRoots sync.Map
 
-// linkNativeFor repairs the native link for one session cwd, keyed the way Claude Code names the project.
-func linkNativeFor(cwd string) (linkResult, bool) {
+// linkNativeFor repairs cwd's native link, keyed the way Claude Code names the project; git asks go through probe.
+func linkNativeFor(cwd string, probe *revParse) (linkResult, bool) {
 	if cwd == "" {
 		return linkResult{}, false
 	}
 	root := paths.CanonDeep(filepath.Clean(cwd)) // Claude Code names the project by the resolved path (/tmp → /private/tmp)
-	top, _ := gitMain(root)
+	top, _ := probe.main(root)
 	if top != "" {
 		root = paths.CanonDeep(top)
 	}
@@ -285,13 +284,11 @@ func nativeLinkTargets(root string) map[string]string {
 func brokenNativeLinks(root string) []linkResult {
 	var targets map[string]string // built on the first broken link: it forks git and reads the catalog
 	var out []linkResult
-	for _, link := range transcript.GlobIn(filepath.Join(paths.ConfigDir(), "projects"), "*/memory") {
-		target := nativeLinkTarget(link)
+	projects := filepath.Join(paths.ConfigDir(), "projects")
+	entries, _ := os.ReadDir(projects) // sorted by name, as Glob's matches were
+	for _, e := range entries {
+		link, target := danglingNativeLink(filepath.Join(projects, e.Name()))
 		if target == "" {
-			continue
-		}
-		_, err := os.Stat(link)
-		if !errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if targets == nil {
@@ -308,6 +305,30 @@ func brokenNativeLinks(root string) []linkResult {
 		out = append(out, r)
 	}
 	return out
+}
+
+// danglingNativeLink is project's memory link and its target when the link dangles, else target "".
+func danglingNativeLink(project string) (link, target string) {
+	link = filepath.Join(project, "memory")
+	// One stat settles a live link or real dir, so only a missing target pays readlink, canonicalizing and a listing.
+	if _, err := os.Stat(link); !errors.Is(err, fs.ErrNotExist) {
+		return link, ""
+	}
+	if target = nativeLinkTarget(link); target == "" || !listsName(project, "memory") {
+		return link, ""
+	}
+	return link, target
+}
+
+// listsName reports whether dir holds an entry spelled exactly name, as a Glob match needs on a case-folding volume.
+func listsName(dir, name string) bool {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	names, _ := f.Readdirnames(-1)
+	return slices.Contains(names, name)
 }
 
 // repairNativeLinks leaves unresolved slugs alone for memory review to report.
@@ -334,16 +355,50 @@ var identities sync.Map
 func resolve(root string) string { return resolveWith(root, gitMain) }
 
 // gitMain is root's main checkout per git, "" outside a repo; definitive is false when git itself failed.
-func gitMain(root string) (top string, definitive bool) {
+func gitMain(root string) (top string, definitive bool) { return (*revParse)(nil).main(root) }
+
+// mainProbeArgs is paths.MainCheckout's git question; its first line is also GitToplevel's answer.
+var mainProbeArgs = []string{"rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"}
+
+// revParse asks dir's main-checkout probe at most once for one StartSession; a nil *revParse asks git every time.
+type revParse struct {
+	dir  string
+	once sync.Once
+	out  string
+	err  error
+}
+
+// git is gitOut, with p.dir's main-checkout probe run once and its answer reused.
+func (p *revParse) git(dir string, args ...string) (string, error) {
+	if p == nil || dir != p.dir || !slices.Equal(args, mainProbeArgs) {
+		return gitOut(dir, args...)
+	}
+	p.once.Do(func() { p.out, p.err = gitOut(dir, args...) })
+	return p.out, p.err
+}
+
+// main is gitMain asking git through p.
+func (p *revParse) main(root string) (top string, definitive bool) {
 	definitive = true
 	top = paths.MainCheckout(root, func(dir string, args ...string) (string, error) {
-		out, err := gitOut(dir, args...)
+		out, err := p.git(dir, args...)
 		if err != nil && !gitRefused(err) {
 			definitive = false
 		}
 		return out, err
 	})
 	return top, definitive
+}
+
+// toplevel is GitToplevel(dir) read off p's probe when it answered in its two-line form, else asked of git.
+func (p *revParse) toplevel(dir string) string {
+	if p != nil && dir == p.dir {
+		out, err := p.git(dir, mainProbeArgs...)
+		if top, common, ok := strings.Cut(strings.TrimSpace(out), "\n"); err == nil && ok && !strings.Contains(common, "\n") {
+			return strings.TrimSpace(top)
+		}
+	}
+	return GitToplevel(dir)
 }
 
 // gitRefused reports whether err is git running and exiting nonzero (a non-repo, no remote), not failing to run.

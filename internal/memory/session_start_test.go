@@ -126,7 +126,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 
 	StartSession("s1", repo, time.Now())
 
-	res, ok := linkNativeFor(repo)
+	res, ok := linkNativeFor(repo, nil)
 	if !ok {
 		t.Fatal("linkNativeFor ok=false after cutover")
 	}
@@ -159,7 +159,7 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 
 	StartSession("first", repo, time.Now())
 
-	res, ok := linkNativeFor(repo)
+	res, ok := linkNativeFor(repo, nil)
 	if !ok || res.action != "ok" || res.target != paths.MemoryStoreDir() {
 		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, paths.MemoryStoreDir())
 	}
@@ -266,7 +266,7 @@ func TestRecordSessionRootRepairsCorruptFile(t *testing.T) {
 	for _, bad := range []string{"relative/path\n", "\n"} {
 		path := sessionRootPath(id)
 		write(t, path, bad)
-		recordSessionRoot(id, cwd)
+		recordSessionRoot(id, cwd, nil)
 		got, err := os.ReadFile(path)
 		if err != nil || !strings.HasPrefix(string(got), "/") {
 			t.Fatalf("bad %q not repaired: %q, %v", bad, got, err)
@@ -299,7 +299,7 @@ func TestRecordSessionRootReportsLockTimeout(t *testing.T) {
 		}
 	})
 	ran, err := paths.TryFileLock(path+".lock", 0, func() error {
-		recordSessionRoot(id, cwd)
+		recordSessionRoot(id, cwd, nil)
 		return nil
 	})
 	if err != nil || !ran {
@@ -324,7 +324,7 @@ func TestRecordSessionRootKeepsValidFile(t *testing.T) {
 	const id = "11111111-2222-3333-4444-555555555555"
 	keep := canonTemp(t, t.TempDir())
 	write(t, sessionRootPath(id), keep+"\n")
-	recordSessionRoot(id, canonTemp(t, t.TempDir()))
+	recordSessionRoot(id, canonTemp(t, t.TempDir()), nil)
 	if got := SessionRoot(id, ""); got != keep {
 		t.Errorf("first root replaced: got %q, want %q", got, keep)
 	}
@@ -360,7 +360,7 @@ func racingRepairRound(t *testing.T, id string, cwds []string) {
 	for i, cwd := range cwds {
 		wg.Go(func() {
 			<-start
-			recordSessionRoot(id, cwd)
+			recordSessionRoot(id, cwd, nil)
 			seen[i] = SessionRoot(id, "")
 		})
 	}
@@ -379,7 +379,7 @@ func TestSessionRootForSkipsMainProbeOutsideRepo(t *testing.T) {
 	tempConfig(t)
 	dir := canonTemp(t, t.TempDir())
 	probes := countGitProbes(t, "--git-common-dir")
-	if got := sessionRootFor(dir); got != dir {
+	if got := sessionRootFor(dir, nil); got != dir {
 		t.Fatalf("sessionRootFor(%s) = %q, want the dir itself", dir, got)
 	}
 	if *probes != 0 {
@@ -508,7 +508,7 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if s := sessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}
-	if _, ok := linkNativeFor(repo); !ok {
+	if _, ok := linkNativeFor(repo, nil); !ok {
 		t.Fatal("linkNativeFor failed")
 	}
 	if s := sessionSurface(repo); strings.Contains(s, "native link missing") {

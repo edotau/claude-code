@@ -267,7 +267,8 @@ func writeCountState(path string, cs countState) {
 	line := strconv.Itoa(cs.edits) + "|" + strconv.FormatInt(cs.offset, 10) + "|" +
 		strconv.Itoa(cs.subEdits) + ":" + strconv.FormatInt(cs.subBytes, 10) + "|" +
 		strconv.Itoa(cs.turns)
-	if err := paths.AtomicWrite(path, []byte(line), 0o600); err != nil {
+	// No fsync: a derived cache; a torn file fails readCountState and the count restarts from offset 0.
+	if err := paths.AtomicWriteNoSync(path, []byte(line), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "session-update: write count state %s: %v\n", path, err)
 	}
 }
@@ -352,7 +353,7 @@ func readSidecar(path string) map[string]subFileState {
 
 func writeSidecar(path string, m map[string]subFileState) {
 	if b, err := json.Marshal(m); err == nil {
-		_ = paths.AtomicWrite(path, b, 0o600)
+		_ = paths.AtomicWriteNoSync(path, b, 0o600) // a derived cache: a torn sidecar reads as nil and rescans from 0
 	}
 }
 

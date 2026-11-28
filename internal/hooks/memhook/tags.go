@@ -55,7 +55,8 @@ func scanTags(logPath, transcriptPath string, now time.Time) {
 	if len(events) > 0 && !appendEvents(logPath, events) {
 		return
 	}
-	_ = paths.AtomicWrite(logPath+".off", []byte(strconv.FormatInt(off+read, 10)), 0o600) // an unterminated tail is re-read
+	// No fsync: a torn offset reads as 0 and the rescan's events dedup against the log; an unterminated tail is re-read.
+	_ = paths.AtomicWriteNoSync(logPath+".off", []byte(strconv.FormatInt(off+read, 10)), 0o600)
 }
 
 func readOffset(path string) int64 {
@@ -70,31 +71,15 @@ func readOffset(path string) int64 {
 	return n
 }
 
-// textType is the "type":"text" value every assistant text block carries.
-var textType = []byte(`"text"`)
+// textType and assistantType are values every assistant text-block line carries; transcripts never escape ASCII.
+var textType, assistantType = []byte(`"text"`), []byte(`"assistant"`)
 
 // tagEventsIn extracts the assistant text-block tag lines of complete transcript lines, in order, and the bytes read.
 func tagEventsIn(r io.Reader, now time.Time) ([]memory.TagEvent, int64) {
 	var out []memory.TagEvent
 	at := now.UTC().Format(time.RFC3339)
 	read, _ := textutil.ScanRawLines(r, true, func(line []byte) {
-		if !bytes.Contains(line, textType) { // fast reject: a line without a text block carries no tag
-			return
-		}
-		var rec struct {
-			Type    string `json:"type"`
-			Message struct {
-				Role    string `json:"role"`
-				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal(bytes.TrimSpace(line), &rec) != nil || rec.Type != "assistant" || rec.Message.Role != "assistant" {
-			return
-		}
-		for _, block := range rec.Message.Content {
+		for _, block := range assistantBlocks(line) {
 			if block.Type != "text" {
 				continue
 			}
@@ -106,6 +91,30 @@ func tagEventsIn(r io.Reader, now time.Time) ([]memory.TagEvent, int64) {
 		}
 	})
 	return out, read
+}
+
+// contentBlock is the part of one message content block tag extraction reads.
+type contentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// assistantBlocks is an assistant transcript line's content blocks; nil for any other line.
+func assistantBlocks(line []byte) []contentBlock {
+	if !bytes.Contains(line, textType) || !bytes.Contains(line, assistantType) { // fast reject: no assistant text block
+		return nil
+	}
+	var rec struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string         `json:"role"`
+			Content []contentBlock `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(line), &rec) != nil || rec.Type != "assistant" || rec.Message.Role != "assistant" {
+		return nil
+	}
+	return rec.Message.Content
 }
 
 // appendEvents adds events not already in the log; false when the log cannot be written.

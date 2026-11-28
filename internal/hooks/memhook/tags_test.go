@@ -1,6 +1,7 @@
 package memhook
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,25 @@ func TestRecordTags(t *testing.T) {
 	for _, want := range []string{`"text":"a"`, `"text":"b"`, `"text":"torn"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s in %s", want, got)
+		}
+	}
+}
+
+// BenchmarkTagEventsIn scans user tool results that carry text blocks between tagged assistant text lines.
+func BenchmarkTagEventsIn(b *testing.B) {
+	var tr bytes.Buffer
+	result := strings.Repeat("x", 4096)
+	for i := range 300 {
+		if i%4 == 0 {
+			tr.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok\nDECISION: d` + strings.Repeat("y", i) + `"}]}}` + "\n")
+			continue
+		}
+		tr.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"` + result + `"}]}]}}` + "\n")
+	}
+	now := time.Now()
+	for b.Loop() {
+		if events, _ := tagEventsIn(bytes.NewReader(tr.Bytes()), now); len(events) != 75 {
+			b.Fatalf("events = %d, want 75", len(events))
 		}
 	}
 }
