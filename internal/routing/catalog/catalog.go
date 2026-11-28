@@ -26,19 +26,22 @@ import (
 	"github.com/edotau/claude-code/internal/routing/route"
 )
 
-// Profile is agent's catalog profile: flag, else the agent's pin, else the session; nil when none is named.
+// Profile is agent's catalog profile: flag, pin, session, else its own login row; nil when none is a row.
 func Profile(ctx context.Context, agent, flag string) (*providers.Provider, error) {
 	pin := vault.GetAgentRecord(agent).EffectiveRoute()
 	if pin.Provider == providers.GroupDatabricks && pin.Profile == route.AutoArm { // the pool names no workspace
 		pin.Profile = ""
 	}
-	name := cmp.Or(flag, pin.Profile, providers.SessionProfileContext(ctx))
-	if name == "" {
-		return nil, nil
-	}
 	reg, err := providers.Load()
 	if err != nil {
 		return nil, err
+	}
+	name := cmp.Or(flag, pin.Profile, providers.SessionProfileContext(ctx))
+	if own := vault.OwnLoginProfiles[agent]; name == "" && reg.Row(own) != nil { // no config: first party
+		name = own
+	}
+	if name == "" {
+		return nil, nil
 	}
 	return reg.Get(name)
 }

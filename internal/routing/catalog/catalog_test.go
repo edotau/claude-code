@@ -70,8 +70,9 @@ func TestProfileFollowsTheRunSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(providers.EnvSessionProfile, "gw")
-	if p, err := Profile(proc.WithValues(context.Background(), proc.Values{}), "codex", ""); p != nil || err != nil {
-		t.Errorf("empty snapshot: Profile = %v, %v; want none (the ambient gw leaked)", p, err)
+	p, err := Profile(proc.WithValues(context.Background(), proc.Values{}), "codex", "")
+	if err != nil || (p != nil && p.Name == "gw") {
+		t.Errorf("empty snapshot: Profile = %v, %v; want the own login or none (the ambient gw leaked)", p, err)
 	}
 	t.Setenv(providers.EnvSessionProfile, "")
 	snap := proc.WithValues(context.Background(), proc.Values{providers.EnvSessionProfile: "gw"})
