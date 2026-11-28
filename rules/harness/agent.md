@@ -321,6 +321,8 @@ Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
   bytes and each file at 8 MiB; a file is copied into the chat and listed with its copy path.
 - Read: `claude-code agents msg [@<name>|'#<room>'] [--from <who>] [--format text|json]` (no text) prints each new
   message once, never the reader's own, and nothing when there is none; bare, it reads every chat the reader is in.
+  With another member's `@name` it lists the reader's own latest posts there as `(read)` or `(unread)` and moves no
+  marker: an idle agent only reads on its next turn, so this is how a sender sees whether a message has landed.
 - `claude-code agents mcp --from <agent>` serves `msg_send` (`to`, `text`, `files`), `msg_read` (`chat`), `gate`
   (`scope`) and `diff` (`paths`, `check`) as one stdio MCP server, registered as `harness` in every agent's config;
   the sender is fixed by `--from`, never a tool argument, and `gate`/`diff` argv comes from `internal/agent/actions`.

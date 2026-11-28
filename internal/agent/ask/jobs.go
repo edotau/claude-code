@@ -512,8 +512,9 @@ func msgTools(sender string) []mcpstdio.Tool {
 		},
 		Call: func(_ context.Context, raw json.RawMessage) (string, error) { return msgSendCall(sender, raw) },
 	}, {
-		Name:        "msg_read",
-		Description: "Read the unread messages of one chat, or of every chat you are in, then mark them seen." + peerNote,
+		Name: "msg_read",
+		Description: "Read the unread messages of one chat, or of every chat you are in, then mark them seen; " +
+			"with chat set to another agent's @name it lists your own latest posts there as read or unread." + peerNote,
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{"chat": map[string]any{"type": "string", "description": "@name or #name; omit for all"}},
