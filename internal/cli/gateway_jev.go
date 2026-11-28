@@ -16,7 +16,7 @@ import (
 // jevOpts are `gateway jev`'s flag values.
 type jevOpts struct {
 	status, train, attach, stop, options, worker bool // worker: hidden re-exec of --train --bg
-	bg, fresh                                    bool
+	bg, fg, fresh                                bool
 	labels, tasks, trainer, out                  string
 	labelsSet, tasksSet                          bool
 	format                                       *string
@@ -32,8 +32,9 @@ func jevFlags() (*flag.FlagSet, *jevOpts) {
 	})
 	o := &jevOpts{}
 	fs.BoolVar(&o.status, "status", false, "Jev server up/down, the job's state, passes, labels, options, latest log lines")
-	fs.BoolVar(&o.train, "train", false, "start a job in this terminal, or continue the unfinished one")
-	fs.BoolVar(&o.bg, "bg", false, "with --train: detached, survives a closed terminal")
+	fs.BoolVar(&o.train, "train", false, "start or continue a job detached, then watch it; Ctrl-C only detaches")
+	fs.BoolVar(&o.bg, "bg", false, "with --train: detached without watching")
+	fs.BoolVar(&o.fg, "fg", false, "with --train: run inside this terminal; Ctrl-C stops the job")
 	fs.BoolVar(&o.fresh, "fresh", false, "with --train: forget the previous job and start over")
 	fs.StringVar(&o.labels, "labels", "", "with --train on a new job: the jury label directory")
 	fs.StringVar(&o.tasks, "tasks", "", "with --train on a new job: run this one pass instead of tier,agent then tier")
@@ -73,15 +74,23 @@ func (o *jevOpts) check(fs *flag.FlagSet) (code int, ok bool) {
 	return 0, true
 }
 
+// trainFlags reports any flag that only --train takes.
+func (o *jevOpts) trainFlags() bool {
+	return o.bg || o.fg || o.fresh || o.labelsSet || o.tasksSet || len(o.extra) > 0
+}
+
 // combo names the first bad flag combination, else "".
 func (o *jevOpts) combo(actions int) string {
+	only := o.trainFlags()
 	switch {
-	case o.worker && (actions > 0 || o.bg || o.fresh || o.labelsSet || o.tasksSet || len(o.extra) > 0):
+	case o.worker && (actions > 0 || only):
 		return "--worker is reserved for detached launches"
 	case actions > 1:
 		return "at most one of --status, --train, --attach, --stop, --options"
-	case !o.train && (o.bg || o.fresh || o.labelsSet || o.tasksSet || len(o.extra) > 0):
-		return "--bg, --fresh, --labels, --tasks and -- options need --train"
+	case !o.train && only:
+		return "--bg, --fg, --fresh, --labels, --tasks and -- options need --train"
+	case o.bg && o.fg:
+		return "--bg and --fg are two ways to start; pick one"
 	case *o.format == helptext.JSON && actions > 0 && !o.status:
 		return "--format json applies to --status only"
 	}
@@ -116,8 +125,7 @@ func cmdGatewayJev(args []string) int {
 	case o.worker:
 		return jevFail(j.Worker(ctx, os.Stdout))
 	case o.train:
-		return jevFail(j.Start(ctx, jev.StartOpts{Fresh: o.fresh, Background: o.bg, Labels: o.labels,
-			Tasks: o.tasks, Extra: o.extra, LabelsSet: o.labelsSet, TasksSet: o.tasksSet}, os.Stdout))
+		return jevTrain(ctx, j, o)
 	case o.attach:
 		return jevFail(j.Attach(ctx, os.Stdout))
 	case o.stop:
@@ -131,6 +139,16 @@ func cmdGatewayJev(args []string) int {
 	}
 	st.Text(os.Stdout)
 	return 0
+}
+
+// jevTrain starts or continues the job detached and then watches it; --bg skips the watch, --fg runs it here.
+func jevTrain(ctx context.Context, j jev.Job, o *jevOpts) int {
+	err := j.Start(ctx, jev.StartOpts{Fresh: o.fresh, Background: !o.fg, Labels: o.labels,
+		Tasks: o.tasks, Extra: o.extra, LabelsSet: o.labelsSet, TasksSet: o.tasksSet}, os.Stdout)
+	if err != nil || o.fg || o.bg || j.PID() == 0 { // PID 0: the job already ended, nothing to watch
+		return jevFail(err)
+	}
+	return jevFail(j.Attach(ctx, os.Stdout))
 }
 
 // jevFail maps err to an exit status (0 for nil): usage 2, a failed trainer its own code, else 1.
