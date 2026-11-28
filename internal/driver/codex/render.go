@@ -330,7 +330,7 @@ func readCodexConfig(home string) (path string, raw []byte, existed bool, err er
 
 // codexProviderConfig is raw with the provider section inserted, any prior banner removed.
 func codexProviderConfig(ctx context.Context, reg *providers.Registry, sel providers.Selection, raw string, out io.Writer) (string, error) {
-	stripped := codexBannerRE().ReplaceAllString(raw, "") // sans any prior banner, for the user-value check
+	stripped := stripCodexBanner(raw) // sans any prior banner, for the user-value check
 	section, err := codexProviderSection(ctx, reg, sel, stripped, out)
 	if errors.Is(err, errNoBlock) {
 		return stripped, nil
@@ -345,7 +345,20 @@ func insertCodexSection(raw, section string) string {
 	if section == "" {
 		return raw
 	}
-	return agentconfig.InsertTopLevelTOML(codexBannerRE().ReplaceAllString(raw, ""), section)
+	return agentconfig.InsertTopLevelTOML(stripCodexBanner(raw), section)
+}
+
+// stripCodexBanner drops the banner and the blank separator its insertion added, so a re-render adds no blank line.
+func stripCodexBanner(raw string) string {
+	loc := codexBannerRE().FindStringIndex(raw)
+	if loc == nil {
+		return raw
+	}
+	start := loc[0]
+	if strings.HasSuffix(raw[:start], "\n\n") {
+		start--
+	}
+	return raw[:start] + raw[loc[1]:]
 }
 
 func prepareCodexHooks(path string, body []byte) ([]byte, []byte, bool, error) {
