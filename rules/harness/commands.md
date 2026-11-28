@@ -33,7 +33,7 @@ Use `claude-code <verb> -h` for flags; this file maps tasks to their owning comm
 - `configure provider <p> options.warehouse_id=<id> options.prices='<json>'`: Databricks costs in USD/million tokens.
 - `configure routing weights.price=0.4 weights.latency=0.2`: headroom fills to 1 (defaults 0.4/0.4/0.2).
 - `configure routing spendCap.sessionUSD=<usd> spendCap.dayUSD=<usd>`: off until set; empty clears.
-  At cap, unmetered subscription/CLI rows remain; no remaining route fails. See `providers-reference.md` → Spend cap.
+  At cap, unmetered subscription/CLI rows remain; no remaining route fails (`providers.md` → Spend cap).
 - Claude subscription keeps Remote Control; API keys pay per token. For headless Max, configure mints
   `claude setup-token` into vault `CLAUDE_CODE_OAUTH_TOKEN`.
 - `configure restore [--agent a|all]` resets from templates with backups; `configure revert [--agent a,b]`

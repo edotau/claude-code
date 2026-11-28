@@ -84,7 +84,7 @@ secrets only in the encrypted vault (`claude-code vault set`)**, never in a plai
 may read a credential you supply through `auth.command`, `auth.file` or the environment.
 The vault key comes from the OS keyring, `HARNESS_VAULT_KEY` or `key_command`. Commands:
 [`rules/harness/providers.md`](rules/harness/providers.md). File shape, credential order, naming, routing and the
-Databricks menu sync: [`rules/harness/providers-reference.md`](rules/harness/providers-reference.md).
+Databricks menu sync: [`rules/harness/providers.md`](rules/harness/providers.md).
 
 ## Safety
 

@@ -3,32 +3,32 @@
     "runner": {
       "use": "agent",
       "why": "The CLI doing the work is an agent, separate from the provider hosting its endpoint.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     },
     "vendor": {
       "use": "agent",
       "why": "The CLI doing the work is an agent, separate from the provider hosting its endpoint.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     },
     "slot": {
       "use": "model alias",
       "why": "Slot implied fixed positions; models are chosen by alias (opus, sonnet), resolved per provider.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     },
     "tier": {
       "use": "model alias",
       "why": "A model selector names an alias; tier bucket remains the exception for an ordered Databricks list.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     },
     "leg": {
       "use": "dispatch",
       "why": "Dispatch is the chosen name for a unit of agent work, including its fallback chain.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     },
     "family": {
       "use": "provider",
       "why": "Provider names the platform hosting the endpoint; profile names the account on it.",
-      "source": "rules/harness/providers-reference.md#naming"
+      "source": "rules/harness/providers.md#naming"
     }
   },
   "exceptions": {

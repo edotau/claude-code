@@ -343,7 +343,7 @@ Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
 - **Which agents:** pi, codex and opencode (`ScopedProxy` in their roster rows), gemini and copilot (their launch seam
   marks the context) walk the team route list. Headless claude and the interactive session use the shared daemon.
 - **The walk:** `routeCands` (`internal/agent/proxyroute.go`) maps the dispatch's record to its kind, then takes
-  that kind's routes from the team config (`providers-reference.md` → Proxy teams). A parent's phase team goes first
+  that kind's routes from the team config (`providers.md` → Proxy teams and scopes). A parent's phase team goes first
   when `HARNESS_DISPATCH_PROXY` names one. A daemon route is `proxy.Ensure`; a scoped route is live when its scope
   record's pid and start time match, `/healthz` answers, and no other process holds its port.
 - **The choice:** the first live route wins. A later one prints `<agent>: proxy: <first> unavailable (<reason>); using
