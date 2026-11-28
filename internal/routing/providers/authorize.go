@@ -82,6 +82,10 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 		hdr.Set("anthropic-version", "2023-06-01")
 	}
 	status, body, readErr := getCatalog(ctx, p, url, hdr)
+	if r, ok := p.Route(ProtocolOpenAI); ok && anthropicDialect && status == http.StatusNotFound {
+		url = r + "/models" // a server may list models only on its OpenAI route (a local model server does)
+		status, body, readErr = getCatalog(ctx, p, url, http.Header{})
+	}
 	if status == 0 {
 		return nil, readErr
 	}
