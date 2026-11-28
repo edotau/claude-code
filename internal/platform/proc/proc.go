@@ -37,13 +37,10 @@ func childEnv(unset, extraEnv []string) []string {
 	if len(unset) == 0 && len(extraEnv) == 0 {
 		return nil
 	}
-	env := make([]string, 0, len(os.Environ())+len(extraEnv))
-	for _, kv := range os.Environ() {
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { // Environ is a fresh copy: filtered in place
 		k, _, _ := strings.Cut(kv, "=")
-		if !slices.ContainsFunc(unset, func(u string) bool { return EnvNameEqual(k, u) }) {
-			env = append(env, kv)
-		}
-	}
+		return slices.ContainsFunc(unset, func(u string) bool { return EnvNameEqual(k, u) })
+	})
 	return append(env, extraEnv...)
 }
 

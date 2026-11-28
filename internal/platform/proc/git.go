@@ -21,14 +21,9 @@ func GitEnv() []string { return gitEnv(false) }
 func runGitEnv() []string { return gitEnv(os.Getenv("HOSTTEST_ACTIVE") != "") }
 
 func gitEnv(keepTest bool) []string {
-	env := os.Environ()
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !EnvHasPrefix(kv, "GIT_") || keepTest && keepTestGitVar(kv) {
-			out = append(out, kv)
-		}
-	}
-	return out
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { // Environ is a fresh copy: filtered in place
+		return EnvHasPrefix(kv, "GIT_") && (!keepTest || !keepTestGitVar(kv))
+	})
 }
 
 func keepTestGitVar(kv string) bool {
