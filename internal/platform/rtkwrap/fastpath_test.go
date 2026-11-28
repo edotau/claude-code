@@ -14,25 +14,19 @@ import (
 	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
-// buildFastPathCases synthesizes the FastPath grammar test matrix from simpleRules and guards.json.
+// buildFastPathCases synthesizes the FastPath grammar test matrix from rtkRules and guards.json.
 func buildFastPathCases() []string {
 	var out []string
 	for _, h := range []string{"npm-check", "echo", "printf", "cd", "mkdir", "rm", "export", "which", "type", "sed", "true", "tee"} {
 		out = append(out, h+" git status", h+" 'go test'")
 	}
-	for _, head := range slices.Sorted(maps.Keys(simpleRules)) {
-		r := simpleRules[head]
-		switch {
-		case len(r.subs) > 0:
-			out = append(out, head, head+" unknown-sub x")
-			for _, sub := range r.subs {
-				out = append(out, head+" "+sub, head+" "+sub+" x")
-			}
-		case r.minArgs > 0:
-			out = append(out, head, head+" x", head+" -n x")
-		default:
-			out = append(out, head, head+" -a", head+" 'a b'", head+` "dir with spaces"`)
-		}
+	heads := map[string]bool{}
+	for _, r := range rtkRules {
+		heads[r.prefixes[0]] = MayRewrite(r.prefixes[0]) // FastPath answers "" for a word guards.json lacks
+	}
+	maps.DeleteFunc(heads, func(_ string, may bool) bool { return !may })
+	for _, head := range slices.Sorted(maps.Keys(heads)) {
+		out = append(out, head, head+" status", head+" run x", head+" -a", head+` "dir with spaces"`)
 	}
 	for _, flag := range shell.GuardWords("rtk_go_test_raw_flags") {
 		out = append(out, "go test -"+flag+" ./x")
@@ -60,11 +54,11 @@ func TestFastPathQuotedAndCommit(t *testing.T) {
 	if got := VetoRule("git -c commit.gpgsign=false commit -m msg", ""); got != "commit" {
 		t.Errorf("VetoRule(git -c ... commit) = %q, want commit", got)
 	}
-	if !segmentStays([]string{"git", "-c", "k=v", "commit", "-m", "msg"}) {
-		t.Error("segmentStays(git -c k=v commit) = false, want true")
+	if got, ok := FastPath("git -c k=v commit -m msg"); got != "" || !ok {
+		t.Errorf("FastPath(git -c k=v commit) = %q, %v; want \"\", true", got, ok)
 	}
-	if got, ok := simpleRewrite(`ls "dir with spaces"`); ok && got != "rtk "+`ls "dir with spaces"` {
-		t.Errorf("simpleRewrite(quoted ls) = %q", got)
+	if got, _ := rewriteCommand(`ls "dir with spaces"`, nil); got != "rtk "+`ls "dir with spaces"` {
+		t.Errorf("rewriteCommand(quoted ls) = %q", got)
 	}
 }
 
@@ -120,30 +114,40 @@ func realRewrite(t *testing.T, bin, cmd string) string {
 	return ""
 }
 
+// TestRTKFastPathDecisions pins rtk 1.1.0's observed answers (`rtk rewrite`, live config's excludes) for each shape.
 func TestRTKFastPathDecisions(t *testing.T) {
-	for _, tc := range []struct {
-		cmd, want string
-		decided   bool
-	}{
-		{"npm-check x", "", true},
-		{"echo git status", "", true},
-		{"git commit -m 'go test'", "", true},
-		{"rtk git status", "", true},
-		{"git grep x", "", true},
-		{"cat foo", "", false},
-		{"git status | head", "", false},
-		{"git status && ls", "", false},
-		{"FOO=1 git status", "", false},
-		{"echo $(git status)", "", true}, // rtk leaves a command with $( as typed
-		{"git status; echo \"`date`\"", "", true},
-		{"git status\ncat <<EOF\nx\nEOF", "", true},
-		{"git status; echo '$(x) `y` <<z'", "", false}, // single-quoted, so rtk still rewrites the first segment
-		{"nice git status", "", false},
-		{"mise run x", "", false},
+	for _, tc := range []struct{ cmd, want string }{
+		{"npm-check x", ""}, // no rtk word: FastPath answers before any rule
+		{"git commit -m 'go test'", ""},
 	} {
-		got, ok := FastPath(tc.cmd)
-		if got != tc.want || ok != tc.decided {
-			t.Errorf("FastPath(%q) = %q, %v; want %q, %v", tc.cmd, got, ok, tc.want, tc.decided)
+		if got, ok := FastPath(tc.cmd); got != tc.want || !ok {
+			t.Errorf("FastPath(%q) = %q, %v; want %q, true", tc.cmd, got, ok, tc.want)
+		}
+	}
+	excl := []string{"go vet", "go test -v", "go test -list"}
+	for _, tc := range []struct{ cmd, want string }{
+		{"echo git status", ""},
+		{"rtk git status", "rtk git status"},
+		{"git grep x", ""},
+		{"go test -v ./x", ""},
+		{"cat foo", "rtk read foo"},
+		{"head -5 foo 2>&1", "rtk read foo --head-lines 5 2>&1"},
+		{"git status | head", "rtk git status | head"},
+		{"git log | grep x", "git log | rtk grep x"},
+		{"git status && ls", "rtk git status && rtk ls"},
+		{"FOO=1 git status", "FOO=1 rtk git status"},
+		{"echo $(git status)", ""}, // a substitution, a heredoc or a file redirect defers the whole command
+		{"git status; echo \"`date`\"", ""},
+		{"git status\ncat <<EOF\nx\nEOF", ""},
+		{"git status > out", ""},
+		{"git status; echo '$(x) `y` <<z'", "rtk git status; echo '$(x) `y` <<z'"},
+		{"nice git status", "nice rtk git status"},
+		{"bash -c 'git status && ls'", "bash -c 'rtk git status && rtk ls'"},
+		{"mise run x", "rtk mise run x"},
+		{"gh pr view --json title", ""},
+	} {
+		if got, certain := rewriteCommand(tc.cmd, excl); got != tc.want || !certain {
+			t.Errorf("rewriteCommand(%q) = %q, %v; want %q, true", tc.cmd, got, certain, tc.want)
 		}
 	}
 }

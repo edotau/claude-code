@@ -3,18 +3,22 @@ package rtkwrap
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
-// FastPath is `rtk rewrite`'s answer for cmd sans exec when certain: "" runs cmd as typed, "rtk "+cmd wraps it.
+// FastPath is `rtk rewrite`'s answer for cmd sans exec when certain: "" runs cmd as typed, else the rewrite.
 func FastPath(cmd string) (rewritten string, decided bool) {
 	if !MayRewrite(cmd) {
 		return "", true
@@ -22,33 +26,40 @@ func FastPath(cmd string) (rewritten string, decided bool) {
 	if os.Getenv(paths.RTKBinaryEnv) != "" { // a stand-in rtk (a wrapper, a test fake) answers for itself
 		return "", false
 	}
-	if out, ok := simpleRewrite(cmd); ok {
-		return out, true
+	if rtkGitCommits(cmd) { // the harness never wraps a commit, whatever rtk says
+		return "", true
 	}
-	return "", wholeSkip(cmd) || noSegmentRewrites(cmd)
+	if !quietEnv() || !utf8.ValidString(cmd) || customFilters() {
+		return "", false
+	}
+	excludes, ok := configExcludes()
+	if !ok {
+		return "", false
+	}
+	pats := make([]string, len(excludes))
+	for i, ex := range excludes {
+		pats[i] = strings.Join(ex, " ")
+	}
+	out, certain := rewriteCommand(cmd, pats)
+	if out = strings.TrimSpace(out); out == cmd {
+		out = ""
+	}
+	return out, certain
 }
 
-// wholeSkip reports rtk rewrite leaves all of cmd as typed: $( or a backtick outside '…', or << outside quotes.
-func wholeSkip(cmd string) bool {
-	if !strings.ContainsAny(cmd, "`<") && !strings.Contains(cmd, "$(") {
-		return false
+// customFilters reports a user or trusted project TOML filter file rtk may load, which the port does not read.
+func customFilters() bool {
+	home, _ := os.UserHomeDir()
+	files := []string{filepath.Join(home, ".config", "rtk", "filters.toml"),
+		filepath.Join(home, ".local", "share", "rtk", "trusted_filters.json")}
+	if cfg := paths.RTKConfig(); cfg != "" {
+		files = append(files, filepath.Join(filepath.Dir(cfg), "filters.toml"),
+			filepath.Join(filepath.Dir(cfg), "trusted_filters.json"))
 	}
-	at := shell.QuoteAt(cmd)
-	for i := range len(cmd) {
-		if at[i] != '\'' && skipAt(cmd, i, at[i] == 0) {
-			return true
-		}
-	}
-	return false
-}
-
-// skipAt reports << at i when bare, or a ` or $( there that no backslash escapes.
-func skipAt(cmd string, i int, bare bool) bool {
-	rest := cmd[i:]
-	if bare && strings.HasPrefix(rest, "<<") {
-		return true
-	}
-	return (rest[0] == '`' || strings.HasPrefix(rest, "$(")) && (i == 0 || cmd[i-1] != '\\')
+	return home == "" || slices.ContainsFunc(files, func(f string) bool {
+		_, err := os.Stat(f)
+		return !errors.Is(err, fs.ErrNotExist)
+	})
 }
 
 // rewriteWords are the words rtk rewrite may act on, loaded once from guards.json.
@@ -67,117 +78,22 @@ func isRewriteWord(w string) bool {
 	return rewriteWords()[w] || rewriteWords()[versioned().ReplaceAllString(w, "")]
 }
 
-// simpleRule is a head rtk wraps whole: at least minArgs arguments and, when subs is set, one of them first.
-type simpleRule struct {
-	minArgs int
-	subs    []string
-}
+// rtkReadEnv are the RTK_* names the rtk 1.1.0 binary reads (its strings, no dynamic names), bar the harness pair.
+var rtkReadEnv = []string{"RTK_AUDIT_DIR", "RTK_CONFIG_DIR", "RTK_DB_PATH", "RTK_DISABLED", "RTK_HOOK_AUDIT",
+	"RTK_MINOR", "RTK_NO_TOML", "RTK_ONRAMP_DISABLED", "RTK_PLUGIN_SOURCE", "RTK_POSTHOOK", "RTK_PROXY_BIND",
+	"RTK_PROXY_CCR_STRUCT_MAX_LINES", "RTK_PROXY_DB", "RTK_PROXY_ICM_DB", "RTK_RECALL", "RTK_RECALL_DB",
+	"RTK_REWRITE_HOST", "RTK_TEE", "RTK_TEE_DIR", "RTK_TOML_DEBUG", "RTK_TRUST_PROJECT_FILTERS"}
 
-// simpleRules are the heads whose plain one-segment command rtk rewrite turns into "rtk "+cmd (rtk 1.1.0, verified).
-var simpleRules = map[string]simpleRule{
-	"ls": {}, "tree": {}, "wc": {}, "du": {}, "df": {}, "ps": {}, "stat": {}, "jq": {}, "make": {},
-	"find": {minArgs: 1}, "grep": {minArgs: 1}, "rg": {minArgs: 1}, "curl": {minArgs: 1}, "diff": {minArgs: 1},
-	"git":           {subs: []string{"status", "diff", "log", "branch", "show", "add", "push", "pull", "fetch", "stash"}},
-	"go":            {subs: []string{"test", "build"}},
-	"kubectl":       {subs: []string{"get", "logs", "describe"}},
-	"gh":            {subs: []string{"pr", "issue", "run", "repo", "api"}},
-	"docker":        {subs: []string{"ps", "images", "logs"}},
-	"golangci-lint": {subs: []string{"run"}},
-}
-
-// simpleRewrite decides a plain one-segment command whose head is in simpleRules: "rtk "+cmd, or "" when excluded.
-func simpleRewrite(cmd string) (string, bool) {
-	if !plainLine(cmd) || !quietEnv() {
-		return "", false
-	}
-	f, bare := shell.Tokens(cmd), bareWords(cmd)
-	if bare == 0 || !ruleMatches(f, bare) {
-		return "", false
-	}
-	excludes, ok := configExcludes()
-	if !ok || slices.ContainsFunc(excludes, func(ex []string) bool { return len(ex) > bare && hasPrefix(f, ex) }) {
-		return "", false
-	}
-	if slices.ContainsFunc(excludes, func(ex []string) bool { return hasPrefix(f, ex) }) {
-		return "", true
-	}
-	return "rtk " + cmd, true
-}
-
-// ruleMatches reports f's head is a simple rule with enough arguments and, when it names subs, a bare one first.
-func ruleMatches(f []string, bare int) bool {
-	rule, ok := simpleRules[f[0]]
-	if !ok || len(f)-1 < rule.minArgs {
-		return false
-	}
-	return len(rule.subs) == 0 || bare >= 2 && slices.Contains(rule.subs, f[1])
-}
-
-// bareWords is how many leading words of cmd carry no quote: only those are matched by name against the rules.
-func bareWords(cmd string) int {
-	raw := strings.Fields(cmd)
-	i := slices.IndexFunc(raw, func(w string) bool { return strings.ContainsAny(w, `'"`) })
-	if i < 0 {
-		return len(raw)
-	}
-	return i
-}
-
-// plainLine reports one segment of single-spaced words with nothing the shell expands or redirects outside quotes.
-func plainLine(cmd string) bool {
-	if cmd == "" || strings.ContainsAny(cmd, "$`\\\n\r\t") || strings.TrimSpace(cmd) != cmd {
-		return false
-	}
-	var quote byte
-	for i := 0; i < len(cmd); i++ {
-		if quote = nextQuote(quote, cmd, i); quote == 0 && bareMeta(cmd, i) {
-			return false
-		}
-	}
-	return quote == 0
-}
-
-// nextQuote is the quote state after cmd[i]: a quote opens on ' or " and closes on its match.
-func nextQuote(quote byte, cmd string, i int) byte {
-	c := cmd[i]
-	switch {
-	case quote == 0 && (c == '\'' || c == '"'):
-		return c
-	case quote == c:
-		return 0
-	}
-	return quote
-}
-
-// bareMeta reports cmd[i] an unquoted shell operator or a doubled space; callers pass only unquoted positions.
-func bareMeta(cmd string, i int) bool {
-	c := cmd[i]
-	if c == '\'' || c == '"' {
-		return false
-	}
-	return strings.IndexByte("|&;<>(){}#!", c) >= 0 || c == ' ' && i > 0 && cmd[i-1] == ' '
-}
-
-// quietEnv reports no RTK_* variable but the two the harness always sets: any other may change what rtk rewrites.
+// quietEnv reports none of rtkReadEnv set: any of them may change what rtk rewrites.
 func quietEnv() bool {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "RTK_") && name != paths.RTKQuietEnv && name != paths.RTKTelemetryEnv {
+		if strings.HasPrefix(name, "RTK_") && slices.Contains(rtkReadEnv, name) {
 			return false
 		}
 	}
 	return true
 }
-
-func hasPrefix(words, prefix []string) bool {
-	return len(words) >= len(prefix) && slices.Equal(words[:len(prefix)], prefix)
-}
-
-// nativeExcludes are the commands rtk rewrite leaves as typed whatever its config says.
-var nativeExcludes = [][]string{{"git", "grep"}}
-
-// harnessVetoes are the commands the harness never wraps (git commit), whatever rtk says.
-var harnessVetoes = [][]string{{"git", "commit"}}
 
 // configExcludes is rtk's exclude_commands as word lists; ok false when the config is absent or holds anything else.
 func configExcludes() (excludes [][]string, ok bool) {
@@ -258,65 +174,4 @@ func parseWordLists(value string) ([][]string, bool) {
 		out = append(out, strings.Fields(word))
 	}
 	return out, true
-}
-
-// nestedRunSections are guards.json sections whose heads can execute another command word inside their segment.
-var nestedRunSections = []string{
-	"shell_keywords", "shell_names", "wrapper_names", "sudo_prefix_extras", "evaluators", "run_arg_commands",
-}
-
-// nestedRunHeads are command-position words that may run a nested command from their arguments.
-var nestedRunHeads = sync.OnceValue(func() map[string]bool {
-	m := map[string]bool{"noglob": true}
-	for _, sec := range nestedRunSections {
-		for _, w := range shell.GuardWords(sec) {
-			m[w] = true
-		}
-	}
-	return m
-})
-
-// isLeafHead reports a bare command head that neither rtk rewrites nor runs a nested command from its arguments.
-func isLeafHead(head string) bool {
-	return head != "" && head != rtkName && !isRewriteWord(head) &&
-		!nestedRunHeads()[head] && !strings.ContainsAny(head, "=/'\"")
-}
-
-// noSegmentRewrites reports rtk leaves every segment of cmd as typed: no rtk word, a leaf or rtk head, or excluded.
-func noSegmentRewrites(cmd string) bool {
-	if strings.Contains(cmd, "$(") || strings.Contains(cmd, "<<") || strings.Contains(cmd, "`") {
-		return false
-	}
-	at := shell.QuoteAt(cmd)
-	for i := range len(cmd) {
-		if at[i] == 0 && strings.IndexByte("(){}\\", cmd[i]) >= 0 { // a backslash inside quotes is pattern text
-			return false
-		}
-	}
-	for _, seg := range shell.Segments(cmd) {
-		if !segmentStays(strings.Fields(seg)) {
-			return false
-		}
-	}
-	return true
-}
-
-// segmentStays reports one segment rtk leaves as typed.
-func segmentStays(f []string) bool {
-	if len(f) == 0 || isLeafHead(f[0]) || f[0] == rtkName || !slices.ContainsFunc(f, func(w string) bool {
-		return slices.ContainsFunc(wordRun().FindAllString(w, -1), isRewriteWord)
-	}) {
-		return true
-	}
-	fixed := slices.Concat(nativeExcludes, harnessVetoes)
-	if slices.ContainsFunc(fixed, func(ex []string) bool { return hasPrefix(f, ex) }) || gitCommits(f) {
-		return true
-	}
-	excludes, ok := configExcludes()
-	return ok && slices.ContainsFunc(excludes, func(ex []string) bool { return hasPrefix(f, ex) })
-}
-
-// gitCommits reports a git segment whose subcommand is commit past global options (`git -c k=v commit`).
-func gitCommits(f []string) bool {
-	return len(f) > 0 && f[0] == "git" && gitRTKSubcommand(f[1:]) == "commit"
 }
