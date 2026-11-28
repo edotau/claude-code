@@ -375,7 +375,7 @@ func piMsgArgv(input map[string]any) ([]string, error) {
 	if err := piMsgTarget(to); err != nil {
 		return nil, err
 	}
-	argv := []string{"agents", "msg", "--from", "pi"}
+	argv := []string{"agents", "msg"} // no --from: the command names the dispatch's asked agent
 	if text == "" && len(files) == 0 {
 		return append(argv, slices.DeleteFunc([]string{to}, func(s string) bool { return s == "" })...), nil // a read
 	}

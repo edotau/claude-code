@@ -104,11 +104,11 @@ func PostMsg(chat, from, text string, files []string) (Message, error) {
 	if err != nil {
 		return Message{}, err
 	}
-	owner := from
-	if chat[0] == '@' { // @name is name's inbox: its owner is a member from the first message
-		owner = chat[1:]
+	member := from
+	if chat[0] == '@' { // @name is name's inbox: only its owner is a member, so a sender never reads others' posts to it
+		member = chat[1:]
 	}
-	if err := errors.Join(joinChat(chat, from), joinChat(chat, owner)); err != nil {
+	if err := joinChat(chat, member); err != nil {
 		return msg, err
 	}
 	return msg, notifyChat(chat, msg)
@@ -255,7 +255,11 @@ func ChatsFor(reader string) ([]string, error) {
 	}
 	chats := make([]string, 0, len(hits))
 	for _, h := range hits {
-		chats = append(chats, filepath.Base(filepath.Dir(filepath.Dir(h))))
+		chat := filepath.Base(filepath.Dir(filepath.Dir(h)))
+		if chat[0] == '@' && chat != "@"+reader {
+			continue // an older store made a sender a member of the inbox it posted to
+		}
+		chats = append(chats, chat)
 	}
 	return chats, nil
 }

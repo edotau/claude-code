@@ -412,8 +412,13 @@ func msgFail(err error) int {
 	return helptext.Fail("agents msg: %v", err)
 }
 
-// msgSender is --from, else the calling Claude session's name; a zero code means ok.
+// msgSender is --from, else the asked agent of the dispatch it runs in, else the calling Claude session's name.
 func msgSender(from string) (string, int) {
+	if id := os.Getenv(proc.DispatchIDEnv); from == "" && id != "" { // a dispatch inherits its parent's session id
+		if rec, err := agent.LoadRecord(id); err == nil {
+			from = rec.Agent
+		}
+	}
 	if from == "" {
 		from = worktree.CallerName()
 	}

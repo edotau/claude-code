@@ -326,7 +326,8 @@ Plan: `plans/claude-code/2026-11-27-agent-rooms-bridge.md`.
 - `#name` starts a comment in bash unless quoted, so rules and briefs write `'#name'`.
 - `msg @parent "<note>"` is a leaf's one-line note (200 characters, literal text) to its dispatcher; it replaces
   `send parent`.
-- `--from` defaults to the calling Claude session's registered name; an agent CLI passes its own name. Names match
+- `--from` defaults to the asked agent of the dispatch it runs in (a pi-runner hop asked as codex reads `@codex`),
+  else the calling Claude session's registered name; an agent CLI passes its own name. Names match
   `[a-z0-9][a-z0-9._-]{0,63}`; anything else exits 2.
 - A message reaches every live Claude member except its sender as a `msg` notice on that session's next hook;
   other members pull. Agent CLIs learn the command from the paragraph `agents sync` renders (`docsMsgNote`,

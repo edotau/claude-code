@@ -79,7 +79,7 @@ func TestGuardDefinesMsgAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\n  msg: { label:", `const MSG_READ = ["agents", "msg", "--from", "pi"]`, `pi.on("before_agent_start"`} {
+	for _, want := range []string{"\n  msg: { label:", `const MSG_READ = ["agents", "msg"]`, `pi.on("before_agent_start"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("guard lacks %s", want)
 		}
