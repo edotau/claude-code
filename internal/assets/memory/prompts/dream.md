@@ -96,8 +96,8 @@ five typed files in the store root (`claude-code memory path`), then `feedback/`
 3. **Score** Durability, Impact and Scope, 0–3 each. A promotion candidate totals 6 or more and is not already in a
    higher tier. Target: `rules` (a one-line imperative), `skill` (a multi-step how-to), or `claude-md` only for a
    hard prohibition that recurs in 3+ bank entries and must be visible every session.
-4. **Dream only**: for a `claude-md` candidate run `claude-code memory feedback promote <id> --to claude-md` (it works only
-   in this run, prints the block and edits nothing), apply the edit by hand, then remove the promoted entries from
+4. **Dream only**: for a `claude-md` candidate run `claude-code memory feedback promote <id> --to claude-md` (it works
+   only in this run, prints the block and edits nothing), apply the edit by hand, then remove the promoted entries from
    the bank. Never edit `rules/**` or `skills/**`: list those candidates with their `memory feedback promote <id> --to
    rules|skill` line for the owner.
 

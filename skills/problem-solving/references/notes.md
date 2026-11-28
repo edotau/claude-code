@@ -78,4 +78,5 @@ did not take. Nothing untaken → `PENDING: none`, and say nothing in the report
 
 The last check before sending (list in SKILL.md Step 6): add any owed fact that is missing; a clean report passes
 untouched. Enforcement is advisory; a mechanical Stop hook in `internal/hooks/` would need
-`internal/platform/settings/hookspec.go` and the full `rules/harness/change-protocol.md` checklist. Not wired, deliberately.
+`internal/platform/settings/hookspec.go` and the full `rules/harness/change-protocol.md` checklist. Not wired,
+deliberately.

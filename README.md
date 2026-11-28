@@ -120,8 +120,8 @@ Codex, Copilot and Gemini have no "ask", so there an ask becomes a block; each a
 
 - **One Go binary, standard library first, no CLI framework**: a framework or per-tool scripts would add install
   steps and dependencies; the command table in `internal/cli` is small enough to read.
-- **Hooks declared once in `internal/platform/settings/hookspec.go`**: each agent CLI would otherwise get its own hand-kept
-  hook set; one table is rendered per agent; what each agent enforces is in `hooks.md`.
+- **Hooks declared once in `internal/platform/settings/hookspec.go`**: each agent CLI would otherwise get its own
+  hand-kept hook set; one table is rendered per agent; what each agent enforces is in `hooks.md`.
 - **Guard logic is compiled in**: only the hook wiring and the protected-path list sit in `settings.json`, which a
   dispatched agent may not write, so it cannot edit its own limits away.
 - **One shared checkout with file claims**: a worktree per agent would split state and merges; claims warn on an edit

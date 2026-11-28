@@ -200,8 +200,8 @@ claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 
 ## Proxy teams and scopes
 
-Team schema: `internal/proxy/proxyteam`; shipped rows: `internal/assets/proxy/teams.json`. The default `shared` team takes
-unclaimed kinds; `phase` takes `group`, runs in its owning wave/batch and falls back to `shared`.
+Team schema: `internal/proxy/proxyteam`; shipped rows: `internal/assets/proxy/teams.json`. The default `shared` team
+takes unclaimed kinds; `phase` takes `group`, runs in its owning wave/batch and falls back to `shared`.
 
 - `name`: unique; a scope is named `<team>@<id>`
 - `kinds`: `interactive`, `single`, `lane`, `nested`, `carried`, `group`, `memory`; a dispatch takes the first true of

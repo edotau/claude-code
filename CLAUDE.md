@@ -58,8 +58,8 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
    offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work
    agents are the types `codex`, `copilot`, `gemini`, `opencode` (each relays its baked `agents ask --overlay` line)
-   and `coworker` (the pi runner in code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` → Carried
-   dispatch); description starts `<model>:` followed by a space (`web-fetch` takes none),
+   and `coworker` (the pi runner in code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` →
+   Carried dispatch); description starts `<model>:` followed by a space (`web-fetch` takes none),
    printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
    files;
    begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one

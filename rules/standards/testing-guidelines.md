@@ -85,8 +85,8 @@ runs that verification.
   Tailscale, `ssh`), or spawn a real agent CLI. Mock only real boundaries (network, model calls, clock, external
   CLIs, process scans) at the consumer. Use an in-process `httptest` server or test-owned stub transport, dialer or
   binary, with replies defined in the test. If the code has no seam and the test is not worth one, delete the test.
-- **Network enforcement** — Keep `internal/platform/nonet` refusing DNS in every Go test binary; audit loopback by running
-  the suite once under a sandbox (macOS `sandbox-exec` blocking remote network and those service ports).
+- **Network enforcement** — Keep `internal/platform/nonet` refusing DNS in every Go test binary; audit loopback by
+  running the suite once under a sandbox (macOS `sandbox-exec` blocking remote network and those service ports).
 - **Owned data only** — Read and write only test-created data: `testdata/` fixtures, files in `t.TempDir()` or
   structs in the test. Never access the live memory store, vault, `state/`, settings, plans or a user cache, even
   read-only. Put real-data checks in a verb's preflight or a `doctor` row.
