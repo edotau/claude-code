@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/dev/transcript"
@@ -46,6 +47,11 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	}
 	defer func() { _ = out.Close(); _ = os.Remove(out.Name()) }()
 	cmd.Stdout = out
+	defer func() { // a child the exporter left behind holds the file open: end its group with the export
+		if cmd.Process != nil {
+			_ = proc.SignalGroup(cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
 	go func() { // the size cap a pipe's reader used to enforce: stop the export once the file passes it
 		for ctx.Err() == nil {
 			if info, err := out.Stat(); err == nil && info.Size() > exportMaxBytes {
