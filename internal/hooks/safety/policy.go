@@ -105,9 +105,10 @@ func readPolicy() (p policy, err error) {
 	}
 	var doc struct {
 		Permissions *struct {
-			Allow []string  `json:"allow"` // allow and ask are decoded only so a malformed list rejects the file
-			Ask   []string  `json:"ask"`
-			Deny  *[]string `json:"deny"`
+			Allow       []string  `json:"allow"` // allow and ask are decoded only so a malformed list rejects the file
+			Ask         []string  `json:"ask"`
+			Deny        *[]string `json:"deny"`
+			DefaultMode string    `json:"defaultMode"` // decoded only so the error text matches settings.LivePermissions
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {

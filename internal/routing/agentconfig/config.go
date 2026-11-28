@@ -46,7 +46,12 @@ func (c *Config) Clone() *Config {
 	if c == nil {
 		return nil
 	}
-	out := &Config{GuardRules: guardRules{Deny: slices.Clone(c.GuardRules.Deny)}}
+	out := &Config{GuardRules: guardRules{
+		Allow:       slices.Clone(c.GuardRules.Allow),
+		Ask:         slices.Clone(c.GuardRules.Ask),
+		Deny:        slices.Clone(c.GuardRules.Deny),
+		DefaultMode: c.GuardRules.DefaultMode,
+	}}
 	if c.records != nil {
 		out.records = make(map[string]vault.AgentRecord, len(c.records))
 		for name, r := range c.records {
@@ -133,33 +138,35 @@ func BuiltinSettings(name string) (vault.AgentRecord, error) {
 	return cfg.records[name].Clone(), nil
 }
 
-// templateGuardRules reads the embedded settings template's permissions.deny verbatim.
+// templateGuardRules reads the embedded settings template's permissions block verbatim.
 func templateGuardRules() (guardRules, error) {
 	var tpl struct {
-		Permissions struct {
-			Deny []string `json:"deny"`
-		} `json:"permissions"`
+		Permissions settings.PermissionLists `json:"permissions"`
 	}
 	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
 		return guardRules{}, fmt.Errorf("agentconfig guard rules: %w", err)
 	}
-	return guardRules{Deny: tpl.Permissions.Deny}, nil
+	p := tpl.Permissions
+	return guardRules{Allow: p.Allow, Ask: p.Ask, Deny: p.Deny, DefaultMode: p.DefaultMode}, nil
 }
 
-// Guard returns the live denies, else the template defaults; a nil Config returns zero.
+// Guard returns the live permissions, else the template defaults; a nil Config returns zero.
 func (c *Config) Guard() guardRules {
 	if c == nil {
 		return guardRules{}
 	}
 	if live, err := settings.LivePermissions(); err == nil {
-		return guardRules{Deny: live.Deny}
+		return guardRules{Allow: live.Allow, Ask: live.Ask, Deny: live.Deny, DefaultMode: live.DefaultMode}
 	}
 	return c.GuardRules
 }
 
-// guardRules are the deny rules carried over into agents that honour Permission.UseGuardRules.
+// guardRules are the permission rules carried over into agents that honour Permission.UseGuardRules.
 type guardRules struct {
-	Deny []string `json:"deny"`
+	Allow       []string `json:"allow,omitempty"`
+	Ask         []string `json:"ask,omitempty"`
+	Deny        []string `json:"deny"`
+	DefaultMode string   `json:"defaultMode,omitempty"`
 }
 
 var idRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]+$`) })

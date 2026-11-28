@@ -62,8 +62,15 @@ func geminiSettingsPath(home string) string {
 	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 }
 
-// templateDeny is the settings template's bare-command deny list as rendered for gemini (17ff29d5).
-var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)"}
+// templateDeny returns the settings template's deny list as rendered for gemini under home.
+func templateDeny(home string) []any {
+	return []any{
+		"command(rm -rf /)",
+		"command(rm -rf ~)",
+		"command(sudo)",
+		"write_file(" + filepath.Join(home, ".ssh") + ")",
+	}
+}
 
 // renderGeminiSettings merges the guard denies into agy's settings.json, keeping other keys; a rerun is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
@@ -142,10 +149,10 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 	}
 }
 
-// A prefix guard rule (Bash(x:*)) is not expressible as an agy exact-match deny and is skipped.
+// Prefix rules (Bash(x:*), Edit(~/.ssh/**)) translate to agy rules; mid-command globs are skipped.
 func TestGeminiSettingsSkipsPrefixRules(t *testing.T) {
 	home := agenttest.Scratch(t)
-	live := `{"permissions":{"deny":["Bash(git push --force:*)","Bash(rm -rf /)"]}}`
+	live := `{"permissions":{"deny":["Bash(git push --force:*)","Bash(git * --force)","Bash(rm -rf /)","Edit(~/.ssh/**)"],"defaultMode":"auto"}}`
 	if err := os.WriteFile(settings.SettingsFile(), []byte(live), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -168,9 +175,12 @@ func TestGeminiSettingsSkipsPrefixRules(t *testing.T) {
 		t.Fatalf("permissions key missing: %s", raw)
 	}
 	deny, _ := perms["deny"].([]any)
-	want := []any{"command(rm -rf /)"}
+	want := []any{"command(git push --force)", "command(rm -rf /)", "write_file(" + filepath.Join(home, ".ssh") + ")"}
 	if !reflect.DeepEqual(deny, want) {
-		t.Errorf("permissions.deny = %v, want %v (a prefix rule must not appear)", deny, want)
+		t.Errorf("permissions.deny = %v, want %v", deny, want)
+	}
+	if got["agentMode"] != "auto" {
+		t.Errorf("agentMode = %v, want auto", got["agentMode"])
 	}
 }
 
@@ -228,13 +238,24 @@ func TestGeminiSettingsMissingFileCreatesDenyOnly(t *testing.T) {
 	if !ok {
 		t.Fatalf("permissions key missing: %s", raw)
 	}
-	deny, ok := perms["deny"].([]any)
-	if !ok {
-		t.Fatalf("permissions.deny missing: %s", raw)
+	checkTemplatePermissions(t, home, got, perms)
+}
+
+func checkTemplatePermissions(t *testing.T, home string, got, perms map[string]any) {
+	t.Helper()
+	if deny, _ := perms["deny"].([]any); !reflect.DeepEqual(deny, templateDeny(home)) {
+		t.Errorf("permissions.deny = %v, want %v", deny, templateDeny(home))
 	}
-	wantDeny := templateDeny
-	if !reflect.DeepEqual(deny, wantDeny) {
-		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
+	allow, _ := perms["allow"].([]any)
+	if !slices.Contains(allow, any("command(claude-code)")) || !slices.Contains(allow, any("read_file(*)")) {
+		t.Errorf("permissions.allow = %v, want template allow rules", allow)
+	}
+	wantAsk := []any{"write_file(" + filepath.Join(home, ".claude", "state", "vault.db") + ")"}
+	if ask, _ := perms["ask"].([]any); !reflect.DeepEqual(ask, wantAsk) {
+		t.Errorf("permissions.ask = %v, want %v", ask, wantAsk)
+	}
+	if got["agentMode"] != "auto" {
+		t.Errorf("agentMode = %v, want auto", got["agentMode"])
 	}
 }
 

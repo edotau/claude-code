@@ -836,18 +836,20 @@ func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.j
 
 // PermissionLists is the part of a settings.json `permissions` block the guards read.
 type PermissionLists struct {
-	Allow []string `json:"allow"`
-	Ask   []string `json:"ask"`
-	Deny  []string `json:"deny"`
+	Allow       []string `json:"allow"`
+	Ask         []string `json:"ask"`
+	Deny        []string `json:"deny"`
+	DefaultMode string   `json:"defaultMode,omitempty"`
 }
 
 // LivePermissions reads the live settings.json's permissions lists; a missing or invalid file is an error.
 func LivePermissions() (PermissionLists, error) {
 	var doc struct {
 		Permissions *struct {
-			Allow []string  `json:"allow"`
-			Ask   []string  `json:"ask"`
-			Deny  *[]string `json:"deny"`
+			Allow       []string  `json:"allow"`
+			Ask         []string  `json:"ask"`
+			Deny        *[]string `json:"deny"`
+			DefaultMode string    `json:"defaultMode"`
 		} `json:"permissions"`
 	}
 	data, err := readCapped(SettingsFile(), maxSettingsBytes)
@@ -862,7 +864,7 @@ func LivePermissions() (PermissionLists, error) {
 		return PermissionLists{}, errors.New("settings.json: permissions.deny is missing")
 	}
 	p := doc.Permissions
-	return PermissionLists{Allow: p.Allow, Ask: p.Ask, Deny: *p.Deny}, nil
+	return PermissionLists{Allow: p.Allow, Ask: p.Ask, Deny: *p.Deny, DefaultMode: p.DefaultMode}, nil
 }
 
 const maxSettingsBytes = 4 << 20

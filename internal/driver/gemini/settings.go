@@ -33,69 +33,162 @@ func renderGeminiSettings(home string, o agentconfig.RenderOptions, out io.Write
 		fmt.Fprintf(out, "gemini-settings: skipped: %v\n", err)
 		return false, fmt.Errorf("gemini-settings: load agentconfig: %w", err)
 	}
-	rules := agyGuardRules(cfg.Guard().Deny, out)
+	g := cfg.Guard()
+	lists := map[string][]string{
+		"allow": agyGuardRules(g.Allow, home, out),
+		"ask":   agyGuardRules(g.Ask, home, out),
+		"deny":  agyGuardRules(g.Deny, home, out),
+	}
 	path := agySettingsPath(home)
 	return agentconfig.CommitJSONObject(path, o, out, "gemini-settings", func(obj map[string]any, existed bool) bool {
-		if len(rules) == 0 && !existed {
-			return false // nothing to deny: don't create agy's settings.json just to write an empty list
-		}
-		perms, existing, ok := agyPermissions(obj)
-		if !ok {
-			fmt.Fprintf(out, "gemini-settings: skipped: %s has a non-object permissions or non-array permissions.deny\n", path)
-			return false
-		}
-		merged := []any{}
-		for _, d := range mergeAgyDeny(existing, rules) {
-			merged = append(merged, d)
-		}
-		for _, e := range existing { // keep entries agy may define that are not plain strings
-			if _, ok := e.(string); !ok {
-				merged = append(merged, e)
-			}
-		}
-		perms["deny"] = merged
-		obj["permissions"] = perms
-		return true
+		return applyAgySettings(obj, existed, path, lists, g.DefaultMode, out)
 	})
 }
 
-// agyPermissions returns obj's permissions map and deny list; ok is false when either holds another JSON type.
-func agyPermissions(obj map[string]any) (perms map[string]any, deny []any, ok bool) {
+// applyAgySettings merges translated allow/ask/deny lists and defaultMode into obj.
+func applyAgySettings(obj map[string]any, existed bool, path string, lists map[string][]string, mode string, out io.Writer) bool {
+	if len(lists["allow"])+len(lists["ask"])+len(lists["deny"]) == 0 && mode == "" && !existed {
+		return false // nothing to sync: don't create agy's settings.json just to write an empty object
+	}
+	perms, ok := agyPermissions(obj)
+	if !ok {
+		fmt.Fprintf(out, "gemini-settings: skipped: %s has a non-object permissions or non-array rule list\n", path)
+		return false
+	}
+	for _, k := range []string{"allow", "ask", "deny"} {
+		mergeAgyList(perms, k, lists[k])
+	}
+	obj["permissions"] = perms
+	if mode != "" && obj["agentMode"] == nil {
+		obj["agentMode"] = mode
+	}
+	return true
+}
+
+// agyPermissions returns obj's permissions map; ok is false when permissions or any rule list has the wrong JSON type.
+func agyPermissions(obj map[string]any) (perms map[string]any, ok bool) {
 	perms = map[string]any{}
 	if v, has := obj["permissions"]; has {
 		if perms, ok = v.(map[string]any); !ok {
-			return nil, nil, false
+			return nil, false
 		}
 	}
-	if v, has := perms["deny"]; has {
-		if deny, ok = v.([]any); !ok {
-			return nil, nil, false
+	for _, k := range []string{"allow", "ask", "deny"} {
+		if v, has := perms[k]; has {
+			if _, ok := v.([]any); !ok {
+				return nil, false
+			}
 		}
 	}
-	return perms, deny, true
+	return perms, true
 }
 
-// agyGuardRules converts Bash(...) denies to agy command(...) rules (a glob keeps its literal prefix), noting the rest.
-func agyGuardRules(deny []string, out io.Writer) []string {
+// mergeAgyList merges rules into perms[key], preserving existing string and non-string entries without duplicates.
+func mergeAgyList(perms map[string]any, key string, rules []string) {
+	existing, has := perms[key].([]any)
+	if len(rules) == 0 && !has {
+		return
+	}
+	merged := []any{}
+	for _, d := range mergeAgyDeny(existing, rules) {
+		merged = append(merged, d)
+	}
+	for _, e := range existing { // keep entries agy may define that are not plain strings
+		if _, ok := e.(string); !ok {
+			merged = append(merged, e)
+		}
+	}
+	perms[key] = merged
+}
+
+// agyGuardRules converts Claude Code permission rules into agy action(target) rules, noting any skipped globs.
+func agyGuardRules(in []string, home string, out io.Writer) []string {
 	var rules []string
-	for _, r := range deny {
-		cmd, ok := strings.CutPrefix(r, "Bash(")
-		cmd, ok2 := strings.CutSuffix(cmd, ")")
-		if !ok || !ok2 || strings.HasSuffix(cmd, ":*") {
-			fmt.Fprintf(out, "gemini-settings: note: %q is not exact-match; agy denies exact commands only, skipped\n", r)
-			continue
+	for _, r := range in {
+		if rule, ok := agyRule(r, home, out); ok && !slices.Contains(rules, rule) {
+			rules = append(rules, rule)
 		}
-		if i := strings.IndexAny(cmd, "*?["); i >= 0 { // agy matches command rules by token prefix, never by glob
-			if strings.Trim(cmd[i:], "*?") != "" || strings.TrimSpace(cmd[:i]) == "" { // only a trailing glob keeps its prefix
-				fmt.Fprintf(out, "gemini-settings: note: %q is not a trailing glob; an agy prefix rule would widen it, skipped\n", r)
-				continue
-			}
-			cmd = strings.TrimSpace(cmd[:i])
-			fmt.Fprintf(out, "gemini-settings: note: %q written as the agy prefix rule command(%s)\n", r, cmd)
-		}
-		rules = append(rules, "command("+cmd+")")
 	}
 	return rules
+}
+
+// agyBareRules maps bare or wildcard Claude Code tool names to their agy global rules.
+var agyBareRules = map[string]string{
+	"Bash": "command(*)", "Bash(*)": "command(*)",
+	"Read": "read_file(*)", "Read(*)": "read_file(*)",
+	"Edit": "write_file(*)", "Write": "write_file(*)", "MultiEdit": "write_file(*)",
+	"Edit(*)": "write_file(*)", "Write(*)": "write_file(*)",
+	"WebFetch": "read_url(*)", "WebSearch": "read_url(*)", "WebFetch(*)": "read_url(*)",
+}
+
+// agyRule converts one Claude Code permission rule to its agy action(target) equivalent.
+func agyRule(r, home string, out io.Writer) (string, bool) {
+	if mapped, ok := agyBareRules[r]; ok {
+		return mapped, true
+	}
+	if srv, tool, ok := strings.Cut(strings.TrimPrefix(r, "mcp__"), "__"); ok && strings.HasPrefix(r, "mcp__") && srv != "" && tool != "" {
+		return "mcp(" + srv + "/" + tool + ")", true
+	}
+	open := strings.IndexByte(r, '(')
+	if open <= 0 || !strings.HasSuffix(r, ")") {
+		fmt.Fprintf(out, "gemini-settings: note: %q is not a recognized agy rule, skipped\n", r)
+		return "", false
+	}
+	return agyScopedRule(r, r[:open], r[open+1:len(r)-1], home, out)
+}
+
+// agyScopedRule converts a Tool(arg) rule to its agy equivalent.
+func agyScopedRule(raw, tool, arg, home string, out io.Writer) (string, bool) {
+	switch tool {
+	case "Bash":
+		return agyCommandRule(raw, arg, out)
+	case "Read":
+		return agyPathRule("read_file", raw, arg, home, out)
+	case "Edit", "Write", "MultiEdit":
+		return agyPathRule("write_file", raw, arg, home, out)
+	case "WebFetch":
+		if dom, ok := strings.CutPrefix(arg, "domain:"); ok && dom != "" {
+			return "read_url(" + dom + ")", true
+		}
+	}
+	fmt.Fprintf(out, "gemini-settings: note: %q is not expressible as an agy rule, skipped\n", raw)
+	return "", false
+}
+
+// agyCommandRule converts a Bash(...) argument to an agy command(...) prefix or exact rule.
+func agyCommandRule(raw, cmd string, out io.Writer) (string, bool) {
+	if prefix, ok := strings.CutSuffix(cmd, ":*"); ok {
+		cmd = strings.TrimSpace(prefix)
+	} else if i := strings.IndexAny(cmd, "*?["); i >= 0 { // agy matches command rules by token prefix, never by glob
+		if strings.Trim(cmd[i:], "*?") != "" || strings.TrimSpace(cmd[:i]) == "" {
+			fmt.Fprintf(out, "gemini-settings: note: %q is not a trailing glob; an agy prefix rule would widen it, skipped\n", raw)
+			return "", false
+		}
+		cmd = strings.TrimSpace(cmd[:i])
+	}
+	if cmd == "" || strings.ContainsAny(cmd, "*?[") {
+		fmt.Fprintf(out, "gemini-settings: note: %q has a mid-command wildcard; skipped\n", raw)
+		return "", false
+	}
+	return "command(" + cmd + ")", true
+}
+
+// agyPathRule converts a Read/Edit/Write path argument to an agy read_file/write_file prefix rule.
+func agyPathRule(action, raw, arg, home string, out io.Writer) (string, bool) {
+	for _, suf := range []string{"/**", "/*"} {
+		if p, ok := strings.CutSuffix(arg, suf); ok {
+			arg = p
+			break
+		}
+	}
+	if strings.HasPrefix(arg, "~/") && home != "" {
+		arg = filepath.Join(home, arg[2:])
+	}
+	if !filepath.IsAbs(arg) || strings.ContainsAny(arg, "*?[") {
+		fmt.Fprintf(out, "gemini-settings: note: %q uses a non-prefix path glob; enforced by safety-scan hook\n", raw)
+		return "", false
+	}
+	return action + "(" + arg + ")", true
 }
 
 // mergeAgyDeny returns the string entries of existing, then rules, without duplicates.
