@@ -47,15 +47,16 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 		weights map[string]float64
 		err     error
 	}
-	boosted := make(chan boosts, 1) // the access log and learned weights load while the bank search runs
-	parallel.Go(func() { boosted <- boosts{counts: returnCounts(time.Now()), weights: recallWeights()} },
-		func(err error) { boosted <- boosts{err: err} })
+	counted, weighed := make(chan boosts, 1), make(chan boosts, 1) // both load beside the bank search and each other
+	parallel.Go(func() { counted <- boosts{counts: returnCounts(time.Now())} }, func(err error) { counted <- boosts{err: err} })
+	parallel.Go(func() { weighed <- boosts{weights: recallWeights()} }, func(err error) { weighed <- boosts{err: err} })
 	seen := seenBlocks(session)
 	trace.seen = seen
 	ranked, files, segs := searchRecallTerms(terms, 0, true)
 	ranked = followReplaced(ranked, files, segs)
-	b := <-boosted
-	parallel.Rethrow(b.err)
+	b, w := <-counted, <-weighed
+	parallel.Rethrow(b.err, w.err)
+	b.weights = w.weights
 	var sem *semanticQuery
 	semSeen := false
 	if semantic {

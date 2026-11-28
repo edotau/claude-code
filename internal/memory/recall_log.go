@@ -15,6 +15,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -114,7 +115,7 @@ func rotateAndAppend(path string, now time.Time, entries []string, reason, sessi
 func newToday(path string, now time.Time, entries []string, session string, withSession bool) (plain, sess []string) {
 	day := now.UTC().Format("2006-01-02")
 	seen, seenSess := map[string]bool{}, map[string]bool{}
-	eachParsedLine(path, func(ts time.Time, entry, reason, s string) {
+	eachParsedLineOn(path, day, func(ts time.Time, entry, reason, s string) {
 		if reason != accessRecall || ts.UTC().Format("2006-01-02") != day {
 			return
 		}
@@ -238,14 +239,26 @@ func accessGeneration(path string, i int) string {
 	return fmt.Sprintf("%s.%d", path, i)
 }
 
-func parseAccessLine(line string) (ts time.Time, entry, reason, session string) {
-	stamp, fields, ok := strings.Cut(line, " -- ")
-	if !ok {
-		return
-	}
-	if stamp == sessionTag {
+// accessStamp is line's timestamp field, the fields after it and a session record's id; false without a delimiter.
+func accessStamp(line string) (stamp, fields, session string, ok bool) {
+	stamp, fields, ok = strings.Cut(line, " -- ")
+	if ok && stamp == sessionTag {
 		session, fields, _ = strings.Cut(fields, " -- ")
 		stamp, fields, _ = strings.Cut(fields, " -- ")
+	}
+	return stamp, fields, session, ok
+}
+
+// offDay reports a line whose "Z" stamp dates another day: its parse is UTC and dated stamp[:10], so it never matches.
+func offDay(line, day string) bool {
+	stamp, _, _, ok := accessStamp(line)
+	return ok && len(stamp) > len(day) && strings.HasSuffix(stamp, "Z") && stamp[:len(day)] != day
+}
+
+func parseAccessLine(line string) (ts time.Time, entry, reason, session string) {
+	stamp, fields, session, ok := accessStamp(line)
+	if !ok {
+		return
 	}
 	ts, _ = time.Parse(time.RFC3339, stamp)
 	entry, reason, _ = strings.Cut(fields, " -- ")
@@ -271,6 +284,11 @@ func LogBriefRecall(session, block string) {
 
 // eachParsedLine calls fn per parsed line of p; given reasons, a line whose tail ends in none is skipped unparsed.
 func eachParsedLine(p string, fn func(ts time.Time, entry, reason, session string), reasons ...string) {
+	eachParsedLineOn(p, "", fn, reasons...)
+}
+
+// eachParsedLineOn is eachParsedLine that, given a UTC day, also skips unparsed each line offDay proves is not on it.
+func eachParsedLineOn(p, day string, fn func(ts time.Time, entry, reason, session string), reasons ...string) {
 	data, err := os.ReadFile(p)
 	if err != nil || len(data) == 0 {
 		return
@@ -281,6 +299,9 @@ func eachParsedLine(p string, fn func(ts time.Time, entry, reason, session strin
 			return strings.HasSuffix(strings.TrimRightFunc(line, unicode.IsSpace), r)
 		}) {
 			continue // parseAccessLine's reason is the trimmed tail, so a line without one could never match
+		}
+		if day != "" && offDay(line, day) {
+			continue // a time.Parse per older line was most of a recall's access-log cost
 		}
 		if ts, entry, reason, session := parseAccessLine(line); !ts.IsZero() {
 			fn(ts, entry, reason, session)
@@ -618,13 +639,74 @@ func decodeRecallIndex(data []byte, key uint64, want map[fileKey]bool) map[fileK
 		return make(map[fileKey]indexed)
 	}
 	sumOK := make(chan bool, 1) // the checksum runs beside segment validation; its verdict gates the result
-	go func() { sumOK <- crc32.Checksum(body, indexCRC) == u32(trailer) }()
+	go func() { sumOK <- indexChecksum(body) == u32(trailer) }()
 	m, ok := readIndexEntries(body[indexHeaderLen:], u32(body[16:]), want)
 	sumGood := <-sumOK // always joined: the goroutine reads the mapping, which may be released once this returns
 	if !ok || !sumGood {
 		return make(map[fileKey]indexed)
 	}
 	return m
+}
+
+// indexCRCChunk is the least each checksum worker sums; the index is tens of MB, read whole on every recall.
+const indexCRCChunk = 2 << 20
+
+// indexChecksum is crc32.Checksum(data, indexCRC), its chunks summed concurrently and joined by crcCombine.
+func indexChecksum(data []byte) uint32 {
+	n := min(len(data)/indexCRCChunk, runtime.GOMAXPROCS(0), 8)
+	if n < 2 {
+		return crc32.Checksum(data, indexCRC)
+	}
+	size := len(data) / n
+	chunk := func(i int) []byte {
+		if i == n-1 {
+			return data[i*size:] // the last chunk takes the remainder
+		}
+		return data[i*size : (i+1)*size]
+	}
+	sums := make([]uint32, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { sums[i] = crc32.Checksum(chunk(i), indexCRC) })
+	}
+	wg.Wait()
+	sum := sums[0]
+	for i := 1; i < n; i++ {
+		sum = crcCombine(sum, sums[i], len(chunk(i)))
+	}
+	return sum
+}
+
+// castagnoliPoly is indexCRC's polynomial in the reflected form crc32 tables use.
+const castagnoliPoly = 0x82f63b78
+
+// crcMulModP is a*b modulo the CRC polynomial, bit 31 holding x^0 (zlib's multmodp).
+func crcMulModP(a, b uint32) uint32 {
+	var p uint32
+	for m := uint32(1) << 31; m != 0; m >>= 1 {
+		if a&m != 0 {
+			p ^= b
+		}
+		if b&1 != 0 {
+			b = b>>1 ^ castagnoliPoly
+		} else {
+			b >>= 1
+		}
+	}
+	return p
+}
+
+// crcCombine is the CRC of A followed by B given crc(A), crc(B) and len(B): crc(A)*x^(8*len(B)) ^ crc(B).
+func crcCombine(crcA, crcB uint32, lenB int) uint32 {
+	x := uint32(1) << 30 // x^1; squared each step it is x^(2^k)
+	p := uint32(1) << 31 // x^0
+	for n := uint64(lenB) * 8; n != 0; n >>= 1 {
+		if n&1 != 0 {
+			p = crcMulModP(x, p)
+		}
+		x = crcMulModP(x, x)
+	}
+	return crcMulModP(p, crcA) ^ crcB
 }
 
 // retained is the one mapping loadSegments keeps for the process, because the segments it hands out alias it.
@@ -787,8 +869,9 @@ func loadSegments(files []corpusFile, persist bool, terms []string) []segView {
 	added := map[fileKey]indexed{}
 	var missing []int
 	var infos []os.FileInfo
+	fileInfos, statErrs := statCorpus(files)
 	for i, f := range files {
-		info, err := os.Stat(f.path)
+		info, err := fileInfos[i], statErrs[i]
 		stats[f.path] = err == nil
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -816,6 +899,27 @@ func loadSegments(files []corpusFile, persist bool, terms []string) []segView {
 }
 
 const corpusReadWorkers = 4
+
+// statCorpusMin is the corpus size from which the per-recall stats run on the pool rather than one by one.
+const statCorpusMin = 64
+
+// statCorpus stats every file, slot i holding file i's info or error.
+func statCorpus(files []corpusFile) ([]os.FileInfo, []error) {
+	infos, errs := make([]os.FileInfo, len(files)), make([]error, len(files))
+	stat := func(i int) { infos[i], errs[i] = os.Stat(files[i].path) }
+	if len(files) < statCorpusMin {
+		for i := range files {
+			stat(i)
+		}
+		return infos, errs
+	}
+	idx := make([]int, len(files))
+	for i := range idx {
+		idx[i] = i
+	}
+	forEachIndex(idx, stat)
+	return infos, errs
+}
 
 // encodeMissing indexes the missing files; given terms, those RowRecall renders are parsed from its rows, not read.
 func encodeMissing(files []corpusFile, missing []int, segs []segView, terms []string) {

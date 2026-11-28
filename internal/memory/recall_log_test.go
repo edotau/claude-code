@@ -3,6 +3,8 @@ package memory
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -746,5 +748,71 @@ func TestRecallIndexRetainedFollowsRewrite(t *testing.T) {
 	}
 	if !decodeRecallIndex(first, f.key, nil)[fileKey{f.source, segEntries}].seg.valid() {
 		t.Fatal("old mapping was invalidated by the rewrite")
+	}
+}
+
+// The chunked index checksum and its combine equal the one-pass CRC-32C at every size and split.
+func TestIndexChecksumMatchesOnePass(t *testing.T) {
+	r := rand.New(rand.NewPCG(1, 2))
+	data := make([]byte, indexCRCChunk*9+13)
+	for i := range data {
+		data[i] = byte(r.Uint32())
+	}
+	for _, n := range []int{0, 1, 4095, indexCRCChunk*2 - 1, indexCRCChunk * 2, indexCRCChunk*2 + 7, indexCRCChunk*5 + 3, len(data)} {
+		if got, want := indexChecksum(data[:n]), crc32.Checksum(data[:n], indexCRC); got != want {
+			t.Errorf("indexChecksum(%d bytes) = %08x, want %08x", n, got, want)
+		}
+	}
+	for range 200 {
+		n := r.IntN(1 << 16)
+		cut := r.IntN(n + 1)
+		a, b := crc32.Checksum(data[:cut], indexCRC), crc32.Checksum(data[cut:n], indexCRC)
+		if got, want := crcCombine(a, b, n-cut), crc32.Checksum(data[:n], indexCRC); got != want {
+			t.Fatalf("crcCombine split %d of %d = %08x, want %08x", cut, n, got, want)
+		}
+	}
+}
+
+// offDay skips only lines whose full parse could never land on the day, whatever the stamp's shape.
+func TestOffDayNeverSkipsALineOnTheDay(t *testing.T) {
+	const day, sid = "2026-11-28", "11111111-1111-1111-1111-111111111111"
+	stamps := []string{"2026-11-28T01:00:00Z", "2026-11-27T23:59:59Z", "2026-11-29T00:00:00Z", "2026-11-28T01:00:00.5Z",
+		"2026-11-27T23:30:00-05:00", "2026-11-28T01:00:00+05:00", "2026-11-28T25:00:00Z", "2026-11-28t01:00:00z",
+		"2026-11-28T01:00:00z", "2026-11-28Z", "Z", "", "garbage", "2026-02-30T01:00:00Z", "+026-11-28T01:00:00Z"}
+	skipped := 0
+	for _, stamp := range stamps {
+		for _, line := range []string{stamp + " -- aa000001 -- " + accessRecall, "session -- " + sid + " -- " + stamp + " -- aa000001 -- " + accessRecall, stamp} {
+			ts, _, _, _ := parseAccessLine(line)
+			onDay := !ts.IsZero() && ts.UTC().Format("2006-01-02") == day
+			if offDay(line, day) {
+				skipped++
+				if onDay {
+					t.Errorf("offDay skipped %q, which parses onto %s", line, day)
+				}
+			}
+		}
+	}
+	if skipped == 0 {
+		t.Fatal("offDay skipped nothing: the filter is not exercised")
+	}
+}
+
+// newToday's day filter keeps every recall line of the day, offset stamps included, and drops the others.
+func TestNewTodayKeepsOffsetStampsOnTheDay(t *testing.T) {
+	tempConfig(t)
+	const sid = "11111111-1111-1111-1111-111111111111"
+	path := accessLogPath()
+	write(t, path, "2026-11-27T10:00:00Z -- aa000001 -- prompt-recall inject\n"+
+		"2026-11-27T23:30:00-05:00 -- bb000002 -- prompt-recall inject\n"+
+		"2026-11-28T01:00:00+05:00 -- cc000003 -- prompt-recall inject\n"+
+		"session -- "+sid+" -- 2026-11-28T09:00:00Z -- dd000004 -- prompt-recall inject\n"+
+		"2026-11-28T09:00:00Z -- ee000005 -- memory show\n")
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	plain, sess := newToday(path, now, []string{"aa000001", "bb000002", "cc000003", "dd000004", "ee000005"}, sid, true)
+	if want := []string{"aa000001", "cc000003", "dd000004", "ee000005"}; !slices.Equal(plain, want) {
+		t.Errorf("plain = %v, want %v", plain, want)
+	}
+	if want := []string{"aa000001", "bb000002", "cc000003", "ee000005"}; !slices.Equal(sess, want) {
+		t.Errorf("session = %v, want %v", sess, want)
 	}
 }
