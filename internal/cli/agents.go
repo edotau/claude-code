@@ -73,7 +73,8 @@ func agentNode(name string) *helptext.Node {
 		"catalog":  catalogSpec(name),
 	}}
 	if name == "gemini" {
-		n.Sub["vscode"] = &helptext.Node{Flags: []helptext.Flag{flag("profile"), flag("overlay"), flag("model")}}
+		n.Sub["vscode"] = &helptext.Node{Flags: []helptext.Flag{flag("profile"), flag("overlay"), flag("model"),
+			flag("keep-env"), boolFlag("direct"), boolFlag("print-env")}}
 	}
 	if name == "codex" {
 		task := func(f ...helptext.Flag) *helptext.Node { return &helptext.Node{Flags: append(f, flag("overlay"))} }
@@ -1048,9 +1049,9 @@ func agentProfile(name string, args []string) int {
 func geminiVSCodePage() helptext.Page {
 	p := helptext.Page{
 		Usage: "claude-code gemini vscode [--profile P] [--overlay JSON] [--model M] [code args…]",
-		About: "Quit VS Code and reopen it with the Antigravity extension on the route `claude-code gemini` " +
-			"resolves: a Databricks profile's gateway, or its own login (--profile antigravity). Other args go " +
-			"to VS Code (a folder, --new-window). macOS. Exit 0, 1 failed.",
+		About: "Open a VS Code window whose Antigravity extension uses its Google login, or with --profile or " +
+			"--overlay a Databricks profile's gateway. Other windows keep their route. Other args go to VS Code " +
+			"(a folder). macOS. Exit 0, 1 failed.",
 		Flags: launchFlags("gemini"),
 	}
 	return p

@@ -53,6 +53,20 @@ func execAgy(bin string, argv []string) error {
 	return execAgyImage(bin, argv, env.Env())
 }
 
+// RebindGatewayToken re-signs env's agy gateway token to pid, a process that outlives this one.
+func RebindGatewayToken(env map[string]string, pid int) error {
+	secret, err := proxy.ClientSecret()
+	if err != nil {
+		return err
+	}
+	tok, err := rebindAgyToken(secret, env["AGY_LLM_GATEWAY_API_KEY"], pid, time.Now())
+	if err != nil {
+		return err
+	}
+	env["AGY_LLM_GATEWAY_API_KEY"] = tok
+	return nil
+}
+
 // rebindAgyToken copies signed scope/fence/failover only; the standard signer renews TTL, still bounded by agy's PID.
 func rebindAgyToken(secret, tok string, pid int, now time.Time) (string, error) {
 	if err := proxy.CheckSessionToken(secret, tok, "", now, proc.StartTime); err != nil {
