@@ -570,11 +570,38 @@ func FirstVersion(line string) string {
 
 // StripJSONC removes comments and trailing commas outside strings; an unterminated /* returns data unchanged.
 func StripJSONC(data []byte) []byte {
-	stripped, ok := stripComments(data)
-	if !ok {
-		return data
+	out := make([]byte, 0, len(data))
+	var st strState
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if st.step(c) {
+			out = append(out, c)
+			continue
+		}
+		switch {
+		case c == '"':
+			st.in = true
+			out = append(out, c)
+		case hasPair(data, i, '/', '/'):
+			nl := bytes.IndexByte(data[i+2:], '\n')
+			if nl < 0 {
+				return out
+			}
+			i += 2 + nl
+			out = append(out, '\n')
+		case hasPair(data, i, '/', '*'):
+			end := bytes.Index(data[i+2:], []byte("*/"))
+			if end < 0 {
+				return data
+			}
+			i += 2 + end + 1
+		case c == '}' || c == ']':
+			out = append(dropTrailingComma(out), c)
+		default:
+			out = append(out, c)
+		}
 	}
-	return stripTrailingCommas(stripped)
+	return out
 }
 
 // strState tracks whether the scan is inside a JSON string literal and just past a backslash.
@@ -596,88 +623,13 @@ func (st *strState) step(c byte) bool {
 	return true
 }
 
-// stripComments removes comments; ok is false when a /* comment never closes.
-func stripComments(data []byte) (out []byte, ok bool) {
-	out = make([]byte, 0, len(data))
-	var st strState
-	for i := 0; i < len(data); i++ {
-		c := data[i]
-		if st.step(c) {
-			out = append(out, c)
-			continue
-		}
-		switch {
-		case c == '"':
-			st.in = true
-			out = append(out, c)
-		case hasPair(data, i, '/', '/'):
-			i = skipLineComment(data, i)
-			if i < len(data) {
-				out = append(out, '\n')
-			}
-		case hasPair(data, i, '/', '*'):
-			end, closed := skipBlockComment(data, i)
-			if !closed {
-				return nil, false
-			}
-			i = end
-		default:
-			out = append(out, c)
-		}
-	}
-	return out, true
-}
-
 func hasPair(data []byte, i int, a, b byte) bool {
 	return data[i] == a && i+1 < len(data) && data[i+1] == b
 }
 
-// skipLineComment returns the index of the newline ending the // comment at i, or len(data).
-func skipLineComment(data []byte, i int) int {
-	for i < len(data) && data[i] != '\n' {
-		i++
-	}
-	return i
-}
-
-// skipBlockComment returns the index of the closing '/' of the /* comment at i; closed is false if none.
-func skipBlockComment(data []byte, i int) (end int, closed bool) {
-	for j := i + 2; j+1 < len(data); j++ {
-		if data[j] == '*' && data[j+1] == '/' {
-			return j + 1, true
-		}
-	}
-	return len(data), false
-}
-
-func stripTrailingCommas(data []byte) []byte {
-	out := make([]byte, 0, len(data))
-	var st strState
-	for i := range data {
-		c := data[i]
-		if st.step(c) {
-			out = append(out, c)
-			continue
-		}
-		if c == '"' {
-			st.in = true
-			out = append(out, c)
-			continue
-		}
-		if c == ',' && closesAfterSpace(data, i+1) {
-			continue // drop the trailing comma
-		}
-		out = append(out, c)
+func dropTrailingComma(out []byte) []byte {
+	if n := len(bytes.TrimRight(out, " \t\n\r")); n > 0 && out[n-1] == ',' {
+		return append(out[:n-1], out[n:]...)
 	}
 	return out
 }
-
-// closesAfterSpace reports whether the first non-space byte at or after j closes an object or array.
-func closesAfterSpace(data []byte, j int) bool {
-	for j < len(data) && isJSONSpace(data[j]) {
-		j++
-	}
-	return j < len(data) && (data[j] == '}' || data[j] == ']')
-}
-
-func isJSONSpace(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' }

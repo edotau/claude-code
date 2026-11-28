@@ -99,7 +99,7 @@ func readMatching(sub []byte, tail int64, fn func(Entry)) error {
 			return
 		}
 		var e Entry
-		if _, err := schemas.Decode(format, line, &e); err == nil {
+		if schemas.DecodeOK(format, line, &e) {
 			fn(e)
 		}
 	})
@@ -149,16 +149,11 @@ func (f *Follower) Next(dispatch string) (int, error) {
 	total := 0
 	for line := range bytes.SplitSeq(buf[:end], []byte{'\n'}) {
 		var e Entry
-		if bytes.Contains(line, want) && schemasDecode(line, &e) {
+		if bytes.Contains(line, want) && schemas.DecodeOK(format, line, &e) {
 			total += e.Input + e.Output + e.CacheRead + e.CacheWrite
 		}
 	}
 	return total, nil
-}
-
-func schemasDecode(line []byte, e *Entry) bool {
-	_, err := schemas.Decode(format, line, e)
-	return err == nil
 }
 
 // ProfileName is the registry row that served the entry; pre-attribution lines stored it in Provider.
@@ -249,7 +244,7 @@ func (c *sessionLedger) readTail(f *os.File, size int64, id, day string) (tally,
 				c.offset += int64(len(line))
 			}
 			var e Entry
-			if _, err := schemas.Decode(format, line, &e); err != nil {
+			if !schemas.DecodeOK(format, line, &e) {
 				return
 			}
 			// An unterminated entry counts now but must be re-read if the next write extends it.

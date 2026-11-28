@@ -182,12 +182,11 @@ func BackupPath(src string, now time.Time) string {
 	sep := string(filepath.Separator)
 	rel := strings.TrimPrefix(filepath.Join(sep, src), sep) // a rooted Join drops leading ".."
 	if home, err := os.UserHomeDir(); err == nil {
-		if r, err := filepath.Rel(home, src); err == nil && r != ".." && !strings.HasPrefix(r, ".."+sep) {
+		if r, ok := RelWithin(home, src); ok {
 			rel = r
 		}
 	}
-	ts := now.Format("20060102-150405.000000000")
-	return filepath.Join(StateDir(), "backups", rel+".bak-"+ts)
+	return filepath.Join(StateDir(), "backups", rel+".bak-"+now.Format("20060102-150405.000000000"))
 }
 
 // BackupDir is the per-run directory for internal/setup's backup bundles.
@@ -236,10 +235,11 @@ func AtomicWriteNoSync(dest string, data []byte, mode os.FileMode) error {
 }
 
 func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	dir := filepath.Dir(dest)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(dest), filepath.Base(dest)+".tmp-*")
+	f, err := os.CreateTemp(dir, filepath.Base(dest)+".tmp-*")
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) erro
 		return errors.Join(err, os.Remove(tmp))
 	}
 	if syncData {
-		return syncDir(filepath.Dir(dest))
+		return syncDir(dir)
 	}
 	return nil
 }
@@ -422,11 +422,9 @@ func endsMidLine(f *os.File) bool {
 	if err != nil || fi.Size() == 0 {
 		return false
 	}
-	last := make([]byte, 1)
-	if _, err := f.ReadAt(last, fi.Size()-1); err != nil {
-		return false
-	}
-	return last[0] != '\n'
+	var last [1]byte
+	_, err = f.ReadAt(last[:], fi.Size()-1)
+	return err == nil && last[0] != '\n'
 }
 
 // ErrLockTimeout means WithFileLock gave up waiting for a held lock.

@@ -157,9 +157,11 @@ func (s *headingScan) leaf(l mdLine, full bool) {
 		}
 		return
 	}
-	if level := setextLevel(body); level != 0 && s.inPara && full {
-		s.setext(level)
-		return
+	if s.inPara && full {
+		if level := setextLevel(body); level != 0 {
+			s.setext(level)
+			return
+		}
 	}
 	if isThematicBreak(body) {
 		s.endPara()
@@ -212,9 +214,7 @@ func (s *headingScan) setext(level int) {
 	last := len(texts) - 1
 	texts[last] = strings.TrimRight(texts[last], " \t\r\f\v")
 	first := texts[0]
-	if last == 0 {
-		first = strings.TrimRight(first, " \t\r\f\v")
-	} else {
+	if last > 0 {
 		first += "\n" // a multi-line heading's first segment keeps its line break, as the AST's does
 	}
 	s.out = append(s.out, Heading{
@@ -546,17 +546,13 @@ func isAlpha(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func setextLevel(body string) int {
-	t := strings.TrimRight(body, " \t\r\f\v")
-	if t == "" || strings.Trim(t, t[:1]) != "" {
+	if body == "" || (body[0] != '=' && body[0] != '-') || strings.Trim(strings.TrimRight(body, " \t\r\f\v"), body[:1]) != "" {
 		return 0
 	}
-	switch t[0] {
-	case '=':
+	if body[0] == '=' {
 		return 1
-	case '-':
-		return 2
 	}
-	return 0
+	return 2
 }
 
 func isThematicBreak(body string) bool {

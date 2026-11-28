@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/platform/textutil"
 )
 
 // Shared launch environment names keep overlay wiring and inherited-env scrubbing aligned.
@@ -179,16 +181,7 @@ func EnvBlocked(name string) bool {
 
 // EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
 func EnvKeepSet(names []string) map[string]bool {
-	keep := map[string]bool{}
-	for _, n := range names {
-		keep[n] = true
-	}
-	for n := range strings.SplitSeq(os.Getenv(envKeepVar), ",") {
-		if n = strings.TrimSpace(n); n != "" {
-			keep[n] = true
-		}
-	}
-	return keep
+	return textutil.SetOf(append(slices.Clone(names), textutil.SplitCSV(os.Getenv(envKeepVar))...)...)
 }
 
 // glob is one deny pattern classified once: a literal, prefix*, *suffix, or anything else (filepath.Match).

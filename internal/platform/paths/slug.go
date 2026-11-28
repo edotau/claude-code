@@ -196,31 +196,34 @@ func gitTopFresh(key string, e gitTopEntry, fi os.FileInfo) bool {
 		}
 		cur = parent
 	}
-	return gitDirIntact(filepath.Join(e.top, ".git"))
+	return gitDirIntact(e.top)
 }
 
-func gitDirIntact(dotGit string) bool {
-	fi, err := os.Lstat(dotGit)
+func gitDirIntact(top string) bool {
+	fi, err := os.Lstat(filepath.Join(top, ".git"))
 	if err != nil {
 		return false
 	}
 	if fi.IsDir() {
 		return true
 	}
-	data, err := os.ReadFile(dotGit)
+	target := gitdirFile(top)
+	return target != "" && FileExists(target)
+}
+
+func gitdirFile(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, ".git"))
 	if err != nil {
-		return false
+		return ""
 	}
-	target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	ptr, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
 	if !ok {
-		return false
+		return ""
 	}
-	target = strings.TrimSpace(target)
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(filepath.Dir(dotGit), target)
+	if ptr = strings.TrimSpace(ptr); !filepath.IsAbs(ptr) {
+		return filepath.Join(root, ptr)
 	}
-	_, err = os.Stat(target)
-	return err == nil
+	return filepath.Clean(ptr)
 }
 
 func gitTop(ctx context.Context, cwd string) string {
@@ -248,19 +251,7 @@ func MainCheckout(root string, gitOut ...func(string, ...string) (string, error)
 		}
 		return top
 	}
-	data, err := os.ReadFile(filepath.Join(root, ".git"))
-	if err != nil {
-		return root
-	}
-	ptr, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
-	if !ok {
-		return root
-	}
-	ptr = strings.TrimSpace(ptr)
-	if !filepath.IsAbs(ptr) {
-		ptr = filepath.Join(root, ptr)
-	}
-	ptr = filepath.Clean(ptr)
+	ptr := gitdirFile(root)
 	marker := string(filepath.Separator) + filepath.Join(".git", "worktrees") + string(filepath.Separator)
 	if i := strings.Index(ptr, marker); i > 0 {
 		return ptr[:i]
@@ -275,7 +266,10 @@ func CheckoutOf(dir string) (top, main string) {
 		return "", ""
 	}
 	for {
-		if hasGit(filepath.Join(dir, ".git")) {
+		if ok, isDir := hasGit(filepath.Join(dir, ".git")); ok {
+			if isDir {
+				return dir, dir
+			}
 			return dir, MainCheckout(dir)
 		}
 		parent := filepath.Dir(dir)
@@ -286,24 +280,24 @@ func CheckoutOf(dir string) (top, main string) {
 	}
 }
 
-func hasGit(path string) bool {
+func hasGit(path string) (ok, isDir bool) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return false
+		return false, false
 	}
 	if !fi.IsDir() {
-		return true
+		return true, false
 	}
 	if _, err := os.Lstat(filepath.Join(path, "HEAD")); err == nil {
-		return true // a repo's .git always holds HEAD, so skip the open+readdir
+		return true, true // a repo's .git always holds HEAD, so skip the open+readdir
 	}
 	d, err := os.Open(path)
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer d.Close()
 	names, _ := d.Readdirnames(1)
-	return len(names) > 0
+	return len(names) > 0, true
 }
 
 // FoldsCase holds where the default filesystem is case-insensitive (macOS, Windows); Linux compares byte-exact.
@@ -358,41 +352,26 @@ func CanonDeep(p string) string { return canonDeep(p, 0) }
 
 func canonDeep(p string, depth int) string {
 	p = filepath.Clean(p)
-	tail := ""
-	for cur := p; ; {
-		if r, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(r, tail)
+	for cur, tail := p, ""; ; {
+		if fi, err := os.Lstat(cur); err == nil { // skip EvalSymlinks' full walk when cur is missing
+			if r, err := filepath.EvalSymlinks(cur); err == nil {
+				return filepath.Join(r, tail)
+			}
+			if t, ok := danglingTarget(cur, fi, depth); ok {
+				return filepath.Join(canonDeep(t, depth+1), tail)
+			}
 		}
-		if t, ok := danglingTarget(cur, depth); ok {
-			return filepath.Join(canonDeep(t, depth+1), tail)
-		}
-		if cur, tail = existingAncestor(cur, tail); cur == "" {
-			return p
-		}
-	}
-}
-
-// existingAncestor climbs past missing ancestors with Lstat, sparing EvalSymlinks' full walk per level; "" at root.
-func existingAncestor(cur, tail string) (string, string) {
-	for {
 		parent := filepath.Dir(cur)
 		if parent == cur {
-			return "", tail
+			return p
 		}
-		tail = filepath.Join(filepath.Base(cur), tail)
-		if _, err := os.Lstat(parent); err == nil {
-			return parent, tail
-		}
-		cur = parent
+		tail, cur = filepath.Join(filepath.Base(cur), tail), parent
 	}
 }
 
 // danglingTarget returns the absolute target of cur when it is a symlink whose target is missing.
-func danglingTarget(cur string, depth int) (string, bool) {
-	if depth >= maxLinkDepth {
-		return "", false
-	}
-	if fi, err := os.Lstat(cur); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+func danglingTarget(cur string, fi os.FileInfo, depth int) (string, bool) {
+	if depth >= maxLinkDepth || fi.Mode()&os.ModeSymlink == 0 {
 		return "", false
 	}
 	t, err := os.Readlink(cur)

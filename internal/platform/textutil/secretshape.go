@@ -80,15 +80,18 @@ func LooksSecret(val string) bool {
 
 // looksSecretToken is LooksSecret's prefix checks without the bearer regex, which cannot match a whitespace-free run.
 func looksSecretToken(val string) bool {
-	if val == "" || !credentialStarts()[val[0]] || notCredentialShaped(val) { // every prefix begins with a start byte
+	if val == "" || !credentialStarts()[val[0]] { // every prefix begins with a start byte
 		return false
 	}
-	return HasGitHubPrefix(val) || IsSlackToken(val) || startsCredential(val)
+	if HasGitHubPrefix(val) || IsSlackToken(val) {
+		return !notCredentialShaped(val)
+	}
+	return startsCredential(val)
 }
 
 // startsCredential reports a value that begins with a full CredentialRE shape (Databricks, Tavily, Groq, JWT, ...).
 func startsCredential(val string) bool {
-	if len(val) < minCredentialLen || !credentialStarts()[val[0]] { // no pattern starts here or fits
+	if len(val) < minCredentialLen || !credentialStarts()[val[0]] || notCredentialShaped(val) { // no pattern fits
 		return false
 	}
 	loc := CredentialRE().FindStringIndex(val)
@@ -121,7 +124,7 @@ var gitHubPrefixes = []string{"gho_", "ghp_", "ghu_", "ghs_", "ghr_", "github_pa
 
 // HasGitHubPrefix reports a value starting with any GitHub token prefix.
 func HasGitHubPrefix(v string) bool {
-	return HasAnyPrefix(v, gitHubPrefixes...)
+	return strings.HasPrefix(v, "gh") && HasAnyPrefix(v, gitHubPrefixes...)
 }
 
 // GitHubPattern is a regex alternation matching any GitHub token with at least minLen body characters.
@@ -261,8 +264,7 @@ func runeOffset(s string, from, count int) int {
 
 // farMarker reports a start of a pem, jwt or bearer match, which can reach far past a cut (redaction can shorten text).
 func farMarker(s string) bool {
-	return strings.Contains(s, "-----BEGIN") || strings.Contains(s, "eyJ") ||
-		strings.Contains(strings.ToLower(s), "bearer")
+	return strings.Contains(s, "-----BEGIN") || strings.Contains(s, "eyJ") || hasBearerWord(s)
 }
 
 // SecretSpans preserves byte offsets so callers can overwrite secrets without moving stored records.
@@ -306,7 +308,7 @@ func SecretSpans(s string) [][2]int {
 	return mergeSecretSpans(spans)
 }
 
-// credentialSpans calls add with each token-shaped run in s that fullCredential accepts.
+// credentialSpans calls add with each token-shaped run in s that startsCredential accepts.
 func credentialSpans(s string, add func(start, end int)) {
 	starts := credentialStarts()
 	for i := 0; i < len(s); {
@@ -314,7 +316,7 @@ func credentialSpans(s string, add func(start, end int)) {
 		for j < len(s) && tokenByte(s[j]) {
 			j++
 		}
-		if j-i >= minCredentialLen && starts[s[i]] && fullCredential(s[i:j]) {
+		if j-i >= minCredentialLen && starts[s[i]] && startsCredential(s[i:j]) {
 			add(i, j)
 		}
 		i = max(j, i+1)
@@ -450,11 +452,6 @@ func advance(s string, c byte, from, cur int) int {
 
 // isSpaceByte is the regexp \s class: ASCII tab, newline, form feed, carriage return and space.
 func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
-
-// fullCredential is looksSecretToken minus the bare GitHub and Slack prefix checks, which match prose like "ghp_".
-func fullCredential(run string) bool {
-	return !notCredentialShaped(run) && startsCredential(run)
-}
 
 func mergeSecretSpans(spans [][2]int) [][2]int {
 	slices.SortFunc(spans, func(a, b [2]int) int { return a[0] - b[0] })

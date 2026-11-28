@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 )
 
@@ -76,7 +77,7 @@ func All() []Format {
 
 func peek(raw []byte) (int, error) {
 	var p struct {
-		Schema *int `json:"schema"`
+		Schema int `json:"schema"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return 0, err
@@ -84,13 +85,10 @@ func peek(raw []byte) (int, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return 0, errors.New("document is null, not an object")
 	}
-	if p.Schema == nil {
-		return 0, nil
+	if p.Schema < 0 {
+		return 0, fmt.Errorf("negative schema version %d", p.Schema)
 	}
-	if *p.Schema < 0 {
-		return 0, fmt.Errorf("negative schema version %d", *p.Schema)
-	}
-	return *p.Schema, nil
+	return p.Schema, nil
 }
 
 // Decode unmarshals raw into dst, migrating older versions step by step; from is the version found.
@@ -122,11 +120,7 @@ func SameShape(from int, raw []byte) ([]byte, error) {
 	if m == nil {
 		return nil, errors.New("document is null, not an object")
 	}
-	n, err := json.Marshal(from + 1)
-	if err != nil {
-		return nil, err
-	}
-	m["schema"] = n
+	m["schema"] = json.RawMessage(strconv.Itoa(from + 1))
 	return json.Marshal(m)
 }
 

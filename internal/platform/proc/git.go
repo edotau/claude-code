@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,25 +16,15 @@ import (
 )
 
 // GitEnv is the process environment minus every GIT_* variable, which would otherwise override a -C flag.
-func GitEnv() []string {
-	env := os.Environ()
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !EnvHasPrefix(kv, "GIT_") {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
+func GitEnv() []string { return gitEnv(false) }
 
-func runGitEnv() []string {
-	if os.Getenv("HOSTTEST_ACTIVE") == "" {
-		return GitEnv()
-	}
+func runGitEnv() []string { return gitEnv(os.Getenv("HOSTTEST_ACTIVE") != "") }
+
+func gitEnv(keepTest bool) []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if !EnvHasPrefix(kv, "GIT_") || keepTestGitVar(kv) {
+		if !EnvHasPrefix(kv, "GIT_") || keepTest && keepTestGitVar(kv) {
 			out = append(out, kv)
 		}
 	}
@@ -41,12 +32,8 @@ func runGitEnv() []string {
 }
 
 func keepTestGitVar(kv string) bool {
-	for _, p := range []string{"GIT_CONFIG_", "GIT_TERMINAL_PROMPT=", "GIT_OPTIONAL_LOCKS=", "GIT_AUTHOR_", "GIT_COMMITTER_"} {
-		if EnvHasPrefix(kv, p) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{"GIT_CONFIG_", "GIT_TERMINAL_PROMPT=", "GIT_OPTIONAL_LOCKS=", "GIT_AUTHOR_", "GIT_COMMITTER_"},
+		func(p string) bool { return EnvHasPrefix(kv, p) })
 }
 
 // RunGit executes git with GitEnv; dir becomes -C when non-empty (pass "" if args carries its own).
@@ -153,7 +140,7 @@ func StatusEntries(out string) []StatusEntry {
 			continue
 		}
 		e := StatusEntry{Code: f[:2], Path: f[3:]}
-		if strings.ContainsAny(e.Code, "RC") && out != "" {
+		if (f[0] == 'R' || f[0] == 'C' || f[1] == 'R' || f[1] == 'C') && out != "" {
 			e.From, out, _ = strings.Cut(out, "\x00")
 		}
 		entries = append(entries, e)
