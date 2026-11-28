@@ -27,8 +27,7 @@ import (
 // localAgent is the agent name of a no-model action's record and envelope.
 const localAgent = "local"
 
-// actionArgv is the verb argv for the spec's action; Go builds it from typed fields, never from free text.
-// gate and diff come from the actions table; actionCheck has already refused what the table refuses.
+// actionArgv is the action's verb argv, built from typed fields; gate and diff come from the actions table.
 func actionArgv(action string, own []string, agentName, model string) []string {
 	switch action {
 	case "gate", "diff":
@@ -245,7 +244,7 @@ func finishAction(rec *agent.Record, buf, stderr *capBuffer, runErr error, took 
 	return errors.Join(logErr, saveErr)
 }
 
-// runTableAction runs the table action's argv in this binary under the dispatch tools timeout; a failure carries the output.
+// runTableAction runs a table action in this binary under the dispatch tools timeout; a failure carries the output.
 func runTableAction(ctx context.Context, spec acts.Spec, raw json.RawMessage) (string, error) {
 	argv, err := spec.Argv(raw)
 	if err != nil {
