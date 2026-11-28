@@ -347,6 +347,12 @@ const laneSeenKind = "worktree-lanes"
 // otherVerdict notes a tracked change in another repo's main checkout until Claim marks it seen; never blocks.
 func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
 	for _, root := range otherRoots(in, cmd, edits, live) {
+		// Only edit-only checks can skip Git: staging checks may refresh the index through status.
+		if !isBash(in) || !laneText(cmd) {
+			if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
+				continue
+			}
+		}
 		hits, _ := liveTracked(ctx, in, cmd, root, edits) // a git error fails open
 		if len(hits) == 0 {
 			continue
@@ -367,6 +373,10 @@ func markLaneRepos(in *core.Input, edits []string) {
 		return
 	}
 	for _, root := range otherRoots(in, in.ToolCommand(), edits, paths.Real(paths.ConfigDir())) {
+		// An existing key makes SeenAdd read-only; avoid its lock without bypassing missing or unreadable stores.
+		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err == nil && seen {
+			continue
+		}
 		_, _ = core.SeenAdd(laneSeenKind, in.SessionID, root)
 	}
 }

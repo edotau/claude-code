@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -168,9 +169,19 @@ var laneTipTime = func(lane string) int64 {
 
 // liveQueued is this repo's queued lanes minus those whose branch tip moved after the entry was written.
 func liveQueued(main string) []worktree.QueuedLane {
-	return slices.DeleteFunc(worktree.Queued(main), func(q worktree.QueuedLane) bool {
-		return !paths.IsDir(q.Lane) || laneTipTime(q.Lane) > q.QueuedAt
-	})
+	queued := worktree.Queued(main)
+	drop := make([]bool, len(queued))
+	var wg sync.WaitGroup
+	for i, q := range queued {
+		if !paths.IsDir(q.Lane) {
+			drop[i] = true
+			continue
+		}
+		wg.Go(func() { drop[i] = laneTipTime(q.Lane) > q.QueuedAt }) // one git log per lane, so they overlap
+	}
+	wg.Wait()
+	i := -1
+	return slices.DeleteFunc(queued, func(worktree.QueuedLane) bool { i++; return drop[i] })
 }
 
 func laneQueueKey(q worktree.QueuedLane) string {

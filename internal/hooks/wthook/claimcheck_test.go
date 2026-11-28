@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -703,5 +704,93 @@ func TestClaimEditSkipsGitAndCleanPeerCheckUsesIndex(t *testing.T) {
 	if r := ClaimCheck(claimInput(t, map[string]any{"session_id": "sess-b", "cwd": repo, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": peerFile}})); r.Decision != core.Allow || r.Context != "" || r.Stderr != "" {
 		t.Fatalf("clean peer check with broken git = %+v, want allow with no warning", r)
+	}
+}
+
+func BenchmarkClaimCheckHandler(b *testing.B) {
+	for _, mode := range []string{"SeenRepo", "Peer"} {
+		b.Run(mode, func(b *testing.B) {
+			repo := benchClaimRepo(b)
+			orig := claimOwner
+			claimOwner = func() int { return checkerOwner }
+			b.Cleanup(func() { claimOwner = orig })
+			if _, err := core.SeenAdd(laneSeenKind, "bench", repo); err != nil {
+				b.Fatal(err)
+			}
+			if mode == "Peer" {
+				appendClaims(claimsFile(os.Getpid(), "peer"), []worktree.Claim{
+					{Path: filepath.Join(repo, "file-000.txt"), TS: time.Now().Unix()},
+				})
+			}
+			in := claimInput(b, map[string]any{"session_id": "bench", "cwd": repo, "tool_name": "Edit",
+				"tool_input": map[string]any{"file_path": "file-000.txt"}})
+			ClaimCheck(in)
+			b.ReportAllocs()
+			for b.Loop() {
+				ClaimCheck(in)
+			}
+		})
+	}
+}
+
+func TestOtherVerdictSeenEditSkipsOnlyReadOnlyGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell shim")
+	}
+	repo := claimFixture(t)
+	t.Setenv(worktreeModeEnv, "lanes")
+	if _, err := core.SeenAdd(laneSeenKind, "S", repo); err != nil {
+		t.Fatal(err)
+	}
+	bin, trace := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	shim := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + strings.ReplaceAll(trace, "'", "'\\''") + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, cmd := range []string{"", "sed -i s/a/b/ a.txt", "git add a.txt", "git mv a.txt b.txt"} {
+		_ = os.Remove(trace)
+		tool := "Bash"
+		if cmd == "" {
+			tool = "Edit"
+		}
+		in := claimInput(t, map[string]any{"session_id": "S", "cwd": repo, "tool_name": tool,
+			"tool_input": map[string]any{"command": cmd, "file_path": "a.txt"}})
+		got := otherVerdict(t.Context(), in, cmd, editPaths(in), paths.Real(paths.ConfigDir()))
+		if !reflect.DeepEqual(got, core.Result{}) {
+			t.Fatalf("%q: result %+v", cmd, got)
+		}
+		raw, _ := os.ReadFile(trace)
+		if ran := len(raw) > 0; ran != laneText(cmd) {
+			t.Fatalf("%q: git calls %q; staging/move checks must still run", cmd, raw)
+		}
+	}
+}
+
+func TestMarkLaneReposPreservesSeenBytes(t *testing.T) {
+	repo := claimFixture(t)
+	t.Setenv(worktreeModeEnv, "lanes")
+	in := claimInput(t, map[string]any{"session_id": "S", "cwd": repo, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "a.txt"}})
+	file := core.SeenFile(laneSeenKind, "S")
+	if _, err := core.SeenAdd(laneSeenKind, "S", "previous"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		markLaneRepos(in, editPaths(in))
+		if raw, _ := os.ReadFile(file); string(raw) != "previous\n"+repo+"\n" {
+			t.Fatalf("seen bytes = %q", raw)
+		}
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	markLaneRepos(in, editPaths(in))
+	if raw, _ := os.ReadFile(file); string(raw) != repo+"\n" {
+		t.Fatalf("recreated seen bytes = %q", raw)
+	}
+	entries, err := os.ReadDir(filepath.Dir(file))
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(file) {
+		t.Fatalf("seen directory = %v, %v", entries, err)
 	}
 }

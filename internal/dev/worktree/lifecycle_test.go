@@ -3,6 +3,7 @@ package worktree
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -919,5 +920,69 @@ func TestCleanFinishedDeletesLandedBranchOnceInHead(t *testing.T) {
 	commitIn(t, repo.Main, "cherry-pick", head)
 	if _, err := CleanFinished(repo); err != nil || branchExists(repo.Main, "worktree-ld") {
 		t.Fatalf("branch must go once its diff is in HEAD: %v", err)
+	}
+}
+
+// benchMain is a repo with an origin/HEAD one commit behind, built by hand since the fixture helpers need a *testing.T.
+func benchMain(b *testing.B) *Repo {
+	b.Helper()
+	main := paths.Canon(b.TempDir())
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", main}, args...)...)
+		cmd.Env = gitEnv("GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("commit", "--allow-empty", "-q", "-m", "init")
+	git("update-ref", "refs/remotes/origin/main", "HEAD")
+	git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	git("commit", "--allow-empty", "-q", "-m", "unpushed")
+	return &Repo{Main: main, Root: filepath.Join(paths.Canon(b.TempDir()), "worktrees", filepath.Base(main))}
+}
+
+func BenchmarkCreate(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	repo := benchMain(b)
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		i++
+		if _, err := Create(repo, fmt.Sprintf("bench%d", i), CreateOptions{}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkCleanFinished scans lanes that all have their own commits and stay, so each pass does the same work.
+func BenchmarkCleanFinished(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	repo := benchMain(b)
+	for i := range 6 {
+		dest, err := Create(repo, fmt.Sprintf("lane%d", i), CreateOptions{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, "work.txt"), []byte(dest), 0o600); err != nil {
+			b.Fatal(err)
+		}
+		cmd := exec.Command("git", "-C", dest, "add", "work.txt")
+		cmd.Env = gitEnv()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Fatalf("add: %v: %s", err, out)
+		}
+		cmd = exec.Command("git", "-C", dest, "commit", "-q", "-m", "work")
+		cmd.Env = gitEnv("GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Fatalf("commit: %v: %s", err, out)
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if res, err := CleanFinished(repo); err != nil || len(res) != 0 {
+			b.Fatalf("CleanFinished = %v, %v; want nothing removed", res, err)
+		}
 	}
 }

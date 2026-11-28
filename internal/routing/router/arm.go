@@ -181,18 +181,6 @@ func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[str
 	return counts
 }
 
-// StickyOrder returns rows ordered deterministically for key so sequential work shares one warm prefix cache.
-func StickyOrder(key string, rows []string) []string {
-	out := slices.Clone(rows)
-	if key == "" || len(out) < 2 {
-		return out
-	}
-	slices.SortFunc(out, func(a, b string) int {
-		return cmp.Or(cmp.Compare(hostTie(key, a), hostTie(key, b)), cmp.Compare(a, b))
-	})
-	return out
-}
-
 func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, counts map[string]int, picks armPicks, stickyKey string) map[string]int {
 	dead := map[string]bool{}
 	for _, p := range ps {

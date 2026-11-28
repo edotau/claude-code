@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
@@ -84,10 +87,13 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
 		return "", err
 	}
-	args, baseRef, newBranch := worktreeAddArgs(repo.Main, dest, branch, log)
+	args, baseRef, baseSha, newBranch := worktreeAddArgs(repo.Main, dest, branch, log)
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	base, baseErr := gitCmd(ctx, "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
+	base, baseErr := baseSha, error(nil)
+	if base == nil {
+		base, baseErr = gitCmd(ctx, "-C", repo.Main, "rev-parse", "--verify", baseRef+"^{commit}").Output()
+	}
 	if err := addWorktree(repo.Main, dest, branch, args, newBranch, opt.Deadline); err != nil {
 		return "", err
 	}
@@ -95,18 +101,43 @@ func createLocked(repo *Repo, name, dest, branch string, opt CreateOptions, log 
 		rollbackAdd(repo.Main, dest, branch, newBranch)
 		return "", fmt.Errorf("git worktree add reported success but %s is missing: %w", dest, err)
 	}
-	seedWorktree(repo.Main, dest, log)
-	if newBranch {
-		recordForkPoint(repo.Main, branch, base, baseErr, log)
-	}
-	if baseErr != nil {
-		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", baseErr)
-	} else if err := openLedger(repo.Main, name, ledgerInfo{
-		Path: dest, Branch: branch, Base: strings.TrimSpace(string(base)), BaseRef: baseRef, Session: opt.Session,
-	}); err != nil {
-		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", err)
-	}
+	finishCreate(createdLane{repo, name, dest, branch, baseRef, base, baseErr, newBranch}, opt.Session, log)
 	return dest, nil
+}
+
+// createdLane is a worktree just added, with what its fork-point and ledger records come from.
+type createdLane struct {
+	repo               *Repo
+	name, dest, branch string
+	baseRef            string
+	base               []byte
+	baseErr            error
+	newBranch          bool
+}
+
+// finishCreate overlaps seeding, the fork-point config and the ledger: they write different files.
+func finishCreate(c createdLane, session string, log io.Writer) {
+	var wg sync.WaitGroup
+	var forkLog bytes.Buffer
+	if c.newBranch {
+		wg.Go(func() { recordForkPoint(c.repo.Main, c.branch, c.base, c.baseErr, &forkLog) })
+	}
+	var ledgerErr error
+	if c.baseErr == nil {
+		wg.Go(func() {
+			ledgerErr = openLedger(c.repo.Main, c.name, ledgerInfo{
+				Path: c.dest, Branch: c.branch, Base: strings.TrimSpace(string(c.base)), BaseRef: c.baseRef, Session: session,
+			})
+		})
+	}
+	seedWorktree(c.repo.Main, c.dest, log)
+	wg.Wait()
+	_, _ = log.Write(forkLog.Bytes())
+	if c.baseErr != nil {
+		fmt.Fprintf(log, "worktree-create: warning: ledger: resolve base: %v\n", c.baseErr)
+	} else if ledgerErr != nil {
+		fmt.Fprintf(log, "worktree-create: warning: ledger: %v\n", ledgerErr)
+	}
 }
 
 // recordForkPoint stores a new branch's fork sha for the status line; a failure only warns.
@@ -229,14 +260,17 @@ func createBranchName(name, want string) (string, error) {
 }
 
 // worktreeAddArgs builds the `git worktree add` arguments, the start ref and whether it makes a branch.
-func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string, newBranch bool) {
+func worktreeAddArgs(main, dest, branch string, log io.Writer) (args []string, baseRef string, baseSha []byte, newBranch bool) {
 	args = []string{"-C", main, "worktree", "add", dest}
+	// the head probe only reads, so it overlaps the branch lookup; an existing branch drops it
+	head := make(chan string, 1)
+	go func() { head <- invokingHead(main) }()
 	if branchExists(main, branch) {
-		return append(args, branch), branch, false
+		return append(args, branch), branch, nil, false
 	}
-	baseRef = createBase(main, log)
+	baseRef, baseSha = createBaseAt(main, log, <-head)
 	// no upstream: branch -d checks merged into HEAD
-	return append(args, "--no-track", "-b", branch, baseRef), baseRef, true
+	return append(args, "--no-track", "-b", branch, baseRef), baseRef, baseSha, true
 }
 
 func resumeLedger(repo *Repo, name, dest, session string) error {
@@ -256,6 +290,12 @@ func resumeLedger(repo *Repo, name, dest, session string) error {
 }
 
 func createBase(main string, log io.Writer) string {
+	ref, _ := createBaseAt(main, log, invokingHead(main))
+	return ref
+}
+
+// createBaseAt is createBase given the head probe; a verified origin/HEAD also returns its sha.
+func createBaseAt(main string, log io.Writer, head string) (string, []byte) {
 	baseRef := "fresh"
 	for _, path := range []string{
 		filepath.Join(paths.ConfigDir(), "settings.json"),
@@ -283,20 +323,23 @@ func createBase(main string, log io.Writer) string {
 			baseRef = settings.Worktree.BaseRef
 		}
 	}
-	head := invokingHead(main)
 	if head != "HEAD" {
-		return head // run inside a collector: a lane starts at the collector's head, never at the default branch
+		return head, nil // run inside a collector: a lane starts at the collector's head, never at the default branch
 	}
 	if baseRef == "fresh" {
 		ctx, cancel := gitTimeoutCtx()
 		defer cancel()
 		out, err := gitCmd(ctx, "-C", main, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
 		ref := strings.TrimSpace(string(out))
-		if err == nil && gitCmd(ctx, "-C", main, "rev-parse", "--verify", ref+"^{commit}").Run() == nil {
-			return ref
+		if err != nil {
+			return head, nil
+		}
+		sha, err := gitCmd(ctx, "-C", main, "rev-parse", "--verify", ref+"^{commit}").Output()
+		if err == nil {
+			return ref, sha // the query createLocked would repeat
 		}
 	}
-	return head
+	return head, nil
 }
 
 // invokingHead is the HEAD commit of the linked worktree the process runs in, else "HEAD" (the primary's).
@@ -307,12 +350,16 @@ func invokingHead(main string) string {
 	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
-	mainDir, mainCommon, err := gitDirsOf(ctx, main)
-	if err != nil {
-		return "HEAD"
-	}
+	var mainDir, mainCommon string
+	var mainErr error
+	done := make(chan struct{})
+	go func() { // both lookups only read
+		defer close(done)
+		mainDir, mainCommon, mainErr = gitDirsOf(ctx, main)
+	}()
 	dir, common, err := gitDirsOf(ctx, cwd)
-	if err != nil || common != mainCommon || dir == mainDir {
+	<-done
+	if mainErr != nil || err != nil || common != mainCommon || dir == mainDir {
 		return "HEAD"
 	}
 	out, err := gitCmd(ctx, "-C", cwd, "rev-parse", "--verify", "HEAD^{commit}").Output()
@@ -711,9 +758,22 @@ func CleanFinished(repo *Repo) ([]CleanResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	var results []CleanResult
+	var cands []Entry
 	for _, e := range entries {
-		if !e.EligibleForClean() || !repo.holds(filepath.Dir(e.Path)) || !e.patchMerged && !committed(repo.Main, e.Branch) {
+		if e.EligibleForClean() && repo.holds(filepath.Dir(e.Path)) {
+			cands = append(cands, e)
+		}
+	}
+	// reflog reads are per branch and read-only, so they overlap before the serial cleans
+	worked := make([]bool, len(cands))
+	var wg sync.WaitGroup
+	for i, e := range cands {
+		wg.Go(func() { worked[i] = e.patchMerged || committed(repo.Main, e.Branch) })
+	}
+	wg.Wait()
+	var results []CleanResult
+	for i, e := range cands {
+		if !worked[i] {
 			continue
 		}
 		if r, err := Clean(repo, filepath.Base(e.Path), false); err == nil {
@@ -725,6 +785,9 @@ func CleanFinished(repo *Repo) ([]CleanResult, error) {
 
 // cleanKeptBranches deletes dirless worktree-* branches the ledger closed at that head once their diff is in HEAD.
 func cleanKeptBranches(repo *Repo) []CleanResult {
+	if noLaneBranchRefs(repo.Main) {
+		return nil
+	}
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
 	out, err := gitCmd(ctx, "-C", repo.Main, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/worktree-*").Output()
@@ -735,9 +798,7 @@ func cleanKeptBranches(repo *Repo) []CleanResult {
 	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		branch, oid, ok := strings.Cut(line, " ")
 		name := strings.TrimPrefix(branch, "worktree-")
-		if dest, err := resolveWorktreeBounded(repo, name); !ok || err != nil || !ledgerRecordsHead(repo.Main, name, oid) {
-			continue
-		} else if _, statErr := os.Lstat(dest); !os.IsNotExist(statErr) {
+		if !ok || !dirlessLane(repo, name) || !ledgerRecordsHead(repo.Main, name, oid) {
 			continue
 		}
 		if r, err := Clean(repo, name, false); err == nil && r.BranchDeleted {
@@ -745,6 +806,33 @@ func cleanKeptBranches(repo *Repo) []CleanResult {
 		}
 	}
 	return results
+}
+
+// dirlessLane is resolveWorktreeBounded passing on a dir-less name, skipping its git probe for a live one.
+func dirlessLane(repo *Repo, name string) bool {
+	dest, err := checkWorktreeName(repo, name)
+	if err != nil {
+		return false
+	}
+	_, statErr := os.Lstat(dest)
+	return os.IsNotExist(statErr)
+}
+
+// noLaneBranchRefs proves a plain repo has no refs/heads/worktree-* ref, so for-each-ref would print nothing.
+func noLaneBranchRefs(main string) bool {
+	gitDir := filepath.Join(main, ".git")
+	if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "reftable")); !os.IsNotExist(err) {
+		return false
+	}
+	loose, err := os.ReadDir(filepath.Join(gitDir, "refs", "heads"))
+	if err != nil || slices.ContainsFunc(loose, func(d os.DirEntry) bool { return strings.HasPrefix(d.Name(), "worktree-") }) {
+		return false
+	}
+	packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	return os.IsNotExist(err) || err == nil && !bytes.Contains(packed, []byte("refs/heads/worktree-"))
 }
 
 // committed reports whether branch's reflog shows a commit after its creation entry.

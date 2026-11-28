@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 )
 
 // claimInput is a parsed hook payload for the claims modules.
-func claimInput(t *testing.T, doc map[string]any) *core.Input {
+func claimInput(t testing.TB, doc map[string]any) *core.Input {
 	t.Helper()
 	b, err := json.Marshal(doc)
 	if err != nil {
@@ -119,7 +120,7 @@ func TestClaimSkipsOwnerLookupWhenNothingToRecord(t *testing.T) {
 }
 
 // agentInput parses doc as agent's hook would deliver it (copilot and opencode also announce themselves by shape).
-func agentInput(t *testing.T, agent string, doc map[string]any) *core.Input {
+func agentInput(t testing.TB, agent string, doc map[string]any) *core.Input {
 	t.Helper()
 	b, err := json.Marshal(doc)
 	if err != nil {
@@ -301,5 +302,109 @@ func TestClaimSkipsFailedEdits(t *testing.T) {
 		if claimed := err == nil; claimed != c.claims {
 			t.Errorf("%s: claimed = %v, want %v", session, claimed, c.claims)
 		}
+	}
+}
+
+func benchClaimRepo(b *testing.B) string {
+	b.Helper()
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	b.Setenv(worktreeModeEnv, "lanes")
+	b.Setenv("HARNESS_DISPATCH_ID", "")
+	repo := paths.Real(benchRepo(b))
+	for i := range 200 {
+		if err := os.WriteFile(filepath.Join(repo, fmt.Sprintf("file-%03d.txt", i)), []byte("base\n"), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	benchClaimGit(b, repo, "add", ".")
+	benchClaimGit(b, repo, "commit", "-qm", "files")
+	if err := os.WriteFile(filepath.Join(repo, "file-000.txt"), []byte("edited\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	return repo
+}
+
+func benchClaimGit(b *testing.B, repo string, args ...string) {
+	b.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		b.Fatalf("git %v: %v: %s", args, err, out)
+	}
+}
+
+func BenchmarkClaimHandler(b *testing.B) {
+	for _, mode := range []string{"Edit", "Dispatch", "Stage"} {
+		b.Run(mode, func(b *testing.B) {
+			repo := benchClaimRepo(b)
+			orig := claimOwner
+			claimOwner = os.Getpid
+			b.Cleanup(func() { claimOwner = orig })
+			doc := map[string]any{"session_id": "bench", "cwd": repo, "tool_name": "Edit",
+				"tool_input": map[string]any{"file_path": "file-000.txt"}}
+			vendor := core.AgentClaude
+			if mode == "Dispatch" {
+				vendor = core.AgentCodex
+				r := agent.Record{ID: "bench-dispatch", Status: "running", PID: os.Getpid(), Time: time.Now()}
+				if err := r.Save(); err != nil {
+					b.Fatal(err)
+				}
+			}
+			if mode == "Stage" {
+				benchClaimGit(b, repo, "add", "file-000.txt")
+				doc["tool_name"] = "Bash"
+				doc["tool_input"] = map[string]any{"command": "git add -- file-000.txt"}
+			}
+			in := agentInput(b, vendor, doc)
+			b.ReportAllocs()
+			for b.Loop() {
+				Claim(in)
+			}
+		})
+	}
+}
+
+func TestRecordDispatchPreservesRecordOrder(t *testing.T) {
+	orig := runningDispatches
+	t.Cleanup(func() { runningDispatches = orig })
+	owner, parent := os.Getpid(), os.Getppid()
+	if parent <= 1 {
+		t.Skip("no eligible parent")
+	}
+	self := agent.Record{ID: "self", Status: "running", PID: owner}
+	ancestor := agent.Record{ID: "ancestor", Status: "running", PID: parent}
+	for _, recs := range [][]agent.Record{{self, ancestor}, {ancestor, self}, {
+		{ID: "init", Status: "running", PID: 1}, {ID: "ended", Status: "ok", PID: owner}, self,
+	}} {
+		runningDispatches = func() ([]agent.Record, error) { return recs, nil }
+		want := recs[0].ID
+		if want == "init" {
+			want = "self"
+		}
+		if got := recordDispatch(owner); got != want {
+			t.Fatalf("recordDispatch = %q, want %q", got, want)
+		}
+		for _, invalid := range []int{-1, 0, 1} {
+			if got := recordDispatch(invalid); got != "" {
+				t.Fatalf("recordDispatch(%d) = %q", invalid, got)
+			}
+		}
+	}
+}
+
+func TestClaimEmptyStageSkipsOwnerToken(t *testing.T) {
+	repo := claimFixture(t)
+	t.Setenv(worktreeModeEnv, "")
+	useClaimOwner(t, liveOwner)
+	ownerStart = func(int) (string, error) {
+		t.Fatal("an empty claim batch needs no owner token")
+		return "", nil
+	}
+	got := Claim(claimInput(t, map[string]any{"session_id": "empty", "cwd": repo, "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "git commit -m done"}}))
+	if !reflect.DeepEqual(got, core.Result{}) {
+		t.Fatalf("Claim = %+v", got)
+	}
+	if _, err := os.Stat(worktree.ClaimsDir()); !os.IsNotExist(err) {
+		t.Fatalf("empty batch wrote claims: %v", err)
 	}
 }

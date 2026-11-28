@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -68,19 +69,25 @@ const ownerHops = 8
 // recordDispatch is the id of the running dispatch whose job process is owner or an ancestor of it; "" when none.
 func recordDispatch(owner int) string {
 	recs, err := runningDispatches()
-	if err != nil || len(recs) == 0 {
+	if err != nil || len(recs) == 0 || owner <= 1 {
 		return ""
 	}
-	chain := map[int]bool{}
-	for pid := owner; pid > 1 && len(chain) < ownerHops && !chain[pid]; pid = proc.Parent(pid) {
-		chain[pid] = true
-	}
+	// An owner match needs no ancestor probes, but record order still decides the winner.
+	chain := sync.OnceValue(func() map[int]bool { return ownerChain(owner) })
 	for _, r := range recs {
-		if r.PID > 0 && chain[r.PID] && r.Alive() {
+		if r.PID > 1 && (r.PID == owner || chain()[r.PID]) && r.Alive() {
 			return r.ID
 		}
 	}
 	return ""
+}
+
+func ownerChain(owner int) map[int]bool {
+	chain := map[int]bool{}
+	for pid := owner; pid > 1 && len(chain) < ownerHops && !chain[pid]; pid = proc.Parent(pid) {
+		chain[pid] = true
+	}
+	return chain
 }
 
 // Claim records the written path (a Bash command's sed -i, redirect or tee targets too) and each path `git add` staged.
@@ -120,6 +127,9 @@ func collectClaims(in *core.Input, owner int, edits []string, staged bool) []wor
 	}
 	if isBash(in) {
 		lines = filterDirty(lines, !staged)
+	}
+	if len(lines) == 0 {
+		return lines
 	}
 	start, _ := ownerStart(owner) // "" on failure: the line then reads as live while the pid is
 	for i := range lines {

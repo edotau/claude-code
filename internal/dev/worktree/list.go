@@ -65,15 +65,15 @@ func List(repo *Repo) ([]Entry, error) {
 	if err != nil || len(entries) == 0 {
 		return entries, err
 	}
+	// the process scan and the ref snapshot only read, so they overlap the branch lookup
+	scan := startScan(entries)
+	tips := startTips(repo.Main, entries)
 	target, targetErr := currentBranch(repo.Main)
 	if targetErr == nil {
-		fillDivergence(repo, entries, target)
+		fillDivergenceWith(repo, entries, target, tips)
 	}
 	now := time.Now()
-	var in func(string) ([]Proc, error)
-	if slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists }) {
-		in = firstLook()
-	}
+	in := scan()
 	sem := make(chan struct{}, divergenceReads)
 	var wg sync.WaitGroup
 	for i := range entries {
@@ -99,6 +99,30 @@ func List(repo *Repo) ([]Entry, error) {
 	return entries, nil
 }
 
+// startScan starts the first process scan when some lane exists on disk; the result waits for it.
+func startScan(entries []Entry) func() func(string) ([]Proc, error) {
+	if !slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists }) {
+		return func() func(string) ([]Proc, error) { return nil }
+	}
+	done := make(chan func(string) ([]Proc, error), 1)
+	go func() { done <- firstLook() }()
+	return func() func(string) ([]Proc, error) { return <-done }
+}
+
+// startTips snapshots the branch tips when readLanes will want them; the result waits for it.
+func startTips(main string, entries []Entry) func() map[string]string {
+	if !slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists && e.Branch != "" }) {
+		return func() map[string]string { return nil }
+	}
+	done := make(chan map[string]string, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		defer cancel()
+		done <- branchTips(ctx, main)
+	}()
+	return func() map[string]string { return <-done }
+}
+
 // laneReads holds one lane's divergence git outputs.
 type laneReads struct {
 	counts, changed   []byte
@@ -111,10 +135,18 @@ const divergenceReads = 8
 
 // fillDivergence sets Ahead/Behind per branch and Overlaps: files two lanes changed, or a lane and main's dirty edits.
 func fillDivergence(repo *Repo, entries []Entry, target string) {
+	fillDivergenceWith(repo, entries, target, nil)
+}
+
+// fillDivergenceWith is fillDivergence taking branch tips from tips (nil reads them here).
+func fillDivergenceWith(repo *Repo, entries []Entry, target string, tips func() map[string]string) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
 	files := map[string]map[string]bool{}
-	reads := readLanes(ctx, repo, entries, target)
+	if tips == nil {
+		tips = func() map[string]string { return branchTips(ctx, repo.Main) }
+	}
+	reads := readLanes(ctx, repo, entries, target, tips)
 	if slices.ContainsFunc(reads, func(r laneReads) bool { return len(r.changed) > 0 }) {
 		if out, err := gitCmd(ctx, "-C", repo.Main, "status", "--porcelain", "-z", "--untracked-files=no").Output(); err == nil {
 			files["main"] = statusFiles(string(out))
@@ -170,12 +202,12 @@ func (e Entry) DivergenceUnknown() bool {
 }
 
 // readLanes runs every existing lane's two divergence reads concurrently, at most divergenceReads at once.
-func readLanes(ctx context.Context, repo *Repo, entries []Entry, target string) []laneReads {
+func readLanes(ctx context.Context, repo *Repo, entries []Entry, target string, tipsOf func() map[string]string) []laneReads {
 	reads := make([]laneReads, len(entries))
 	if !slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists && e.Branch != "" }) {
 		return reads
 	}
-	tips := branchTips(ctx, repo.Main)
+	tips := tipsOf()
 	sem := make(chan struct{}, divergenceReads)
 	var wg sync.WaitGroup
 	run := func(dst *[]byte, err *error, args ...string) {

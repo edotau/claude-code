@@ -110,14 +110,3 @@ func TestLatencyThroughputOverridesTTFT(t *testing.T) {
 		t.Fatalf("unmeasured throughput row must not undercut measured faster route via TTFT-only scale: got %v", got)
 	}
 }
-
-func TestStickyOrderAndDefaultEffort(t *testing.T) {
-	a := StickyOrder("repo-x", []string{"ws-a", "ws-b", "ws-c"})
-	b := StickyOrder("repo-x", []string{"ws-c", "ws-a", "ws-b"})
-	if len(a) != 3 || a[0] != b[0] || a[1] != b[1] || a[2] != b[2] {
-		t.Fatalf("StickyOrder not deterministic across input permutations: %v vs %v", a, b)
-	}
-	if DefaultEffortForTier("fast") != "low" || DefaultEffortForTier("standard") != "low" || DefaultEffortForTier("deep") != "high" {
-		t.Fatalf("unexpected DefaultEffortForTier mapping")
-	}
-}

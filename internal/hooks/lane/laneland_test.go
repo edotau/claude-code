@@ -1,6 +1,7 @@
 package lane
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -232,4 +233,35 @@ func TestMain(m *testing.M) {
 	hosttest.Cleanup()
 	cleanup()
 	os.Exit(code)
+}
+
+// BenchmarkLaneQueueContext runs the real hook over queued lanes that are real checkouts, so each lane costs a git log.
+func BenchmarkLaneQueueContext(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	main := paths.Canon(b.TempDir())
+	git := func(dir string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			b.Skipf("git %v: %v %s", args, err, out)
+		}
+	}
+	git(main, "init", "-q")
+	git(main, "commit", "--allow-empty", "-q", "-m", "init")
+	for i := range 6 {
+		lane := filepath.Join(paths.Canon(b.TempDir()), fmt.Sprintf("lane%d", i))
+		git(main, "worktree", "add", "-q", "-b", fmt.Sprintf("wt%d", i), lane)
+		q := worktree.QueuedLane{Lane: paths.Canon(lane), Repo: main, Reason: "uncommitted work", QueuedAt: time.Now().Unix() + 3600}
+		if err := worktree.EnqueueWithin(10*time.Second, q); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		i++
+		if got := laneQueueContext(main, fmt.Sprintf("s%d", i)); strings.Count(got, "land queue:") != 6 {
+			b.Fatalf("queue context = %q", got)
+		}
+	}
 }
