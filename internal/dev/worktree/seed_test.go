@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/platform/hosttest"
@@ -308,20 +309,39 @@ def install():
     sys.meta_path.append(_F())
 `
 
-// A lane venv reuses the primary packages yet imports the editable package from the lane, leaving the primary alone.
-func TestSeedBuildsLaneVenvRerootingEditable(t *testing.T) {
+var venvTmpl struct {
+	once string
+	mu   sync.Once
+	err  error
+}
+
+func seedBaseVenv(t *testing.T, main string) {
+	t.Helper()
 	hosttest.SkipOnWindows(t, "venv layout")
 	py, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not installed")
 	}
+	root := ensureFixtureRoot(t)
+	venvTmpl.mu.Do(func() {
+		venvTmpl.once = filepath.Join(root, "venv")
+		if out, err := exec.Command(py, "-m", "venv", "--without-pip", venvTmpl.once).CombinedOutput(); err != nil {
+			venvTmpl.err = fmt.Errorf("venv unavailable: %v %s", err, out)
+		}
+	})
+	if venvTmpl.err != nil {
+		t.Skip(venvTmpl.err)
+	}
+	copyFixtureTree(t, venvTmpl.once, filepath.Join(main, ".venv"))
+}
+
+// A lane venv reuses the primary packages yet imports the editable package from the lane, leaving the primary alone.
+func TestSeedBuildsLaneVenvRerootingEditable(t *testing.T) {
 	main, dest := t.TempDir(), gitRepo(t)
 	for dir, v := range map[string]string{main: "1", dest: "2"} {
 		mustWriteFile(t, filepath.Join(dir, "src", "pkg", "__init__.py"), "VALUE = "+v+"\n")
 	}
-	if out, err := exec.Command(py, "-m", "venv", "--without-pip", filepath.Join(main, ".venv")).CombinedOutput(); err != nil {
-		t.Skipf("venv unavailable: %v %s", err, out)
-	}
+	seedBaseVenv(t, main)
 	sp := sitePackages(filepath.Join(main, ".venv"))
 	mustWriteFile(t, filepath.Join(sp, "__editable___pkg_0_finder.py"), fmt.Sprintf(fakeEditableFinder, filepath.Join(main, "src", "pkg")))
 	mustWriteFile(t, filepath.Join(sp, "__editable__.pkg-0.pth"), "import __editable___pkg_0_finder; __editable___pkg_0_finder.install()\n")
@@ -384,18 +404,11 @@ func addPrimaryExtras(t *testing.T, main, dest string) {
 }
 
 func TestSeedLaneVenvDottedNamespaceAndScripts(t *testing.T) {
-	hosttest.SkipOnWindows(t, "venv layout")
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not installed")
-	}
 	main, dest := t.TempDir(), gitRepo(t)
 	for dir, v := range map[string]string{main: "1", dest: "2"} {
 		mustWriteFile(t, filepath.Join(dir, "src", "pkg", "__init__.py"), "VALUE = "+v+"\n")
 	}
-	if out, err := exec.Command(py, "-m", "venv", "--without-pip", filepath.Join(main, ".venv")).CombinedOutput(); err != nil {
-		t.Skipf("venv unavailable: %v %s", err, out)
-	}
+	seedBaseVenv(t, main)
 	sp := sitePackages(filepath.Join(main, ".venv"))
 	mustWriteFile(t, filepath.Join(sp, "__editable___pkg_0_finder.py"), fmt.Sprintf(fakeEditableFinder, filepath.Join(main, "src", "pkg")))
 	mustWriteFile(t, filepath.Join(sp, "__editable__.pkg-0.pth"), "import __editable___pkg_0_finder; __editable___pkg_0_finder.install()\n")

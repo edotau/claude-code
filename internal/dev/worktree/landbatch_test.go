@@ -9,26 +9,65 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
+type drainTemplate struct {
+	once           sync.Once
+	main, wtA, wtB string
+}
+
+var drainTemplates = map[string]*drainTemplate{
+	"b.txt":   {},
+	"bad.txt": {},
+}
+
+func buildDrainTemplate(t *testing.T, bFile string) *drainTemplate {
+	t.Helper()
+	buildFixtureTemplate(t)
+	dt := drainTemplates[bFile]
+	dt.once.Do(func() {
+		base := filepath.Join(fixture.dir, "drain-"+bFile)
+		dt.main = filepath.Join(base, "repo")
+		repo := &Repo{Main: dt.main, Root: filepath.Join(base, "worktrees", "repo")}
+		dt.wtA = filepath.Join(repo.Root, "a")
+		copyWorktreeAs(t, filepath.Join(fixture.dir, "repo"), filepath.Join(fixture.dir, "worktrees", "repo", "feature"),
+			dt.main, dt.wtA, "feature", "a", "session-a", fixture.base)
+		var err error
+		dt.wtB, err = Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard})
+		if err != nil {
+			t.Fatal(err)
+		}
+		landFixtureWrite(t, dt.wtA, "a.txt", "A\n", "feat: a")
+		landFixtureWrite(t, dt.wtB, bFile, "B\n", "feat: b")
+	})
+	return dt
+}
+
 // drainFixture queues lanes a and b, each adding its own file; the gate appends a line to the returned counter.
 func drainFixture(t *testing.T, bFile string) (*Repo, string, LandRequest) {
 	t.Helper()
-	repo, main, wtA := laneLandFixture(t)
-	wtB, err := Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	landFixtureWrite(t, wtA, "a.txt", "A\n", "feat: a")
-	landFixtureWrite(t, wtB, bFile, "B\n", "feat: b")
+	dt := buildDrainTemplate(t, bFile)
+	home := paths.Canon(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	main := paths.Canon(t.TempDir())
+	repo := &Repo{Main: main, Root: filepath.Join(home, "worktrees", filepath.Base(main))}
+	wtA, wtB := filepath.Join(repo.Root, "a"), filepath.Join(repo.Root, "b")
+	copyFixtureTree(t, dt.main, main)
+	copyFixtureTree(t, dt.wtA, wtA)
+	copyFixtureTree(t, dt.wtB, wtB)
+	rewireWorktree(t, main, wtA, "a", "session-a", fixture.base)
+	rewireWorktree(t, main, wtB, "b", "session-b", fixture.base)
 	for _, wt := range []string{wtA, wtB} {
 		if err := EnqueueWithin(queueEditWait, QueuedLane{Lane: wt, Repo: main, Reason: QueueReady, Next: "land"}); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t.Chdir(main)
 	count := filepath.Join(t.TempDir(), "gate-runs")
 	var out bytes.Buffer
 	req := laneRequest("", &out)

@@ -444,20 +444,7 @@ func TestAcquireZeroWaitDefaultsToLandLockWait(t *testing.T) {
 
 func laneLandFixture(t *testing.T) (*Repo, string, string) {
 	t.Helper()
-	landFixtureLockEnv(t)
-	main := paths.Canon(t.TempDir())
-	landFixtureRun(t, main, "init", "-q", "-b", "main")
-	landFixtureRun(t, main, "config", "user.name", "test")
-	landFixtureRun(t, main, "config", "user.email", "test@example.invalid")
-	landFixtureWrite(t, main, "f.txt", "base\n", "base")
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wt, err := Create(repo, "a", CreateOptions{Session: "session-a", Log: io.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
+	repo, main, wt := copyLaneFixture(t, "a", "session-a")
 	t.Chdir(main)
 	return repo, main, wt
 }

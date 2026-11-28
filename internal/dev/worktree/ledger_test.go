@@ -168,20 +168,7 @@ func TestAppendLedgerOutsideManagedWorktree(t *testing.T) {
 
 func ledgerSetup(t *testing.T, name string) (*Repo, string, string) {
 	t.Helper()
-	home := paths.Canon(t.TempDir())
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
-	main := gitRepo(t)
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var log bytes.Buffer
-	dest, err := Create(repo, name, CreateOptions{Log: &log})
-	if err != nil || log.Len() != 0 {
-		t.Fatalf("create: %v %s", err, log.String())
-	}
-	return repo, main, dest
+	return copyLaneFixture(t, name, "")
 }
 
 // mergeKept commits work in dest, merges it into main and closes the ledger as `merge --no-clean` does.

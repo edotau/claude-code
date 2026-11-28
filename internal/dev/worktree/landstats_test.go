@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -128,20 +129,27 @@ func TestRunGateFailedPkgsNeedErrorLines(t *testing.T) {
 
 // A first gate that fails still leaves the changed and importer scope in the attempt.
 func TestLandFailedFirstGateRecordsScope(t *testing.T) {
-	repo, main, _ := laneLandFixture(t)
-	landFixtureWrite(t, main, "go.mod", "module example.com/m\n\ngo 1.22\n", "mod")
-	landFixtureWrite(t, main, "Makefile", "test:\n\ttrue\n", "make")
-	wt, err := Create(repo, "c", CreateOptions{Session: "session-c", Log: io.Discard})
+	realGo, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	binDir := t.TempDir()
+	stub := "#!/bin/sh\ncase \"$1\" in\nlist) exec " + realGo + " \"$@\" ;;\ntest) printf 'FAIL\\texample.com/m/internal/foo\\t0.01s\\n'; exit 1 ;;\n*) exit 0 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	repo, main, wt := laneLandFixture(t)
+	landFixtureWrite(t, main, "go.mod", "module example.com/m\n\ngo 1.22\n", "mod")
+	landFixtureWrite(t, main, "Makefile", "test:\n\ttrue\n", "make")
+	landFixtureRun(t, wt, "reset", "--hard", headOf(main))
+	rewireWorktree(t, main, wt, "a", "session-a", headOf(main))
 	if err := os.MkdirAll(filepath.Join(wt, "internal/foo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	landFixtureWrite(t, wt, "internal/foo/foo.go", "package foo\n", "foo")
-	landFixtureWrite(t, wt, "internal/foo/foo_test.go", "package foo\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Fatal(\"x\") }\n", "foo test")
 	var out bytes.Buffer
-	req := laneRequest("c", &out)
+	req := laneRequest("a", &out)
 	req.NoVerify = false
 	if _, err := Land(t.Context(), repo, req); err == nil || !strings.Contains(err.Error(), "verify failed") {
 		t.Fatalf("Land = %v, want verify failed\n%s", err, out.String())

@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -332,24 +333,31 @@ func BenchmarkReadDirtyCleanScoped2000TrackedFiles(b *testing.B) {
 	}
 }
 
+var scopedRepoOnce sync.Once
+
 func cleanScopedRepo(t *testing.T) (string, string) {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	repo := paths.Real(hosttest.Repo(t))
-	file := filepath.Join(repo, "tracked.txt")
-	hosttest.WriteRel(t, repo, "tracked.txt", "clean\n")
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(file, old, old); err != nil {
-		t.Fatal(err)
-	}
-	hosttest.In(t, repo, "add", ".")
-	tree := strings.TrimSpace(hosttest.In(t, repo, "write-tree"))
-	commit := strings.TrimSpace(hosttest.In(t, repo, "commit-tree", tree, "-m", "fixture"))
-	hosttest.In(t, repo, "update-ref", "HEAD", commit)
-	return repo, file
+	tmpl := filepath.Join(ensureFixtureRoot(t), "scoped-repo")
+	scopedRepoOnce.Do(func() {
+		hosttest.RepoAt(t, tmpl)
+		file := filepath.Join(tmpl, "tracked.txt")
+		hosttest.WriteRel(t, tmpl, "tracked.txt", "clean\n")
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(file, old, old); err != nil {
+			t.Fatal(err)
+		}
+		hosttest.In(t, tmpl, "add", ".")
+		tree := strings.TrimSpace(hosttest.In(t, tmpl, "write-tree"))
+		commit := strings.TrimSpace(hosttest.In(t, tmpl, "commit-tree", tree, "-m", "fixture"))
+		hosttest.In(t, tmpl, "update-ref", "HEAD", commit)
+	})
+	repo := filepath.Join(paths.Real(t.TempDir()), fmt.Sprintf("repo%d", fixtureSeq.Add(1)))
+	copyFixtureTree(t, tmpl, repo)
+	return repo, filepath.Join(repo, "tracked.txt")
 }
 
 func TestReadDirtyCleanScopedNoGit(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,18 +20,25 @@ import (
 	"github.com/edotau/claude-code/internal/platform/shell"
 )
 
+var commitRepoOnce sync.Once
+
 // commitRepo is a repo with a.txt, b.txt and c.txt committed, a hermetic config dir, and the caller's session "me".
 func commitRepo(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "")
 	t.Setenv(proc.DispatchDepthEnv, "")
-	dir := paths.Real(hosttest.Repo(t))
-	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
-		hosttest.WriteRel(t, dir, f, "base\n")
-	}
-	hosttest.In(t, dir, "add", ".")
-	hosttest.In(t, dir, "commit", "-q", "-m", "chore: base")
+	tmpl := filepath.Join(ensureFixtureRoot(t), "commit-repo")
+	commitRepoOnce.Do(func() {
+		hosttest.RepoAt(t, tmpl)
+		for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
+			hosttest.WriteRel(t, tmpl, f, "base\n")
+		}
+		hosttest.In(t, tmpl, "add", ".")
+		hosttest.In(t, tmpl, "commit", "-q", "-m", "chore: base")
+	})
+	dir := filepath.Join(paths.Real(t.TempDir()), fmt.Sprintf("repo%d", fixtureSeq.Add(1)))
+	copyFixtureTree(t, tmpl, dir)
 	return dir
 }
 
@@ -541,12 +549,12 @@ func shortUnstageWait(t *testing.T, wait time.Duration) {
 func TestUndoAddRetriesUnstageUntilForeignLockReleases(t *testing.T) {
 	dir := commitRepo(t)
 	idx, before, after := failingCommitIndex(t, dir)
-	shortUnstageWait(t, 3*time.Second)
+	shortUnstageWait(t, 500*time.Millisecond)
 	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		_ = os.Remove(idx + ".lock")
 	}()
 	err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})

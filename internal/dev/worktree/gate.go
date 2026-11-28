@@ -526,7 +526,7 @@ func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr
 
 var gateWaitDelay = 5 * time.Second
 
-const gateCancelGrace = 2 * time.Second
+var gateCancelGrace = 2 * time.Second
 
 // gateEnv is gitEnv minus the vault master key, with -buildvcs=false -trimpath in GOFLAGS (shared build-cache keys).
 func gateEnv() []string {

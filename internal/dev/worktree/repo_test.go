@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -15,10 +16,16 @@ import (
 	"github.com/edotau/claude-code/internal/platform/paths"
 )
 
+var gitRepoOnce sync.Once
+
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	dir := paths.Canon(hosttest.Repo(t))
+	root := ensureFixtureRoot(t)
+	tmpl := filepath.Join(root, "gitrepo")
+	gitRepoOnce.Do(func() { hosttest.RepoAt(t, tmpl) })
+	dir := filepath.Join(paths.Canon(t.TempDir()), fmt.Sprintf("repo%d", fixtureSeq.Add(1)))
+	copyFixtureTree(t, tmpl, dir)
 	return dir
 }
 
@@ -404,7 +411,7 @@ func TestRepoFromCommonDirRefusesDotOnlyName(t *testing.T) {
 
 func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
 	orig := probeTimeout
-	probeTimeout = 200 * time.Millisecond
+	probeTimeout = 30 * time.Millisecond
 	t.Cleanup(func() { probeTimeout = orig })
 	regressionFakeGit(t, fmt.Sprintf("exec /bin/sleep %d\n", int(time.Minute/time.Second)))
 	_, err := ResolveRepo(t.TempDir())

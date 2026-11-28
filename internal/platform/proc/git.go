@@ -26,9 +26,32 @@ func GitEnv() []string {
 	return out
 }
 
+func runGitEnv() []string {
+	if os.Getenv("HOSTTEST_ACTIVE") == "" {
+		return GitEnv()
+	}
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !EnvHasPrefix(kv, "GIT_") || keepTestGitVar(kv) {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+func keepTestGitVar(kv string) bool {
+	for _, p := range []string{"GIT_CONFIG_", "GIT_TERMINAL_PROMPT=", "GIT_OPTIONAL_LOCKS=", "GIT_AUTHOR_", "GIT_COMMITTER_"} {
+		if EnvHasPrefix(kv, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // RunGit executes git with GitEnv; dir becomes -C when non-empty (pass "" if args carries its own).
 func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return run(ctx, GitEnv(), dir, args...)
+	return run(ctx, runGitEnv(), dir, args...)
 }
 
 // Git runs git in dir with GIT_* scrubbed: ok=false when git itself refused; err for a missing binary or a timeout.
@@ -83,7 +106,7 @@ func RunGitInherit(ctx context.Context, dir string, args ...string) (string, err
 
 // RunGitRaw is RunGit with stdout returned byte-for-byte, trailing newlines kept (file contents).
 func RunGitRaw(ctx context.Context, dir string, args ...string) (string, error) {
-	return runRaw(ctx, GitEnv(), dir, args...)
+	return runRaw(ctx, runGitEnv(), dir, args...)
 }
 
 // RunGitInheritRaw is RunGitInherit with stdout returned byte-for-byte, trailing newlines kept (file contents).

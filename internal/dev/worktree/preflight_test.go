@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +58,10 @@ func landFixtureRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-var fixtureSeq atomic.Int64
+var (
+	fixtureSeq atomic.Int64
+	rootOnce   sync.Once
+)
 
 var fixture struct {
 	once sync.Once
@@ -66,15 +70,27 @@ var fixture struct {
 	err  error
 }
 
-// buildFixtureTemplate builds, once, a main repo with the base commit and its "feature" worktree via the live Create.
-func buildFixtureTemplate(t *testing.T) {
-	fixture.once.Do(func() {
+func ensureFixtureRoot(t *testing.T) string {
+	t.Helper()
+	rootOnce.Do(func() {
 		dir, err := os.MkdirTemp("", "wt-fixture-")
 		if err != nil {
 			fixture.err = err
 			return
 		}
 		fixture.dir = paths.Canon(dir)
+	})
+	if fixture.err != nil {
+		t.Fatalf("fixture root: %v", fixture.err)
+	}
+	return fixture.dir
+}
+
+// buildFixtureTemplate builds, once, a main repo with the base commit and its "feature" worktree via the live Create.
+func buildFixtureTemplate(t *testing.T) {
+	t.Helper()
+	ensureFixtureRoot(t)
+	fixture.once.Do(func() {
 		main := hosttest.RepoAt(t, filepath.Join(fixture.dir, "repo"))
 		landFixtureWrite(t, main, "f.txt", "base\n", "base")
 		fixture.base = headOf(main)
@@ -85,40 +101,114 @@ func buildFixtureTemplate(t *testing.T) {
 	}
 }
 
-func fixtureCopy(t *testing.T, src, dst string) {
+func copyFixtureTree(t *testing.T, src, dst string) {
 	t.Helper()
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("cp", "-a", src+"/.", dst).CombinedOutput(); err != nil {
-		t.Fatalf("copy %s to %s: %v %s", src, dst, err, out)
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || path == src {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		return copyFixtureNode(path, filepath.Join(dst, rel), d)
+	})
+	if err != nil {
+		t.Fatalf("copy %s to %s: %v", src, dst, err)
 	}
 }
 
-// preflightFixtureSetup returns an isolated main repo plus a "feature" worktree, copied from a template built once.
-func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
+func copyFixtureNode(src, target string, d fs.DirEntry) error {
+	if d.IsDir() {
+		return os.MkdirAll(target, 0o755)
+	}
+	if d.Type()&os.ModeSymlink != 0 {
+		link, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(link, target)
+	}
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(target, data, info.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Chtimes(target, info.ModTime(), info.ModTime())
+}
+
+func rewireWorktree(t *testing.T, main, wt, name, session, base string) {
 	t.Helper()
-	hosttest.SkipOnWindows(t, "cp -a template copy")
-	buildFixtureTemplate(t)
-	base := paths.Canon(t.TempDir())
-	name := fmt.Sprintf("repo%d", fixtureSeq.Add(1)) // unique: the ledger file name derives from the main's base name
-	main = filepath.Join(base, name)
-	repo = &Repo{Main: main, Root: filepath.Join(base, "worktrees", name)}
-	wt = filepath.Join(repo.Root, "feature")
-	fixtureCopy(t, filepath.Join(fixture.dir, "repo"), main)
-	fixtureCopy(t, filepath.Join(fixture.dir, "worktrees", "repo", "feature"), wt)
-	// the two absolute links a copy carries point at the template; rewrite them to this copy
-	adminDir := filepath.Join(main, ".git", "worktrees", "feature")
+	adminDir := filepath.Join(main, ".git", "worktrees", name)
 	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+adminDir+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(filepath.Join(wt, ".git")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	info := ledgerInfo{Path: wt, Branch: "worktree-feature", Base: fixture.base, BaseRef: "HEAD"}
-	if err := openLedger(main, "feature", info); err != nil {
+	info := ledgerInfo{Path: wt, Branch: "worktree-" + name, Base: base, BaseRef: "HEAD", Session: session}
+	if err := openLedger(main, name, info); err != nil {
 		t.Fatalf("open ledger: %v", err)
 	}
+}
+
+func copyWorktreeAs(t *testing.T, srcMain, srcWT, dstMain, dstWT, srcName, dstName, session, base string) {
+	t.Helper()
+	copyFixtureTree(t, srcMain, dstMain)
+	copyFixtureTree(t, srcWT, dstWT)
+	if srcName != dstName {
+		mustRename(t, filepath.Join(dstMain, ".git", "worktrees", srcName), filepath.Join(dstMain, ".git", "worktrees", dstName))
+		mustRename(t, filepath.Join(dstMain, ".git", "refs", "heads", "worktree-"+srcName), filepath.Join(dstMain, ".git", "refs", "heads", "worktree-"+dstName))
+		_ = os.Rename(filepath.Join(dstMain, ".git", "logs", "refs", "heads", "worktree-"+srcName), filepath.Join(dstMain, ".git", "logs", "refs", "heads", "worktree-"+dstName))
+		if err := os.WriteFile(filepath.Join(dstMain, ".git", "worktrees", dstName, "HEAD"), []byte("ref: refs/heads/worktree-"+dstName+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rewireWorktree(t, dstMain, dstWT, dstName, session, base)
+}
+
+func mustRename(t *testing.T, oldPath, newPath string) {
+	t.Helper()
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func copyLaneFixture(t *testing.T, name, session string) (*Repo, string, string) {
+	t.Helper()
+	buildFixtureTemplate(t)
+	home := paths.Canon(t.TempDir())
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	main := filepath.Join(paths.Canon(t.TempDir()), fmt.Sprintf("repo%d", fixtureSeq.Add(1)))
+	if err := os.MkdirAll(filepath.Dir(operationLeasePath(main, landRunName)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := &Repo{Main: main, Root: filepath.Join(home, "worktrees", filepath.Base(main))}
+	wt := filepath.Join(repo.Root, name)
+	copyWorktreeAs(t, filepath.Join(fixture.dir, "repo"), filepath.Join(fixture.dir, "worktrees", "repo", "feature"), main, wt, "feature", name, session, fixture.base)
+	return repo, main, wt
+}
+
+// preflightFixtureSetup returns an isolated main repo plus a "feature" worktree, copied from a template built once.
+func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
+	t.Helper()
+	buildFixtureTemplate(t)
+	base := paths.Canon(t.TempDir())
+	name := fmt.Sprintf("repo%d", fixtureSeq.Add(1)) // unique: the ledger file name derives from the main's base name
+	main = filepath.Join(base, name)
+	repo = &Repo{Main: main, Root: filepath.Join(base, "worktrees", name)}
+	wt = filepath.Join(repo.Root, "feature")
+	copyWorktreeAs(t, filepath.Join(fixture.dir, "repo"), filepath.Join(fixture.dir, "worktrees", "repo", "feature"), main, wt, "feature", "feature", "", fixture.base)
 	return repo, main, wt
 }
 
@@ -491,24 +581,43 @@ func TestPlanOrResolveConflictProceedsToRebase(t *testing.T) {
 	}
 }
 
+var conflictFixture struct {
+	once     sync.Once
+	main, wt string
+	plan     *LandPlan
+	err      error
+}
+
+func buildConflictTemplate(t *testing.T) {
+	t.Helper()
+	buildFixtureTemplate(t)
+	conflictFixture.once.Do(func() {
+		base := filepath.Join(fixture.dir, "conflict")
+		conflictFixture.main = filepath.Join(base, "repo")
+		repo := &Repo{Main: conflictFixture.main, Root: filepath.Join(base, "worktrees", "repo")}
+		conflictFixture.wt = filepath.Join(repo.Root, "feature")
+		copyWorktreeAs(t, filepath.Join(fixture.dir, "repo"), filepath.Join(fixture.dir, "worktrees", "repo", "feature"),
+			conflictFixture.main, conflictFixture.wt, "feature", "feature", "", fixture.base)
+		landFixtureWrite(t, conflictFixture.wt, "f.txt", "feature line\n", "feature edits f")
+		landFixtureWrite(t, conflictFixture.main, "f.txt", "main line\n", "main edits f")
+		conflictFixture.plan, conflictFixture.err = Preflight(context.Background(), repo, "feature", "")
+	})
+	if conflictFixture.err != nil {
+		t.Fatalf("conflict template: %v", conflictFixture.err)
+	}
+}
+
 // conflictedOwnedWorktree is a repo whose worktree "feat", opened by session, conflicts with main on f.txt.
 func conflictedOwnedWorktree(t *testing.T, session string) *Repo {
 	t.Helper()
+	buildConflictTemplate(t)
 	home := paths.Canon(t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", home+"/.claude")
-	main := gitRepo(t)
-	landFixtureWrite(t, main, "f.txt", "base\n", "base")
-	repo, err := ResolveRepo(main)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wt, err := Create(repo, "feat", CreateOptions{Session: session, Log: io.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	landFixtureWrite(t, wt, "f.txt", "feature\n", "feature edits f")
-	landFixtureWrite(t, main, "f.txt", "main\n", "main edits f")
+	main := filepath.Join(paths.Canon(t.TempDir()), fmt.Sprintf("repo%d", fixtureSeq.Add(1)))
+	repo := &Repo{Main: main, Root: filepath.Join(home, "worktrees", filepath.Base(main))}
+	wt := filepath.Join(repo.Root, "feat")
+	copyWorktreeAs(t, conflictFixture.main, conflictFixture.wt, main, wt, "feature", "feat", session, fixture.base)
 	return repo
 }
 
@@ -562,7 +671,7 @@ func TestRequireBranchPreservesGitFailures(t *testing.T) {
 
 func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	orig := gitWaitDelay
-	gitWaitDelay = 200 * time.Millisecond
+	gitWaitDelay = 30 * time.Millisecond
 	t.Cleanup(func() { gitWaitDelay = orig })
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	expired := filepath.Join(t.TempDir(), "expired")

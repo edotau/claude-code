@@ -405,11 +405,11 @@ func TestScopedGoGateRootPackageAndGlobPath(t *testing.T) {
 
 // Cancelling must kill the gate's grandchildren, so a non-file writer's pipe closes and Wait returns.
 func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	orig := gateWaitDelay
-	gateWaitDelay = time.Hour // only killing the group can release the pipe before this
-	t.Cleanup(func() { gateWaitDelay = orig })
+	origWait, origGrace := gateWaitDelay, gateCancelGrace
+	gateWaitDelay, gateCancelGrace = time.Hour, 20*time.Millisecond // only killing the group can release the pipe before this
+	t.Cleanup(func() { gateWaitDelay, gateCancelGrace = origWait, origGrace })
 	var out strings.Builder
 	_ = runVerify(ctx, t.TempDir(), "sleep 600 & wait", "", &out, &out)
 }
@@ -428,6 +428,9 @@ func TestRunVerifyDropsVaultKey(t *testing.T) {
 
 // A failing step cancels its siblings, and every step's output still reaches the writers.
 func TestRunStepsFirstFailureCancelsRest(t *testing.T) {
+	origGrace := gateCancelGrace
+	gateCancelGrace = 20 * time.Millisecond
+	t.Cleanup(func() { gateCancelGrace = origGrace })
 	var out, errOut bytes.Buffer
 	start := time.Now()
 	_, err := runTimed(context.Background(), gateAt{Dir: t.TempDir()}, []string{"sleep 30", "echo hi; exit 3"}, &out, &errOut)
@@ -498,6 +501,12 @@ func TestRunScopedGateObservesExitAndChanges(t *testing.T) {
 }
 
 func TestRunScopedGateCarriesIDs(t *testing.T) {
+	binDir := t.TempDir()
+	stub := "#!/bin/sh\nprintf '# example.com/m\\n./a.go:3:16: undefined: x\\n' >&2\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	dir, _, write := gateRepo(t)
 	write("a.go", "package m\n\nfunc F() int { return x }\n")
 	r, err := RunScopedGate(context.Background(), dir, nil, false)

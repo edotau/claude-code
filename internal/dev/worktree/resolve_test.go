@@ -18,17 +18,23 @@ import (
 // resolveFixtureConflictSetup builds a same-file divergent-edit conflict and returns its one-IssueConflict plan.
 func resolveFixtureConflictSetup(t *testing.T) (repo *Repo, main, wt string, plan *LandPlan) {
 	t.Helper()
-	repo, main, wt = preflightFixtureSetup(t)
-	landFixtureWrite(t, wt, "f.txt", "feature line\n", "feature edits f")
-	landFixtureWrite(t, main, "f.txt", "main line\n", "main edits f")
-	p, err := Preflight(context.Background(), repo, "feature", "")
-	if err != nil {
-		t.Fatalf("Preflight: %v", err)
+	buildConflictTemplate(t)
+	base := paths.Canon(t.TempDir())
+	name := filepath.Base(base)
+	main = filepath.Join(base, name)
+	repo = &Repo{Main: main, Root: filepath.Join(base, "worktrees", name)}
+	wt = filepath.Join(repo.Root, "feature")
+	copyWorktreeAs(t, conflictFixture.main, conflictFixture.wt, main, wt, "feature", "feature", "", fixture.base)
+	cp := *conflictFixture.plan
+	cp.CommonDir = filepath.Join(main, ".git")
+	cp.MainGitDir = cp.CommonDir
+	cp.WorktreeGitDir = filepath.Join(cp.CommonDir, "worktrees", "feature")
+	cp.WorktreePath = wt
+	cp.Issues = slices.Clone(conflictFixture.plan.Issues)
+	for i := range cp.Issues {
+		cp.Issues[i].Paths = slices.Clone(cp.Issues[i].Paths)
 	}
-	if len(p.Issues) != 1 || p.Issues[0].Code != IssueConflict {
-		t.Fatalf("Issues = %v, want exactly one %s", p.Issues, IssueConflict)
-	}
-	return repo, main, wt, p
+	return repo, main, wt, &cp
 }
 
 // resolveFixtureFakeClock swaps in an in-memory clock and short poll/wait bounds, restored on cleanup.

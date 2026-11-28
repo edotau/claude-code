@@ -8,22 +8,45 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
+
+var collapseOneTmpl struct {
+	once     sync.Once
+	main, wt string
+	base     string
+}
 
 // collapseLaneFixture creates lane name and commits each file, body pair as its own commit.
 func collapseLaneFixture(t *testing.T, repo *Repo, name string, pairs ...string) string {
 	t.Helper()
-	wt, err := Create(repo, name, CreateOptions{})
-	if err != nil {
-		t.Fatal(err)
+	wt := filepath.Join(repo.Root, name)
+	if name == "one" && len(pairs) == 2 && pairs[0] == "a.txt" && pairs[1] == "a" {
+		root := ensureFixtureRoot(t)
+		collapseOneTmpl.once.Do(func() {
+			collapseOneTmpl.main = filepath.Join(root, "collapse-repo")
+			hosttestRepo := &Repo{Main: collapseOneTmpl.main, Root: filepath.Join(root, "collapse-wt")}
+			gitRepoOnce.Do(func() { copyFixtureTree(t, gitRepo(t), filepath.Join(root, "gitrepo")) })
+			copyFixtureTree(t, filepath.Join(root, "gitrepo"), collapseOneTmpl.main)
+			collapseOneTmpl.base = headOf(collapseOneTmpl.main)
+			collapseOneTmpl.wt = filepath.Join(hosttestRepo.Root, "one")
+			commitIn(t, collapseOneTmpl.main, "worktree", "add", "-q", "-b", "worktree-one", collapseOneTmpl.wt, "HEAD")
+			writeLane(t, collapseOneTmpl.wt, "a.txt", "a")
+			commitIn(t, collapseOneTmpl.wt, "add", "a.txt")
+			commitIn(t, collapseOneTmpl.wt, "commit", "-q", "-m", "feat: one a.txt")
+		})
+		_ = os.RemoveAll(repo.Main)
+		copyWorktreeAs(t, collapseOneTmpl.main, collapseOneTmpl.wt, repo.Main, wt, "one", "one", "", collapseOneTmpl.base)
+		return wt
 	}
+	base := headOf(repo.Main)
+	commitIn(t, repo.Main, "worktree", "add", "-q", "-b", "worktree-"+name, wt, "HEAD")
+	rewireWorktree(t, repo.Main, wt, name, "", base)
 	for i := 0; i < len(pairs); i += 2 {
-		if err := os.WriteFile(filepath.Join(wt, pairs[i]), []byte(pairs[i+1]), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeLane(t, wt, pairs[i], pairs[i+1])
 		commitIn(t, wt, "add", pairs[i])
-		commitIn(t, wt, "commit", "-m", "feat: "+name+" "+pairs[i])
+		commitIn(t, wt, "commit", "-q", "-m", "feat: "+name+" "+pairs[i])
 	}
 	return wt
 }
