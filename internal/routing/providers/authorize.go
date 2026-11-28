@@ -86,20 +86,27 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 		url = r + "/models" // a server may list models only on its OpenAI route (a local model server does)
 		status, body, readErr = getCatalog(ctx, p, url, http.Header{})
 	}
-	if status == 0 {
-		return nil, readErr
-	}
-	if status != http.StatusOK {
-		return nil, &catalogStatusError{url: url, status: fmt.Sprintf("%d %s", status, http.StatusText(status)), code: status, body: strings.TrimSpace(string(body))}
-	}
-	// a truncated body must not decode as a complete list
-	if readErr != nil {
-		return nil, fmt.Errorf("read %s: %w", url, readErr)
+	if err := checkCatalogResponse(url, status, body, readErr); err != nil {
+		return nil, err
 	}
 	if p.Preset == PresetDatabricks && strings.HasSuffix(url, "/api/2.0/serving-endpoints") {
 		return decodeServingEndpoints(url, body)
 	}
 	return decodeModelsList(url, body)
+}
+
+// checkCatalogResponse turns a non-200 status or a truncated read into an error.
+func checkCatalogResponse(url string, status int, body []byte, readErr error) error {
+	if status == 0 {
+		return readErr
+	}
+	if status != http.StatusOK {
+		return &catalogStatusError{url: url, status: fmt.Sprintf("%d %s", status, http.StatusText(status)), code: status, body: strings.TrimSpace(string(body))}
+	}
+	if readErr != nil { // a truncated body must not decode as a complete list
+		return fmt.Errorf("read %s: %w", url, readErr)
+	}
+	return nil
 }
 
 const catalogAttempts = 3
