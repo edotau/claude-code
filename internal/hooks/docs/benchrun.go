@@ -148,7 +148,7 @@ func benchFailNote(result, note string) {
 
 // benchOnCommit queues a detached `review bench` for a trunk commit (a leaf's too) that changed a benched package.
 func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
-	if runtime.GOOS == "windows" || !plans.ValidSHA(sha) {
+	if runtime.GOOS == "windows" || !plans.ValidSHA(sha) || bench.AuditMode() == bench.AuditOff {
 		return
 	}
 	top := toplevel(dir)
@@ -166,7 +166,7 @@ func benchOnCommit(ctx context.Context, in *core.Input, dir, sha string) {
 
 // BenchLanded queues every benched first-parent commit a merge or fast-forward moved the primary trunk across.
 func BenchLanded(ctx context.Context, top, before, after, session string) {
-	if runtime.GOOS == "windows" || !plans.ValidSHA(after) {
+	if runtime.GOOS == "windows" || !plans.ValidSHA(after) || bench.AuditMode() == bench.AuditOff {
 		return
 	}
 	if after = primaryTrunkHead(ctx, top, after); after == "" {
@@ -496,25 +496,39 @@ func benchDecideLoop(base string, job benchJob, lockErr error) error {
 }
 
 func benchLoopDecision(ctx context.Context, job benchJob) string {
+	switch bench.AuditMode() {
+	case bench.AuditOff:
+		return "audit mode off"
+	case bench.AuditOn:
+		return "audit mode on (passive)"
+	}
 	now := benchLoopNow()
 	if primaryTrunkHead(ctx, job.Top, job.SHA) == "" {
 		return "not primary trunk"
 	}
-	item, ok, err := bench.NextCandidateFor(job.Top, now, nil)
-	if err != nil {
-		return "candidate lookup failed"
-	} else if !ok {
-		return "no candidate for this repo"
-	}
-	pkg := filepath.FromSlash(item.Pkg)
-	if fi, err := os.Stat(filepath.Join(job.Top, pkg)); pkg == "." || !filepath.IsLocal(pkg) || err != nil || !fi.IsDir() {
-		return "candidate not in this repo" // the history is machine-wide; another repo's commit must not fix a package it lacks
+	if reason := checkRepoCandidate(job.Top, now); reason != "" {
+		return reason
 	}
 	if benchBusy() {
 		return "machine busy"
 	}
 	benchCleanLanes(ctx, job)
 	return benchLaunchLoop(job, now)
+}
+
+func checkRepoCandidate(top string, now time.Time) string {
+	item, ok, err := bench.NextCandidateFor(top, now, nil)
+	if err != nil {
+		return "candidate lookup failed"
+	}
+	if !ok {
+		return "no candidate for this repo"
+	}
+	pkg := filepath.FromSlash(item.Pkg)
+	if fi, err := os.Stat(filepath.Join(top, pkg)); pkg == "." || !filepath.IsLocal(pkg) || err != nil || !fi.IsDir() {
+		return "candidate not in this repo" // the history is machine-wide; another repo's commit must not fix a package it lacks
+	}
+	return ""
 }
 
 // Merged lanes free their cap slots first; a clean failure is a notice and never stops the decision.
@@ -994,10 +1008,17 @@ func benchComparisons(raw []byte) (lines, subjects []string) {
 
 // benchReportRegressions sends each confirmed regression to the failure broadcast; inconclusive lines are not sent.
 func benchReportRegressions(raw []byte, result string) {
+	mode := bench.AuditMode()
 	lines, subjects := benchComparisons(raw)
 	for i, line := range lines {
 		if subjects[i] == "" || benchNoticeRank(line) != 1 {
 			continue
+		}
+		if mode != bench.AuditOff {
+			pkg, name, _ := strings.Cut(subjects[i], " ")
+			_ = bench.RecordCandidate(bench.Candidate{
+				Area: pkg, Kind: "bench-regression", Metric: name, Detail: line, RecordedAt: time.Now().UTC(),
+			})
 		}
 		_, _ = worktree.ReportFailure(worktree.FailuresDir(), worktree.Failure{
 			Kind: worktree.FailBench, Subject: subjects[i], Summary: line, Log: result, Time: time.Now().Unix()})

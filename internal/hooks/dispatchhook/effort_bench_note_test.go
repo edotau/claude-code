@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/dev/review/bench"
 )
 
 func writeBenchRepoFixture(t testing.TB) string {
@@ -55,11 +58,8 @@ func TestEffortBenchNoteOnlyForBenchedPackage(t *testing.T) {
 		payload := fmt.Sprintf(`{"cwd":%q,"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","model":"sonnet","prompt":%q,"description":"sonnet: update sub"}}`,
 			repo, prompt)
 		res := effortResult(payload)
-		if res.Decision != 0 || res.UpdatedInput != nil {
-			t.Fatalf("%q: decision=%v updatedInput=%v, want context-only allow", header, res.Decision, res.UpdatedInput)
-		}
-		if res.Context != want {
-			t.Fatalf("%q: context = %q, want %q", header, res.Context, want)
+		if res.Decision != 0 || res.UpdatedInput != nil || res.Context != want {
+			t.Fatalf("%q: decision=%v updatedInput=%v context=%q, want %q", header, res.Decision, res.UpdatedInput, res.Context, want)
 		}
 	}
 
@@ -69,12 +69,25 @@ func TestEffortBenchNoteOnlyForBenchedPackage(t *testing.T) {
 	if err := os.WriteFile(plainTest, []byte("package beta\nimport \"testing\"\nfunc BenchmarkBeta(b *testing.B) {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chtimes(plainTest, later, later); err != nil {
+	_ = os.Chtimes(plainTest, later, later)
+	if got := benchPackages(repo, "Owned: internal/beta/beta.go"); !slices.Equal(got, []string{"internal/beta"}) {
+		t.Fatalf("after adding BenchmarkBeta: benchPackages = %v, want [internal/beta]", got)
+	}
+	checkAuditCandidateNote(t, repo)
+}
+
+func checkAuditCandidateNote(t *testing.T, repo string) {
+	t.Helper()
+	if err := bench.SetAuditMode(bench.AuditOn); err != nil {
 		t.Fatal(err)
 	}
-	got := benchPackages(repo, "Owned: internal/beta/beta.go")
-	if len(got) != 1 || got[0] != "internal/beta" {
-		t.Fatalf("after adding BenchmarkBeta: benchPackages = %v, want [internal/beta]", got)
+	if err := bench.RecordCandidate(bench.Candidate{Area: "internal/memory", Kind: "slow-hook", Metric: "memory-recall"}); err != nil {
+		t.Fatal(err)
+	}
+	e := &effortPlan{mode: modeToday}
+	note := e.benchNote(repo, "Task: general check")
+	if !strings.Contains(note, "perf-audit: 1 pending bottleneck candidate(s): internal/memory (memory-recall)") {
+		t.Fatalf("expected perf-audit note in AuditOn mode, got %q", note)
 	}
 }
 

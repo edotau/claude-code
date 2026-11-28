@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/cli/ui/helptext"
 	"github.com/edotau/claude-code/internal/dev/review/bench"
@@ -19,7 +20,18 @@ var reviewTools = map[string]func(args []string, stdin io.Reader, stdout, stderr
 	"report":   func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunReport(a, o, e) },
 	"gate":     func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunGate(a, o, e) },
 	"scope":    func(a []string, _ io.Reader, o, e io.Writer) int { return diff.RunScope(a, o, e) },
-	"bench":    func(a []string, _ io.Reader, o, e io.Writer) int { return bench.RunBench(a, o, e) },
+	"bench":    func(a []string, _ io.Reader, o, e io.Writer) int { return bench.RunBench(normalizeBenchArgs(a), o, e) },
+}
+
+func normalizeBenchArgs(args []string) []string {
+	out := make([]string, 0, len(args)+1)
+	for i, arg := range args {
+		out = append(out, arg)
+		if (arg == "--audit" || arg == "-audit") && (i+1 >= len(args) || strings.HasPrefix(args[i+1], "-")) {
+			out = append(out, "status")
+		}
+	}
+	return out
 }
 
 var reviewPage = helptext.Page{

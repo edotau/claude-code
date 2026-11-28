@@ -992,3 +992,35 @@ func TestBenchWorkerSkipsCommitThatDoesNotBuild(t *testing.T) {
 		t.Fatalf("tally = %+v", tally)
 	}
 }
+
+func TestBenchAuditModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bench post-commit runs are unix only")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir, sha := benchRepo(t)
+	spawn := benchSpawn
+	t.Cleanup(func() { benchSpawn = spawn })
+	spawned := 0
+	benchSpawn = func([]string, string) int { spawned++; return 1 }
+	if err := bench.SetAuditMode(bench.AuditOff); err != nil {
+		t.Fatal(err)
+	}
+	in := core.ParseInput(strings.NewReader(`{"session_id":"s1","tool_name":"Bash"}`))
+	benchOnCommit(context.Background(), in, dir, sha)
+	if spawned != 0 {
+		t.Fatalf("AuditOff spawned %d workers, want 0", spawned)
+	}
+	if err := bench.SetAuditMode(bench.AuditOn); err != nil {
+		t.Fatal(err)
+	}
+	if got := benchLoopDecision(context.Background(), benchJob{Top: dir, SHA: sha}); got != "audit mode on (passive)" {
+		t.Fatalf("AuditOn loop decision = %q, want passive", got)
+	}
+	raw := strings.Replace(cannedBench, `"flags":["noisy"],`, "", 1)
+	benchReportRegressions([]byte(raw), "/r.json")
+	cands, err := bench.PendingCandidates()
+	if err != nil || len(cands) != 1 || cands[0].Area != "internal/memory" || cands[0].Kind != "bench-regression" {
+		t.Fatalf("AuditOn candidates = %+v, %v", cands, err)
+	}
+}

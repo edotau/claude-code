@@ -2,13 +2,143 @@ package bench
 
 import (
 	"cmp"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/edotau/claude-code/internal/platform/paths"
 )
+
+const (
+	AuditOff  = "off"
+	AuditOn   = "on"
+	AuditAuto = "auto"
+)
+
+type auditState struct {
+	Mode      string    `json:"mode"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func auditModeFile() string { return filepath.Join(benchRoot(), "audit-mode.json") }
+
+// AuditMode returns the persisted performance audit mode (off, on, or auto), defaulting to auto.
+func AuditMode() string {
+	for _, p := range []string{auditModeFile(), filepath.Join(paths.StateDir(), "harness", "bench", "audit-mode.json")} {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var st auditState
+		if json.Unmarshal(data, &st) == nil && slices.Contains([]string{AuditOff, AuditOn, AuditAuto}, st.Mode) {
+			return st.Mode
+		}
+	}
+	return AuditAuto
+}
+
+// SetAuditMode persists mode (off, on, or auto) to audit-mode.json.
+func SetAuditMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if !slices.Contains([]string{AuditOff, AuditOn, AuditAuto}, mode) {
+		return fmt.Errorf("invalid audit mode %q: want on, auto, or off", mode)
+	}
+	st := auditState{Mode: mode, UpdatedAt: time.Now().UTC()}
+	if err := paths.WriteJSON(auditModeFile(), st); err != nil {
+		return err
+	}
+	return paths.WriteJSON(filepath.Join(paths.StateDir(), "harness", "bench", "audit-mode.json"), st)
+}
+
+// Candidate is a recorded performance bottleneck observation for next-round audit planning.
+type Candidate struct {
+	Area        string    `json:"area,omitempty"`
+	Kind        string    `json:"kind,omitempty"`
+	Metric      string    `json:"metric,omitempty"`
+	ObservedMs  float64   `json:"observed_ms,omitempty"`
+	BudgetMs    float64   `json:"budget_ms,omitempty"`
+	Detail      string    `json:"detail,omitempty"`
+	RecordedAt  time.Time `json:"recorded_at,omitzero"`
+	Audited     bool      `json:"audited,omitempty"`
+	Pkg         string    `json:"pkg,omitempty"`
+	What        string    `json:"what,omitempty"`
+	CallsPerDay float64   `json:"calls_per_day,omitempty"`
+	EstSavingMS float64   `json:"est_saving_ms,omitempty"`
+	Source      string    `json:"source,omitempty"`
+}
+
+// RecordCandidate deduplicates c by Area + Kind and writes it to candidates.jsonl.
+func RecordCandidate(c Candidate) error {
+	c.Area, c.Kind = strings.TrimSpace(c.Area), strings.TrimSpace(c.Kind)
+	if c.Area == "" || c.Kind == "" {
+		return errors.New("candidate requires area and kind")
+	}
+	if c.RecordedAt.IsZero() {
+		c.RecordedAt = time.Now().UTC()
+	}
+	file := filepath.Join(benchRoot(), "candidates.jsonl")
+	return paths.WithFileLock(file, func() error {
+		rows, err := readJSONL[Candidate](file)
+		if err != nil {
+			return err
+		}
+		replaced := false
+		for i, r := range rows {
+			if r.Area == c.Area && r.Kind == c.Kind {
+				rows[i], replaced = c, true
+				break
+			}
+		}
+		if !replaced {
+			rows = append(rows, c)
+		}
+		return writeCandidates(file, rows)
+	})
+}
+
+func writeCandidates(file string, rows []Candidate) error {
+	var buf strings.Builder
+	for _, r := range rows {
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		buf.Write(b)
+		buf.WriteByte('\n')
+	}
+	if err := paths.AtomicWrite(file, []byte(buf.String()), 0o600); err != nil {
+		return err
+	}
+	alt := filepath.Join(paths.StateDir(), "harness", "bench", "candidates.jsonl")
+	return paths.AtomicWrite(alt, []byte(buf.String()), 0o600)
+}
+
+// PendingCandidates returns recorded bottleneck candidates that have Area and Kind and are not yet audited.
+func PendingCandidates() ([]Candidate, error) {
+	for _, p := range []string{filepath.Join(benchRoot(), "candidates.jsonl"), filepath.Join(paths.StateDir(), "harness", "bench", "candidates.jsonl")} {
+		rows, err := readJSONL[Candidate](p)
+		if err != nil {
+			return nil, err
+		}
+		var out []Candidate
+		for _, r := range rows {
+			if r.Area != "" && r.Kind != "" && !r.Audited {
+				out = append(out, r)
+			}
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
+	return nil, nil
+}
 
 // historyCandidates derives fix and benchmark items from each benchmark's latest epoch; noisy runs alone queue nothing.
 func historyCandidates(history []observation) []Item {

@@ -58,7 +58,26 @@ func (e *effortPlan) benchNote(cwd, task string) string {
 		}
 		lines = append(lines, line)
 	}
+	if note := auditCandidateNote(); note != "" {
+		lines = append(lines, note)
+	}
 	return strings.Join(lines, "\n")
+}
+
+func auditCandidateNote() string {
+	if bench.AuditMode() != bench.AuditOn {
+		return ""
+	}
+	cands, err := bench.PendingCandidates()
+	if err != nil || len(cands) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, min(3, len(cands)))
+	for _, c := range cands[:min(3, len(cands))] {
+		parts = append(parts, fmt.Sprintf("%s (%s)", c.Area, cmp.Or(c.Metric, c.Kind)))
+	}
+	return fmt.Sprintf("perf-audit: %d pending bottleneck candidate(s): %s — see `claude-code review bench --audit status`",
+		len(cands), strings.Join(parts, ", "))
 }
 
 // benchPackages returns up to maxBenchPackages sorted repo-relative Go package directories with benchmarks.

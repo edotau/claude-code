@@ -172,3 +172,24 @@ func TestStatusReadOnlyUninitialized(t *testing.T) {
 		t.Fatalf("status created bench state: %v", err)
 	}
 }
+
+func TestRunAuditFlagAndStatus(t *testing.T) {
+	now := statusFixture(t, "[]")
+	_ = now
+	if err := RecordCandidate(Candidate{Area: "internal/memory", Kind: "slow-hook", Metric: "memory-recall", ObservedMs: 539, BudgetMs: 50, Detail: "p95 539ms"}); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if code := RunBench([]string{"--audit", "on"}, &out, &errb); code != 0 {
+		t.Fatalf("RunBench --audit on exited %d: %s", code, errb.String())
+	}
+	statusWantText(t, out.String(), "audit mode: on", "candidates: 1 pending", "internal/memory")
+	out.Reset()
+	if code := RunBench([]string{"--audit", "status", "--format", "json"}, &out, &errb); code != 0 {
+		t.Fatalf("RunBench --audit status json exited %d: %s", code, errb.String())
+	}
+	var rep auditReport
+	if err := json.Unmarshal(out.Bytes(), &rep); err != nil || rep.Mode != AuditOn || len(rep.Candidates) != 1 {
+		t.Fatalf("audit json = %+v, %v", rep, err)
+	}
+}

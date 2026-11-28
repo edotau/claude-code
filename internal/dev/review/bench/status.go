@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,17 +19,19 @@ const statusMSPerSecond = float64(time.Second / time.Millisecond)
 
 // Status is `review bench --status`: today's budget, automatic lanes, the queue and the loop.
 type Status struct {
-	At          time.Time     `json:"at"`
-	Budget      *StatusBudget `json:"budget,omitempty"`
-	BudgetError string        `json:"budget_error,omitempty"`
-	Lanes       []StatusLane  `json:"lanes"`
-	LaneCap     int           `json:"lane_cap"`
-	LanesError  string        `json:"lanes_error,omitempty"`
-	Queue       *StatusQueue  `json:"queue,omitempty"`
-	QueueError  string        `json:"queue_error,omitempty"`
-	LoopRunning bool          `json:"loop_running"`
-	LastLoop    *StatusLaunch `json:"last_loop,omitempty"`
-	LoopError   string        `json:"loop_error,omitempty"`
+	At              time.Time     `json:"at"`
+	AuditMode       string        `json:"audit_mode,omitempty"`
+	AuditCandidates []Candidate   `json:"audit_candidates,omitempty"`
+	Budget          *StatusBudget `json:"budget,omitempty"`
+	BudgetError     string        `json:"budget_error,omitempty"`
+	Lanes           []StatusLane  `json:"lanes"`
+	LaneCap         int           `json:"lane_cap"`
+	LanesError      string        `json:"lanes_error,omitempty"`
+	Queue           *StatusQueue  `json:"queue,omitempty"`
+	QueueError      string        `json:"queue_error,omitempty"`
+	LoopRunning     bool          `json:"loop_running"`
+	LastLoop        *StatusLaunch `json:"last_loop,omitempty"`
+	LoopError       string        `json:"loop_error,omitempty"`
 }
 
 type StatusBudget struct {
@@ -69,7 +72,8 @@ type StatusLaunch struct {
 
 // BuildStatus reads every section without writing or locking; a failed section carries its error.
 func BuildStatus(ctx context.Context, top string, now time.Time) Status {
-	s := Status{At: now, LaneCap: maxAutoLanes, Lanes: []StatusLane{}, LoopRunning: loopLocked()}
+	cands, _ := PendingCandidates()
+	s := Status{At: now, AuditMode: AuditMode(), AuditCandidates: cands, LaneCap: maxAutoLanes, Lanes: []StatusLane{}, LoopRunning: loopLocked()}
 	rows, err := readBudget()
 	if err != nil {
 		s.BudgetError = err.Error()
@@ -177,6 +181,9 @@ func (s Status) writeText(w io.Writer) error {
 	rows := s.budgetText()
 	rows = append(rows, s.lanesText()...)
 	rows = append(rows, s.queueText()...)
+	if s.AuditMode != "" {
+		rows = append(rows, fmt.Sprintf("audit mode: %s (%d pending)", s.AuditMode, len(s.AuditCandidates)))
+	}
 	state := "idle"
 	if s.LoopRunning {
 		state = "running"
@@ -286,4 +293,52 @@ func runStatus(asJSON bool, w io.Writer) error {
 		return s.writeJSON(w)
 	}
 	return s.writeText(w)
+}
+
+type auditReport struct {
+	Mode       string      `json:"mode"`
+	Candidates []Candidate `json:"candidates"`
+	Pending    []Item      `json:"pending"`
+}
+
+func runAudit(arg string, asJSON bool, w io.Writer) error {
+	arg = strings.ToLower(strings.TrimSpace(arg))
+	if arg != "status" {
+		if err := SetAuditMode(arg); err != nil {
+			return err
+		}
+	}
+	cands, err := PendingCandidates()
+	if err != nil {
+		return err
+	}
+	var pending []Item
+	if q, err := statusQueue(); err == nil && q != nil {
+		pending = q.Top
+	}
+	rep := auditReport{Mode: AuditMode(), Candidates: cands, Pending: pending}
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rep)
+	}
+	return writeAuditText(w, rep)
+}
+
+func writeAuditText(w io.Writer, rep auditReport) error {
+	rows := []string{"audit mode: " + rep.Mode, fmt.Sprintf("candidates: %d pending", len(rep.Candidates))}
+	for i, c := range rep.Candidates {
+		rows = append(rows, fmt.Sprintf("%d. [%s] %s: %s (%.1f ms vs %.1f ms budget; %s)",
+			i+1, c.Kind, c.Area, cmp.Or(c.Detail, c.Metric), c.ObservedMs, c.BudgetMs, c.Metric))
+	}
+	rows = append(rows, fmt.Sprintf("pending items: %d", len(rep.Pending)))
+	for i, it := range rep.Pending {
+		rows = append(rows, fmt.Sprintf("%d. [%s] %s: %s", i+1, it.Kind, it.Pkg, it.What))
+	}
+	for _, row := range rows {
+		if _, err := fmt.Fprintln(w, statusTextLine(row)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

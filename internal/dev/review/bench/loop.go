@@ -27,6 +27,7 @@ import (
 type loopOpts struct {
 	queue, decide, record, status     bool
 	verdicts, loop                    bool
+	audit                             string
 	maxItems                          int
 	pending                           bool
 	lane                              string
@@ -42,12 +43,15 @@ type loopOpts struct {
 	durationS, savingMSDay            float64
 }
 
-// reads reports a mode runLoop serves: the queue, a record, the verdicts or the status.
-func (l loopOpts) reads() bool { return l.queue || l.record || l.verdicts || l.status }
+// reads reports a mode runLoop serves: the queue, a record, the verdicts, the status or audit mode.
+func (l loopOpts) reads() bool {
+	return l.queue || l.record || l.verdicts || l.status || l.audit != ""
+}
 
-// statusMixed reports --status combined with another mode or an output file.
+// statusMixed reports --status or --audit combined with another mode or an output file.
 func (l loopOpts) statusMixed(out string) bool {
-	return l.status && (l.queue || l.decide || l.record || l.verdicts || out != "")
+	other := l.queue || l.decide || l.record || l.verdicts || out != ""
+	return l.status && (other || l.audit != "") || l.audit != "" && (other || l.status)
 }
 
 func loopFlags(fs *flag.FlagSet, l *loopOpts) {
@@ -73,6 +77,7 @@ func loopFlags(fs *flag.FlagSet, l *loopOpts) {
 	fs.StringVar(&l.subject, "subject", "", "record observed subject state: present|gone")
 	fs.BoolVar(&l.queue, "queue", false, "rank the next fix candidates from the queue, results and seeds")
 	fs.BoolVar(&l.status, "status", false, "show today's budget, automatic lanes, queue and loop")
+	fs.StringVar(&l.audit, "audit", "", "performance audit mode: on|auto|off|status")
 	fs.StringVar(&reservedSHA, "reserved", "", "internal: the commit whose loop slot the post-commit worker reserved")
 	fs.BoolVar(&l.decide, "decide", false, "--before vs --after: KEEP 0, REVERT 1, no overlap 3")
 	fs.BoolFunc("record", "add a scorecard row; a kept --after waits for its lane to merge", func(value string) error {
@@ -103,6 +108,8 @@ func runLoop(o options, stdout, stderr io.Writer) int {
 	l := o.loop
 	var err error
 	switch {
+	case l.audit != "":
+		err = runAudit(l.audit, o.json, stdout)
 	case l.status:
 		err = runStatus(o.json, stdout)
 	case l.loop:
@@ -282,6 +289,7 @@ func collect(root string) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	items = slices.DeleteFunc(items, func(it Item) bool { return it.Pkg == "" || it.What == "" })
 	for i := range items {
 		items[i].Kind = "fix"
 	}

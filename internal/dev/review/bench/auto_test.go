@@ -152,3 +152,39 @@ func writeBenchFile(t *testing.T, name, line string) {
 		t.Fatal(err)
 	}
 }
+
+func TestAuditModeAndRecordCandidate(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	checkAuditModes(t)
+	for _, c := range []Candidate{
+		{Area: "internal/memory", Kind: "slow-test", Metric: "go test", ObservedMs: 38000, BudgetMs: 20000, Detail: "38s suite"},
+		{Area: "internal/memory", Kind: "slow-test", Metric: "go test", ObservedMs: 42000, BudgetMs: 20000, Detail: "42s suite"},
+		{Area: "internal/hooks", Kind: "slow-hook", Metric: "memory-recall", ObservedMs: 539, BudgetMs: 50, Detail: "p95 539ms"},
+	} {
+		if err := RecordCandidate(c); err != nil {
+			t.Fatalf("RecordCandidate(%+v): %v", c, err)
+		}
+	}
+	pending, err := PendingCandidates()
+	if err != nil || len(pending) != 2 {
+		t.Fatalf("PendingCandidates = %+v, %v", pending, err)
+	}
+	if pending[0].ObservedMs != 42000 || pending[1].Area != "internal/hooks" {
+		t.Fatalf("PendingCandidates = %+v", pending)
+	}
+}
+
+func checkAuditModes(t *testing.T) {
+	t.Helper()
+	if got := AuditMode(); got != AuditAuto {
+		t.Fatalf("default AuditMode = %q, want %q", got, AuditAuto)
+	}
+	for _, m := range []string{AuditOn, AuditOff, AuditAuto} {
+		if err := SetAuditMode(m); err != nil || AuditMode() != m {
+			t.Fatalf("SetAuditMode(%q): err=%v mode=%q", m, err, AuditMode())
+		}
+	}
+	if err := SetAuditMode("invalid"); err == nil {
+		t.Fatal("expected error for invalid audit mode")
+	}
+}
