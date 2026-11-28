@@ -30,7 +30,7 @@
 ## Settings — the Windows subset
 
 `claude-code install` also renders a Windows-only subset of the same settings template (drops
-`hooks`/`statusLine` and any Linux-path string) via `internal/setup/windows_settings.go`'s
+`hooks`/`statusLine` and any Linux-path string) via `internal/dev/setup/windows_settings.go`'s
 `stripWindowsOnly`, written to `%USERPROFILE%\.claude\settings.json` on WSL.
 
 ## Memory — generated, not seed templates
