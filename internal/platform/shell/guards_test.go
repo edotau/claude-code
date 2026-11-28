@@ -110,3 +110,11 @@ func TestGuardSectionsMatchReaders(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkDecodeGuards(b *testing.B) {
+	for range b.N {
+		if _, err := decodeGuards(assets.ShellGuards()); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

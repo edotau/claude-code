@@ -68,11 +68,7 @@ func QuoteAt(cmd string) []byte {
 
 // markQuoted fills at[from..to] with the double-quote mark for "…" and the single-quote mark for everything else.
 func markQuoted(at []byte, from, to int, quote byte) {
-	kind := byte('\'')
-	if quote == '"' {
-		kind = '"'
-	}
-	for k := from; k <= to; k++ {
+	for k, kind := from, quoteMark(quote); k <= to; k++ {
 		at[k] = kind
 	}
 }
@@ -101,8 +97,15 @@ func escaped[T string | []byte](cmd T, i int) bool {
 
 // separatorStarts reports a command separator at cmd[i]; `2>&1`, `<&3`, `&>file` and `>|file` redirections are not one.
 func separatorStarts(cmd string, i int) bool {
-	return strings.IndexByte(";|&\n", cmd[i]) >= 0 && (cmd[i] != '&' || !redirectAmp(cmd, i)) &&
-		(cmd[i] != '|' || !redirectAfter(cmd, i, ">"))
+	switch cmd[i] {
+	case ';', '\n':
+		return true
+	case '&':
+		return !redirectAmp(cmd, i)
+	case '|':
+		return !redirectAfter(cmd, i, ">")
+	}
+	return false
 }
 
 // redirectAmp reports a `&` that follows `>`/`<` or precedes `>`, a redirection rather than a separator.
@@ -162,11 +165,27 @@ func Tokens(seg string) []string {
 	return trimGroupOpen(out)
 }
 
+// wordStarts bounds Tokens' word count: the non-boundary bytes that open a run, ignoring quotes.
+func wordStarts(seg string) int {
+	n, prev := 0, true
+	for i := 0; i < len(seg); i++ {
+		b := isTokenBoundary(seg[i])
+		if prev && !b {
+			n++
+		}
+		prev = b
+	}
+	return n
+}
+
 func isTokenBoundary(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ')' || c == '}'
 }
 
 func appendToken(out []string, seg string, start, end int, raw bool, buf []byte) []string {
+	if out == nil {
+		out = make([]string, 0, wordStarts(seg))
+	}
 	if raw {
 		return append(out, seg[start:end])
 	}
@@ -277,14 +296,16 @@ func unquoteStep(buf *[]byte, seg string, i int, quote byte) (int, byte) {
 	if seg[i] == quote {
 		return i, 0
 	}
-	*buf = append(*buf, seg[i])
-	return i, quote
+	j, _ := quotedStep(seg, i, quote) // the plain run from seg[i], copied whole
+	*buf = append(*buf, seg[i:j+1]...)
+	return j, quote
 }
 
 // trimGroupOpen drops `(`/`{` openers from the leading words (also after control words), and words left empty.
 func trimGroupOpen(out []string) []string {
 	for i := 0; i < len(out); {
-		if trimmed := strings.TrimLeft(out[i], "({"); trimmed != out[i] {
+		if w := out[i]; w != "" && (w[0] == '(' || w[0] == '{') {
+			trimmed := strings.TrimLeft(w, "({")
 			out[i] = trimmed
 			if trimmed == "" {
 				out = slices.Delete(out, i, i+1)
@@ -308,6 +329,14 @@ func trimGroupOpen(out []string) []string {
 }
 
 func isShellKeyword(s string) bool { walkerOnce.Do(loadWalker); return walker.keywords[s] }
+
+// keywordsDropped is toks after its leading control keywords (`if`, `then`, `!`, …).
+func keywordsDropped(toks []string) []string {
+	for len(toks) > 0 && isShellKeyword(toks[0]) {
+		toks = toks[1:]
+	}
+	return toks
+}
 
 // walker holds the walker's per-call word sets; its accessors inline where a sync.OnceValue call does not.
 var (
@@ -335,24 +364,28 @@ func loadWalker() {
 	}
 }
 
-// quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
+// quotedStep steps inside quote from s[i]: an escape takes two bytes, the close ends it, a plain run goes whole.
 func quotedStep(s string, i int, quote byte) (int, byte) {
-	if quote == ansiQuote { // inside $'…' a backslash escapes any byte, including the quote
-		if s[i] == '\\' && i+1 < len(s) {
-			return i + 1, quote
-		}
-		if s[i] == '\'' {
-			return i, 0
-		}
-		return i, quote
+	end, esc := quote, quote != '\''
+	if quote == ansiQuote { // $'…' closes on ' and a backslash in it escapes any byte, the quote too
+		end = '\''
 	}
-	if s[i] == '\\' && quote == '"' && i+1 < len(s) && dqEscapable(s[i+1]) {
+	if s[i] == '\\' && esc && i+1 < len(s) && (quote == ansiQuote || dqEscapable(s[i+1])) {
 		return i + 1, quote
 	}
-	if s[i] == quote {
+	if s[i] == end {
 		return i, 0
 	}
-	return i, quote
+	return quotedRunEnd(s, i, end, esc), quote
+}
+
+// quotedRunEnd is the last index of the run from s[i] with no byte that closes (end) or, when esc, escapes.
+func quotedRunEnd(s string, i int, end byte, esc bool) int {
+	j := i + 1
+	for j < len(s) && s[j] != end && (!esc || s[j] != '\\') {
+		j++
+	}
+	return j - 1
 }
 
 // ansiQuote is the quote state of an open ANSI-C `$'…'` string.
@@ -517,11 +550,7 @@ func skipEnvAssignments(toks []string) []string {
 func skipLeadWords(toks []string) []string {
 	for {
 		n := len(toks)
-		toks = skipEnvAssignments(toks)
-		for len(toks) > 0 && isShellKeyword(toks[0]) {
-			toks = toks[1:]
-		}
-		toks = skipLeadRedirect(skipFuncHeader(toks), false)
+		toks = skipLeadRedirect(skipFuncHeader(keywordsDropped(skipEnvAssignments(toks))), false)
 		if len(toks) == n {
 			return toks
 		}

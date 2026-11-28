@@ -56,8 +56,8 @@ func decodeGuards(raw []byte) (map[string]guardSection, error) {
 	for _, pair := range guardExclusive {
 		a, b := secs[pair[0]], secs[pair[1]]
 		inB := b.names()
-		for w := range a.names() {
-			if _, both := inB[w]; both {
+		for _, w := range a.names() {
+			if slices.Contains(inB, w) {
 				return nil, fmt.Errorf("%q is in %s and %s, which are exclusive", w, pair[0], pair[1])
 			}
 		}
@@ -167,29 +167,20 @@ func (s guardSection) validate() error {
 }
 
 func checkWords(words []string) error {
-	seen := map[string]bool{}
-	for _, w := range words {
+	for i, w := range words {
 		if w == "" {
 			return errors.New("empty word")
 		}
-		if seen[w] {
+		if slices.Contains(words[:i], w) {
 			return fmt.Errorf("duplicate word %q", w)
 		}
-		seen[w] = true
 	}
 	return nil
 }
 
 // names are the section's words, or its tool names when it maps tools.
-func (s guardSection) names() map[string]struct{} {
-	out := map[string]struct{}{}
-	for _, w := range s.Words {
-		out[w] = struct{}{}
-	}
-	for t := range s.Tools {
-		out[t] = struct{}{}
-	}
-	return out
+func (s guardSection) names() []string {
+	return slices.AppendSeq(slices.Clone(s.Words), maps.Keys(s.Tools))
 }
 
 func guardSectionNamed(name string) guardSection {

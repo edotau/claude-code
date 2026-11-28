@@ -162,3 +162,17 @@ func BenchmarkTokensSegments(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkTokensLongQuote(b *testing.B) {
+	const seg = `git commit -m "perf(shell): Segments skips the separator list it throws away" -m 'body'`
+	for range b.N {
+		_ = Tokens(seg)
+	}
+}
+
+func BenchmarkQuoteAt(b *testing.B) {
+	cmd := strings.Repeat(`echo "a $x \"q\" b" 'lit ; |' plain && `, 8)
+	for range b.N {
+		_ = QuoteAt(cmd)
+	}
+}

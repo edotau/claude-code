@@ -136,10 +136,7 @@ func (w *segWalk) readOnly(j int) bool {
 	var files []string
 	for k := j; ; k++ {
 		words, targets := Redirects(w.segs[k])
-		for len(words) > 0 && isShellKeyword(words[0]) {
-			words = words[1:]
-		}
-		rest, _ := Unwrap(words, "")
+		rest, _ := Unwrap(keywordsDropped(words), "")
 		if rest = DropRtk(rest); len(rest) == 0 || !pureReader(rest) {
 			return false
 		}
@@ -253,10 +250,7 @@ func executedSubs(masked string, n int) []bool {
 	varRun, k := false, 0
 	for _, seg := range Segments(masked) {
 		toks := Tokens(seg)
-		kw := 0
-		for kw < len(toks) && isShellKeyword(toks[kw]) {
-			kw++
-		}
+		kw := len(toks) - len(keywordsDropped(toks))
 		rest, _ := Unwrap(toks[kw:], "")
 		at := max(kw, len(toks)-len(rest))
 		for j, t := range toks {
@@ -377,11 +371,7 @@ func eachSegment(segs, seps []string, cwd string, fn func(i int, toks []string, 
 		if i > 0 {
 			prev = seps[i-1]
 		}
-		words := toks
-		for len(words) > 0 && isShellKeyword(words[0]) {
-			words = words[1:]
-		}
-		if at, isCd := c.step(words, prev, seps[i]); !isCd && len(toks) > 0 {
+		if at, isCd := c.step(keywordsDropped(toks), prev, seps[i]); !isCd && len(toks) > 0 {
 			lost := c.lost || at == unknownDir
 			if at == unknownDir {
 				at = c.cwd
@@ -550,10 +540,7 @@ func builtinPrefixDropped(toks []string) []string {
 
 // commandWords is the segment's words without leading shell keywords; nil for an ssh command (it runs remotely).
 func commandWords(seg string) []string {
-	toks := Tokens(seg)
-	for len(toks) > 0 && isShellKeyword(toks[0]) {
-		toks = toks[1:]
-	}
+	toks := keywordsDropped(Tokens(seg))
 	if len(toks) > 0 && toks[0] == "ssh" {
 		return nil
 	}
@@ -564,9 +551,7 @@ func commandWords(seg string) []string {
 func CommandStarts(toks []string) [][]string { return commandStarts(toks, maxNest*2) }
 
 func commandStarts(toks []string, n int) [][]string {
-	for len(toks) > 0 && isShellKeyword(toks[0]) {
-		toks = toks[1:]
-	}
+	toks = keywordsDropped(toks)
 	if len(toks) == 0 || n == 0 {
 		return nil
 	}
@@ -700,10 +685,7 @@ func runScripts(segs, seps []string, cwd string) []Script {
 	var scripts []Script
 	eachSegment(segs, seps, cwd, func(i int, words []string, dir string, lost bool) {
 		words, targets := redirectsTokens(segs[i], words)
-		for len(words) > 0 && isShellKeyword(words[0]) {
-			words = words[1:]
-		}
-		rest, _ := Unwrap(words, dir)
+		rest, _ := Unwrap(keywordsDropped(words), dir)
 		if len(rest) == 0 {
 			return
 		}
