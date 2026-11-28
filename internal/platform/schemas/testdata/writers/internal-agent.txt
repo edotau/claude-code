@@ -9,6 +9,9 @@ internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file
 internal/agent/record.go:ClaimDispatchID	unversioned: marker: exclusive hook-launch claim containing the dispatch ID
 internal/agent/record.go:claimRecord	unversioned: claim: the running record, linked in whole
 internal/agent/record.go:saveLocked	dispatch-record
+internal/agent/record.go:syncActiveMarker	unversioned: marker: a running dispatch's active-index sidecar
+internal/agent/record_read.go:markerWant	unversioned: marker: active-index sidecar rebuilt for each running record
+internal/agent/record_read.go:touchActiveIndexed	unversioned: marker: active-index .indexed mtime stamp
 internal/agent/resend.go:writeResumedMarker	unversioned: marker: the resumed job id a holder's adopted claim names, written atomically
 internal/agent/run.go:write	unversioned: foreign: the packed context file an agy run reads, removed after the run
 internal/agent/watch.go:ownerRecords	unversioned: cache: owner-<pid> watchdog bound, owner start token and its first record id

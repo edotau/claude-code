@@ -1,1 +1,4 @@
 internal/agent/inspect/baseline.go:writeBaseline	unversioned: foreign: base-blob scratch copy, removed after the gate
+internal/agent/inspect/stamp.go:ClearPending	unversioned: runtime: session's pending-validation queue, rewritten without the validated paths
+internal/agent/inspect/stamp.go:QueuePending	unversioned: runtime: session's pending-validation queue of handed-back paths
+internal/agent/inspect/stamp.go:WriteStamp	unversioned: cache: content-addressed proof that a check passed
