@@ -134,7 +134,10 @@ func TestRTKFastPathDecisions(t *testing.T) {
 		{"git status | head", "", false},
 		{"git status && ls", "", false},
 		{"FOO=1 git status", "", false},
-		{"echo $(git status)", "", false},
+		{"echo $(git status)", "", true}, // rtk leaves a command with $( as typed
+		{"git status; echo \"`date`\"", "", true},
+		{"git status\ncat <<EOF\nx\nEOF", "", true},
+		{"git status; echo '$(x) `y` <<z'", "", false}, // single-quoted, so rtk still rewrites the first segment
 		{"nice git status", "", false},
 		{"mise run x", "", false},
 	} {

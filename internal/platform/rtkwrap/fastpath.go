@@ -25,7 +25,30 @@ func FastPath(cmd string) (rewritten string, decided bool) {
 	if out, ok := simpleRewrite(cmd); ok {
 		return out, true
 	}
-	return "", noSegmentRewrites(cmd)
+	return "", wholeSkip(cmd) || noSegmentRewrites(cmd)
+}
+
+// wholeSkip reports rtk rewrite leaves all of cmd as typed: $( or a backtick outside '…', or << outside quotes.
+func wholeSkip(cmd string) bool {
+	if !strings.ContainsAny(cmd, "`<") && !strings.Contains(cmd, "$(") {
+		return false
+	}
+	at := shell.QuoteAt(cmd)
+	for i := range len(cmd) {
+		if at[i] != '\'' && skipAt(cmd, i, at[i] == 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// skipAt reports << at i when bare, or a ` or $( there that no backslash escapes.
+func skipAt(cmd string, i int, bare bool) bool {
+	rest := cmd[i:]
+	if bare && strings.HasPrefix(rest, "<<") {
+		return true
+	}
+	return (rest[0] == '`' || strings.HasPrefix(rest, "$(")) && (i == 0 || cmd[i-1] != '\\')
 }
 
 // rewriteWords are the words rtk rewrite may act on, loaded once from guards.json.
@@ -261,12 +284,12 @@ func isLeafHead(head string) bool {
 
 // noSegmentRewrites reports rtk leaves every segment of cmd as typed: no rtk word, a leaf or rtk head, or excluded.
 func noSegmentRewrites(cmd string) bool {
-	if strings.Contains(cmd, "$(") || strings.Contains(cmd, "<<") || strings.ContainsAny(cmd, "`\\") {
+	if strings.Contains(cmd, "$(") || strings.Contains(cmd, "<<") || strings.Contains(cmd, "`") {
 		return false
 	}
 	at := shell.QuoteAt(cmd)
 	for i := range len(cmd) {
-		if at[i] == 0 && strings.IndexByte("(){}", cmd[i]) >= 0 {
+		if at[i] == 0 && strings.IndexByte("(){}\\", cmd[i]) >= 0 { // a backslash inside quotes is pattern text
 			return false
 		}
 	}
