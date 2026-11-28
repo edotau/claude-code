@@ -1,4 +1,5 @@
 internal/agent/ask/action.go:finishAction	unversioned: text: a no-model action's captured output at its record's log path
+internal/agent/ask/launch.go:vsCodeDetach	unversioned: text: gemini vscode helper's log, VS Code's output, in the state dir
 internal/agent/ask/loop_state.go:save	ask-loop
 internal/agent/ask/report.go:saveAnswer	unversioned: text: ask --save answer file, the run's final answer
 internal/agent/ask/resultsave.go:SaveResult	unversioned: export: a dispatch's answer text at the caller's --save path
