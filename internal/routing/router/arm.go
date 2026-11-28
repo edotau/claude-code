@@ -247,6 +247,28 @@ func LoginDead(p *providers.Provider) bool {
 	return dead && (p.Identity == providers.IdentityUser || !providers.SPPresent(p))
 }
 
+// OwnLoginState is the agent CLI's own sign-in from local state; the agent package sets it (it imports router).
+var OwnLoginState = func(agent string) providers.AuthState { return providers.AuthState{Err: errors.New("unknown")} }
+
+// RowNotReady is why p's account cannot run now from stored facts only (no network); "" when ready or unknown.
+func RowNotReady(p *providers.Provider) string {
+	switch {
+	case p == nil:
+		return "is no registry row"
+	case !providers.CredentialPresent(p):
+		return "has no credential"
+	case LoginDead(p):
+		return "login is dead"
+	case p.Auth.Login == "":
+		return ""
+	}
+	// a failed local probe is unknown, never logged out
+	if st := OwnLoginState(p.Auth.Login); !st.Present && st.Err == nil {
+		return "is not signed in (" + p.Auth.Login + " login)"
+	}
+	return ""
+}
+
 func workspaceCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) ([]*providers.Provider, []F, error) {
 	usable, skipped := armCandidates(reg, q, q.Model, now)
 	if len(usable) == 0 && q.Model != "" {

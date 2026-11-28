@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -49,6 +50,56 @@ func TestPickFollowsLadder(t *testing.T) {
 	if !slices.Contains(r.Skipped, Skip{"opencode·zen-free", gateLadder, "outside github"}) {
 		t.Errorf("skips under github = %+v, want opencode·zen-free dropped as outside github", r.Skipped)
 	}
+}
+
+// TestLadderSkipsUnreadyOwnLogin: a signed-out own-login rung is skipped with its reason; an unknown state is kept.
+func TestLadderSkipsUnreadyOwnLogin(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tb, err := LoadFrom(&providers.Registry{Routing: providers.DefaultRouting()}, "work-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.LoadShared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, unknown := loginRow(t, reg, "codex"), loginRow(t, reg, "gemini")
+	old := OwnLoginState
+	t.Cleanup(func() { OwnLoginState = old })
+	OwnLoginState = func(login string) providers.AuthState {
+		switch login {
+		case out.Auth.Login:
+			return providers.AuthState{}
+		case unknown.Auth.Login:
+			return providers.AuthState{Err: errors.New("probe failed")}
+		}
+		return providers.AuthState{Present: true}
+	}
+	confine(t, "")
+	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Policy: testPolicy(route.FallbackAll), Configured: allConfigured,
+		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
+	has := func(agent string) bool {
+		return slices.ContainsFunc(r.Candidates, func(c Candidate) bool { return c.Agent == agent })
+	}
+	if has("codex") || !has("gemini") || !has("claude") {
+		t.Errorf("candidates = %+v, want codex dropped, gemini and claude kept", r.Candidates)
+	}
+	want := Skip{"codex·" + out.Account(), gateLadder, out.Name + " is not signed in (codex login)"}
+	if !slices.Contains(r.Skipped, want) {
+		t.Errorf("skips = %+v, want %+v", r.Skipped, want)
+	}
+}
+
+// loginRow is reg's own-login row for login; the test fails without one.
+func loginRow(t *testing.T, reg *providers.Registry, login string) *providers.Provider {
+	t.Helper()
+	for _, p := range reg.Providers {
+		if p.Auth.Login == login {
+			return p
+		}
+	}
+	t.Fatalf("registry has no %s own-login row", login)
+	return nil
 }
 
 func TestRungKeepsOpusTierGPT(t *testing.T) {

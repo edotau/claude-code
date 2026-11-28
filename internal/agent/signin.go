@@ -284,6 +284,15 @@ func AuthStatus(name string) providers.AuthState {
 	return providers.AuthState{}
 }
 
+func init() {
+	router.OwnLoginState = func(name string) providers.AuthState {
+		if a, ok := authenticator(name); ok {
+			return a.AuthStatus()
+		}
+		return providers.AuthState{Err: errors.New("no sign-in check for " + name)}
+	}
+}
+
 // AuthPlan is name's subscription for st; zero when st is not present or the agent has no Authenticator.
 func AuthPlan(ctx context.Context, name string, st providers.AuthState) providers.Subscription {
 	if a, ok := authenticator(name); ok && st.Present {

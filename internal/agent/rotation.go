@@ -523,16 +523,12 @@ func (s cellScan) workspaceWhy(row string) string {
 	return why
 }
 
-// rowNotReady is why p cannot run alias's Claude model for agent now: credential, login, tier, then rowHeld.
+// rowNotReady is why p cannot run alias's Claude model for agent now: account readiness, tier, then rowHeld.
 func rowNotReady(p *providers.Provider, st router.State, agentName, alias string, now time.Time) string {
-	switch {
-	case p == nil:
-		return "is no registry row"
-	case !providers.CredentialPresent(p):
-		return "has no credential"
-	case router.LoginDead(p):
-		return "login is dead"
-	case models.FamilyKind(p.Models[alias]) != models.FamilyClaude:
+	if why := router.RowNotReady(p); why != "" {
+		return why
+	}
+	if models.FamilyKind(p.Models[alias]) != models.FamilyClaude {
 		return "maps no Claude " + alias
 	}
 	if ok, why := rowServes(agentName, p); !ok {

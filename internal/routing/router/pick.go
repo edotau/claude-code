@@ -156,7 +156,7 @@ func (t *RouteTable) pick(
 		return g
 	}
 	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)
-	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res}
+	lp := ladderPick{t: t, reg: reg, l: t.ladderFor(ctx), alias: alias, now: now, res: &res, ready: map[string]string{}}
 	firstG = lp.admitGroups(firstG)
 	lastG = lp.admitGroups(lastG)
 	restG, lastG = lp.l.claim(restG, lastG)

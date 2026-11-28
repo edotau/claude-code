@@ -99,6 +99,8 @@ type ladderPick struct {
 	alias string
 	now   time.Time
 	res   *PickResult
+	// each row's RowNotReady reason, read once per pick
+	ready map[string]string
 }
 
 // claim moves claude out of the last group when the ladder places it; otherwise last stays last, as before.
@@ -122,7 +124,7 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 			}
 		}
 		for _, u := range split {
-			if u = lp.l.admit(u, lp.res); len(u) > 0 {
+			if u = lp.readyOnly(lp.l.admit(u, lp.res)); len(u) > 0 {
 				if rung, cs := lp.placeUnit(u); len(cs) > 0 {
 					out = append(out, rungGroup{rung, cs})
 				}
@@ -130,6 +132,25 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 		}
 	}
 	return out
+}
+
+// readyOnly drops the unit's candidates whose account row is not signed in or ready, recording each as a Skip.
+func (lp ladderPick) readyOnly(u []Candidate) []Candidate {
+	return slices.DeleteFunc(slices.Clone(u), func(c Candidate) bool {
+		p := CandidateRow(lp.reg, c)
+		if p == nil {
+			return false
+		}
+		why, ok := lp.ready[p.Name]
+		if !ok {
+			why = RowNotReady(p)
+			lp.ready[p.Name] = why
+		}
+		if why != "" {
+			lp.res.Skipped = append(lp.res.Skipped, Skip{skipLabel(c), gateLadder, p.Name + " " + why})
+		}
+		return why != ""
+	})
 }
 
 // admitGroups applies the confinement filter to each gate group, dropping groups it empties.
