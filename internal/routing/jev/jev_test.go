@@ -27,11 +27,12 @@ func TestMain(m *testing.M) {
 // isolate gives a test a fresh marker path and a controllable clock.
 func isolate(t *testing.T) *time.Time {
 	t.Helper()
-	oldP, oldN := backoffPath, backoffNow
+	oldP, oldN, oldSlow := backoffPath, backoffNow, slowThreshold
 	p := filepath.Join(t.TempDir(), "marker")
 	now := time.Unix(1000, 0)
 	backoffPath, backoffNow = func() string { return p }, func() time.Time { return now }
-	t.Cleanup(func() { backoffPath, backoffNow = oldP, oldN })
+	slowThreshold = 20 * time.Millisecond // a test server sleeps past it instead of the real two seconds
+	t.Cleanup(func() { backoffPath, backoffNow, slowThreshold = oldP, oldN, oldSlow })
 	return &now
 }
 

@@ -214,10 +214,10 @@ func ask(ctx context.Context, state string, qs map[string]json.RawMessage) (Resu
 }
 
 // Backoff marker: a short cross-process TTL so a down or slow Jev costs one timeout, not one per process.
-const (
-	backoffTTL    = 30 * time.Second
-	slowThreshold = 800 * time.Millisecond
-)
+const backoffTTL = 30 * time.Second
+
+// slowThreshold: a real brief takes about 1 s, and 800 ms backed the server off on most replies; tests shrink it.
+var slowThreshold = 2 * time.Second
 
 type backoffState struct {
 	Until int64 `json:"until,omitempty"`
