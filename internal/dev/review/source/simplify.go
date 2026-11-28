@@ -413,8 +413,8 @@ func simplicityKeyed(path, content, lang string) []keyedFinding {
 		return nil
 	}
 	out := complexityKeyed(path, content)
-	if q, err := QualityContent(path, content, lang); err == nil {
-		for _, s := range q.Smells {
+	if smells, err := qualitySmells(content, lang); err == nil {
+		for _, s := range smells {
 			if smellReported(s, out) {
 				continue
 			}
@@ -427,6 +427,15 @@ func simplicityKeyed(path, content, lang string) []keyedFinding {
 		}
 	}
 	return out
+}
+
+// qualitySmells is QualityContent's Smells alone, without the line counts, SOLID checks and score it would discard.
+func qualitySmells(content, lang string) ([]Smell, error) {
+	functions, err := findFunctions(content, lang)
+	if err != nil {
+		return nil, err
+	}
+	return checkCodeSmells(content, lang, functions, findClasses(content, lang)), nil
 }
 
 // smellReported is a long_function or high_complexity smell whose function the complexity check already flagged.

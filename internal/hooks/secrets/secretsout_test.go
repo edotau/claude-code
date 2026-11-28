@@ -125,3 +125,32 @@ func TestMain(m *testing.M) {
 	cleanup()
 	os.Exit(code)
 }
+
+// benchBashOutput is about 200 KB of build-and-test style output, with secret appended when it is not empty.
+func benchBashOutput(secret string) *core.Input {
+	var b strings.Builder
+	for i := 0; b.Len() < 200<<10; i++ {
+		fmt.Fprintf(&b, "ok  \\tgithub.com/edotau/claude-code/internal/pkg%03d\\t0.%03ds\\tcoverage: %d.%d%% of statements\\n", i, i%1000, i%100, i%10)
+	}
+	return bashOutput(b.String()+secret, "")
+}
+
+// BenchmarkSecretsOut is one secrets-out call over 200 KB of Bash output, clean and holding one vault value.
+func BenchmarkSecretsOut(b *testing.B) {
+	vals := []string{fakeSecret}
+	for i := range 30 {
+		vals = append(vals, fmt.Sprintf("sk-bench-%02d-Zq8xT4mLp2Vn7Rc", i))
+	}
+	redact.StubValues(b, vals)
+	for name, secret := range map[string]string{"clean": "", "one": "token=" + fakeSecret} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				in := benchBashOutput(secret)
+				b.StartTimer()
+				Out(in)
+			}
+		})
+	}
+}

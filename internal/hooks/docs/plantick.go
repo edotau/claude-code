@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/dev/plans"
 	"github.com/edotau/claude-code/internal/dev/worktree"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/platform/paths"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/platform/shell"
@@ -228,13 +229,15 @@ func recentHead(cwd, cmd string) string {
 func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	ctx, cancel := core.HookContext("docs-plan")
 	defer cancel()
-	dir := commitRepoDir(ctx, in.CWD, cmd, sha)
+	dir, full := commitRepoDir(ctx, in.CWD, cmd, sha)
 	if dir == "" {
 		return nil
 	}
 	top := toplevel(dir)
-	benchOnCommit(ctx, in, dir, sha)
-	results, tied, err := plans.DeferTick(top, sha, nil, in.SessionID)
+	bench := make(chan error, 1) // the bench queue and the plan tick share no state, so their git reads overlap
+	parallel.Go(func() { benchOnCommit(ctx, in, dir, sha); bench <- nil }, func(err error) { bench <- err })
+	results, tied, err := plans.DeferTick(top, full, nil, in.SessionID)
+	parallel.Rethrow(<-bench)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 	}
@@ -249,8 +252,8 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 }
 
 // commitRepoDir is the candidate dir (commit -C args, leading cd, cwd) whose HEAD is sha, else the first holding it.
-func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
-	var holders []string
+func commitRepoDir(ctx context.Context, cwd, cmd, sha string) (dir, full string) {
+	var holders, fulls []string
 	for _, d := range commitCandidates(cwd, cmd) {
 		if d == "" {
 			continue
@@ -259,15 +262,19 @@ func commitRepoDir(ctx context.Context, cwd, cmd, sha string) string {
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(strings.TrimSpace(out), sha) {
-			return d // linked worktrees share objects; the one whose HEAD is the commit made it
+		head, resolved, _ := strings.Cut(strings.TrimSpace(out), "\n") // resolved: what DeferTick would ask git again
+		if resolved = strings.TrimSpace(resolved); len(resolved) != 40 || !plans.ValidSHA(resolved) {
+			resolved = sha
 		}
-		holders = append(holders, d)
+		if strings.HasPrefix(head, sha) {
+			return d, resolved // linked worktrees share objects; the one whose HEAD is the commit made it
+		}
+		holders, fulls = append(holders, d), append(fulls, resolved)
 	}
 	if len(holders) > 0 {
-		return holders[0]
+		return holders[0], fulls[0]
 	}
-	return ""
+	return "", sha
 }
 
 // commitCandidates lists dirs a commit may have run in: -C args, a leading cd, then cwd; a relative -C uses the cd.
@@ -572,9 +579,11 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	if !fresh {
 		return core.Result{}
 	}
-	BenchLanded(ctx, top, before, after, in.SessionID) // a fast-forward fires no commit hook
+	bench := make(chan error, 1) // a fast-forward fires no commit hook; its bench queue shares no state with the tick
+	parallel.Go(func() { BenchLanded(ctx, top, before, after, in.SessionID); bench <- nil }, func(err error) { bench <- err })
 	var notes bytes.Buffer
 	err = plans.TickRange(ctx, top, "", before+".."+after, "", plans.MirrorDests(), false, &notes)
+	parallel.Rethrow(<-bench)
 	res := core.Result{Context: notes.String()}
 	if err != nil && !errors.Is(err, plans.ErrNotOnTrunk) { // a lane or a feature branch ticks nothing, by design
 		res.Stderr = fmt.Sprintf("plan-tick: %v\n", err)

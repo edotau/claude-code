@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -260,7 +261,7 @@ func TestCommitRepoDirTriesEveryDashC(t *testing.T) {
 			if l.cwd != root {
 				c = "git -C " + filepath.Join(root, "a") + " status && git commit -m b"
 			}
-			if got := commitRepoDir(context.Background(), l.cwd, c, l.sha); got != l.want {
+			if got, _ := commitRepoDir(context.Background(), l.cwd, c, l.sha); got != l.want {
 				t.Errorf("worktrees=%v cwd=%s: commitRepoDir = %q, want %q", worktrees, l.cwd, got, l.want)
 			}
 		}
@@ -560,4 +561,126 @@ func TestPlanDoneTickRunsFill(t *testing.T) {
 	if slots = 2; strings.Contains(run("claude-code plan task 'Phase 1.2' --done"), "plans:") {
 		t.Fatal("no ready task must print nothing")
 	}
+}
+
+// gitShim puts a logging git first on PATH; calls reports how many git processes ran since the last call.
+func gitShim(b *testing.B) (calls func() []string) {
+	b.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		b.Fatal(err)
+	}
+	dir := b.TempDir()
+	log := filepath.Join(dir, "log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	b.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() []string {
+		raw, _ := os.ReadFile(log)
+		_ = os.Remove(log)
+		return strings.Split(strings.TrimSpace(string(raw)), "\n")
+	}
+}
+
+// benchTickRepo is a main checkout with a benched package, 200 branches and a plan whose task 1.1 owns a/one.go.
+func benchTickRepo(b *testing.B) (repo string, git func(args ...string) string) {
+	cfg, home := b.TempDir(), b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	b.Setenv("HOME", home)
+	spawn := benchSpawn // the queue's sh loop would rerun this test binary forever; publishing still runs
+	benchSpawn = func([]string, string) int { return 1 }
+	b.Cleanup(func() { benchSpawn = spawn })
+	repo = filepath.Join(home, "widgets")
+	git = func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		if err != nil {
+			b.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "a"), 0o755); err != nil {
+		b.Fatal(err)
+	}
+	git("init", "-q", "-b", "main")
+	git("config", "commit.gpgsign", "false")
+	_ = os.WriteFile(filepath.Join(repo, "a", "one.go"), []byte("package a\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(repo, "a", "one_test.go"), []byte("package a\nfunc BenchmarkA() {}\n"), 0o644)
+	git("add", "-A")
+	git("commit", "-q", "-m", "base")
+	for i := range 200 {
+		git("branch", fmt.Sprintf("lane-%03d", i))
+	}
+	dir := plans.Home(repo)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	name := time.Now().Format(time.DateOnly) + "-widgets.md"
+	_ = os.WriteFile(filepath.Join(dir, name), []byte("# Plan: w\n\n## Tasks\n\n- [ ] 1.1 Task owns: a/one.go\n"), 0o644)
+	return repo, git
+}
+
+// benchTickPayload is the docs-plan PostToolUse Bash payload for cmd run in repo, printing out.
+func benchTickPayload(repo, cmd, out string) []byte {
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PostToolUse", "session_id": "bench1", "tool_name": "Bash", "cwd": repo,
+		"tool_input": map[string]string{"command": cmd}, "tool_response": map[string]string{"stdout": out}})
+	return payload
+}
+
+// BenchmarkPlanTickAfterCommit is one docs-plan Bash call after a commit naming a plan task, in a 200-branch repo.
+func BenchmarkPlanTickAfterCommit(b *testing.B) {
+	repo, git := benchTickRepo(b)
+	_ = os.WriteFile(filepath.Join(repo, "a", "one.go"), []byte("package a\n\nvar X = 1\n"), 0o644)
+	git("commit", "-q", "-am", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.1")
+	payload := benchTickPayload(repo, "git commit -am x", "[main "+git("rev-parse", "--short=7", "HEAD")+"] x\n 1 file changed\n")
+	calls := gitShim(b)
+	Tick(core.ParseInput(bytes.NewReader(payload))) // the first call claims the verify marker; later calls are the steady state
+	b.Logf("git calls per tick:\n%s", strings.Join(calls(), "\n"))
+	b.ReportAllocs()
+	for b.Loop() {
+		Tick(core.ParseInput(bytes.NewReader(payload)))
+	}
+	b.ReportMetric(float64(len(calls()))/float64(b.N), "git/op")
+}
+
+// BenchmarkPlanTickAfterFastForward is one docs-plan Bash call after a fresh fast-forward merge onto main.
+func BenchmarkPlanTickAfterFastForward(b *testing.B) {
+	repo, git := benchTickRepo(b)
+	payload := benchTickPayload(repo, "git merge --ff-only lane-000", "Fast-forward\n a/one.go | 1 +\n")
+	calls := gitShim(b)
+	n := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		git("checkout", "-q", "lane-000")
+		_ = os.WriteFile(filepath.Join(repo, "a", "one.go"), []byte(fmt.Sprintf("package a\n\nvar X = %d\n", i)), 0o644)
+		git("commit", "-q", "-am", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.1")
+		git("checkout", "-q", "main")
+		git("merge", "-q", "--ff-only", "lane-000")
+		calls()
+		b.StartTimer()
+		Tick(core.ParseInput(bytes.NewReader(payload)))
+		b.StopTimer()
+		got := calls()
+		if i == 0 {
+			b.Logf("git calls per tick:\n%s", strings.Join(got, "\n"))
+		}
+		n += len(got)
+		b.StartTimer()
+	}
+	b.ReportMetric(float64(n)/float64(b.N), "git/op")
+}
+
+// BenchmarkPlanTickPlainBash is one docs-plan Bash call for a command that neither commits nor lands.
+func BenchmarkPlanTickPlainBash(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PostToolUse", "session_id": "bench1", "tool_name": "Bash", "cwd": b.TempDir(),
+		"tool_input": map[string]string{"command": "go build ./... && go vet ./internal/hooks/docs"}, "tool_response": map[string]string{"stdout": strings.Repeat("ok\n", 2000)}})
+	calls := gitShim(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		Tick(core.ParseInput(bytes.NewReader(payload)))
+	}
+	b.ReportMetric(float64(len(slices.DeleteFunc(calls(), func(s string) bool { return s == "" })))/float64(b.N), "git/op")
 }

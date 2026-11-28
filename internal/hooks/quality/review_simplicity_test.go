@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -193,5 +194,38 @@ func TestReviewSimplicityMarkdown(t *testing.T) {
 	}
 	if out := rsRun(t, "Edit", p, "", "untouched"); out != "" {
 		t.Errorf("unrelated edit produced %q", out)
+	}
+}
+
+// rsBenchSource is a 600-line Go file of small functions plus one over the complexity limit, so findings exist.
+func rsBenchSource() string {
+	var b strings.Builder
+	b.WriteString("package fx\n\nimport \"strings\"\n\n")
+	for i := range 62 {
+		fmt.Fprintf(&b, "// F%d trims s and reports whether it holds %d.\nfunc F%d(s string) bool {\n\ts = strings.TrimSpace(s)\n"+
+			"\tif s == \"\" {\n\t\treturn false\n\t}\n\treturn strings.Contains(s, \"%d\")\n}\n\n", i, i, i, i)
+	}
+	b.WriteString("func Busy(a, b, c, d, e, f, g, h, i, j, k int) int {\n\tn := 0\n")
+	for _, v := range []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"} {
+		fmt.Fprintf(&b, "\tif %s > 0 && n < 9 {\n\t\tn++\n\t}\n", v)
+	}
+	b.WriteString("\treturn n\n}\n")
+	return b.String()
+}
+
+// BenchmarkReviewSimplicityEdit is one Edit of a 600-line Go file whose findings predate the edit.
+func BenchmarkReviewSimplicityEdit(b *testing.B) {
+	src := rsBenchSource()
+	p := filepath.Join(b.TempDir(), "fx.go")
+	edited := strings.Replace(src, "\"7\")", "\"seven\")", 1)
+	if err := os.WriteFile(p, []byte(edited), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": filepath.Dir(p),
+		"tool_input": map[string]any{"file_path": p, "old_string": "\"7\")", "new_string": "\"seven\")"}})
+	b.Logf("%d lines, context %q", strings.Count(edited, "\n"), ReviewSimplicity(core.ParseInput(bytes.NewReader(payload))).Context)
+	b.ReportAllocs()
+	for b.Loop() {
+		ReviewSimplicity(core.ParseInput(bytes.NewReader(payload)))
 	}
 }
