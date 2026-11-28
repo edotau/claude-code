@@ -37,9 +37,9 @@ Command flags, seeding and recovery: `skills/using-git-worktrees/SKILL.md`.
 - **Topology:** `n = 1` creates one collector (`claude-code worktree create <name>` from the working branch); `n > 1`
   creates one collector plus one lane per parallel subagent from the collector's head, never from `main`.
 - **Lane hand-back:** each subagent edits only its owned files and runs only cheap checks (`testing-guidelines.md`).
-  When commits are authorized, Claude leaves commit named files in-lane (`worktree commit --task <id> -m <msg> <files>`);
-  relay types (`codex`, `copilot`, `gemini`, `opencode`, `coworker`) hand back uncommitted for main to commit in-lane.
-  An owner's "no commits" overrides both: hand back and land uncommitted.
+  When commits are authorized, Claude leaves commit named files in-lane (`worktree commit --task <id> -m <msg>
+  <files>`); relay types (`codex`, `copilot`, `gemini`, `opencode`, `coworker`) hand back uncommitted for main to commit
+  in-lane. An owner's "no commits" overrides both: hand back and land uncommitted.
 - **Collect, land and clean:** as each lane finishes, main runs `worktree collapse <collector> <lane>` (no per-lane
   review or tests; resolve conflicts keeping both intents). Once collected, follow `testing-guidelines.md` → Several
   worktrees: collapse, then test once; `worktree land <collector>` rebases, gates in the collector, and applies the

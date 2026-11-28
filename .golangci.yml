@@ -28,6 +28,10 @@ linters:
           pkg: '^os$'
           msg: 'use internal/proc: process-wide state has one home'
   exclusions:
+    # Gitignored data dirs: scratch programs and memory reports live there by rule and are not repo code.
+    paths:
+      - '^memory/'
+      - '^state/'
     rules:
       # internal/platform/proc is the one home; hosttest is a test-helper package; tests restore their own state.
       - path: '(^|/)internal/platform/(proc|hosttest)/|_test\.go$'

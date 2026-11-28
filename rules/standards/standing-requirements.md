@@ -17,7 +17,8 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R6 Model mix:** Sonnet authors; waves of 3+ put a third on other families (count resolved model, not CLI).
   Reviewer is another family (R5 applies). Rotate external agents by strength; GPT defaults to sol by alias.
   Job mapping: `skills/subagent-workflows/SKILL.md` → Leaf types.
-- **R7 Databricks:** prefer overlay provider databricks rotating dev/qa/prod. Enforced by `agents ask` overlay `provider`.
+- **R7 Databricks:** prefer overlay provider databricks rotating dev/qa/prod. Enforced by `agents ask` overlay
+  `provider`.
 - **R8 Typed model:** no silent swaps; unserved models fail with nearest ids; reports name the model. Enforced by
   `unservedError`; retry policy remains prose.
 - **R9 Memory recall:** every brief carries recall. Enforced by `dispatch-effort` and ask's `withRecall`.

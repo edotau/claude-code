@@ -92,7 +92,8 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
 - **Report (out):** ≤8-line verdict (`DONE` · `DONE_WITH_CONCERNS` · `NEEDS_CONTEXT` · `BLOCKED` or review verdict),
   `Ran on:` receipt (`self` only for in-context), per-item outcome, gate results, decisions needed, and report path
   `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`. Scratch only under `/tmp/<job>/`, removed before hand-back.
-- **Ownership:** one writer per file; leaves stay terminal; commit authority: `rules/standards/worktree-git.md` → Worktrees.
+- **Ownership:** one writer per file; leaves stay terminal; commit authority: `rules/standards/worktree-git.md` →
+  Worktrees.
 
 ### Phase 2: dispatch — Concurrency, Dispatch workflow (R32) and Owner layer
 
@@ -119,10 +120,10 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
 
 ## Shared tree
 
-Keep the main shell at the repo root and use absolute paths (`skills/using-git-worktrees/references/shared-checkout.md`).
-Fix only owned files with `agents fix --path <files>`; confirm writes with `rtk git diff --stat`. Worktree unit files
-(`<file>_<task>.go`, folded before merge, never committed): [lane-orchestrator.md](references/lane-orchestrator.md) →
-Unit files.
+Keep the main shell at the repo root and use absolute paths
+(`skills/using-git-worktrees/references/shared-checkout.md`). Fix only owned files with `agents fix --path <files>`;
+confirm writes with `rtk git diff --stat`. Worktree unit files (`<file>_<task>.go`, folded before merge, never
+committed): [lane-orchestrator.md](references/lane-orchestrator.md) → Unit files.
 
 ## Rules
 
