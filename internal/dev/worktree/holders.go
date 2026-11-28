@@ -233,7 +233,19 @@ func sessionLive(session string) bool {
 // startChanged reports that pid now runs a process other than the one started at want (a reused pid); unknown is false.
 func startChanged(pid int, want string) bool {
 	got, err := claimStart(pid)
-	return want != "" && err == nil && strings.Join(strings.Fields(got), " ") != strings.Join(strings.Fields(want), " ")
+	if want == "" || err != nil {
+		return false
+	}
+	got, want = strings.Join(strings.Fields(got), " "), strings.Join(strings.Fields(want), " ")
+	return got != want && !sameStart(got, want)
+}
+
+// sameStart reports a local ps start equal to a registry one written in UTC, as Claude Code's session files are.
+func sameStart(local, utc string) bool {
+	const layout = "Mon Jan 2 15:04:05 2006"
+	a, aerr := time.ParseInLocation(layout, local, time.Local)
+	b, berr := time.ParseInLocation(layout, utc, time.UTC)
+	return aerr == nil && berr == nil && a.Equal(b)
 }
 
 // LeafNoteKind is a leaf note's Notice kind, NoteMax its rune cap, SubagentNoteFrom an Agent-tool leaf's From.
