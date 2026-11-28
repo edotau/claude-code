@@ -58,4 +58,5 @@
   one, and fold a near-duplicate with a few extra points into one record extended with them. Nothing the owner said
   is lost; every link, path and Markdown reference to a removed item is repointed. A conflict resolves to the
   owner's explicit later statement, else goes to the owner. Items that only share a topic stay apart; memory's
-  bank files keep their own contracts (`decisionLog.md` supersedes, never deletes: `rules/harness/persistent-memory.md`).
+  bank files keep their own contracts (`decisionLog.md` supersedes, never deletes:
+  `rules/harness/persistent-memory.md`).

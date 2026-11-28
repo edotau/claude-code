@@ -123,8 +123,8 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   Fail open on veto/error/timeout; Codex/OpenCode env-altered calls pass. Pi code mode bypasses it.
 - **bash-timeout — Claude Bash PreToolUse:** raise foreground ask/wait/result-follow timeout to job timeout +10s,
   capped at 600000ms; never lower a larger setting or block. Long waits need shorter polling.
-- **docs-placement — write/edit/Bash PreToolUse:** `documentation.md` → Placement; ordinary leaf Bash blocks become notes,
-  but Plan-agent placement still blocks. First plans need template headings.
+- **docs-placement — write/edit/Bash PreToolUse:** `documentation.md` → Placement; ordinary leaf Bash blocks become
+  notes, but Plan-agent placement still blocks. First plans need template headings.
 - **dispatch-effort — Agent/Task/Workflow PreToolUse:** retype pi to coworker; Codemode:off selects Claude,
   on/only may select coworker. Header must occupy a whole line, not a command flag.
   Pin unpinned models/effort by TaskTier, correct labels, claim slots and add recall in one updatedInput.
@@ -183,7 +183,8 @@ Commands are matched as invocations, not as data text. Blocks name the allowed r
   leaf or job finishes and queues it: ready (finished, `UNFIXED: none`, no safety/hookspec/settings path) or held
   with its reason (a cut-off job names `agents ask --retry <id> --recover --runner pi|cli`). It never touches the live
   checkout; every prompt lists queued lanes with their
-  `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `workflow-tree.md` → Worktrees.
+  `worktree land --resolve-agent pi <lane>` command, and the main session lands them. See `workflow-tree.md` →
+  Worktrees.
 
 **dispatch-effort and spawn mod:** `harness_spawn:ready` plus session id marks readiness; query computes changed
 description/prompt/type/model without claims or recall. With the marker, pretools only emit recall, while required
