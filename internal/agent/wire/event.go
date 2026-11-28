@@ -30,7 +30,6 @@ const (
 	EventResult     = "result"
 	EventError      = "error"
 	EventTakeover   = "takeover"
-	EventQueued     = "queued"
 	EventThinking   = "thinking" // a one-line summary of a reasoning block
 )
 

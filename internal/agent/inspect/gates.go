@@ -137,10 +137,7 @@ func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResul
 	return append(res, runGate(ctx, docsDef, in), runGate(ctx, spellDef, in))
 }
 
-const (
-	buildIdx      = 1
-	complexityIdx = 4
-)
+const complexityIdx = 4
 
 // gateDefs lists the default gates in report order; they run concurrently.
 func gateDefs() []gateDef {

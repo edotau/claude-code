@@ -344,11 +344,7 @@ func dropInertHeredocs(cmd string) string {
 	})
 }
 
-// protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
-func protectedWrite(cmd, cwd string, raw []string, twin map[string]string) string {
-	return protectedWriteGlobs(cmd, cwd, func() []string { return foldedGlobs(raw, cwd, twin) })
-}
-
+// protectedWriteGlobs is the first path a command writes or removes under load()'s globs ("" if none); temp folders pass.
 func protectedWriteGlobs(cmd, cwd string, load func() []string) string {
 	var globs []string
 	folded := false
