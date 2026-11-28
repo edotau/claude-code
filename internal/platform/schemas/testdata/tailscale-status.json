@@ -1,0 +1,1 @@
+{"schema":1,"at":"2026-01-02T03:04:05Z","status":{"Version":"1.0.0","ID":"nABC","BackendState":"Running","DNSName":"devhost.example.ts.net.","IPs":["192.0.2.10"],"ExitNodeOption":false,"ExitNodeApproved":false,"SubnetRoutes":null,"Peers":null}}

@@ -168,7 +168,7 @@ var statusCacheFormat = schemas.Register(schemas.Format{
 	Keep: "rebuildable cache; a version mismatch is a miss",
 })
 
-func statusCachePath() string { return filepath.Join(paths.StateDir(), "tailscale-status.json") }
+func statusCachePath() string { return filepath.Join(paths.StateDir(), "tailscale", "status.json") }
 
 type statusCache struct {
 	Schema int       `json:"schema"`
