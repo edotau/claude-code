@@ -1372,3 +1372,30 @@ func TestMarkAutoReplayRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestJoinRecallDefersBackgroundToJobChild(t *testing.T) {
+	dir := t.TempDir()
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "HOME", "PATH"} {
+		t.Setenv(k, dir)
+	}
+	bank := filepath.Join(paths.MemoryStoreDir(), "conventions.md")
+	if err := os.MkdirAll(filepath.Dir(bank), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bank, []byte("# Conventions\n\n- deploy pipeline staging signoff rule <!-- id:00000001 -->\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	task := "stage the deploy pipeline staging signoff rollout " + strings.Repeat("and verify the result ", 10)
+	parent := &askRun{ctx: t.Context(), f: &askFlags{tools: true, background: true}}
+	if got := parent.joinRecall(false, task)(); strings.Contains(got, "<memory-recall>") {
+		t.Fatalf("background parent attached recall: %q", got)
+	}
+	child := &askRun{ctx: t.Context(), f: &askFlags{tools: true}, jobRec: &agent.Record{ID: "job-1"}}
+	withLoop := agent.MarkReviewLoop(agent.RunOptions{Tools: true, Prompt: task}).Prompt
+	if got := child.joinRecall(false, withLoop)(); strings.Count(got, "<memory-recall>") != 1 || strings.Contains(got, agent.ReviewLoopRule) {
+		t.Fatalf("job child recall = %q, want one recall block on the base prompt", got)
+	}
+	if child.jobRec == nil || child.jobRec.ID != "job-1" {
+		t.Fatalf("jobRec not restored: %+v", child.jobRec)
+	}
+}

@@ -525,3 +525,27 @@ func (nopT) Cleanup(func()) {}
 
 // stubNoCopilot gives every test no Copilot snapshot, as when copilot was not linked.
 func stubNoCopilot() { copilotauth.StubRead(nopT{}, nil, nil) }
+
+func TestPreflightWorkspaceCacheDeduplicatesCheck(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "dedup", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://dedup.example.com", Auth: providers.Auth{Type: providers.AuthPAT}}
+	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("network unreachable")
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	ctx, stop := WithWorkspaceCache(providers.WithIdentity(context.Background(), providers.IdentityHeadless))
+	defer stop()
+	now := time.Now()
+	_ = CheckWorkspace(p, router.State{}, now)
+	_ = launchWorkspaceFindings(ctx, "claude", p, router.State{}, now, &Preflight{})
+	if calls != 1 {
+		t.Fatalf("workspace probes within cache scope = %d, want 1", calls)
+	}
+}

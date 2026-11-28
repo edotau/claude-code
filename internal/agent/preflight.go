@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -109,7 +110,85 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time, timeo
 	if len(timeout) > 0 && timeout[0] > 0 {
 		budget = timeout[0]
 	}
-	return checkWorkspace(context.Background(), p, st, now, budget, nil, false)
+	ctx := context.Background()
+	if c := currentWorkspaceCache(); c != nil && c.ctx != nil {
+		ctx = c.ctx
+	}
+	return checkWorkspaceCached(ctx, p, st, now, budget, nil, false)
+}
+
+type workspaceCacheEntry struct {
+	findings []Finding
+	notes    []string
+}
+
+type workspaceCache struct {
+	mu      sync.Mutex
+	ctx     context.Context
+	entries map[string]workspaceCacheEntry
+}
+
+var (
+	workspaceCacheMu     sync.Mutex
+	activeWorkspaceScope *workspaceCache
+)
+
+// WithWorkspaceCache scopes an in-process CheckWorkspace cache across checkArm and route preflight.
+func WithWorkspaceCache(ctx context.Context) (context.Context, func()) {
+	c := &workspaceCache{ctx: ctx, entries: map[string]workspaceCacheEntry{}}
+	workspaceCacheMu.Lock()
+	prev := activeWorkspaceScope
+	activeWorkspaceScope = c
+	workspaceCacheMu.Unlock()
+	return ctx, func() {
+		workspaceCacheMu.Lock()
+		if activeWorkspaceScope == c {
+			activeWorkspaceScope = prev
+		}
+		workspaceCacheMu.Unlock()
+	}
+}
+
+// SetWorkspaceCacheContext updates the active workspace cache context (e.g. once --as identity is resolved).
+func SetWorkspaceCacheContext(ctx context.Context) {
+	if c := currentWorkspaceCache(); c != nil {
+		c.mu.Lock()
+		c.ctx = ctx
+		c.mu.Unlock()
+	}
+}
+
+func currentWorkspaceCache() *workspaceCache {
+	workspaceCacheMu.Lock()
+	defer workspaceCacheMu.Unlock()
+	return activeWorkspaceScope
+}
+
+func checkWorkspaceCached(ctx context.Context, p *providers.Provider, st router.State, now time.Time, budget time.Duration, pf *Preflight, cmdRoute bool) []Finding {
+	c := currentWorkspaceCache()
+	if c == nil || p == nil {
+		return checkWorkspace(ctx, p, st, now, budget, pf, cmdRoute)
+	}
+	key := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%d|%t", p.Name, p.Host, p.BaseURL, p.Identity, p.Auth.Type,
+		p.Auth.Command, verdictFP(ctx, p), st[router.AccountOf(p)].AuthAt.UnixNano(), cmdRoute)
+	c.mu.Lock()
+	if e, ok := c.entries[key]; ok {
+		c.mu.Unlock()
+		for _, n := range e.notes {
+			pf.note(n)
+		}
+		return slices.Clone(e.findings)
+	}
+	c.mu.Unlock()
+	var sub Preflight
+	fs := checkWorkspace(ctx, p, st, now, budget, &sub, cmdRoute)
+	for _, n := range sub.Notes {
+		pf.note(n)
+	}
+	c.mu.Lock()
+	c.entries[key] = workspaceCacheEntry{findings: slices.Clone(fs), notes: slices.Clone(sub.Notes)}
+	c.mu.Unlock()
+	return fs
 }
 
 // checkWorkspace skips the lifetime gate on a cmdRoute, where the credential command mints the token during the run.
@@ -218,7 +297,7 @@ func launchWorkspaceFindings(ctx context.Context, agentName string, p *providers
 	if pf == nil {
 		pf = &Preflight{}
 	}
-	return checkWorkspace(ctx, p, st, now, budget, pf, agentid.Routing(agentName).ResponsesRoute && p.CommandAuth())
+	return checkWorkspaceCached(ctx, p, st, now, budget, pf, agentid.Routing(agentName).ResponsesRoute && p.CommandAuth())
 }
 
 // mintPaired is the headless mint of a paired service principal's token; a seam for tests.
