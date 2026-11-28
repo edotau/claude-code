@@ -58,7 +58,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
    offers it; else `general-purpose`); a code leaf runs Pi first, claude in-context if Pi refuses; external work
    agents are the types `codex`, `copilot`, `gemini`, `opencode` (each relays its baked `agents ask --overlay` line)
-   and `code-mode` (Pi in code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` → Carried
+   and `coworker` (the pi runner in code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` → Carried
    dispatch); description starts `<model>:` followed by a space (`web-fetch` takes none),
    printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
    files;
@@ -98,6 +98,7 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | Install, settings, hooks | `make install` (`claude-code install --dry-run` previews) | `rules/harness/settings-management.md` · `rules/harness/hooks.md` |
 | Providers, models, credentials, proxy | `claude-code doctor` · `claude-code vault set [NAME]` | `rules/harness/providers.md` |
 | Agents and dispatch | Agent tool (guideline 3) | `rules/workflows/agents.md` · `skills/subagent-workflows/SKILL.md` |
+| Messages between agents | `claude-code agents msg --from <agent>` reads new ones · `agents msg @<name> "<text>" --from <agent>` replies | `rules/harness/agent.md` → Messages; an agent CLI reads at the start and end of a turn |
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|land <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
