@@ -151,8 +151,10 @@ func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) 
 		_ = enc.Encode(synthLine("text", map[string]any{"text": at.FinalText}))
 	}
 	dest := filepath.Join(agentTranscriptDir(), filepath.Base(sessionID)+".jsonl")
-	_, err := paths.WriteIfChanged(dest, buf.Bytes(), 0o600)
-	return dest, err
+	if cur, err := os.ReadFile(dest); err == nil && bytes.Equal(cur, buf.Bytes()) {
+		return dest, nil
+	}
+	return dest, paths.AtomicWriteNoSync(dest, buf.Bytes(), 0o600) // rebuilt from the session on every Stop
 }
 
 // agentTranscriptDir holds synthesized transcripts; pruneSeen ages them out.
