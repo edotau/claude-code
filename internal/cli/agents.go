@@ -1050,8 +1050,8 @@ func geminiVSCodePage() helptext.Page {
 	p := helptext.Page{
 		Usage: "claude-code gemini vscode [--profile P] [--overlay JSON] [--model M] [code args…]",
 		About: "Open a VS Code window whose Antigravity extension uses its Google login, or with --profile or " +
-			"--overlay a Databricks profile's gateway. A folder opens in its own window per route, even when " +
-			"already open; other windows keep their route. Other args go to VS Code. macOS. Exit 0, 1 failed.",
+			"--overlay a Databricks profile's gateway. Other windows keep their route. Other args go to VS Code " +
+			"(a folder). macOS. Exit 0, 1 failed.",
 		Flags: launchFlags("gemini"),
 	}
 	return p
