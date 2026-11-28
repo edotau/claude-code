@@ -1046,7 +1046,7 @@ func runRecorded(ctx context.Context, rec *Record, out wire.Sink, o RunRecordedO
 		return res, err
 	}
 	ctx, feed := withTokenFeed(ctx)
-	tl := &tally{Sink: sink, live: startActivity(rec.ID), tokens: feed}
+	tl := &tally{Sink: sink, live: startActivity(rec.ID, feed), tokens: feed}
 	res, err = run(ctx, tl)
 	res = stampRunner(*rec, res)
 	tl.live.close()

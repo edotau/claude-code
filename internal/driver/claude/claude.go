@@ -800,14 +800,15 @@ func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
 // claudeLive holds `claude --print --input-format stream-json`: one process, one user message per turn.
 type claudeLive struct {
 	prevCost float64
-	cmd      *exec.Cmd // the held child, killed by a turn's idle watch
-	row      string    // the launch profile row, for a rejected-login message
+	cmd      *exec.Cmd       // the held child, killed by a turn's idle watch
+	row      string          // the launch profile row, for a rejected-login message
+	ctx      context.Context // the run's, whose token feed the idle watch follows
 }
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	args := claudeStreamArgs(req, true)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
-	b.cmd, b.row = cmd, cl.Set[providers.EnvSessionProfile]
+	b.cmd, b.row, b.ctx = cmd, cl.Set[providers.EnvSessionProfile], ctx
 	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
 }
 
@@ -819,6 +820,9 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	wd := newIdleWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
 	wd.row = b.row
+	if b.ctx != nil {
+		wd.Follow(b.ctx)
+	}
 	defer wd.Stop()
 	res, err := parseClaudeEvents(dec, true, wd, sink, wd.Spoke, lg)
 	if serr := wd.Err(); serr != nil {

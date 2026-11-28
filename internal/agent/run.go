@@ -968,7 +968,7 @@ type activityLog struct {
 	once    sync.Once
 }
 
-func startActivity(id string) *activityLog {
+func startActivity(id string, feed *tokenFeed) *activityLog {
 	a := &activityLog{stop: make(chan struct{}), done: make(chan struct{})}
 	ticker := time.NewTicker(activityEvery)
 	go func() {
@@ -981,6 +981,7 @@ func startActivity(id string) *activityLog {
 				return
 			case <-ticker.C:
 				a.save(id, &saved)
+				feed.poll(id, time.Now())
 			}
 		}
 	}()

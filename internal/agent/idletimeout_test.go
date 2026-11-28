@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/tokenledger"
 )
 
 // Given beats keep arriving, Then the watch re-arms its one timer (no new timer per beat) and trips once when quiet.
@@ -56,5 +57,37 @@ func TestIdleTimeoutTokenFlowKeepsRunAlive(t *testing.T) {
 	case <-tripped:
 	case <-time.After(time.Second):
 		t.Fatal("no idle stop without token movement")
+	}
+}
+
+// The ledger poll pulses a watch only for its own dispatch's entries.
+func TestTokenFeedPollFollowsOwnDispatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx, feed := withTokenFeed(context.Background())
+	tripped := make(chan struct{}, 1)
+	w := NewIdleTimeout("x", 80*time.Millisecond, func() { tripped <- struct{}{} })
+	w.Follow(ctx)
+	feed.poll("d-1", time.Now()) // creates the follower at the ledger's end
+	tokenledger.Append(tokenledger.Entry{Dispatch: "d-2", Input: 5})
+	for range 4 {
+		time.Sleep(30 * time.Millisecond)
+		tokenledger.Append(tokenledger.Entry{Dispatch: "d-1", Output: 7})
+		feed.next = time.Time{}
+		feed.poll("d-1", time.Now())
+	}
+	select {
+	case <-tripped:
+		t.Fatal("stopped while its dispatch's ledger entries flowed")
+	default:
+	}
+	for range 4 {
+		time.Sleep(30 * time.Millisecond)
+		feed.next = time.Time{}
+		feed.poll("d-1", time.Now())
+	}
+	select {
+	case <-tripped:
+	default:
+		t.Fatal("no idle stop once only another dispatch's entries arrived")
 	}
 }

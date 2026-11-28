@@ -1318,7 +1318,7 @@ func TestRecordActivityStopsBeforeFinish(t *testing.T) {
 	t.Cleanup(func() { activityEvery = old })
 	rec := NewRecord("codex", RunOptions{}, time.Now())
 	saveRecordForTest(t, rec)
-	tl := &tally{Sink: wire.Discard, live: startActivity(rec.ID)}
+	tl := &tally{Sink: wire.Discard, live: startActivity(rec.ID, nil)}
 	t.Cleanup(tl.live.close)
 	usage := wire.Usage{InputTokens: 12, OutputTokens: 3}
 	if err := tl.Emit(wire.Event{Type: wire.EventToolUse, Usage: &usage}); err != nil {

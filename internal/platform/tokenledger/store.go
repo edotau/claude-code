@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,7 +25,9 @@ type Entry struct {
 	Provider string    `json:"provider"`
 	Agent    string    `json:"agent,omitempty"`
 	Session  string    `json:"session,omitempty"`
-	Model    string    `json:"model"`
+	// Dispatch is the /d/<id> dispatch the request rode, empty outside a dispatch.
+	Dispatch string `json:"dispatch,omitempty"`
+	Model    string `json:"model"`
 	// Requested is the model the client asked for, set only when the proxy served a different one.
 	Requested string `json:"requested,omitempty"`
 	// AskedModel is the body's model string, Call the request kind, Route the asked /p/<profile> when another served it.
@@ -100,6 +103,62 @@ func readMatching(sub []byte, tail int64, fn func(Entry)) error {
 			fn(e)
 		}
 	})
+}
+
+// Follower reads entries appended after its creation, holding no lock so the proxy's appends never wait on it.
+type Follower struct{ off int64 }
+
+// NewFollower starts at the ledger's current end; a missing ledger starts at 0.
+func NewFollower() *Follower {
+	info, err := os.Stat(Path())
+	if err != nil {
+		return &Follower{}
+	}
+	return &Follower{off: info.Size()}
+}
+
+// maxFollowRead bounds one Next read; the rest comes on the next call.
+const maxFollowRead = 4 << 20
+
+// Next sums the tokens of complete entries for dispatch appended since the last call; no growth costs one stat.
+func (f *Follower) Next(dispatch string) (int, error) {
+	info, err := os.Stat(Path())
+	if err != nil {
+		return 0, nil
+	}
+	if info.Size() < f.off { // a rotated or truncated ledger restarts
+		f.off = 0
+	}
+	if info.Size() == f.off {
+		return 0, nil
+	}
+	file, err := os.Open(Path())
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	buf := make([]byte, min(info.Size()-f.off, maxFollowRead))
+	n, err := file.ReadAt(buf, f.off)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, err
+	}
+	buf = buf[:n]
+	end := bytes.LastIndexByte(buf, '\n') + 1 // a torn tail line waits for its newline
+	f.off += int64(end)
+	want := []byte(`"dispatch":` + strconv.Quote(dispatch))
+	total := 0
+	for line := range bytes.SplitSeq(buf[:end], []byte{'\n'}) {
+		var e Entry
+		if bytes.Contains(line, want) && schemasDecode(line, &e) {
+			total += e.Input + e.Output + e.CacheRead + e.CacheWrite
+		}
+	}
+	return total, nil
+}
+
+func schemasDecode(line []byte, e *Entry) bool {
+	_, err := schemas.Decode(format, line, e)
+	return err == nil
 }
 
 // ProfileName is the registry row that served the entry; pre-attribution lines stored it in Provider.

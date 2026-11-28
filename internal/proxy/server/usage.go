@@ -184,8 +184,9 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 	}
 	now := time.Now()
 	total, first := ledgerDurations(m, now)
+	dispatch, _ := in.Context().Value(dispatchKey{}).(string)
 	tokenledger.Append(tokenledger.Entry{
-		Ts: now, Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
+		Ts: now, Dispatch: dispatch, Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,
 		AskedModel: m.askedModel(), Call: string(m.callKind()), Route: m.routeIfDiffers(p.Name),
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,

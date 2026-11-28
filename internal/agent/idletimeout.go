@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/platform/tokenledger"
 )
 
 // ErrSilent is a stall after the child's first model output: a slow turn, so the account is not benched for it.
@@ -131,7 +132,12 @@ type tokenFeed struct {
 	mu      sync.Mutex
 	total   int
 	watches []*IdleTimeout
+	ledger  *tokenledger.Follower // the proxy's entries for this dispatch: token flow a silent stream never reports
+	next    time.Time
 }
+
+// ledgerPollDiv sets the proxy-ledger poll to this fraction of IdleLimit, so a quiet run is read many times per window.
+const ledgerPollDiv = 20
 
 type tokenFeedKey struct{}
 
@@ -151,6 +157,29 @@ func (f *tokenFeed) note(u *wire.Usage) {
 	ws := slices.Clone(f.watches)
 	f.mu.Unlock()
 	if grew {
+		for _, w := range ws {
+			w.pulse()
+		}
+	}
+}
+
+// poll pulses the watches when the ledger holds new tokens for dispatch id; due at most once per ledgerPollDiv.
+func (f *tokenFeed) poll(id string, now time.Time) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	if len(f.watches) == 0 || now.Before(f.next) {
+		f.mu.Unlock()
+		return
+	}
+	f.next = now.Add(IdleLimit / ledgerPollDiv)
+	if f.ledger == nil {
+		f.ledger = tokenledger.NewFollower()
+	}
+	ledger, ws := f.ledger, slices.Clone(f.watches)
+	f.mu.Unlock()
+	if n, _ := ledger.Next(id); n > 0 {
 		for _, w := range ws {
 			w.pulse()
 		}
