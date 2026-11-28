@@ -11,7 +11,7 @@ import (
 )
 
 // LegacyOverlayKeys are sections nothing reads since 243830d0e; doctor names any still stored.
-var LegacyOverlayKeys = []string{"agents", "codex-settings", "settings"}
+var LegacyOverlayKeys = []string{"agents", "codex-settings", "github-auth", "settings"}
 
 // OverlayKeys are removable overlays: documents that only override a default, and the legacy ones.
 var OverlayKeys = append([]string{"proxy-teams"}, LegacyOverlayKeys...)

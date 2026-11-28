@@ -374,6 +374,7 @@ func CallerNameWithin(dispatchPID int) string {
 type InboxItem struct {
 	Chat string `json:"chat"`
 	Message
+	Status string `json:"status,omitempty"` // read or unread, on a post the reader sent to someone else's inbox
 }
 
 // CollectInbox reads rooms as reader, keeping the posts of every room that read and joining the errors.
@@ -381,6 +382,11 @@ func CollectInbox(rooms []string, reader string) ([]InboxItem, error) {
 	items := []InboxItem{}
 	errs := []error{}
 	for _, room := range rooms {
+		if strings.HasPrefix(room, "@") && room != "@"+reader { // someone else's inbox: the reader's own posts and their state
+			sent, serr := sentItems(room, reader)
+			items, errs = append(items, sent...), append(errs, serr)
+			continue
+		}
 		msgs, rerr := ReadMsgs(room, reader)
 		errs = append(errs, rerr)
 		for _, m := range msgs {
@@ -390,12 +396,43 @@ func CollectInbox(rooms []string, reader string) ([]InboxItem, error) {
 	return items, errors.Join(errs...)
 }
 
+// sentStateMax is how many of the sender's latest posts a read-state query lists.
+const sentStateMax = 5
+
+// sentItems is sender's latest posts to inbox with whether its owner has read them; it moves no cursor.
+func sentItems(inbox, sender string) ([]InboxItem, error) {
+	if err := errors.Join(checkChat(inbox), checkName("sender", sender)); err != nil {
+		return nil, err
+	}
+	log, err := readChatLog(chatLog(inbox))
+	if err != nil {
+		return nil, err
+	}
+	seen := readInt(chatCursor(inbox, inbox[1:])) // an owner who never read has no cursor: everything is unread
+	var out []InboxItem
+	for _, m := range log {
+		if m.From != sender {
+			continue
+		}
+		status := "unread"
+		if m.Seq <= seen {
+			status = "read"
+		}
+		out = append(out, InboxItem{Chat: inbox, Message: m, Status: status})
+	}
+	return out[max(0, len(out)-sentStateMax):], nil
+}
+
 // InboxText is the text-format inbox: one line per post, then one per attached file.
 func InboxText(items []InboxItem) string {
 	var b strings.Builder
 	for _, it := range items {
 		// Continuation lines are indented: a post's own newline must not read as the next post's header.
-		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Chat, it.Seq, it.From, strings.ReplaceAll(strings.TrimRight(it.Text, "\n"), "\n", "\n  "))
+		from := it.From
+		if it.Status != "" {
+			from += " (" + it.Status + ")"
+		}
+		fmt.Fprintf(&b, "%s %d from %s: %s\n", it.Chat, it.Seq, from, strings.ReplaceAll(strings.TrimRight(it.Text, "\n"), "\n", "\n  "))
 		for _, f := range it.Files {
 			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
 		}

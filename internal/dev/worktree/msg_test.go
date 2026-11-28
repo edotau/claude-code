@@ -104,6 +104,19 @@ func TestPostMsgKeepsSenderOutOfInbox(t *testing.T) {
 	}
 }
 
+func TestSentItemsReadReceiptTransition(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := PostMsg("@idle", "sender", "ping", nil); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := CollectInbox([]string{"@idle"}, "sender")
+	_, _ = CollectInbox([]string{"@idle"}, "idle")
+	after, _ := CollectInbox([]string{"@idle"}, "sender")
+	if got := InboxText(before) + InboxText(after); got != "@idle 1 from sender (unread): ping\n@idle 1 from sender (read): ping\n" {
+		t.Fatalf("read receipt transition = %q", got)
+	}
+}
+
 func TestCallerNameWithinSkipsOuterSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(paths.SessionIDEnv, "child-session")

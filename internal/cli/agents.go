@@ -151,7 +151,7 @@ var agentsSubPages = map[string][3]string{
 		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session."},
 	"msg": {"msg [@name|'#name'] [<text | ->] [flags]", "Message one agent or Claude session (@gemini, @claude-79) or a " +
 		"named room ('#design'), and read what was sent. With text (or --file) it sends to the target; with a target " +
-		"and no text it prints that chat's new messages; bare it prints every new message for you. Every message " +
+		"and no text it prints that chat's new messages (or your sent posts' read/unread state when @name is another member); bare it prints every new message for you. Every message " +
 		"shows its sender. Quote '#name': a bare # starts a shell comment. A live Claude member also gets each " +
 		"message as a notice on its next hook. msg @parent <note> is a leaf's one-line note (200 characters, literal " +
 		"text) to its dispatcher: exit 0 with \"no dispatcher to notify\" on stderr when none is live; it skips a " +
