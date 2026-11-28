@@ -23,6 +23,9 @@ internal/dev/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree le
 internal/dev/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger open
 internal/dev/worktree/resolve.go:SaveOperation	worktree-land-op
 internal/dev/worktree/resolve.go:WithLandLease	unversioned: text: lease holder pid and who, attribution for a waiting land
+internal/dev/worktree/rooms.go:ReadRoom	unversioned: text: a reader's room cursor, the last Seq it saw
+internal/dev/worktree/rooms.go:appendPost	room-log
+internal/dev/worktree/rooms.go:joinRoom	unversioned: text: a new room member's cursor, Seq 0
 internal/dev/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/dev/worktree/sessions.go:Append	notices
 internal/dev/worktree/sessions.go:DrainErr	notices

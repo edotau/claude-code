@@ -48,7 +48,7 @@ func agentsSpec() *helptext.Node {
 		"fix":    {Flags: []helptext.Flag{flag("path"), boolFlag("dry-run")}},
 		"list":   {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":    {Flags: ask.CompletionFlags()},
-		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
+		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout"), flag("from"), flag("file"), boolFlag("inbox")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
@@ -146,7 +146,8 @@ var agentsSubPages = map[string][3]string{
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
-		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
+		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note. " +
+		"send room <name> <text | -> posts to a room (--from, --file); send --inbox [<name>] prints a room's unread posts."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
 		"An <id> shows that dispatch, whichever agent ran it.",
@@ -726,16 +727,34 @@ func printBriefPath(fs *flag.FlagSet, pos []string) int {
 	return 0
 }
 
-// cmdAgentsSend is `agents send <id> <task>`.
+// sendRoomVerb routes `send --inbox [<name>]` and `send room <name> <text>`; ok is false for any other form.
+func sendRoomVerb(pos []string, inbox bool, from, format string, files []string) (code int, ok bool) {
+	switch {
+	case inbox && len(pos) <= 1:
+		return ask.SendInbox(pos, from, format), true
+	case !inbox && len(pos) >= 3 && pos[0] == ask.RoomTarget:
+		return ask.SendRoom(pos[1], strings.Join(pos[2:], " "), from, files), true
+	}
+	return 0, false
+}
+
+// cmdAgentsSend is `agents send <id> <task>`, `send room <name> <text>` and `send --inbox [<name>]`.
 func cmdAgentsSend(args []string) int {
 	fs := agentsFlags("send")
 	format := fs.String("format", helptext.Text, "stream text, print the JSON envelope, or stream-json NDJSON events")
 	timeout := fs.Duration("timeout", 10*time.Minute, "give up waiting for a running dispatch after this long")
+	from := fs.String("from", "", "room sender or reader; default the calling Claude session's name")
+	inbox := fs.Bool("inbox", false, "print the unread posts of a room (default every room you are in)")
+	var files []string
+	helptext.ListVar(fs, &files, "file", "PATH", "room: attach a file (up to 8 MiB); repeatable", false)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(pos) < 2 || !slices.Contains(agent.Formats, *format) {
+	if code, ok := sendRoomVerb(pos, *inbox, *from, *format, files); ok {
+		return code
+	}
+	if *inbox || len(pos) < 2 || pos[0] == ask.RoomTarget || !slices.Contains(agent.Formats, *format) {
 		fs.Usage()
 		return 2
 	}

@@ -403,6 +403,105 @@ func sendParent(task string) int {
 	return 0
 }
 
+// RoomTarget is the `agents send` word that posts to a room, beside ParentTarget.
+const RoomTarget = "room"
+
+// roomFail exits 2 for a refused input and 1 for any other error.
+func roomFail(err error) int {
+	if errors.Is(err, worktree.ErrRoomInput) {
+		return helptext.FailUsage("agents send: %v", err)
+	}
+	return helptext.Fail("agents send: %v", err)
+}
+
+// roomSender is --from, else the calling Claude session's name; a zero code means ok.
+func roomSender(from string) (string, int) {
+	if from == "" {
+		from = worktree.CallerName()
+	}
+	if from == "" {
+		return "", helptext.FailUsage("agents send: --from <name> is required outside a Claude session")
+	}
+	return from, 0
+}
+
+// SendRoom posts text (stdin when "-") and the files to room as from.
+func SendRoom(room, text, from string, files []string) int {
+	sender, code := roomSender(from)
+	if code != 0 {
+		return code
+	}
+	body, err := resolveAskPrompt(text)
+	if err != nil {
+		return helptext.Fail("agents send: %v", err)
+	}
+	msg, err := worktree.PostRoom(room, sender, body, files)
+	if msg.Seq > 0 {
+		fmt.Printf("%s #%d posted\n", room, msg.Seq)
+	}
+	if err != nil {
+		return roomFail(err)
+	}
+	return 0
+}
+
+// inboxItem is one unread post with its room, as the json inbox prints it.
+type inboxItem struct {
+	Room string `json:"room"`
+	worktree.Message
+}
+
+// SendInbox prints the posts the reader has not seen in rooms (every room it is in when none), then marks them seen.
+func SendInbox(rooms []string, from, format string) int {
+	reader, code := roomSender(from)
+	if code != 0 {
+		return code
+	}
+	if format != helptext.Text && format != helptext.JSON {
+		return helptext.FailUsage("agents send: --inbox format must be text or json, not %q", format)
+	}
+	rooms, err := roomsToRead(rooms, reader)
+	if err != nil {
+		return roomFail(err)
+	}
+	items := []inboxItem{}
+	errs := []error{}
+	for _, room := range rooms {
+		msgs, rerr := worktree.ReadRoom(room, reader)
+		errs = append(errs, rerr)
+		for _, m := range msgs {
+			items = append(items, inboxItem{Room: room, Message: m})
+		}
+	}
+	errs = append(errs, printInbox(items, format))
+	if err := errors.Join(errs...); err != nil {
+		return roomFail(err)
+	}
+	return 0
+}
+
+func roomsToRead(rooms []string, reader string) ([]string, error) {
+	if len(rooms) > 0 {
+		return rooms, nil
+	}
+	return worktree.RoomsFor(reader)
+}
+
+func printInbox(items []inboxItem, format string) error {
+	if format == helptext.JSON {
+		return helptext.WriteJSON(os.Stdout, items)
+	}
+	var b strings.Builder
+	for _, it := range items {
+		fmt.Fprintf(&b, "%s #%d %s: %s\n", it.Room, it.Seq, it.From, it.Text)
+		for _, f := range it.Files {
+			fmt.Fprintf(&b, "  file: %s (from %s)\n", f.Copy, f.Path)
+		}
+	}
+	_, err := os.Stdout.WriteString(b.String())
+	return err
+}
+
 // Send is `agents send`: a note to the dispatcher (id "parent"), a live turn, or a resume; exit 1 unless ok.
 func Send(id, task, format string, timeout time.Duration) int {
 	if id == ParentTarget {
