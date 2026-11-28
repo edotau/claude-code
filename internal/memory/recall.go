@@ -741,19 +741,23 @@ func markSeen(sessionID string, hits []SearchHit, expanded bool) {
 }
 
 func pruneSeen(dir string) {
-	cutoff := time.Now().Add(-seenMaxAge)
-	// + stale compact records and synthesized agent transcripts
-	for _, path := range []string{dir, paths.MemoryStateDir(), filepath.Dir(compactRecordPath("")), agentTranscriptDir()} {
+	cutoff, state := time.Now().Add(-seenMaxAge), paths.MemoryStateDir()
+	// + stale compact records and agent transcripts; a verdict reads only mtimes, so dirs and stats run on the pool
+	dirs := []string{dir, state, filepath.Dir(compactRecordPath("")), agentTranscriptDir()}
+	parallel.Rethrow(parallel.All(len(dirs), func(d int) error {
+		path := dirs[d]
 		ents, _ := os.ReadDir(path)
-		for _, e := range ents {
-			if !e.Type().IsRegular() || path == paths.MemoryStateDir() && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
-				continue
+		_, err := parallel.Map(context.Background(), ents, 8, func(_ context.Context, e os.DirEntry) (struct{}, error) {
+			if !e.Type().IsRegular() || path == state && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
+				return struct{}{}, nil
 			}
 			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
 				_ = os.Remove(filepath.Join(path, e.Name()))
 			}
-		}
-	}
+			return struct{}{}, nil
+		})
+		return err
+	})...)
 }
 
 // recallCandidate records each selection gate without changing the selection.
