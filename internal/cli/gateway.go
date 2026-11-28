@@ -345,6 +345,15 @@ var gatewayPage = helptext.Page{
 		{"jev", "train and inspect the Open-Jev classifier"}},
 }
 
+// previewFallback is the stored mode, or what a bare ask runs when none is set and the preview names no route.
+func previewFallback(ctx context.Context, provider string, confinement route.Route) string {
+	mode, origin := router.EffectiveFallback(ctx, "", providers.CustomEnv())
+	if origin == "default" && provider == "" && confinement.IsZero() {
+		return router.BareFallback(ctx)
+	}
+	return mode
+}
+
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
 func gatewayRoute(args []string) int {
 	const name = "gateway"
@@ -368,15 +377,15 @@ func gatewayRoute(args []string) int {
 	if err := refuseModelPrefix(q.Model); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	if q.Fallback == "" {
-		q.Fallback, _ = router.EffectiveFallback(ctx, "", providers.CustomEnv())
-		if !router.ValidFallback(q.Fallback) {
-			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(route.FallbackModes, "|"))
-		}
-	}
 	confinement := cmp.Or(ov.Confinement(), ask.TypedWorkspace(q.Profile))
 	if prov.Of("unit") == agentconfig.OriginFlag {
 		confinement = ask.TypedWorkspace(q.Profile) // a typed flag unit starts the pick; it fences nothing
+	}
+	if q.Fallback == "" {
+		q.Fallback = previewFallback(ctx, q.Provider, confinement)
+		if !router.ValidFallback(q.Fallback) {
+			return helptext.Fail(name+": %s=%q unknown (%s)", router.EnvFallback, q.Fallback, strings.Join(route.FallbackModes, "|"))
+		}
 	}
 	ctx, code := checkOverlayFlags(ctx, name, confinement, q.Profile, *format, q.Fallback, q.Agent, q.Model)
 	if code != 0 {

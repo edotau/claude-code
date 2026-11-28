@@ -192,6 +192,9 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 		return o, clientUsageError{err}
 	}
 	fallback := pol.Mode()
+	if src == router.PolicyDefault {
+		fallback = router.BareFallback(valuesContext(context.Background(), o.Values))
+	}
 	o.FallbackDefaulted = o.FallbackDefaulted || o.Fallback == "" // the env default filled below is no typed mode
 	o.Agent, o.Fallback, o.Launcher = cmp.Or(o.Agent, JevAgent(o.Prompt), "claude"), cmp.Or(o.Fallback, fallback), c.Launcher
 	if o.SessionID != "" {

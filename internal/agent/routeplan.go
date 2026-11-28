@@ -252,10 +252,7 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 	if o.FallbackDefaulted || o.Fallback == "" {
 		mode, src = router.FallbackSetting(ctx, overlayMode)
 	}
-	if o.Agent == agentid.Pi && src == router.PolicyDefault {
-		mode = route.FallbackAgents // nothing set anywhere: pi's own default
-	}
-	pol, err := router.PolicyOf(mode, src)
+	pol, err := router.PolicyOf(unsetMode(o, mode, src), src)
 	if err != nil {
 		return pol, err
 	}
@@ -263,6 +260,14 @@ func planPolicy(ctx context.Context, o RunOptions, overlayMode string) (router.P
 		pol.Kind = router.PolicySameWorkspace
 	}
 	return pol, nil
+}
+
+// unsetMode is mode, or agents when nothing set one: pi's own default, and the caller's router.BareFallback fill.
+func unsetMode(o RunOptions, mode string, src router.PolicySource) string {
+	if src == router.PolicyDefault && (o.Agent == agentid.Pi || o.FallbackDefaulted && o.Fallback == route.FallbackAgents) {
+		return route.FallbackAgents
+	}
+	return mode
 }
 
 // typedProfile is o's typed --provider profile, "" for none or the session lead.

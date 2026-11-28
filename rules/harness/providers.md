@@ -72,7 +72,8 @@ Common commands, provider schema and credentials: `providers-reference.md` → P
   first-party Anthropic bare; GitHub, ChatGPT and agy dotted.
   Claude 5+ is 1M by default; `[1m]` only for opus/sonnet 4.x.
 - **Fallback** (`AGENT_ERROR_FALLBACK`, `--fallback`, overlay `fallback`): `none` | `pin` | `agents` | `all`
-  (`1`/`true`/`yes` = `all`; unset = `none`). `pin` = requested route > agent pin > record `fallback` > stop. Set it in
+  (`1`/`true`/`yes` = `all`). Unset = `agents` for a bare top-level ask (`router.BareFallback`); a dispatched child
+  or an overlay-confined ask keeps `none`. `pin` = requested route > agent pin > record `fallback` > stop. Set it in
   `claude-code configure` or `claude-code configure agents <agent> profile=<p> model=<m> fallback=<p>` (empty clears).
 - **Labels:** `ran on` names what served, each fallback hop included; dispatch labels and the session-start per-type
   labels come from the same resolver.

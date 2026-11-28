@@ -285,3 +285,24 @@ func TestReviewLaneModelFromOverlay(t *testing.T) {
 		}
 	}
 }
+
+func TestPickReviewer(t *testing.T) {
+	own := Reviewer{Agent: "claude", Model: "claude-sonnet-5-5"}
+	ws := Reviewer{Agent: "agentx", Model: "zeta-9-big"}
+	local := Reviewer{Agent: "pi", Model: "tinyq-3"}
+	for _, c := range []struct {
+		name, author string
+		hops         []Reviewer
+		want         Reviewer
+	}{
+		{"claude login only", own.Model, []Reviewer{own}, Reviewer{Agent: "claude", Model: "opus", SameFamily: true}},
+		{"claude and one workspace", own.Model, []Reviewer{own, {Agent: "pi", Model: "sonnet"}, ws}, ws},
+		{"everything ready", own.Model, []Reviewer{own, ws, {Agent: "agenty"}, local}, ws},
+		{"claude and local answering", own.Model, []Reviewer{own, local}, local},
+		{"local only", local.Model, []Reviewer{local}, Reviewer{Agent: "claude", Model: "opus"}},
+	} {
+		if got := pickReviewer(c.author, c.hops); got != c.want {
+			t.Errorf("%s: pickReviewer = %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}

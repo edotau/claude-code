@@ -83,7 +83,9 @@ paths:
   requires typed `fallback: all`. Planning rejects invalid policy/overlay/fence; I/O failures remain runtime errors.
   `--carry`, `host`, `--as`, vendor session/budget or `endpoint: direct` removes Pi hops (`runnerLoses`).
 - After hosted hops fail before answering, one local Qwen Pi hop may run (`magnitude`/`local`, `ranks.json`
-  `local.stage: last`, `internal/agent/localhop.go`). It has one slot with wait charged to timeout. Fallback none,
+  `local.stage: last`, `internal/agent/localhop.go`). The ready ladder ends on the Claude login rows, then this
+  `last_resort` row when it answers; `local.tiers` is fast and standard, never deep.
+  It has one slot with wait charged to timeout. Fallback none,
   typed pin/model/backend, native/host/`--as`, command-line fence, excluded `local.tiers`, security briefs or prompts
   over `local.max_prompt` bar it. Overflow re-picks once by context under all/agents without replacing a typed model;
   policy refusal and `x-should-retry` are typed error classes. Fable on Databricks is refused, never replaced by Opus.

@@ -801,10 +801,10 @@ func TestRunDirectAuthFailureNamesRoutedDefault(t *testing.T) {
 	}
 }
 
-// withDefaults reads AGENT_ERROR_FALLBACK as a mode: 1 is all, a mode is itself, unset is none, junk is refused.
+// withDefaults reads AGENT_ERROR_FALLBACK as a mode: 1 is all, unset is agents at top level, junk is refused.
 func TestWithDefaultsFallbackFromEnv(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{
-		{"", route.FallbackNone}, {"1", route.FallbackAll}, {"yes", route.FallbackAll}, {"none", route.FallbackNone},
+		{"", route.FallbackAgents}, {"1", route.FallbackAll}, {"yes", route.FallbackAll}, {"none", route.FallbackNone},
 		{"pin", route.FallbackPin}, {"agents", route.FallbackAgents}, {"all", route.FallbackAll}, {"maybe", ""},
 	} {
 		t.Run(tc.env, func(t *testing.T) {

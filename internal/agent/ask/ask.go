@@ -92,9 +92,12 @@ var Waves = func([]string) int { return 2 }
 // Reap starts the silent cleanup of a real ask and returns its join; the cli sets it.
 var Reap = func() func() { return func() {} }
 
-// envFallback is the process or vault fallback mode; unset reads as none.
+// envFallback is the process or vault fallback mode; unset is router.BareFallback (agents for a bare top-level ask).
 func envFallback(ctx context.Context) string {
-	mode, _ := router.EffectiveFallback(ctx, "", providers.CustomEnv())
+	mode, origin := router.EffectiveFallback(ctx, "", providers.CustomEnv())
+	if origin == "default" {
+		return router.BareFallback(ctx)
+	}
 	return mode
 }
 

@@ -102,7 +102,11 @@ func checkChildFence(t *testing.T, p RoutePlan) {
 	if !p.Fallback.OffArm || p.Fallback.Source != router.PolicyTyped || p.Fallback.Kind != router.PolicySameWorkspace {
 		t.Errorf("fallback = %+v, want typed all held to the confined workspace", p.Fallback)
 	}
+	local, _ := p.Local.hop("")
 	for _, h := range p.Hops() {
+		if h.Workspace == local.Workspace { // the last-resort row is admitted into a fence by design (admitLocal)
+			continue
+		}
 		if h.Workspace.Profile != "" && !p.Fence.Allows(h.Workspace.Profile) { // agent hops: fence enforcement is Phase 5.1
 			t.Errorf("hop %+v leaves the fence", h)
 		}

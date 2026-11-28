@@ -19,8 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/driver/copilot"
 	"github.com/edotau/claude-code/internal/platform/proc"
 	"github.com/edotau/claude-code/internal/routing/agentconfig"
+	"github.com/edotau/claude-code/internal/routing/agentid"
+	"github.com/edotau/claude-code/internal/routing/models"
 	"github.com/edotau/claude-code/internal/routing/providers"
 	"github.com/edotau/claude-code/internal/routing/route"
+	"github.com/edotau/claude-code/internal/routing/router"
 )
 
 // reviewJobEnv names the parent job record a detached split review updates with progress and its outcome.
@@ -146,6 +149,48 @@ func reviewModelOptions(name string, o ReviewOptions) (ReviewOptions, error) {
 	model, err := copilot.ReviewModel(context.Background(), o.Model, reviewAuthorModel())
 	o.Model = model
 	return o, err
+}
+
+// Reviewer is the hop a review runs on; SameFamily marks a review by the author's own model family (lower trust).
+type Reviewer struct {
+	Agent, Model string
+	SameFamily   bool
+}
+
+// ReviewerFor is the first ready hop of another family on authorAgent's ladder, else Claude one tier up, flagged.
+func ReviewerFor(ctx context.Context, authorAgent, authorModel string) (Reviewer, error) {
+	ch, _, err := agent.PreviewRoute(ctx, agent.RouteReq{Agent: authorAgent, Fallback: route.FallbackAgents, Preview: true})
+	if err != nil {
+		return Reviewer{}, err
+	}
+	hops := make([]Reviewer, 0, len(ch.Dispatches))
+	for _, d := range ch.Dispatches {
+		hops = append(hops, Reviewer{Agent: d.Agent.Name(), Model: d.Model})
+	}
+	return pickReviewer(authorModel, hops), nil
+}
+
+// pickReviewer is ReviewerFor over the ladder's hops in order; router.Aliases runs from the top tier down.
+func pickReviewer(authorModel string, hops []Reviewer) Reviewer {
+	author := reviewFamily("", authorModel)
+	for _, h := range hops {
+		if f := reviewFamily(h.Agent, h.Model); f != "" && f != author {
+			return h
+		}
+	}
+	tier := slices.Index(router.Aliases, models.FamilyOf(authorModel))
+	return Reviewer{Agent: agentid.Claude, Model: router.Aliases[max(tier-1, 0)], SameFamily: author == agentid.Claude}
+}
+
+// reviewFamily is model's family (a Claude id or tier alias is Claude's), else the agent's name for an unnamed model.
+func reviewFamily(agentName, model string) string {
+	switch {
+	case models.FamilyOf(model) != "" || slices.Contains(router.Aliases, model):
+		return agentid.Claude
+	case model != "":
+		return models.FamilyName(model)
+	}
+	return agentName
 }
 
 func reviewAuthorModel() string {

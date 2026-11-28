@@ -15,7 +15,8 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
 - **R5 Verify returns:** follow CLAUDE.md dispatch guidance; rerun one claim before committing. Package tests: R32.
 - **R5 Cheap authors:** fully read Haiku, Kimi and fallback-relay work; get higher-tier, other-family review.
 - **R6 Model mix:** Sonnet authors; waves of 3+ put a third on other families (count resolved model, not CLI).
-  Reviewer is another family (R5 applies). Rotate external agents by strength; GPT defaults to sol by alias.
+  Reviewer is another family with a ready account, else Claude one tier above the author, labelled same-family
+  (`ask.ReviewerFor`; R5 applies). Rotate external agents by strength; GPT defaults to sol by alias.
   Job mapping: `skills/subagent-workflows/SKILL.md` → Leaf types.
 - **R7 Databricks:** prefer overlay provider databricks rotating dev/qa/prod. Enforced by `agents ask` overlay
   `provider`.
@@ -66,7 +67,8 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
   Seek what more can safely be allowed; tightening needs the owner's explicit request.
 - **R28 Review loop:** collect finished lanes without lane reviews; run one other-family review of the merged diff and
   fix all findings without asking until none remain (stop after 3 rounds with a new HIGH in one area). Merge only with
-  no CRITICAL/HIGH; never park findings. Enforced in `agents ask` briefs; `quality.md` → Completion.
+  no CRITICAL/HIGH; never park findings. With no other family ready, the reviewer is R6's same-family pick.
+  Enforced in `agents ask` briefs; `quality.md` → Completion.
 - **R29 Broken tests:** main checks whether implementation meets the task, fixes minor test drift directly, and sends
   real defects to the author/repair leaf (exact test name, then main reruns touched packages). Never delete or skip
   tests; `quality.md` → Completion.

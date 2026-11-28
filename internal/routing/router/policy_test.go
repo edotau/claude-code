@@ -159,3 +159,19 @@ func TestPolicyZeroResolves(t *testing.T) {
 		t.Errorf("zero Policy ClaudeBackstop = %d, want -1 (default none)", got)
 	}
 }
+
+func TestBareFallback(t *testing.T) {
+	for _, c := range []struct{ name, id, overlay, want string }{
+		{"top level", "", "", route.FallbackAgents},
+		{"dispatched child", "d-1", "", route.FallbackNone},
+		{"confined", "", `{"provider":"vendorx","profile":"acct9"}`, route.FallbackNone},
+		{"bad overlay", "", `{"provider":`, route.FallbackNone},
+	} {
+		t.Setenv(proc.DispatchIDEnv, c.id)
+		t.Setenv(proc.DispatchDepthEnv, "")
+		t.Setenv(route.OverlayVar, c.overlay)
+		if got := BareFallback(context.Background()); got != c.want {
+			t.Errorf("%s: BareFallback = %s, want %s", c.name, got, c.want)
+		}
+	}
+}

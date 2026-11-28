@@ -141,5 +141,13 @@ func EffectiveFallback(ctx context.Context, overlayMode string, env map[string]s
 	return ParseFallback(raw), origin
 }
 
+// BareFallback is the mode an unset fallback takes: agents for a top-level unconfined ask, none for a child or a route.
+func BareFallback(ctx context.Context) string {
+	if p, _, err := OverlayRoute(ctx); err != nil || p != "" || proc.InDispatch(ctx) {
+		return route.FallbackNone
+	}
+	return route.FallbackAgents
+}
+
 // ValidFallback reports a typed mode the router accepts.
 func ValidFallback(mode string) bool { return slices.Contains(route.FallbackModes, mode) }

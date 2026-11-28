@@ -76,15 +76,7 @@ func reviewModel(model, author string, ids []string) (string, error) {
 	if model == "" && family == "" {
 		return "", nil
 	}
-	var candidates []catalog.Candidate
-	originals := map[string]string{}
-	for _, id := range ids {
-		if reviewFamilyEligible(model, family, modelFamily(id)) {
-			key := strings.ReplaceAll(id, ".", "-")
-			candidates = append(candidates, catalog.Candidate{Model: key})
-			originals[key] = id
-		}
-	}
+	candidates, originals := reviewCandidates(model, family, ids)
 	choice := catalog.Choose(candidates, "copilot", "deep", false)
 	if len(choice.Ranked) > 0 {
 		return originals[choice.Ranked[0].Model], nil
@@ -96,6 +88,26 @@ func reviewModel(model, author string, ids []string) (string, error) {
 		return "", unknownGithubModel(model, "github", ids)
 	}
 	return "", nil
+}
+
+// reviewCandidates is the eligible ids by dashed key; with no other family served, the Claude ids stand in.
+func reviewCandidates(model, family string, ids []string) ([]catalog.Candidate, map[string]string) {
+	var candidates, same []catalog.Candidate
+	originals := map[string]string{}
+	for _, id := range ids {
+		key := strings.ReplaceAll(id, ".", "-")
+		originals[key] = id
+		switch f := modelFamily(id); {
+		case reviewFamilyEligible(model, family, f):
+			candidates = append(candidates, catalog.Candidate{Model: key})
+		case model == "" && f == "claude":
+			same = append(same, catalog.Candidate{Model: key})
+		}
+	}
+	if len(candidates) == 0 {
+		return same, originals
+	}
+	return candidates, originals
 }
 
 func reviewFamilyEligible(model, authorFamily, family string) bool {
