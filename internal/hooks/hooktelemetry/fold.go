@@ -34,10 +34,8 @@ func foldPath(file string) string { return strings.TrimSuffix(file, ".jsonl") + 
 
 func loadFold(file string) foldState {
 	var st foldState
-	if data, err := os.ReadFile(foldPath(file)); err == nil {
-		if json.Unmarshal(data, &st) != nil {
-			st = foldState{}
-		}
+	if data, err := os.ReadFile(foldPath(file)); err == nil && json.Unmarshal(data, &st) != nil {
+		st = foldState{}
 	}
 	return st
 }
@@ -53,18 +51,16 @@ func saveFold(file string, st foldState) {
 	}
 }
 
-// add returns st with the row counted.
-func (st foldState) add(r Row) foldState {
+// add counts the row into st.
+func (st *foldState) add(r Row) {
 	ms := float64(r.Dur) / float64(time.Millisecond)
-	rows := append([]foldEntry(nil), st.Rows...)
-	for i, e := range rows {
+	for i, e := range st.Rows {
 		if e.Event == r.Event && e.Module == r.Module {
-			rows[i].N++
-			rows[i].Max = max(e.Max, ms)
-			return foldState{st.Minute, rows, st.Cache}
+			st.Rows[i].N, st.Rows[i].Max = e.N+1, max(e.Max, ms)
+			return
 		}
 	}
-	return foldState{st.Minute, append(rows, foldEntry{r.Event, r.Module, 1, ms}), st.Cache}
+	st.Rows = append(st.Rows, foldEntry{r.Event, r.Module, 1, ms})
 }
 
 // addCache returns st with stats summed into its per-name cache counters.

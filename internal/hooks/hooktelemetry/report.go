@@ -28,7 +28,7 @@ const (
 	lineCap       = 16 << 10
 )
 
-var realSid = regexp.MustCompile(`^(ses_[0-9a-f]{4}|[0-9a-f]{8})$`)
+var realSid = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(ses_[0-9a-f]{4}|[0-9a-f]{8})$`) })
 
 type signalRow struct {
 	Module  string         `json:"module"`
@@ -169,7 +169,7 @@ func (s *Report) add(line []byte, view View) {
 		return
 	}
 	// A real session's sid is 8 chars: 8 hex, or OpenCode's ses_ plus 4 hex; any other non-empty sid is a probe.
-	if view == Activity && row.Sid != "" && !realSid.MatchString(row.Sid) {
+	if view == Activity && row.Sid != "" && !realSid().MatchString(row.Sid) {
 		s.Probes++
 		return
 	}

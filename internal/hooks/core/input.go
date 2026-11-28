@@ -89,39 +89,36 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 	if a := in.Nested(harnessAgentKey); a == AgentOpencode || a == AgentPi { // only these hosts write the key
 		in.agent = a
 	}
-	in.SessionID = in.Nested("session_id")
-	in.CWD = in.Nested("cwd")
-	in.TranscriptPath = in.Nested("transcript_path")
-	in.ToolName = in.Nested("tool_name")
-	in.HookEventName = in.Nested("hook_event_name")
+	in.readStrings()
 	in.StopHookActive, _ = in.doc["stop_hook_active"].(bool)
-	in.Prompt = in.Nested("prompt")
-	in.AgentID = in.Nested("agent_id")
-	in.PermissionMode = in.Nested("permission_mode")
-	in.Source = in.Nested("source")
-	in.AgentTranscriptPath = in.Nested("agent_transcript_path")
-	in.Trigger = in.Nested("trigger")
 	tasks, _ := in.doc["background_tasks"].([]any)
 	in.BackgroundTasks = len(tasks)
 	if _, ok := in.doc["sessionId"].(string); ok && in.HookEventName == "" {
 		in.agent = AgentCopilot
-	}
-	for _, f := range []struct {
-		dst *string
-		key string
-	}{
-		{&in.SessionID, "sessionId"}, {&in.ToolName, "toolName"},
-		{&in.CWD, "workingDirectory"}, {&in.TranscriptPath, "transcriptPath"},
-	} {
-		if *f.dst == "" {
-			*f.dst = in.Nested(f.key)
-		}
 	}
 	in.Invalid = in.normalizeTool()
 	return in
 }
 
 var errNotObject = errors.New("payload is not a JSON object")
+
+// readStrings fills the string fields from their keys, falling back to Copilot's name when the key is empty.
+func (in *Input) readStrings() {
+	for _, f := range []struct {
+		dst      *string
+		key, alt string
+	}{
+		{&in.SessionID, "session_id", "sessionId"}, {&in.CWD, "cwd", "workingDirectory"},
+		{&in.TranscriptPath, "transcript_path", "transcriptPath"}, {&in.ToolName, "tool_name", "toolName"},
+		{&in.HookEventName, "hook_event_name", ""}, {&in.Prompt, "prompt", ""}, {&in.AgentID, "agent_id", ""},
+		{&in.PermissionMode, "permission_mode", ""}, {&in.Source, "source", ""},
+		{&in.AgentTranscriptPath, "agent_transcript_path", ""}, {&in.Trigger, "trigger", ""},
+	} {
+		if *f.dst = in.Nested(f.key); *f.dst == "" && f.alt != "" {
+			*f.dst = in.Nested(f.alt)
+		}
+	}
+}
 
 // normalizeTool maps the host's tool arguments onto tool_input; non-empty is why present arguments are misshapen.
 func (in *Input) normalizeTool() string {
@@ -201,10 +198,8 @@ func (in *Input) normalizeAgy() string {
 		return "toolCall." + bad
 	}
 	args, _ := call["args"].(map[string]any)
-	input := maps.Clone(args)
-	if input == nil {
-		input = map[string]any{}
-	}
+	input := map[string]any{}
+	maps.Copy(input, args)
 	if cmd, _ := args["CommandLine"].(string); cmd != "" {
 		input["command"] = cmd
 	}

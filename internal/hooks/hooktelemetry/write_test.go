@@ -139,7 +139,8 @@ func TestFastPassesFoldIntoOneCounterRowPerMinute(t *testing.T) {
 }
 
 func TestFoldSumsCacheCountersPerName(t *testing.T) {
-	st := foldState{Minute: "m"}.add(Row{Event: "Stop", Module: "a", Outcome: OutcomeOK})
+	st := foldState{Minute: "m"}
+	st.add(Row{Event: "Stop", Module: "a", Outcome: OutcomeOK})
 	st = st.addCache([]paths.CacheStat{{Name: "x", Hits: 1, Misses: 2}}).addCache([]paths.CacheStat{{Name: "x", Hits: 3, Evictions: 4}, {Name: "w", Refreshes: 1}})
 	lines := st.flushLines()
 	if len(lines) != 1 || !strings.Contains(string(lines[0]), `"cache":"w=0/0/1/0 x=4/2/0/4"`) {

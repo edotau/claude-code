@@ -131,18 +131,17 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 		return
 	}
 	defer func() { _ = day.f.Close() }()
-	var fold foldState
-	folded := false
+	var fold *foldState
 	cache := paths.CacheSummary()
 	for _, r := range rows {
 		if time.Now().After(deadline) {
 			break
 		}
 		if foldable(r) {
-			if !folded {
-				folded, fold = true, rollFold(day, file, now)
+			if fold == nil {
+				fold = new(rollFold(day, file, now))
 			}
-			fold = fold.add(r)
+			fold.add(r)
 			continue
 		}
 		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome,
@@ -154,7 +153,7 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 			break
 		}
 	}
-	if folded {
+	if fold != nil {
 		saveFold(file, fold.addCache(paths.CacheStats()))
 	}
 	pruneTelemetry(dir, now)
@@ -164,10 +163,7 @@ func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 func pruneTelemetry(dir string, now time.Time) {
 	marker := filepath.Join(dir, "telemetry-"+now.Format(telemetryDateLayout)+".pruned")
 	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	if err := f.Close(); err != nil {
+	if err != nil || f.Close() != nil {
 		return
 	}
 	entries, err := filepath.Glob(filepath.Join(dir, "telemetry-*"))
