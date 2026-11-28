@@ -655,3 +655,15 @@ func rowsRoundTrip(d Doc) bool {
 	back := ParseDoc(d.Name, d.Render()).Entries
 	return slices.EqualFunc(back, d.Entries, func(a, b DocEntry) bool { return slices.Equal(a.Lines, b.Lines) })
 }
+
+func TestDropInvalidOpsKeepsValidOnes(t *testing.T) {
+	docs := map[string]Doc{"conventions.md": ParseDoc("conventions.md", []byte("# Conv\n\n- a <!-- id:1a1b2c3d -->\n"))}
+	ops := []Op{{Op: "add", Target: "conventions", Text: "x one"}, {Op: "update", ID: "1a1b2c3d", Title: "t"}, {Op: "add", Target: "conventions", Text: "y two"}}
+	b, warn := dropInvalidOps(docs, Batch{Ops: ops}, testEnv().now)
+	if len(b.Ops) != 2 || b.Ops[0].Text != "x one" || b.Ops[1].Text != "y two" || !strings.Contains(warn, "op 1 (update): a bullet needs text") {
+		t.Errorf("kept %+v, warn %q; want the two adds and a warning naming op 1", b.Ops, warn)
+	}
+	if all, w := dropInvalidOps(docs, Batch{Ops: ops[1:2]}, testEnv().now); len(all.Ops) != 1 || w != "" {
+		t.Errorf("all invalid: kept %+v warn %q, want the batch back so it fails", all.Ops, w)
+	}
+}

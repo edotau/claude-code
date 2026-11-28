@@ -793,11 +793,17 @@ func decodeBatch(answer string) (Batch, error) {
 	return b, b.validate()
 }
 
-// applyTyped applies b with the refs the model was shown; failed ops are reported and nothing is written.
+// applyTyped applies b's valid ops with the refs the model was shown; invalid ones are warned about and dropped.
 func applyTyped(o updateOptions, b Batch, base Versions) error {
 	if err := refuseDerivedSupersede(b); err != nil {
 		fmt.Fprintln(o.out, "memory update:", err)
 		return err
+	}
+	if docs, _, err := NewBankStore(false).Load(); err == nil {
+		var warn string
+		if b, warn = dropInvalidOps(docs, b, time.Now()); warn != "" {
+			fmt.Fprintln(os.Stderr, "memory update: warning:", warn)
+		}
 	}
 	results, err := NewBankStore(false).Apply(b, base, time.Now())
 	for i, res := range results {
@@ -806,6 +812,26 @@ func applyTyped(o updateOptions, b Batch, base Versions) error {
 		}
 	}
 	return withFailedOps(err, results)
+}
+
+// dropInvalidOps drops each op that fails on its own (ops are independent); keeps b if all fail, so the caller reports.
+func dropInvalidOps(docs map[string]Doc, b Batch, now time.Time) (Batch, string) {
+	ops := readAsLoaded(docs, slices.Clone(b.Ops))
+	results := runBatchOps(maps.Clone(docs), Batch{Ops: ops}, now)
+	var kept []Op
+	var why []string
+	for i, r := range results {
+		if r.Outcome != DreamFailed {
+			kept = append(kept, b.Ops[i])
+		} else if len(why) < 3 {
+			why = append(why, fmt.Sprintf("op %d (%s): %s", i, b.Ops[i].Op, r.Reason))
+		}
+	}
+	if len(kept) == len(b.Ops) || len(kept) == 0 {
+		return b, ""
+	}
+	return Batch{Ops: kept}, fmt.Sprintf("dropped %d of %d invalid ops, wrote the rest: %s",
+		len(b.Ops)-len(kept), len(b.Ops), strings.Join(why, "; "))
 }
 
 // withFailedOps appends each failed op's reason to err, so a fallback sees why the batch failed.
