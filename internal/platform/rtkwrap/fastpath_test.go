@@ -1,11 +1,14 @@
 package rtkwrap
 
 import (
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -62,17 +65,57 @@ func TestFastPathQuotedAndCommit(t *testing.T) {
 	}
 }
 
-// TestRTKFastPathMatchesRTK holds every decided FastPath answer to the installed rtk's own rewrite.
+var update = flag.Bool("update", false, "re-record testdata/rtk-rewrite.json from the installed rtk")
+
+// rtkAnswers is the recorded `rtk rewrite` output per command ("" = left as typed), from testdata/rtk-rewrite.json.
+const rtkAnswers = "testdata/rtk-rewrite.json"
+
+// harnessRTKConfig is the config the harness renders; the recording and the fast path both read this copy.
+const harnessRTKConfig = "[hooks]\nexclude_commands = [\"go vet\", \"go test -v\", \"go test -list\"]\n\n" +
+	"[telemetry]\nenabled = false\n"
+
+// rtkHome is a throwaway home holding the harness's rtk config, so neither the fast path nor rtk reads the machine's.
+func rtkHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(paths.RTKBinaryEnv, "") // no stand-in: the fast path answers for the real rtk
+	cfg := paths.RTKConfig()
+	if cfg == "" {
+		t.Skip("rtk keeps no config on this system")
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte(harnessRTKConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// recordedRTK reads rtkAnswers.
+func recordedRTK(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile(rtkAnswers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := map[string]string{}
+	if err := json.Unmarshal(raw, &recorded); err != nil {
+		t.Fatal(err)
+	}
+	return recorded
+}
+
+// TestRTKFastPathMatchesRTK holds every decided FastPath answer to rtk's own recorded rewrite; -update re-records.
 func TestRTKFastPathMatchesRTK(t *testing.T) {
-	bin := paths.RTKBinary()
-	if bin == "" {
-		t.Skip("rtk is not installed")
-	}
-	t.Setenv(paths.RTKBinaryEnv, "") // bin is the rtk the fast path stands in for
+	home := rtkHome(t)
 	cases := buildFastPathCases()
-	if len(cases) < 40 {
-		t.Fatalf("only %d cases", len(cases))
+	if *update {
+		recordRTK(t, home, cases)
 	}
+	recorded := recordedRTK(t)
 	decided := 0
 	for _, cmd := range cases {
 		got, ok := FastPath(cmd)
@@ -80,7 +123,10 @@ func TestRTKFastPathMatchesRTK(t *testing.T) {
 			continue
 		}
 		decided++
-		want := realRewrite(t, bin, cmd)
+		want, known := recorded[cmd]
+		if !known {
+			t.Fatalf("no recorded rtk answer for %q: go test -run '^TestRTKFastPathMatchesRTK$' ./internal/platform/rtkwrap/ -update", cmd)
+		}
 		if vetoedByHarness(cmd) {
 			want = "" // the harness never wraps a commit, whatever rtk says
 		}
@@ -93,16 +139,36 @@ func TestRTKFastPathMatchesRTK(t *testing.T) {
 	}
 }
 
+// recordRTK asks the installed rtk, with home's config, for every case and writes rtkAnswers.
+func recordRTK(t *testing.T, home string, cases []string) {
+	t.Helper()
+	bin := paths.RTKBinary()
+	if bin == "" {
+		t.Fatal("-update needs rtk installed")
+	}
+	recorded := make(map[string]string, len(cases))
+	for _, cmd := range cases {
+		recorded[cmd] = realRewrite(t, bin, home, cmd)
+	}
+	raw, err := json.MarshalIndent(recorded, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rtkAnswers, append(raw, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func vetoedByHarness(cmd string) bool {
 	f := strings.Fields(cmd)
 	return len(f) > 1 && f[0] == "git" && f[1] == "commit"
 }
 
 // realRewrite is rtk rewrite's changed output for cmd, "" when it leaves cmd as typed.
-func realRewrite(t *testing.T, bin, cmd string) string {
+func realRewrite(t *testing.T, bin, home, cmd string) string {
 	t.Helper()
 	c := exec.Command(bin, "rewrite", "--", cmd)
-	c.Env = append(os.Environ(), paths.RTKQuietEnv+"=1", paths.RTKTelemetryEnv+"=1")
+	c.Env = append(os.Environ(), "HOME="+home, paths.RTKQuietEnv+"=1", paths.RTKTelemetryEnv+"=1")
 	out, err := c.Output()
 	var ee *exec.ExitError
 	if err != nil && (!errors.As(err, &ee) || ee.ExitCode() != 3) {
