@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/platform/parallel"
 	"github.com/edotau/claude-code/internal/routing/agentid"
@@ -95,8 +96,12 @@ func jevOnce[T any](kind, brief string, ask func() T) T {
 
 type jevClassification struct {
 	ctx        context.Context
-	agentReady chan struct{} // closed once Open-Jev has answered (agent is set)
-	done       chan struct{} // closed after the optional helper too (shadow is set)
+	text       string
+	tierErr    error
+	tierAsked  chan struct{} // closed once Open-Jev has answered the tier question
+	tierReady  chan struct{} // closed once any helper opinion is in too (shadow is set)
+	agentReady chan struct{} // closed once the agent answer is in (agent is set)
+	agentOnce  sync.Once     // the agent question is asked only when someone wants it
 	shadow     JevShadow
 	agent      jev.Result
 }
@@ -104,32 +109,61 @@ type jevClassification struct {
 // jevShared starts or joins the one request for brief; the first asker's context bounds it.
 func jevShared(ctx context.Context, brief string) *jevClassification {
 	return jevOnce("classify", brief, func() *jevClassification {
-		c := &jevClassification{ctx: ctx, agentReady: make(chan struct{}), done: make(chan struct{})}
+		c := newJevClassification(ctx)
 		go c.run(brief)
 		return c
 	})
 }
 
+// helperNeeds is the least time the local helper model takes on a real brief (1.7 s and up, measured).
+const helperNeeds = 1500 * time.Millisecond
+
+func newJevClassification(ctx context.Context) *jevClassification {
+	return &jevClassification{ctx: ctx, tierAsked: make(chan struct{}), tierReady: make(chan struct{}),
+		agentReady: make(chan struct{})}
+}
+
+// run asks the tier alone: with the agent in the same request no answer came back inside a second.
 func (c *jevClassification) run(brief string) {
-	defer close(c.done)
-	text := jevBrief(brief)
-	res, a, err := jev.Classify(c.ctx, text)
+	defer close(c.tierReady)
+	c.text = jevBrief(brief)
+	res, err := jev.Tier(c.ctx, c.text)
 	c.shadow = JevShadow{Pick: res.Pick, Confidence: res.Confidence, Ms: res.Ms, Keyword: tierName(brief), Error: jev.Class(err)}
-	if err == nil {
-		c.agent = a
+	c.tierErr = err
+	close(c.tierAsked)
+	if err != nil || res.Confidence >= jev.Confident {
+		return
 	}
-	close(c.agentReady) // the agent answer never waits on the optional helper
-	if c.shadow.Error == "" && res.Confidence < jev.Confident {
-		if row := providers.LastResort(loadRegistryWarn()); row != nil {
-			c.shadow.Helper, _ = jev.Helper(c.ctx, row.BaseURL, row.Models["haiku"], text)
-		}
+	if d, ok := c.ctx.Deadline(); ok && time.Until(d) < helperNeeds {
+		return // the local model cannot answer inside this caller's budget, so the keywords decide now
 	}
+	if row := providers.LastResort(loadRegistryWarn()); row != nil {
+		c.shadow.Helper, _ = jev.Helper(c.ctx, row.BaseURL, row.Models["haiku"], c.text)
+	}
+}
+
+// wantAgent asks the agent question once, after the tier's: a dispatch hook that only needs the tier never pays for it.
+func (c *jevClassification) wantAgent() {
+	c.agentOnce.Do(func() {
+		go func() {
+			defer close(c.agentReady)
+			<-c.tierAsked
+			if c.tierErr != nil {
+				return
+			}
+			if a, err := jev.Agent(c.ctx, c.text); err == nil {
+				c.agent = a
+			}
+		}()
+	})
 }
 
 // askJevClassify runs one unshared classification to completion.
 func askJevClassify(ctx context.Context, brief string) (JevShadow, jev.Result) {
-	c := &jevClassification{ctx: ctx, agentReady: make(chan struct{}), done: make(chan struct{})}
+	c := newJevClassification(ctx)
+	c.wantAgent()
 	c.run(brief)
+	<-c.agentReady
 	return c.shadow, c.agent
 }
 
@@ -149,26 +183,32 @@ func (c *jevClassification) wait(ctx context.Context, ch chan struct{}) bool {
 	return false
 }
 
-// jevClassify shares one request per brief; each waiter can leave on its own deadline.
+// jevClassify shares one classification per brief and waits for both answers; each waiter can leave on its deadline.
 func jevClassify(ctx context.Context, brief string) (JevShadow, jev.Result) {
 	brief = WithoutReviewLoop(brief)
 	c := jevShared(ctx, brief)
-	if c.wait(ctx, c.done) {
+	c.wantAgent()
+	if c.wait(ctx, c.tierReady) && c.wait(ctx, c.agentReady) {
 		return c.shadow, c.agent
 	}
 	return JevShadow{Keyword: tierName(brief), Error: jev.ClassTimeout}, jev.Result{}
 }
 
-// jevTierAnswer is the shared tier answer and any low-confidence helper opinion.
+// jevTierAnswer is the shared tier answer and any low-confidence helper opinion, without waiting for the agent.
 func jevTierAnswer(ctx context.Context, brief string) JevShadow {
-	j, _ := jevClassify(ctx, brief)
-	return j
+	brief = WithoutReviewLoop(brief)
+	c := jevShared(ctx, brief)
+	if c.wait(ctx, c.tierReady) {
+		return c.shadow
+	}
+	return JevShadow{Keyword: tierName(brief), Error: jev.ClassTimeout}
 }
 
-// jevAgentAnswer returns as soon as Open-Jev answers, without waiting for the optional helper.
+// jevAgentAnswer is the shared agent answer, which follows the tier's.
 func jevAgentAnswer(ctx context.Context, brief string) jev.Result {
 	brief = WithoutReviewLoop(brief)
 	c := jevShared(ctx, brief)
+	c.wantAgent()
 	if c.wait(ctx, c.agentReady) {
 		return c.agent
 	}

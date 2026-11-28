@@ -263,11 +263,12 @@ func checkPhase11HelperGuard(t *testing.T, class string) {
 
 const phase11DeepCodex = `{"answers":{"tier":{"choice":"deep","probabilities":{"deep":1}},"agent":{"choice":"codex","probabilities":{"codex":1}}}}`
 
-func phase11Combined(r *http.Request) bool {
+// phase11Single reports a request that asks one question: the tier and the agent travel separately.
+func phase11Single(r *http.Request) bool {
 	var in struct {
 		Questions map[string]json.RawMessage `json:"questions"`
 	}
-	return json.NewDecoder(r.Body).Decode(&in) == nil && len(in.Questions) == 2
+	return json.NewDecoder(r.Body).Decode(&in) == nil && len(in.Questions) == 1
 }
 
 func TestPhase11SharedClassification(t *testing.T) {
@@ -276,8 +277,8 @@ func TestPhase11SharedClassification(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		if !phase11Combined(r) {
-			t.Error("classification did not combine questions")
+		if !phase11Single(r) {
+			t.Error("a request asked more than one question")
 		}
 		_, _ = io.WriteString(w, phase11DeepCodex)
 	}))
@@ -290,7 +291,7 @@ func TestPhase11SharedClassification(t *testing.T) {
 	checkPhase11Shared(t, brief)
 	v, _ := jevPending.Load(id)
 	j := <-v.(*jevCall).done
-	if j.Agent != "codex" || j.Final != "deep" || hits.Load() != 1 {
+	if j.Agent != "codex" || j.Final != "deep" || hits.Load() != 2 { // one tier and one agent request, shared by all three askers
 		t.Fatalf("shadow=%+v hits=%d", j, hits.Load())
 	}
 }
