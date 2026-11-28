@@ -70,13 +70,18 @@ Verbs, flags and enforcement: `references/detectors.md`.
 
 ## Review a diff
 
-The built-in `/code-review` quality reviewer loads this skill.
+The built-in `/code-review` quality reviewer loads this skill. Act as a fresh-eyed **Goldfish** reviewer: read only the
+diff, the spec, the explicit `GoldfishContext` baseline files, and the prior-round `Settled` list (never the author's
+implementation report).
 
 1. Establish diff scope: `rtk git diff "$(git merge-base HEAD main)"...HEAD --stat`.
-2. Mechanical gate: `rules/standards/quality.md` → Verification Order.
+2. Mechanical static gate: `claude-code agents diff --check --gates lint,complexity` (`quality.md` → Verification
+   Order; package/repo test suites run once at the final landing step after the review loop completes).
 3. Run detectors on changed files unless the brief already carries their output.
-4. Apply lenses to diff/files, not session history. Checklist: `rules/standards/quality.md` → Code Quality Checklist;
-   severity: `references/completion-criteria.md`; verdict below.
+4. Apply lenses to diff/files, not session history. Do not re-open items in the brief's `Settled` list unless new edits
+   invalidated their cited `file:line` proof. Checklist: `rules/standards/quality.md` → Code Quality Checklist;
+   severity: `references/completion-criteria.md`; resolution buckets (`FIX`, `CONTEST`, `ESCALATE`, `SETTLED`),
+   `not run` reviewer accounting, and Churn stop: `rules/standards/quality.md` → Completion.
 
 ## Verdicts
 

@@ -18,6 +18,9 @@
     "allow": [
       "Bash",
       "Bash(claude-code *)",
+      "Bash(claude-code agents diff --check --gates *)",
+      "Bash(claude-code worktree collapse *)",
+      "Bash(claude-code worktree land *)",
       "Bash(git grep:*)",
       "Bash(go *)",
       "Bash(gofmt -l *)",
@@ -29,6 +32,10 @@
       "Write"
     ],
     "deny": [
+      "Bash(git checkout --:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git stash:*)",
       "Bash(rm -rf /)",
       "Bash(rm -rf ~)",
       "Bash(sudo:*)",

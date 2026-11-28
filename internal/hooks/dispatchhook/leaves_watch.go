@@ -154,9 +154,37 @@ func watchTickLocked(key string, owner int, now time.Time, mode string, g *tickG
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
 	}
 	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
-		res.Context = core.JoinNonEmpty("\n", res.Context, hb)
+		if sig := runningState(rep.Running, rep.Stale, hb); runningChanged(key, sig, g) {
+			res.Context = core.JoinNonEmpty("\n", res.Context, hb)
+		} else {
+			res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, hb)
+		}
+	} else {
+		_ = os.Remove(filepath.Join(agent.WatchDir(), key+".running"))
 	}
 	return res
+}
+
+func runningState(running []agent.Record, stale []agent.StaleJob, hb string) string {
+	var ids []string
+	for _, r := range running {
+		if !slices.ContainsFunc(stale, func(s agent.StaleJob) bool { return s.ID == r.ID }) {
+			ids = append(ids, r.ID)
+		}
+	}
+	slices.Sort(ids)
+	return strings.Join(ids, ",") + fmt.Sprintf("|warn=%t\n", strings.Contains(hb, "⚠"))
+}
+
+func runningChanged(key, sig string, g *tickGate) bool {
+	p := filepath.Join(agent.WatchDir(), key+".running")
+	if prev, err := os.ReadFile(p); err == nil && string(prev) == sig {
+		return false
+	}
+	if g.live() {
+		_ = writeWatch(p, []byte(sig), os.O_TRUNC)
+	}
+	return true
 }
 
 // runningDetail is a named job's progress (agent, elapsed, last event, tools); a job past the shown ones stays short.

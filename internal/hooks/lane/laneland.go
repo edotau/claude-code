@@ -170,6 +170,9 @@ var laneTipTime = func(lane string) int64 {
 // liveQueued is this repo's queued lanes minus those whose branch tip moved after the entry was written.
 func liveQueued(main string) []worktree.QueuedLane {
 	queued := worktree.Queued(main)
+	if len(queued) == 0 {
+		return nil
+	}
 	drop := make([]bool, len(queued))
 	var wg sync.WaitGroup
 	for i, q := range queued {
@@ -193,18 +196,21 @@ func laneQueueKey(q worktree.QueuedLane) string {
 	return textutil.SHA256Hex(fmt.Appendf(nil, "%s|%s|%s|%s", q.Lane, q.Branch, q.Reason, q.Detail))[:16]
 }
 
-// freshQueueLines is every lane's key, the lines of lanes not in prev (capped) and how many were not in prev.
-func freshQueueLines(lanes []worktree.QueuedLane, prev []string) (keys, lines []string, fresh int) {
+// freshQueueLines returns every lane's key, the lines not in seen (capped), the merged seen set and fresh count.
+func freshQueueLines(lanes []worktree.QueuedLane, seen []string) (keys, lines, merged []string, fresh int) {
+	merged = slices.Clone(seen)
 	for _, q := range lanes {
-		keys = append(keys, laneQueueKey(q))
-		if slices.Contains(prev, keys[len(keys)-1]) {
+		k := laneQueueKey(q)
+		keys = append(keys, k)
+		if slices.Contains(seen, k) {
 			continue
 		}
+		merged = append(merged, k)
 		if fresh++; fresh <= laneQueueMax {
 			lines = append(lines, assets.HookLaneQueueLine(filepath.Base(q.Lane), q.Branch, q.Reason, q.Detail, q.Next))
 		}
 	}
-	return keys, lines, fresh
+	return keys, lines, merged, fresh
 }
 
 // laneQueueContext shows a queued lane's line once per session, then one count line when the queue changes.
@@ -218,18 +224,20 @@ func laneQueueContext(cwd, session string) string {
 	}
 	lanes := liveQueued(paths.Canon(main))
 	seenFile := filepath.Join(paths.StateDir(), "lane-queue-seen", worktree.SessionSlug(session))
-	var prev []string
+	var prev, seen []string
 	if session != "" {
 		raw, _ := os.ReadFile(seenFile)
-		prev = strings.Fields(string(raw))
+		cur, hist, _ := strings.Cut(string(raw), "\n---\n")
+		prev, seen = strings.Fields(cur), strings.Fields(cur+" "+hist)
 	}
-	keys, lines, fresh := freshQueueLines(lanes, prev)
+	keys, lines, merged, fresh := freshQueueLines(lanes, seen)
 	if session != "" {
 		if slices.Equal(keys, prev) {
 			return ""
 		}
 		_ = os.MkdirAll(filepath.Dir(seenFile), 0o700)
-		_ = paths.AtomicWriteNoSync(seenFile, []byte(strings.Join(keys, "\n")+"\n"), 0o600)
+		body := strings.Join(keys, "\n") + "\n---\n" + strings.Join(merged, "\n") + "\n"
+		_ = paths.AtomicWriteNoSync(seenFile, []byte(body), 0o600)
 		if fresh == 0 && len(lanes) > 0 {
 			lines = append(lines, fmt.Sprintf("land queue: %d lanes waiting; claude-code worktree list shows each", len(lanes)))
 		}

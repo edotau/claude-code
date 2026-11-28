@@ -286,13 +286,26 @@ func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, 
 	if len(edits) > 0 {
 		res = claimResult(ctx, in, cmd, edits)
 	}
-	if !git {
+	if !git || (len(edits) == 0 && !laneText(cmd) && !noticesPending(in.SessionID)) {
 		return res
 	}
 	notes, warn := noticeContext(ctx, in, newRun(ctx, in))
 	res.Context = core.JoinContext(notes, res.Context)
 	res.Stderr = strings.TrimSpace(warn + "\n" + res.Stderr)
 	return res
+}
+
+// noticesPending reports whether a read-only git command has any notice, failure, or divergence check due.
+func noticesPending(session string) bool {
+	if ents, err := os.ReadDir(filepath.Join(paths.StateDir(), "notices")); err == nil && len(ents) > 0 {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(worktree.FailuresDir(), "failures.jsonl")); err == nil {
+		return true
+	}
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", worktree.SessionSlug(session))
+	st, err := os.Stat(stamp)
+	return err != nil || time.Since(st.ModTime()) >= busyScanTTL
 }
 
 // laneVerdict, in lanes mode, notes a change to the live checkout or, once per session, another repo's main checkout.

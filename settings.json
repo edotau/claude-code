@@ -7,6 +7,40 @@
     "ENABLE_PROMPT_CACHING_1H": "1",
     "ENABLE_TOOL_SEARCH": "1"
   },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Bash(claude-code *)",
+      "Bash(claude-code agents diff --check --gates *)",
+      "Bash(claude-code worktree collapse *)",
+      "Bash(claude-code worktree land *)",
+      "Bash(git grep:*)",
+      "Bash(go *)",
+      "Bash(gofmt -l *)",
+      "Bash(make *)",
+      "Bash(rtk *)",
+      "Edit",
+      "Read",
+      "WebFetch(*)",
+      "Write"
+    ],
+    "deny": [
+      "Bash(git checkout --:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git stash:*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(sudo:*)",
+      "Edit(~/.ssh/**)"
+    ],
+    "ask": [
+      "Edit(**/.credentials.json)",
+      "Edit(~/.claude/state/vault.db)",
+      "Read(~/.ssh/id_*)"
+    ],
+    "defaultMode": "auto"
+  },
   "hooks": {
     "PreToolUse": [
       {

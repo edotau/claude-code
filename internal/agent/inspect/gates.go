@@ -144,7 +144,11 @@ func gateDefs() []gateDef {
 	return []gateDef{
 		stepDef("gofmt", false),
 		{"build", false, func(ctx context.Context, in gateInput) (string, string, error) {
-			out, err := gateRun(ctx, in.root, "go", "build", "-buildvcs=false", "./...")
+			pkgs := []string{"./..."}
+			if !in.whole && len(in.pkgs) > 0 {
+				pkgs = in.pkgs
+			}
+			out, err := gateRun(ctx, in.root, "go", append([]string{"build", "-buildvcs=false"}, pkgs...)...)
 			return out, "", err
 		}, parseGoOutput("build")},
 		stepDef("vet", true),

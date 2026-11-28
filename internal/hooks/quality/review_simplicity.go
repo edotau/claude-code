@@ -52,7 +52,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 	if p, ok := paths.RelWithin(in.CWD, path); ok {
 		rel = p
 	}
-	return core.Result{Context: renderFindings(assets.HookSimplicityHeader(len(found), rel), found)}
+	return core.Result{Context: renderFindings(in.SessionID, path, assets.HookSimplicityHeader(len(found), rel), found)}
 }
 
 // editBefore reverses an Edit on its post-edit content; false for a deletion or an ambiguous occurrence.
@@ -151,7 +151,7 @@ func markdownFeedback(in *core.Input, path string) core.Result {
 	if len(kept) == 0 {
 		return core.Result{}
 	}
-	return core.Result{Context: renderFindings(markdownHeader+rel+":", kept)}
+	return core.Result{Context: renderFindings(in.SessionID, path, markdownHeader+rel+":", kept)}
 }
 
 // editedLines is the 1-based lines newStr changed from oldStr; none when newStr is empty or occurs more than once.
@@ -188,8 +188,8 @@ func editedLines(text, oldStr, newStr string) map[int]bool {
 
 const markdownHeader = "markdown lint (fix these now; format-stop fixes spacing and markers at Stop): "
 
-// renderFindings is header plus up to simplicityMaxLines findings within simplicityMaxChars.
-func renderFindings(header string, found []string) string {
+// renderFindings is header plus up to simplicityMaxLines findings within simplicityMaxChars, once per session.
+func renderFindings(sessionID, path, header string, found []string) string {
 	n := len(found)
 	var b strings.Builder
 	b.WriteString(header)
@@ -201,5 +201,11 @@ func renderFindings(header string, found []string) string {
 		}
 		b.WriteString(line)
 	}
-	return b.String()
+	out := b.String()
+	if sessionID != "" {
+		if added, err := core.SeenAdd("quality/simplicity-seen", sessionID, path+"\x00"+out); err == nil && !added {
+			return ""
+		}
+	}
+	return out
 }

@@ -305,15 +305,22 @@ func modelContext(reps []pathReport) string {
 
 // pathResolverResult is the native form: user-visible feedback plus model-visible context, empty when no path hits.
 func pathResolverResult(in *core.Input, res *paths.Resolver) core.Result {
-	return reportResult(collectReports(in.Prompt, res))
+	return reportResult(in.SessionID, collectReports(in.Prompt, res))
 }
 
 // reportResult is the hook result for reps: nothing when no path resolved.
-func reportResult(reps []pathReport) core.Result {
+func reportResult(sessionID string, reps []pathReport) core.Result {
 	if len(reps) == 0 {
 		return core.Result{}
 	}
-	return core.Result{Context: modelContext(reps), SystemMessage: feedbackMessage(reps)}
+	fresh := reps
+	if len(sessionID) >= 16 {
+		fresh = slices.DeleteFunc(slices.Clone(reps), func(r pathReport) bool {
+			first, err := core.SeenAdd("docs/paths-seen", sessionID, r.win+"\x00"+r.path+"\x00"+r.detail+"\x00"+r.err)
+			return err == nil && !first
+		})
+	}
+	return core.Result{Context: modelContext(fresh), SystemMessage: feedbackMessage(reps)}
 }
 
 // defaultResolver reads the host's mount table (macOS runs `mount`); swapped in tests.
@@ -335,7 +342,7 @@ func ResolvePaths(in *core.Input) core.Result {
 	if len(win) > 0 || slices.ContainsFunc(posix, func(t pathToken) bool { return strings.HasPrefix(t.trimmed, "//") }) {
 		res = defaultResolver()
 	}
-	return reportResult(collectScanned(in.Prompt, win, posix, res)) // the scans above are pure: reuse, not rescan
+	return reportResult(in.SessionID, collectScanned(in.Prompt, win, posix, res)) // the scans above are pure: reuse, not rescan
 }
 
 // foreignHead opens a non-POSIX path token: drive letter, UNC, scheme URL, ~ / ~user, or host:/path.

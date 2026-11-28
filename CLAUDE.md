@@ -61,8 +61,12 @@ Claude Code reads these source files directly; external CLI projections refresh 
    agents are the types `codex`, `copilot`, `gemini`, `opencode` (each relays its baked `agents ask --overlay` line)
    and `coworker` (the pi runner in code mode, rtk off), else run carried (see `skills/subagent-workflows/SKILL.md` →
    Carried dispatch); description starts `<model>:` followed by a space (`web-fetch` takes none),
-   printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
-   files;
+   printed by `claude-code agents label <type>`. **Route by subtree scale (Recursive Partitioning):**
+   - **Direct Root Execution (`<= 5` files/dirs, 1 package `TRIVIAL`/`LOW`):** execute directly in the current thread
+     without subagent spawn/relay overhead (`rules/harness/workflow-tree.md`).
+   - **Parallel Subagent Swarm (`> 5` files/dirs or multi-package `MEDIUM+`):** identify leaf components vs.
+     intermediate architectural groupings, partition at adaptive depth `1..3` into independent worker subtrees with
+     named owned files (`Owns:`), and propagate `{interface, invariants, side_effects}` contracts bottom-up;
    begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one
    message; the only limits are overlapping files and dependency order. **Keep fanning out:** each time a leaf
    finishes or a file frees up, dispatch every task that is now unblocked, and repeat until none remain. Leaves

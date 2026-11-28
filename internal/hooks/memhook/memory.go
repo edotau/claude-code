@@ -20,6 +20,9 @@ import (
 
 // Start injects the memory bank (auto-scaffolding it for safe roots) as additionalContext.
 func Start(in *core.Input) core.Result {
+	if in != nil && in.SubagentID() != "" {
+		return core.Result{}
+	}
 	hctx, cancel := core.HookContext("memory-start")
 	defer cancel()
 	cwd := cwdOf(in)

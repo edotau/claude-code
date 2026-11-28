@@ -57,49 +57,92 @@ func Collapse(ctx context.Context, repo *Repo, req CollapseRequest) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(req.Out, "collector %s: %d lanes picked (%s), %d dropped; next: claude-code worktree land --verify %s %s\n",
-		req.Collector, len(picked), strings.Join(picked, " "), len(dropped), "'go build ./... && go vet ./... && go test ./...'", req.Collector)
+	fmt.Fprintf(req.Out, "collector %s: %d lanes picked (%s), %d dropped; next: simplify + review loop, then claude-code worktree land %s\n",
+		req.Collector, len(picked), strings.Join(picked, " "), len(dropped), req.Collector)
 	if len(dropped) > 0 {
 		return fmt.Errorf("%w: dropped %d of %d lanes: %s", ErrCollapseStopped, len(dropped), len(lanes), strings.Join(dropped, "; "))
 	}
 	return nil
 }
 
-// collapsePicks picks (or previews) each lane in order, dropping one whose pick fails; a failed rollback stops all.
-func collapsePicks(ctx context.Context, repo *Repo, dir string, lanes []collapseLane, req CollapseRequest) (picked, dropped []string, err error) {
+// pickedLane holds one cherry-picked lane awaiting batch verification and cleanup.
+type pickedLane struct {
+	lane   collapseLane
+	before pickPoint
+	shas   []string
+	files  []string
+	drop   string
+}
+
+// collapsePicks picks (or previews) each lane in order, verifying once across the batch (or per lane if that fails).
+func collapsePicks(ctx context.Context, repo *Repo, dir string, lanes []collapseLane, req CollapseRequest) ([]string, []string, error) {
+	start := headOf(dir)
+	steps, files, err := collapseTryPicks(ctx, dir, lanes, req.DryRun, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !req.DryRun {
+		if verr := collapseVerify(ctx, dir, files); verr != nil {
+			if rerr := collapseRestore(dir, start, verr); errors.Is(rerr, errCollapseRestore) {
+				return nil, nil, fmt.Errorf("%w: %v", ErrCollapseStopped, rerr)
+			}
+			if steps, _, err = collapseTryPicks(ctx, dir, lanes, false, true); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return finishCollapsed(ctx, repo, dir, steps, req)
+}
+
+func collapseTryPicks(ctx context.Context, dir string, lanes []collapseLane, dry, verify bool) ([]pickedLane, []string, error) {
+	var steps []pickedLane
+	var allFiles []string
 	for _, l := range lanes {
 		before := pickPoint{head: headOf(l.dir)}
-		base, _ := gitCmd(ctx, "-C", dir, "merge-base", "HEAD", l.branch).Output() // collector before the pick
+		base, _ := gitCmd(ctx, "-C", dir, "merge-base", "HEAD", l.branch).Output()
 		before.base = strings.TrimSpace(string(base))
 		shas, files, err := collapsePlan(ctx, dir, l.branch)
-		if err == nil && !req.DryRun {
-			err = collapsePick(ctx, dir, shas, files)
+		if err == nil && !dry {
+			err = collapsePick(ctx, dir, shas, files, verify)
 		}
 		if errors.Is(err, errCollapseRestore) {
-			return picked, dropped, fmt.Errorf("%w at lane %s: %v", ErrCollapseStopped, l.name, err)
+			return nil, nil, fmt.Errorf("%w at lane %s: %v", ErrCollapseStopped, l.name, err)
 		}
 		if err != nil {
-			dropped = append(dropped, fmt.Sprintf("%s (%v)", l.name, err))
-			fmt.Fprintf(req.Out, "dropped %s: %v\n", l.name, err)
+			steps = append(steps, pickedLane{lane: l, drop: err.Error()})
 			continue
 		}
-		picked = append(picked, l.name)
+		steps = append(steps, pickedLane{lane: l, before: before, shas: shas, files: files})
+		allFiles = append(allFiles, files...)
+	}
+	return steps, allFiles, nil
+}
+
+func finishCollapsed(ctx context.Context, repo *Repo, dir string, steps []pickedLane, req CollapseRequest) (picked, dropped []string, err error) {
+	for _, s := range steps {
+		if s.drop != "" {
+			dropped = append(dropped, fmt.Sprintf("%s (%s)", s.lane.name, s.drop))
+			fmt.Fprintf(req.Out, "dropped %s: %s\n", s.lane.name, s.drop)
+			continue
+		}
+		picked = append(picked, s.lane.name)
 		if req.DryRun {
-			fmt.Fprintf(req.Out, "would pick %s: %d commits, %d files\n  files: %s\nwould remove %s\n", l.name, len(shas), len(files), strings.Join(files, " "), l.name)
+			fmt.Fprintf(req.Out, "would pick %s: %d commits, %d files\n  files: %s\nwould remove %s\n",
+				s.lane.name, len(s.shas), len(s.files), strings.Join(s.files, " "), s.lane.name)
 			continue
 		}
-		afterCollapsePick(l)
-		recordCollapsed(l, req.Collector, before.head)
-		before.n, before.m = len(shas), laneCommits(ctx, dir, before)
-		count := fmt.Sprintf("%d commits", before.n)
-		if before.m > before.n {
-			count = fmt.Sprintf("%d of %d commits", before.n, before.m)
+		afterCollapsePick(s.lane)
+		recordCollapsed(s.lane, req.Collector, s.before.head)
+		s.before.n, s.before.m = len(s.shas), laneCommits(ctx, dir, s.before)
+		count := fmt.Sprintf("%d commits", s.before.n)
+		if s.before.m > s.before.n {
+			count = fmt.Sprintf("%d of %d commits", s.before.n, s.before.m)
 		}
 		outcome := "kept: its batch has not landed yet"
 		if !req.Keep {
-			outcome = collapseRemove(ctx, repo, dir, l, before)
+			outcome = collapseRemove(ctx, repo, dir, s.lane, s.before)
 		}
-		fmt.Fprintf(req.Out, "collapsed %s (%s); %s\n", l.name, count, outcome)
+		fmt.Fprintf(req.Out, "collapsed %s (%s); %s\n", s.lane.name, count, outcome)
 	}
 	return picked, dropped, nil
 }
@@ -284,8 +327,8 @@ func collapsePlan(ctx context.Context, dir, branch string) (shas, files []string
 	return shas, files, nil
 }
 
-// collapsePick cherry-picks shas into dir, then builds and vets; any failure leaves dir at its previous HEAD.
-func collapsePick(ctx context.Context, dir string, shas, files []string) error {
+// collapsePick cherry-picks shas into dir, and when verify is true builds and vets; any failure restores before.
+func collapsePick(ctx context.Context, dir string, shas, files []string, verify bool) error {
 	if len(shas) == 0 {
 		return nil
 	}
@@ -298,8 +341,10 @@ func collapsePick(ctx context.Context, dir string, shas, files []string) error {
 		}
 		return collapseRestore(dir, before, err)
 	}
-	if err := collapseVerify(ctx, dir, files); err != nil {
-		return collapseRestore(dir, before, err)
+	if verify {
+		if err := collapseVerify(ctx, dir, files); err != nil {
+			return collapseRestore(dir, before, err)
+		}
 	}
 	return nil
 }
@@ -322,7 +367,7 @@ func collapseRestore(dir, before string, cause error) error {
 	return cause
 }
 
-// collapseVerify runs go build on the module and go vet on the packages files touch; no go.mod skips both.
+// collapseVerify runs go build on the module and go vet on the packages files touch; skips when no Go inputs changed.
 func collapseVerify(ctx context.Context, dir string, files []string) error {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
 		return nil
@@ -333,11 +378,13 @@ func collapseVerify(ctx context.Context, dir string, files []string) error {
 			pkgs = append(pkgs, "./"+p)
 		}
 	}
-	steps := [][]string{{"build", "./..."}}
-	if len(pkgs) > 0 {
-		steps = append(steps, append([]string{"vet"}, pkgs...))
+	if len(pkgs) == 0 && !slices.Contains(files, "go.mod") {
+		return nil
 	}
-	for _, args := range steps {
+	for _, args := range [][]string{{"build", "./..."}, append([]string{"vet"}, pkgs...)} {
+		if len(args) == 1 {
+			continue
+		}
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = dir
 		if out, err := cmd.CombinedOutput(); err != nil {

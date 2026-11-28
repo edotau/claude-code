@@ -181,30 +181,45 @@ func capRecallPreview(s string, limit int) string {
 
 // recallContext renders the prompt recall and returns only the hits whose line survived the char cap.
 func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
+	return recallContextFor(picks, expand, false)
+}
+
+func recallContextFor(picks []recallPick, expand, warm bool) (string, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil
 	}
+	bodies, _, capLimit, _ := recallBudget(warm)
 	header := assets.MemoryRecallHeader(expand)
 	var b strings.Builder
 	b.WriteString(header)
 	lines := make([]string, len(picks))
 	for i, p := range picks {
-		if i < recallBodies {
+		if i < bodies {
 			lines[i] = "\n" + recallBodyLine(p.entry)
 		} else {
 			lines[i] = "\n" + recallPointerLine(p.entry)
 		}
 		b.WriteString(lines[i])
 	}
-	out := capChars(b.String(), recallTotalCapChars)
+	out := capChars(b.String(), capLimit)
 	var hits []SearchHit
 	for i, p := range picks {
 		if !strings.Contains(out, lines[i]) {
 			break
 		}
+		if p.hit.ID == "" {
+			p.hit.ID = p.entry.id
+		}
 		hits = append(hits, p.hit)
 	}
 	return out, hits
+}
+
+func recallBudget(warm bool) (bodies, pointers, capChars int, floor float64) {
+	if warm {
+		return 1, 2, recallTotalCapChars / 2, 0.6
+	}
+	return recallBodies, recallPointers, recallTotalCapChars, recallScoreFloor
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
@@ -215,7 +230,7 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.degraded.Error(), 120, "…"))
 	}
 	expand := !trace.seen[expandKey]
-	context, hits := recallContext(picks, expand)
+	context, hits := recallContextFor(picks, expand, trace.seen["turn:3"])
 	if context == "" {
 		return ""
 	}
@@ -524,9 +539,10 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
 	passed := len(pool) > 0
+	bodies, pointers, _, floor := recallBudget(seen["turn:3"])
 	var survivors []recallPick
 	for _, c := range pool {
-		if c.score < pool[0].score*recallScoreFloor {
+		if c.score < pool[0].score*floor {
 			if trace != nil {
 				trace.outcome(c.hit.key(), "below floor")
 			}
@@ -540,15 +556,22 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	orderRecall(survivors)
 	var out []recallPick
 	for _, c := range survivors {
-		if key := c.hit.key(); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
-			trace.outcome(key, "seen")
+		if isSeenPick(seen, c.hit.key(), c.entry.id, len(out) >= bodies) {
+			trace.outcome(c.hit.key(), "seen")
 			continue
 		}
-		if len(out) < recallBodies+recallPointers {
+		if len(out) < bodies+pointers {
 			out = append(out, c)
 		}
 	}
 	return out, passed
+}
+
+func isSeenPick(seen map[string]bool, key, id string, pointerSlot bool) bool {
+	if seen[key] || (id != "" && seen["id:"+id]) {
+		return true
+	}
+	return pointerSlot && (seen["p:"+key] || (id != "" && seen["pid:"+id]))
 }
 
 func boostFactor(weights map[string]float64, id string) float64 {
@@ -716,12 +739,24 @@ func seenBlocks(sessionID string) map[string]bool {
 	return out
 }
 
+// HasSeenID reports whether sessionID has already seen memory entry id in this session.
+func HasSeenID(sessionID, id string) bool {
+	if id == "" {
+		return false
+	}
+	seen := seenBlocks(sessionID)
+	return seen["id:"+id] || seen["pid:"+id]
+}
+
 // markSeen appends the injected hits to sessionID's seen set; fail-open.
 func markSeen(sessionID string, hits []SearchHit, expanded bool) {
 	p := seenPath(sessionID)
 	if p == "" || len(hits) == 0 {
 		return
 	}
+	raw, _ := os.ReadFile(p)
+	turns := bytes.Count(raw, []byte("turn:"))
+	bodies, _, _, _ := recallBudget(turns >= 3)
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
 	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -729,12 +764,16 @@ func markSeen(sessionID string, hits []SearchHit, expanded bool) {
 	}
 	defer f.Close()
 	for i, h := range hits {
-		key := h.key()
-		if i >= recallBodies { // pointers ride after the bodies; "p:" keeps them promotable to a body later
-			key = "p:" + key
+		key, idKey := h.key(), "id:"+h.ID
+		if i >= bodies { // pointers ride after the bodies; "p:" keeps them promotable to a body later
+			key, idKey = "p:"+key, "pid:"+h.ID
 		}
 		_, _ = f.WriteString(key + "\n")
+		if h.ID != "" {
+			_, _ = f.WriteString(idKey + "\n")
+		}
 	}
+	_, _ = fmt.Fprintf(f, "turn:%d\n", turns+1)
 	if expanded {
 		_, _ = f.WriteString(expandKey + "\n")
 	}

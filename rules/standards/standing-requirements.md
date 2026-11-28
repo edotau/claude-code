@@ -37,8 +37,9 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
   redaction and `secrets-out`/`secrets-end`.
 - **R15 Plan tests:** default to basic feature tests (seconds); defer long tests to dream. Enforced in templates and
   dream Phase 5c.
-- **R16 Test time:** reduce runtime without parallel tests or changed assertions. Leaves run only written/repaired
-  tests by exact function; packages run once at sign-off, full suite once (at most twice) at landing. Aim <20s/pkg solo.
+- **R16 Test time:** reduce runtime without parallel tests or changed assertions. Leaves run only `--gates
+  lint,complexity` (compile and syntax checks, no test of any shape); package/suite tests run once at the final
+  landing step after the review loop finishes. Aim <20s/pkg solo.
 - **R17 Security reviews:** secrets/guard/SSH/sync/exfiltration reviews go to Gemini first. GPT briefs ask about
   robustness and data loss, not attacks, to avoid vendor-filter refusals.
 - **R18 Plan first:** multi-part work starts with a dated `docs/templates/plan.md` plan before lanes or dispatch.
@@ -65,10 +66,11 @@ naming the enforcer; remove prose only when enforcement makes it redundant.
   standing token-spending loops; `review bench --loop` needs owner approval per change's packages.
 - **R27 Hook policy:** automated work on hooks, guards and permissions changes cost only, never allow/block policy.
   Seek what more can safely be allowed; tightening needs the owner's explicit request.
-- **R28 Review loop:** collect finished lanes without lane reviews; run one other-family review of the merged diff and
-  fix all findings without asking until none remain (stop after 3 rounds with a new HIGH in one area). Merge only with
-  no CRITICAL/HIGH; never park findings. With no other family ready, the reviewer is R6's same-family pick.
-  Enforced in `agents ask` briefs; `quality.md` → Completion.
+- **R28 Review loop:** collect finished lanes without lane reviews; run one other-family Goldfish review of the merged
+  diff (no author self-report attached; `not run` reviewers never count as clean) before the final test gate. Classify
+  findings into `FIX`, `CONTEST` (requires `file:line` or doc citation; tracked in `Settled`), or `ESCALATE`; stop on
+  Churn (a fix's scope triggers an opposite finding) or 3 rounds with a new HIGH in one area. Merge only with no
+  CRITICAL/HIGH; never park findings. Enforced in `agents ask` briefs; `quality.md` → Completion.
 - **R29 Broken tests:** main checks whether implementation meets the task, fixes minor test drift directly, and sends
   real defects to the author/repair leaf (exact test name, then main reruns touched packages). Never delete or skip
   tests; `quality.md` → Completion.

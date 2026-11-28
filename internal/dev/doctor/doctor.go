@@ -35,10 +35,10 @@ var doctorChecks = func(ctx context.Context) ([]check, bool) {
 var proxyCheck = proxyStatus
 
 type doctorOpts struct {
-	format                                                                 *string
-	auditMode, scan, gitScan, refresh, all, fix, prompts, list, mcp, proxy bool
-	days, since                                                            int
-	rev, agent                                                             string
+	format                                                                        *string
+	auditMode, scan, gitScan, refresh, all, fix, prompts, list, hooks, mcp, proxy bool
+	days, since                                                                   int
+	rev, agent                                                                    string
 }
 
 var doctorPage = helptext.Page{
@@ -67,6 +67,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.BoolVar(&o.fix, "fix", false, "with --secrets: mask idle transcript files in place")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.list, "list", false, "with --prompts: list every embedded prompt text")
+	fs.BoolVar(&o.hooks, "hooks", false, "audit hook telemetry, context token bytes and optimization suggestions")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
 	fs.StringVar(&o.agent, "agent", "", "one agent's binary, login, route and projection rows: "+strings.Join(agent.RosterNames(), "|"))
 	fs.BoolVar(&o.proxy, "proxy", false, "run only the proxy check; exit 1 when it fails")
@@ -96,7 +97,7 @@ func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
 		name, mode string
 		on         bool
 	}{
-		{"days", "--audit or --secrets", o.auditMode || o.all}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
+		{"days", "--audit, --hooks or --secrets", o.auditMode || o.all || o.hooks}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
 		{"fix", "--secrets", o.all}, {"list", "--prompts", o.prompts},
 	} {
 		if helptext.Explicit(fs, f.name) && !f.on {
@@ -113,7 +114,7 @@ func conflictingModes(o *doctorOpts) (string, bool) {
 		on   bool
 		name string
 	}{
-		{o.agent != "", "--agent"}, {o.prompts, "--prompts"}, {o.mcp, "--mcp"}, {o.proxy, "--proxy"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
+		{o.agent != "", "--agent"}, {o.prompts, "--prompts"}, {o.hooks, "--hooks"}, {o.mcp, "--mcp"}, {o.proxy, "--proxy"}, {o.auditMode, "--audit"}, {o.refresh, "--refresh"},
 		{o.scan || o.gitScan || o.all, "--scan/--git/--secrets"},
 	} {
 		if m.on {
@@ -132,31 +133,36 @@ func runDoctor(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: %s", msg)
 		return 2
 	}
-	if o.agent != "" {
-		return runAgent(ctx, o)
-	}
-	if o.prompts {
-		return runPrompts(o)
-	}
-	if o.mcp {
-		return doctorMCP(os.Stdout, mcpOptions(*o.format == helptext.JSON))
-	}
-	if o.proxy {
-		detail, bad := proxyCheck(ctx)
-		rows := append([]check{{Name: "proxy", OK: !bad, Detail: detail}}, proxyListenerChecks(ctx)...)
-		return printChecks(o, rows, !bad)
-	}
-	if o.scan || o.gitScan || o.all {
-		return runDoctorAudits(o, targets)
-	}
-	if o.auditMode {
-		return audit.Report(o.days, *o.format)
+	if code, ok := runDoctorSubmode(ctx, o, targets); ok {
+		return code
 	}
 	if o.refresh {
 		refreshServed(ctx)
 	}
 	checks, ok := doctorChecks(ctx)
 	return printChecks(o, checks, ok)
+}
+
+func runDoctorSubmode(ctx context.Context, o *doctorOpts, targets []string) (int, bool) {
+	switch {
+	case o.agent != "":
+		return runAgent(ctx, o), true
+	case o.prompts:
+		return runPrompts(o), true
+	case o.hooks:
+		return runHooks(o), true
+	case o.mcp:
+		return doctorMCP(os.Stdout, mcpOptions(*o.format == helptext.JSON)), true
+	case o.proxy:
+		detail, bad := proxyCheck(ctx)
+		rows := append([]check{{Name: "proxy", OK: !bad, Detail: detail}}, proxyListenerChecks(ctx)...)
+		return printChecks(o, rows, !bad), true
+	case o.scan || o.gitScan || o.all:
+		return runDoctorAudits(o, targets), true
+	case o.auditMode:
+		return audit.Report(o.days, *o.format), true
+	}
+	return 0, false
 }
 
 // printChecks renders checks as JSON or text and returns the exit code: 1 when !ok.
@@ -259,7 +265,7 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("mcp"), helptext.BoolFlag("proxy"), helptext.ValuedFlag("agent", agent.RosterNames), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("list"), helptext.BoolFlag("hooks"), helptext.BoolFlag("mcp"), helptext.BoolFlag("proxy"), helptext.ValuedFlag("agent", agent.RosterNames), helptext.CompletionFormatFlag()}}
 }
 
 // runAgent is `doctor --agent <name>`: that agent's rows; exit 1 when a hard row (binary, login) fails.

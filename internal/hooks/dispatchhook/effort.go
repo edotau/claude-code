@@ -234,7 +234,7 @@ type effortPlan struct {
 
 // recall appends the memory-recall block to the prompt, or returns it as a note; the mod's query skips it (it stamps).
 func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
-	if e.mode == modeQuery {
+	if e.mode == modeQuery || isGoldfishTask(task) {
 		return ""
 	}
 	suffix, note := briefRecall(ctx, in.SessionID, task, asNote)
@@ -243,6 +243,18 @@ func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, ta
 		e.changed = true
 	}
 	return note
+}
+
+// isGoldfishTask reports whether a brief's header requests Goldfish cold-read isolation (Mode: review or Goldfish).
+func isGoldfishTask(task string) bool {
+	for l := range strings.SplitSeq(briefHeader(task), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), ":")
+		k, v = strings.ToLower(strings.TrimSpace(k)), strings.ToLower(strings.TrimSpace(v))
+		if ok && (k == "mode" && v == "review" || k == "goldfish" && v == "true" || k == "goldfishcontext") {
+			return true
+		}
+	}
+	return false
 }
 
 type recallKey struct{}
@@ -259,6 +271,9 @@ func prefetchRecall(ctx context.Context, in *core.Input) context.Context {
 		return ctx
 	}
 	_, task := spawnTask(in)
+	if isGoldfishTask(task) {
+		return ctx
+	}
 	p := &recallPrefetch{task: task, done: make(chan struct{})}
 	go func() {
 		defer close(p.done)
@@ -310,6 +325,9 @@ func freshPointers(session, block string) string {
 	for l := range strings.SplitSeq(block, "\n") {
 		if ptr, ok := strings.CutPrefix(l, "- "); ok {
 			key, _, _ := strings.Cut(ptr, " ")
+			if memory.HasSeenID(session, key) {
+				continue
+			}
 			if first, _ := core.SeenAdd("memory/dispatch-recall-seen", session, key); !first {
 				continue
 			}

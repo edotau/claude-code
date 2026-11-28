@@ -30,14 +30,24 @@ var suiteRuns = []string{
 	"mvn test", "mvn clean test", "mvn test -DskipTests=false", "./mvnw test", "gradle test", "./gradlew test", "./gradlew clean test",
 	"claude-code worktree gate --run", "claude-code worktree gate --run --scope=''",
 	"claude-code worktree gate --run --scope=' , '", "claude-code worktree gate -run", "claude-code worktree gate --run=TRUE", "claude-code worktree land --full-verify",
+	"claude-code agents diff --check --all",
+}
+
+// agentSuiteRuns are tree-wide Go build/vet and test-running diff checks denied only to subagents.
+var agentSuiteRuns = []string{
+	"go build ./...", "go vet ./...", "rtk go build ./...", "claude-code agents diff --check",
+	"claude-code agents diff --check --path internal/x", "claude-code agents diff --check --gates lint,test --path internal/x",
 }
 
 // narrowRuns never match: narrowed or non-test runs, and runner words that are only text (point 3 of the plan).
 var narrowRuns = []string{
 	"go test -run '^TestX$' ./internal/pkg", "go test -run '^TestX$' ./...", "go test -run=TestX ./...",
 	"go test -bench . ./...", "go test -list . ./...", "go test -fuzz FuzzX ./internal/pkg", "go test -c ./...",
-	"go test ./... -args -test.run=TestX", "go test ./internal/pkg", "go test", "go vet ./...", "go build ./...",
+	"go test ./... -args -test.run=TestX", "go test ./internal/pkg", "go test",
 	"go test -coverpkg ./... ./internal/x", "go test -n ./...", "go test -run . ./...", "go test ./... -run", "go test $(printf ./internal/x)",
+	"go build ./internal/pkg", "go vet ./internal/pkg", "go build -n ./...",
+	"claude-code agents diff --check --gates lint,complexity --path internal/x",
+	"claude-code agents diff --check --all --path internal/x --gates lint,complexity",
 	"pytest tests/test_x.py::test_y", "pytest -k name", "pytest -kname src", "pytest tests/test_x.py",
 	"python -m pytest -k foo src", "pytest --collect-only", "pytest README.md",
 	"pytest 'tests/test_x.py[param]'", "python -X",
@@ -100,17 +110,7 @@ func TestSuiteVerdict(t *testing.T) {
 	}{{"main session, main checkout", mainDir, "", false}, {"main session, linked worktree", linked, "", true},
 		{"subagent, main checkout", mainDir, "a1", true}, {"subagent, linked worktree", linked, "a1", true}}
 	for _, c := range callers {
-		for _, cmd := range suiteRuns {
-			r := suiteVerdict(suitePayload(cmd, c.cwd, c.agent))
-			if c.denied != (r.Decision == core.Block) || c.denied && !strings.Contains(r.Reason, "main session") {
-				t.Errorf("%s: %q: got %v %q, want denied=%v", c.name, cmd, r.Decision, r.Reason, c.denied)
-			}
-		}
-		for _, cmd := range narrowRuns {
-			if r := suiteVerdict(suitePayload(cmd, c.cwd, c.agent)); r.Decision != core.Allow {
-				t.Errorf("%s: %q: got %v %q, want allow", c.name, cmd, r.Decision, r.Reason)
-			}
-		}
+		checkSuiteCaller(t, c.name, c.cwd, c.agent, c.denied)
 	}
 	suiteMainSessionMoves(t, mainDir, linked)
 	if r := suiteVerdict(suitePayload("go test ./...", mainDir, "")); r.Reason != "" {
@@ -120,6 +120,27 @@ func TestSuiteVerdict(t *testing.T) {
 	r := Scan(suitePayload("go test ./...", mainDir, ""))
 	if r.Decision != core.Block || !strings.Contains(r.Reason, goForm) || strings.Count(r.Reason, "\n") > 1 {
 		t.Errorf("Scan, dispatched agent: got %v %q, want a two-line block naming %q", r.Decision, r.Reason, goForm)
+	}
+}
+
+func checkSuiteCaller(t *testing.T, name, cwd, agent string, denied bool) {
+	t.Helper()
+	for _, cmd := range suiteRuns {
+		r := suiteVerdict(suitePayload(cmd, cwd, agent))
+		if denied != (r.Decision == core.Block) || denied && !strings.Contains(r.Reason, "main session") {
+			t.Errorf("%s: %q: got %v %q, want denied=%v", name, cmd, r.Decision, r.Reason, denied)
+		}
+	}
+	for _, cmd := range narrowRuns {
+		if r := suiteVerdict(suitePayload(cmd, cwd, agent)); r.Decision != core.Allow {
+			t.Errorf("%s: %q: got %v %q, want allow", name, cmd, r.Decision, r.Reason)
+		}
+	}
+	for _, cmd := range agentSuiteRuns {
+		r := suiteVerdict(suitePayload(cmd, cwd, agent))
+		if (agent != "") != (r.Decision == core.Block) {
+			t.Errorf("%s: %q: got %v %q, want agent-denied=%v", name, cmd, r.Decision, r.Reason, agent != "")
+		}
 	}
 }
 

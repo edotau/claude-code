@@ -1,9 +1,16 @@
 package permission
 
-import "github.com/edotau/claude-code/internal/platform/shell"
+import (
+	"strings"
+
+	"github.com/edotau/claude-code/internal/platform/shell"
+)
 
 // hasWrite is a raw-segment property: a file redirect, or an unquoted `<` (heredoc, here-string, process substitution).
 func hasWrite(seg string) bool {
+	if !strings.ContainsAny(seg, "<>") {
+		return false
+	}
 	if shell.FileRedirect(seg) {
 		return true
 	}

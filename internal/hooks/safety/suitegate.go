@@ -25,7 +25,7 @@ const (
 )
 
 // suiteWords are the cheap pre-check: a command holding none of them names no test runner the table knows.
-var suiteWords = []string{"test", "jest", "tox", "audit", "verify", "-run"}
+var suiteWords = []string{"test", "jest", "tox", "audit", "verify", "-run", "build", "vet", "diff"}
 
 // suiteRule is one runner: whether its arguments are a whole-suite run, and the narrowed form to suggest.
 type suiteRule struct {
@@ -34,11 +34,13 @@ type suiteRule struct {
 }
 
 const (
-	goForm   = "go test -run '^TestName$' ./internal/<pkg>"
-	pyForm   = "pytest path/test_x.py::test_name"
-	jsForm   = "npx vitest run src/x.test.ts -t name"
-	mvnForm  = "mvn test -Dtest=ClassTest#method"
-	gradForm = "gradle test --tests 'ClassTest.method'"
+	goForm      = "go test -run '^TestName$' ./internal/<pkg>"
+	goBuildForm = "go build ./internal/<pkg> && go vet ./internal/<pkg>"
+	diffForm    = "claude-code agents diff --check --gates lint,complexity --path <files>"
+	pyForm      = "pytest path/test_x.py::test_name"
+	jsForm      = "npx vitest run src/x.test.ts -t name"
+	mvnForm     = "mvn test -Dtest=ClassTest#method"
+	gradForm    = "gradle test --tests 'ClassTest.method'"
 )
 
 // suiteRules is the one typed table, keyed by command basename.
@@ -130,7 +132,7 @@ func suiteText(cmd, cwd string, agent, lost bool, nest int) string {
 			if form != "" {
 				return
 			}
-			if f, at := suiteStart(start, dir); f != "" && (agent || !lost && linkedWorktree(at)) {
+			if f, at := suiteStart(start, dir, agent); f != "" && (agent || !lost && linkedWorktree(at)) {
 				form = f
 			} else if inner, ok := shell.NestedCommand(start); ok && nest > 0 && inner != judged {
 				judged = inner // a wrapped start and its unwrapped twin name one inner command
@@ -165,24 +167,29 @@ func linkedWorktree(dir string) bool {
 }
 
 // suiteStart is the allowed form when start is a whole-suite run, past NAME=value prefixes, and the dir it runs in.
-func suiteStart(start []string, dir string) (form, at string) {
+func suiteStart(start []string, dir string, agent bool) (form, at string) {
 	for len(start) > 0 && isEnvAssign(start[0]) {
 		start = start[1:]
 	}
 	if len(start) == 0 {
 		return "", dir
 	}
-	if ok, gateDir := harnessSuite(shell.HarnessArgs(start)); ok {
-		return "claude-code worktree gate --run --scope <dirs you changed>, or worktree land without --full-verify",
-			movedDir(dir, gateDir)
+	if f, gateDir := harnessSuite(shell.HarnessArgs(start), agent); f != "" {
+		return f, movedDir(dir, gateDir)
 	}
-	name := filepath.Base(start[0])
+	return runnerSuite(filepath.Base(start[0]), start[1:], dir, agent)
+}
+
+func runnerSuite(name string, args []string, dir string, agent bool) (string, string) {
+	if agent && name == "go" && goAgentBuildVet(args) {
+		return goBuildForm, dir
+	}
 	rule, ok := suiteRules[name]
-	if !ok || !rule.suite(start[1:]) {
+	if !ok || !rule.suite(args) {
 		return "", dir
 	}
 	if name == "make" {
-		dir = makeDir(start[1:], dir)
+		dir = makeDir(args, dir)
 	}
 	return rule.form, dir
 }
@@ -224,26 +231,59 @@ func makeDir(args []string, dir string) string {
 	return dir
 }
 
-// harnessSuite is `worktree gate --run` without a --scope, or `worktree land --full-verify`, and the gate's --dir.
-func harnessSuite(args []string) (bool, string) {
-	if len(args) < 2 || args[0] != "worktree" {
-		return false, ""
+// harnessSuite checks worktree gate/land and agents diff --check whole-suite forms, returning form and --dir.
+func harnessSuite(args []string, agent bool) (string, string) {
+	rest, ok := harnessRest(args)
+	if !ok {
+		return "", ""
+	}
+	const wtForm = "claude-code worktree gate --run --scope <dirs you changed>, or worktree land without --full-verify"
+	switch args[0] + " " + args[1] {
+	case "worktree gate":
+		if boolFlag(rest, "run") && strings.Trim(flagValue(rest, "scope"), " ,") == "" {
+			return wtForm, flagValue(rest, "dir")
+		}
+	case "worktree land":
+		if boolFlag(rest, "full-verify") {
+			return wtForm, flagValue(rest, "dir")
+		}
+	case "agents diff":
+		if diffSuite(rest, agent) {
+			return diffForm, flagValue(rest, "dir")
+		}
+	}
+	return "", ""
+}
+
+func harnessRest(args []string) ([]string, bool) {
+	if len(args) < 2 {
+		return nil, false
 	}
 	rest := args[2:]
 	if i := slices.Index(rest, "--"); i >= 0 {
 		rest = rest[:i]
 	}
-	if boolFlag(rest, "help") || boolFlag(rest, "h") {
-		return false, ""
+	return rest, !boolFlag(rest, "help") && !boolFlag(rest, "h")
+}
+
+// diffSuite matches `agents diff --check --all` without `--path`, or an agent `diff --check` that runs package tests.
+func diffSuite(rest []string, agent bool) bool {
+	if !boolFlag(rest, "check") {
+		return false
 	}
-	switch args[1] {
-	case "gate":
-		scope := strings.Trim(flagValue(rest, "scope"), " ,")
-		return boolFlag(rest, "run") && scope == "", flagValue(rest, "dir")
-	case "land":
-		return boolFlag(rest, "full-verify"), flagValue(rest, "dir")
+	if boolFlag(rest, "all") && strings.Trim(flagValue(rest, "path"), " ,") == "" {
+		return true
 	}
-	return false, ""
+	gates := strings.Trim(flagValue(rest, "gates"), " ,")
+	return agent && (gates == "" || gates == "all" || slices.Contains(strings.Split(gates, ","), "test"))
+}
+
+// goAgentBuildVet matches `go build ./...` or `go vet ./...` on a package tree when run by a subagent.
+func goAgentBuildVet(args []string) bool {
+	if len(args) == 0 || args[0] != "build" && args[0] != "vet" || slices.Contains(args[1:], "-n") {
+		return false
+	}
+	return slices.ContainsFunc(args[1:], func(a string) bool { return !strings.HasPrefix(a, "-") && goTreeArg(a) })
 }
 
 // boolFlag is the last setting of a Go bool flag (`-name`, `--name`, `--name=<bool>`); a bad value counts false.

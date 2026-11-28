@@ -13,7 +13,10 @@ maxTurns: 250
 ## Role
 
 Implements, simplifies and reviews one scoped task on Sonnet unless the call names a model. This file defines a
-terminal leaf; the main session owns orchestration. Dispatch and brief fields: `skills/subagent-workflows/SKILL.md`.
+terminal leaf; the main session owns orchestration and routes work by subtree scale (**Direct Root Execution** for `<= 5`
+files/dirs in one package vs. **Parallel Subagent Swarm** with **Recursive Partitioning** into leaf components and
+intermediate architectural groupings for `> 5` files/dirs). Dispatch and brief fields:
+`skills/subagent-workflows/SKILL.md`.
 
 ### The one rule that defines a leaf: you are terminal
 

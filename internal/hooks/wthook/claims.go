@@ -92,22 +92,24 @@ func ownerChain(owner int) map[int]bool {
 
 // Claim records the written path (a Bash command's sed -i, redirect or tee targets too) and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
-	if in.SessionID == "" || (!isBash(in) && in.ToolFailed()) {
+	if in.SessionID == "" {
+		return core.Result{}
+	}
+	staged := false
+	if isBash(in) {
+		staged = gitStageCmd.MatchString(in.ToolCommand())
+		if !staged && !core.MayWrite(in.ToolCommand()) {
+			return core.Result{}
+		}
+	} else if in.ToolFailed() {
 		return core.Result{} // a failed edit changed nothing
 	}
 	edits := editPaths(in)
 	markLaneRepos(in, edits)
-	staged := isBash(in) && gitStageCmd.MatchString(in.ToolCommand())
-	if len(edits) == 0 && !staged {
-		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
-	}
-	owner := claimOwner()
-	if owner == 0 {
-		return core.Result{}
-	}
-	lines := collectClaims(in, owner, edits, staged)
-	if len(lines) > 0 {
-		appendClaims(claimsFile(owner, in.SessionID), lines)
+	if len(edits) > 0 || staged {
+		if owner := claimOwner(); owner != 0 {
+			appendClaims(claimsFile(owner, in.SessionID), collectClaims(in, owner, edits, staged))
+		}
 	}
 	return core.Result{}
 }
@@ -208,6 +210,7 @@ func addedPaths(ctx context.Context, target string, args []string) []string {
 
 // appendClaims appends lines to file under its lock; any error drops them (the ledger is advisory).
 func appendClaims(file string, lines []worktree.Claim) {
+	lines = compactClaims(file, lines)
 	if len(lines) == 0 {
 		return
 	}
@@ -219,4 +222,22 @@ func appendClaims(file string, lines []worktree.Claim) {
 		}
 	}
 	_ = paths.AppendLine(file, buf.Bytes())
+}
+
+func compactClaims(file string, lines []worktree.Claim) []worktree.Claim {
+	raw, err := os.ReadFile(file)
+	if err != nil || len(raw) == 0 {
+		return lines
+	}
+	last := map[string]int64{}
+	for l := range bytes.SplitSeq(raw, []byte("\n")) {
+		var prev claim
+		if json.Unmarshal(l, &prev) == nil && prev.Path != "" {
+			last[prev.Path+"\x00"+prev.Agent] = prev.TS
+		}
+	}
+	return slices.DeleteFunc(lines, func(c worktree.Claim) bool {
+		ts, ok := last[c.Path+"\x00"+c.Agent]
+		return ok && c.TS >= ts && c.TS-ts < 60
+	})
 }

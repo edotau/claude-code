@@ -33,11 +33,11 @@ Date: YYYY-MM-DD. Snapshot: `<sha>` (line numbers are as of that commit and drif
 
 ## Phases
 
-Every commit runs this gate:
+Every wave / collector commit runs this static gate (tests run once at the final landing step after the review loop):
 
 ```bash
 set -o pipefail
-rtk go build ./... && rtk go vet ./internal/<pkg>/...
+rtk go build ./internal/<pkg>/... && rtk go vet ./internal/<pkg>/...
 ```
 
 ### Phase 0 — Capture the baseline (no commit)
@@ -71,7 +71,7 @@ One message dispatches a whole wave; owned files are disjoint within it; a verif
 
 | Wave | Packages | Owned files | Depends on | Width bound / what widens it | Verify (command → proof) |
 | --- | --- | --- | --- | --- | --- |
-| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `rtk go build ./...` → exit 0 |
+| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `rtk go vet ./internal/<pkg>/...` → exit 0 |
 
 ## Leaf rules
 

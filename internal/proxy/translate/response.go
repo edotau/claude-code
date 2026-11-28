@@ -60,7 +60,7 @@ func toolInput(args string) json.RawMessage {
 
 // contentText reads message content as a string or an array of text parts; an absent field is "".
 func contentText(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
+	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
 	var s string

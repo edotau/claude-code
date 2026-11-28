@@ -47,7 +47,7 @@ and deleted, anything blocked, and the full report path.
   `claude-code agents result -f <id>`; no `sudo` or `git switch`; read history with `git show <rev>:<path>` or `git log`.
 {{end}}{{define "rtk"}}{{/* fields: - */}}- Shell output you read goes through rtk: `rtk git|go|grep|rg|ls|find|diff|wc …`, `rtk grep -n`, `rtk git diff`, `rtk go test`; one file
   is the Read tool, never cat/head; exact bytes: `rtk bypass <cmd>`.
-{{end}}{{define "verify-order"}}{{/* fields: - */}}- Order: format → lint → live check → only a test you wrote or repair (`go test -run '^TestX$' <pkg>`) → Skill(simplify); never `./...`; package tests run in the sign-off driver.
+{{end}}{{define "verify-order"}}{{/* fields: - */}}- Order: format → lint → live check → Skill(simplify); run no test of any shape and write none, never `./...`; the main session tests at sign-off.
 {{end}}{{define "handback"}}{{/* fields: - */}}Finish by calling the `handback` tool once, last, with `status` (DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED),
 `summary` (that final answer), `unfixed` (what you could not fix, empty if none), `tests` (executed, judged or
 unknown) and `method` (solo, or fleet if you sub-contracted): the harness builds the verdict and the `UNFIXED:` line.

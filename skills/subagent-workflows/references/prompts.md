@@ -71,21 +71,25 @@ Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 4-6)
 NEEDS_CONTEXT before editing if unclear; this task only, minimally. Return also: files changed; verification; concerns.
 ```
 
-## Researcher
+## Researcher / Explore Scout
 
 ```markdown
-Objective: answer <question> for <caller requirement>.
+Objective: answer <question> (or map subtree <dir>) for <caller requirement>.
 Context: <facts already established, links supplied>; do not re-derive. Sources: <primary sources to prefer>.
+Chunking: read files >1,500 lines in chunks cut at top-level `func`/`type` boundaries.
 Budget: <requests or minutes>; stop at it and return what you have.
 Tools: <exact tool names and auth state>. On an auth failure or denial, stop and report the tool and the redacted error
 — no unchanged retry, no other tool around it. Links: after a 404, search for the real link, never guess.
-Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 0-2). Return also: each requirement → evidence or the gap.
+Method: ~/.claude/skills/problem-solving/SKILL.md (Steps 0-2).
+Return also: bottom-up contract {"interface": ..., "invariants": ..., "side_effects": ..., "key_files": [...]}.
 ```
 
-## Spec Reviewer
+## Spec Reviewer (Goldfish — never attach the implementer report)
 
 ```markdown
-Specification: <requirements and acceptance criteria>. Implementation report: <implementer report>.
+Specification: <requirements and acceptance criteria>.
+GoldfishContext: <baseline files to read; omit author self-reports to prevent confirmation bias>.
+Settled findings: <prior-round contested/accepted items with file:line citations; do not re-open>.
 Scope: <base..head or changed files>. Find: missing or misread requirements; unrequested behavior or scope;
 unsupported completion or test claims. No style review. Return SPEC_COMPLIANT with brief evidence, or SPEC_ISSUES
 with file:line findings.
@@ -101,11 +105,12 @@ Return also: the simplify report (Applied file:line + assumption · Flagged · B
 Δ complexity per touched function); gate output before/after; DONE (applied N, flagged M) | BLOCKED (gate red first).
 ```
 
-## Code Quality Reviewer
+## Code Quality Reviewer (Goldfish — never attach the implementer or simplify report)
 
 ```markdown
 Apply ~/.claude/skills/evaluate-code/SKILL.md's Lenses and Verdicts (performance lens on any hot path).
-Objective: review <summary>. Scope: base <rev>, head <rev>, files <list>. Simplify report: <report>
+Objective: review <summary>. Scope: base <rev>, head <rev>, files <list>.
+GoldfishContext: <baseline files to read>. Settled findings: <prior-round contested/accepted items; do not re-open>.
 Only issues this change introduced (complexity is the simplify lane). Return SHIP | FIX REQUIRED | BLOCK first, then
 CRITICAL / HIGH / MEDIUM / LOW findings with file:line and a fix.
 ```

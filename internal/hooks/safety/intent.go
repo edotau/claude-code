@@ -191,6 +191,9 @@ func dropEnvAssigns(toks []string) []string {
 
 // claudeCodeData reports a claude-code segment of text: a data verb, or a worktree commit message unless keepCommit.
 func claudeCodeData(toks []string, keepCommit bool) bool {
+	if len(toks) > 2 && toks[1] == "agents" && toks[2] == "diff" {
+		return false
+	}
 	return len(toks) > 1 && dataHarnessVerbs()[toks[1]] || worktreeText(toks) || !keepCommit && inertWorktreeCommit(toks)
 }
 

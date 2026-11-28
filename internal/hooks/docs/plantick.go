@@ -87,7 +87,17 @@ func Tick(in *core.Input) core.Result {
 		return res
 	}
 	ready := plans.ReadyInput{Root: main, Slots: freeSlots(), Claims: func() map[string][]string { return readyClaims(in) }}
-	res.Context = core.JoinContext(res.Context, strings.Join(plans.Autofill(plans.AutofillInput{ReadyInput: ready, Session: in.SessionID}).Lines, "\n"))
+	lines := plans.Autofill(plans.AutofillInput{ReadyInput: ready, Session: in.SessionID}).Lines
+	if len(in.SessionID) >= 16 {
+		lines = slices.DeleteFunc(lines, func(l string) bool {
+			if !strings.HasPrefix(l, "plans: autofill held ") {
+				return false
+			}
+			first, err := core.SeenAdd("docs/plantick-held", in.SessionID, l)
+			return err == nil && !first
+		})
+	}
+	res.Context = core.JoinContext(res.Context, strings.Join(lines, "\n"))
 	return res
 }
 

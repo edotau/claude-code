@@ -34,11 +34,18 @@ A fleet leaf stays terminal; use the validation and commit rules in `../SKILL.md
 
 Main plans waves, dispatches, decides and integrates:
 
-1. Dispatch each row when its dependencies and owned files are free; refill after every hand-back.
-2. Collect completed work through `rules/harness/workflow-tree.md` → Worktrees; fan-in does not start a lane review.
-3. Fix reported defects within the owner's priority; main handles what a leaf could not fix (R25, R28).
-4. Act on routine decisions and record `DECISION:`; approval boundaries remain in `rules/standards/principles.md`.
-5. Give briefs verified context, a line cap and the matching test files; another package's test file is allowed
+1. **Scale-adaptive partitioning:** for `≤5` files/dirs, execute sequentially without swarm overhead; for `>5`
+   dirs/packages, partition at adaptive depth `1..3` into `3–5` disjoint subtrees (ask before `>15` packages).
+2. Dispatch each row when its dependencies and owned files are free; refill after every hand-back. Leaves run only
+   `--gates lint,complexity` (no test of any shape), returning bottom-up contracts
+   (`interface`, `invariants`, `side_effects`, `files_changed`).
+3. Collect completed work in one batch (`worktree collapse <collector> <lanes...>`) through
+   `rules/harness/workflow-tree.md` → Worktrees; fan-in does not start a per-lane review or package test suite.
+4. Run `Skill(simplify)` and the Goldfish review loop (`rules/standards/quality.md` → Completion: track `Settled` vs.
+   `Fixed` items across rounds, count failed reviewers as `not run`, stop on Churn) **before** running the final test
+   gate (`worktree land <collector>`).
+5. Act on routine decisions and record `DECISION:`; approval boundaries remain in `rules/standards/principles.md`.
+6. Give briefs verified context, a line cap and the matching test files; another package's test file is allowed
    when needed to avoid an import cycle. A leaf stops for production files another agent owns.
 
 ## Dispatch table

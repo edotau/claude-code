@@ -66,9 +66,13 @@ substitute an agent or manufacture a receipt. Hook gates: [hook-details.md](refe
 
 ## Workflow
 
-### Phase 0: intake and triage
+### Phase 0: intake, recursive partitioning and execution mode routing
 
-Tier in `rules/harness/workflow-tree.md` → Workflow picks the shape; a one-line edit runs inline.
+Tier in `rules/harness/workflow-tree.md` → Workflow picks the execution mode:
+
+- **Direct Root Execution (`<= 5` dirs/files in 1 pkg, `TRIVIAL`/`LOW`):** Run directly in the root thread.
+- **Parallel Subagent Swarm (`> 5` dirs/files or multi-pkg `MEDIUM+`):** Recursively partition leaf components vs.
+  intermediate architectural groupings at depth `1..3` into disjoint `Owns:` subtrees with bottom-up contracts.
 
 | Shape | Do |
 | --- | --- |
@@ -86,12 +90,14 @@ Split until files would overlap or one leaf must wait on another's result. Full 
 format: [prompts.md](references/prompts.md) → Handoff contract details.
 
 - **Brief (in):** cold-start self-contained (`Objective:`, `Agent:` before first blank line, `Task: Phase W.k`,
-  `Tier: fast|standard|deep`, `Owns:`, `Method:`, `Context:`, `Constraints:`, `Verify:`, `Acceptance:`). Put `model` in
-  `--overlay`, not `Model:`. Render with `claude-code agents brief --task F --own P…`; `agents diff --verify <id>`
-  checks `Owned:`. Overlay keys: `rules/harness/agent.md` → Overlay.
+  `Tier: fast|standard|deep`, `Owns:`, `Method:`, `Context:`, `Constraints:`, `Verify:`, `Acceptance:`). Keep Elephant
+  history in main; Goldfish leaves receive only their target files and explicit `GoldfishContext` reading list (never
+  author self-reports in review briefs). Put `model` in `--overlay`, not `Model:`. Render with `claude-code agents
+  brief --task F --own P…`; `agents diff --verify <id>` checks `Owned:`. Overlay keys: `rules/harness/agent.md`.
 - **Report (out):** ≤8-line verdict (`DONE` · `DONE_WITH_CONCERNS` · `NEEDS_CONTEXT` · `BLOCKED` or review verdict),
-  `Ran on:` receipt (`self` only for in-context), per-item outcome, gate results, decisions needed, and report path
-  `$(claude-code memory path reports YYYY-MM-DD-<name>.md)`. Scratch only under `/tmp/<job>/`, removed before hand-back.
+  `Ran on:` receipt (`self` only for in-context), bottom-up contract (`interface`, `invariants`, `side_effects`,
+  `files_changed`), gate results, decisions needed, and report path `$(claude-code memory path reports
+  YYYY-MM-DD-<name>.md)`. Scratch only under `/tmp/<job>/`, removed before hand-back.
 - **Ownership:** one writer per file; leaves stay terminal; commit authority: `rules/harness/workflow-tree.md` →
   Worktrees.
 
@@ -109,13 +115,16 @@ format: [prompts.md](references/prompts.md) → Handoff contract details.
 - **Tests:** `rules/standards/testing-guidelines.md`. Use implementer for small repairs or carried `copilot` ask with
   TEST and exact failing names; main owns the live check.
 
-### Phase 3: integrate (Fan-in and Landing) & Phase 4: finish
+### Phase 3: integrate (Fan-in, Sharpening Review Loop, and Single Final Test Gate) & Phase 4: finish
 
-- **Fan-in:** treat reports as claims — inspect diff, removed-code callers, ownership and producer/consumer seams.
-  Simplify once over the merged diff before the shared other-family review.
-- **Landing & finish:** follow `rules/harness/workflow-tree.md` → Worktrees, `skills/using-git-worktrees/SKILL.md` →
-  The lane protocol, and `rules/standards/quality.md`. Send gaps to a still-running owner; never relaunch a
-  user-stopped leaf; a budget-ended task gets a narrower new task, not a resend (R34). Plan ticks/strikes:
+- **Fan-in:** inspect diff, removed-code callers, ownership and seams. Collapse finished lanes in one batch (`worktree
+  collapse <collector> <lanes...>`) so build/vet runs once.
+- **Sharpen before testing:** run `Skill(simplify)` once on the merged diff, then run the other-family Goldfish review
+  loop (`rules/standards/quality.md` → Completion: `FIX`, `CONTEST` with `file:line` citation into `Settled`,
+  `ESCALATE`; `not run` reviewers disqualify a clean round; stop on Churn) **before** running the test suite.
+- **Landing & finish:** run the test gate **once** at the final step (`worktree land <collector>` or `agents diff
+  --check --batch`), per `rules/harness/workflow-tree.md` → Worktrees. Send gaps to a still-running owner; never
+  relaunch a user-stopped leaf; a budget-ended task gets a narrower new task, not a resend (R34). Plan ticks/strikes:
   `rules/standards/standing-requirements.md` → R1 and R2.
 
 ## Shared tree

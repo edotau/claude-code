@@ -701,7 +701,11 @@ func (r Rule) matches(tool, arg string) bool {
 	case tool == "WebFetch" && strings.HasPrefix(r.Arg, "domain:"):
 		return domainMatches(strings.TrimPrefix(r.Arg, "domain:"), arg)
 	}
-	return pathMatches(r.Arg, arg) || pathMatches(ExpandHome(tool, r.Arg), arg)
+	if pathMatches(r.Arg, arg) {
+		return true
+	}
+	exp := ExpandHome(tool, r.Arg)
+	return exp != r.Arg && pathMatches(exp, arg)
 }
 
 // shellRuleForms are the Bash rule arguments that name a shell-aware check instead of a command spelling.

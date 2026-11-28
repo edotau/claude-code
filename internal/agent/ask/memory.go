@@ -41,7 +41,7 @@ func recallQuery(prompt string) string {
 // startRecall looks up memory unless skipped and returns a join that appends the block at most once.
 func (r *askRun) startRecall(prompt string) func() string {
 	if r.jobRec != nil || r.f.retry != "" || !r.f.tools || len(prompt) < recallMinPrompt ||
-		strings.Contains(prompt, "<memory-recall>") {
+		strings.Contains(prompt, "<memory-recall>") || isGoldfishBrief(prompt) {
 		return func() string { return prompt }
 	}
 	done := make(chan string, 1)
@@ -62,6 +62,19 @@ func (r *askRun) startRecall(prompt string) func() string {
 			return prompt
 		}
 	}
+}
+
+// isGoldfishBrief reports whether a brief declares Goldfish cold-read isolation (Mode: review or GoldfishContext).
+func isGoldfishBrief(prompt string) bool {
+	head, _, _ := strings.Cut(strings.TrimLeft(prompt, " \t\r\n"), "\n\n")
+	for l := range strings.SplitSeq(head, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(l), ":")
+		k, v = strings.ToLower(strings.TrimSpace(k)), strings.ToLower(strings.TrimSpace(v))
+		if ok && (k == "mode" && v == "review" || k == "goldfish" && v == "true" || k == "goldfishcontext") {
+			return true
+		}
+	}
+	return false
 }
 
 // memoryRunOptions pins the memory job to claude's own CLI: it holds write tools, so Pi never leads.

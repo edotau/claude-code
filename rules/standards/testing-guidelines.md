@@ -30,37 +30,37 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 Here n counts lanes in a parallel wave.
 Tree selection, commits, collection, landing and cleanup: `rules/harness/workflow-tree.md` → Worktrees.
 
-Before hand-back, a subagent validates only its owned work, cheaply:
+Before hand-back, a subagent validates only its owned work, cheaply (never repo-wide `./...` or package test suites):
 
-- `rtk go build ./...`.
-- `go vet <its packages>`.
-- `claude-code agents diff --check --path <its files>`.
-- Only a test it wrote or repaired, by exact name: `rtk go test -run '^TestX$' ./internal/<pkg>`.
+- `rtk go build <its packages>` and `go vet <its packages>`.
+- `claude-code agents diff --check --gates lint,complexity --path <its files>`.
+- No test of any shape, and no test writing: the main session tests.
 
-Subagents, including test-repair leaves, never run a package suite or the full suite. `safety-scan` denies direct
-whole-suite runs to every agent and in every linked worktree. Only the main session's landing verification below
-runs the collector's suite.
+Subagents, including test-repair leaves, never run a package suite, `go build ./...`, or the full suite (`agents diff
+--check` without `--gates` runs both `go build ./...` and package tests, so leaves pass `--gates lint,complexity`).
+`safety-scan` denies direct whole-suite runs to every agent and in every linked worktree. Only the final landing step
+below runs the test gate once after the review loop finishes.
 
 Heavy runs (capacity benchmark, long soak, timing gate) run on their own machine: a podman pod, Databricks cluster
 or another host over ssh. Never run them where sessions work, in either case below.
 
 ### n = 1
 
-The collector is the only worktree, with no sibling lanes. Once its work is complete, the main session gets one
-other-family review of the completed diff (R28); the reviewer may fix findings. After fixes, the main session alone
-runs the full suite in the collector through `claude-code worktree land --verify 'go test ./...' <collector>`:
-once, at most twice if repairs need a rerun. This is the sign-off run, not an extra suite before or after landing.
-A single finished collector does not wait for another wave.
+The collector is the only worktree, with no sibling lanes. Once its work is complete, run `Skill(simplify)` and the
+other-family Goldfish review loop (`quality.md` → Completion) on the collector **before** running the test suite, so
+review fixes do not re-trigger test runs. Only at the final step does the main session run `claude-code worktree land
+<collector>` (which runs the scoped package + direct-importer test gate once in the collector and queues the single
+background post-land audit). A single finished collector does not wait for another wave.
 
 ### n > 1
 
-Each lane subagent runs only the cheap checks and exact-name test above before handing back. As each lane is
-collected, there is no per-lane review and no collector test run. Do not run package suites between arrivals.
+Each lane subagent runs only the package-scoped static checks and exact-name test above before handing back. Collapse
+all finished lanes of the wave in one batch call (`claude-code worktree collapse <collector> <lane1> <lane2> …`), which
+runs `go build ./...` and `go vet` once across the merged batch. Do not run reviews or package suites between arrivals.
 
-Only after every lane of the wave is in the collector does the main session get one other-family review of the
-merged diff (R28); the reviewer may fix findings. After fixes, the main session alone runs the n = 1 landing
-verification in the collector: one full-suite run, at most two for the entire wave, never per lane. No subagent
-runs that verification.
+Only after every lane of the wave is in the collector does the main session run `Skill(simplify)` and the other-family
+Goldfish review loop (R28) on the merged diff. Once the review loop is clean, the main session runs the final landing
+step (`claude-code worktree land <collector>`) once for the entire wave, never per lane or per review round.
 
 ## What gets a test, and what never does
 
