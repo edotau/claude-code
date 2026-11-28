@@ -1,0 +1,148 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+
+	"github.com/edotau/claude-code/internal/cli/ui/helptext"
+	"github.com/edotau/claude-code/internal/routing/router/jev"
+)
+
+// jevOpts are `gateway jev`'s flag values.
+type jevOpts struct {
+	status, train, attach, stop, options, worker bool // worker: hidden re-exec of --train --bg
+	bg, fresh                                    bool
+	labels, tasks, trainer, out                  string
+	labelsSet, tasksSet                          bool
+	format                                       *string
+	extra                                        []string
+}
+
+func jevFlags() (*flag.FlagSet, *jevOpts) {
+	fs := helptext.NewFlagSet("gateway jev", helptext.Page{
+		Usage: "claude-code gateway jev [flags] [-- trainer options]",
+		About: "Operate the Open-Jev classifier: its training job and the server's state. No flag = --status.\n" +
+			"The job's files live in <out>/job; --trainer and --out are remembered after first use.\n" +
+			"Options after -- go to the trainer and are kept across restarts of that job.",
+	})
+	o := &jevOpts{}
+	fs.BoolVar(&o.status, "status", false, "Jev server up/down, the job's state, passes, labels, options, latest log lines")
+	fs.BoolVar(&o.train, "train", false, "start a job in this terminal, or continue the unfinished one")
+	fs.BoolVar(&o.bg, "bg", false, "with --train: detached, survives a closed terminal")
+	fs.BoolVar(&o.fresh, "fresh", false, "with --train: forget the previous job and start over")
+	fs.StringVar(&o.labels, "labels", "", "with --train on a new job: the jury label directory")
+	fs.StringVar(&o.tasks, "tasks", "", "with --train on a new job: run this one pass instead of tier,agent then tier")
+	fs.BoolVar(&o.attach, "attach", false, "follow the running job's output until it ends; Ctrl-C detaches")
+	fs.BoolVar(&o.stop, "stop", false, "stop the job's worker and trainer processes; --train continues it")
+	fs.BoolVar(&o.options, "options", false, "print the trainer's own option list")
+	fs.StringVar(&o.trainer, "trainer", "", "directory holding run-finetune-jev.sh (remembered after first use)")
+	fs.StringVar(&o.out, "out", "", "output directory for checkpoints and reports (remembered after first use)")
+	o.format = helptext.FormatFlagWithUsage(fs, "output: text|json (json: --status only)")
+	return fs, o
+}
+
+// jevSplitArgs separates the flags from the trainer options after the first "--".
+func jevSplitArgs(args []string) (flags, extra []string) {
+	for i, a := range args {
+		if a == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+	return args, nil
+}
+
+// check rejects stray args and flag combinations; ok is false when code is the exit status.
+func (o *jevOpts) check(fs *flag.FlagSet) (code int, ok bool) {
+	actions := 0
+	for _, b := range []bool{o.status, o.train, o.attach, o.stop, o.options} {
+		if b {
+			actions++
+		}
+	}
+	if fs.NArg() > 0 {
+		return helptext.FailUsage("gateway jev: unexpected argument %q (trainer options go after --)", fs.Arg(0)), false
+	}
+	if msg := o.combo(actions); msg != "" {
+		return helptext.FailUsage("gateway jev: %s", msg), false
+	}
+	return 0, true
+}
+
+// combo names the first bad flag combination, else "".
+func (o *jevOpts) combo(actions int) string {
+	switch {
+	case o.worker && (actions > 0 || o.bg || o.fresh || o.labelsSet || o.tasksSet || len(o.extra) > 0):
+		return "--worker is reserved for detached launches"
+	case actions > 1:
+		return "at most one of --status, --train, --attach, --stop, --options"
+	case !o.train && (o.bg || o.fresh || o.labelsSet || o.tasksSet || len(o.extra) > 0):
+		return "--bg, --fresh, --labels, --tasks and -- options need --train"
+	case *o.format == helptext.JSON && actions > 0 && !o.status:
+		return "--format json applies to --status only"
+	}
+	return ""
+}
+
+// cmdGatewayJev is `gateway jev`: at most one action flag, no flag = --status; stray args are errors.
+func cmdGatewayJev(args []string) int {
+	flags, extra := jevSplitArgs(args)
+	fs, o := jevFlags()
+	if len(flags) > 0 && flags[0] == "--worker" { // the detached re-exec of --train --bg, not in --help
+		flags, o.worker = flags[1:], true
+	}
+	if code, done := helptext.Parse(fs, flags); done {
+		return code
+	}
+	o.extra = extra
+	fs.Visit(func(f *flag.Flag) {
+		o.labelsSet = o.labelsSet || f.Name == "labels"
+		o.tasksSet = o.tasksSet || f.Name == "tasks"
+	})
+	if code, ok := o.check(fs); !ok {
+		return code
+	}
+	j, err := jev.Resolve(o.trainer, o.out)
+	if err != nil {
+		return jevFail(err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	switch {
+	case o.worker:
+		return jevFail(j.Worker(ctx, os.Stdout))
+	case o.train:
+		return jevFail(j.Start(ctx, jev.StartOpts{Fresh: o.fresh, Background: o.bg, Labels: o.labels,
+			Tasks: o.tasks, Extra: o.extra, LabelsSet: o.labelsSet, TasksSet: o.tasksSet}, os.Stdout))
+	case o.attach:
+		return jevFail(j.Attach(ctx, os.Stdout))
+	case o.stop:
+		return jevFail(j.Stop(os.Stdout))
+	case o.options:
+		return jevFail(j.Options(ctx, os.Stdout))
+	}
+	st := j.Status(ctx)
+	if *o.format == helptext.JSON {
+		return helptext.WriteJSONOrFail("gateway jev", st)
+	}
+	st.Text(os.Stdout)
+	return 0
+}
+
+// jevFail maps err to an exit status (0 for nil): usage 2, a failed trainer its own code, else 1.
+func jevFail(err error) int {
+	if err == nil {
+		return 0
+	}
+	if _, ok := errors.AsType[*jev.UsageError](err); ok {
+		return helptext.FailUsage("gateway jev: %v", err)
+	}
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		return ee.ExitCode()
+	}
+	return helptext.Fail("gateway jev: %v", err)
+}

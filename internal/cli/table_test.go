@@ -475,7 +475,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"search", "remember", "init", "review", "feedback", "update",
 			"index", "path", "watch", "fmt", "report", "sandbox", "extract", "shadow", "store"},
-		"gateway":  {"proxy", "resolve"},
+		"gateway":  {"proxy", "resolve", "jev"},
 		"agents":   {"sync", "tree", "dashboard", "list", "ask", "label", "codemode", "diff", "fix", "find", "send", "msg", "status", "result", "cancel", "wait", "brief"},
 		"worktree": {"list", "create", "land", "clean", "clean-all", "base", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   append(vendorSubwords(), "vscode"),

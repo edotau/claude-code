@@ -40,9 +40,11 @@ func cmdGateway(args []string) int {
 			return cmdGatewayProxy(args[1:])
 		case "resolve":
 			return cmdGatewayResolve(args[1:])
+		case "jev":
+			return cmdGatewayJev(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return helptext.Fail("gateway: unknown command %q (proxy, resolve)", args[0])
+			return helptext.Fail("gateway: unknown command %q (proxy, resolve, jev)", args[0])
 		}
 	}
 	return gatewayRoute(args)
@@ -333,12 +335,14 @@ func printProxyTeams(format string) (problems int, err error) {
 // gatewayPage is bare `gateway`: the route pick and why, then the proxy status; never dispatches.
 var gatewayPage = helptext.Page{
 	Usage: "claude-code gateway [--model M] [--agent a] [--task T] [flags]\n" +
-		"claude-code gateway proxy [--start|--stop|--restart|--status|--serve]",
+		"claude-code gateway proxy [--start|--stop|--restart|--status|--serve]\n" +
+		"claude-code gateway jev [--status|--train|--attach|--stop|--options]",
 	About: "Show which agent and model a task routes to: gated on availability, the pinned\n" +
 		"profile and quota, then ordered by ladder rung, then account state, then weighted score; " +
 		"then the loopback proxy's status.",
 	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"},
-		{"resolve", "print the overlay and wire id a model string runs as"}},
+		{"resolve", "print the overlay and wire id a model string runs as"},
+		{"jev", "train and inspect the Open-Jev classifier"}},
 }
 
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
@@ -679,11 +683,13 @@ func printEnds(w io.Writer, res router.PickResult) {
 func gatewaySpec() *helptext.Node {
 	fs, _, _, _ := gatewayFlags()
 	proxy, _ := proxyFlags()
+	jevfs, _ := jevFlags()
 	return &helptext.Node{Flags: helptext.FlagsOf(fs, map[string]func() []string{
 		"model":    func() []string { return router.Aliases },
 		"agent":    func() []string { return router.TableAgents },
 		"fallback": func() []string { return route.FallbackModes },
 	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
+		"jev": {Flags: helptext.FlagsOf(jevfs, nil)},
 		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"), helptext.Plain("provider"),
 			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return route.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
